@@ -21,12 +21,33 @@ public struct ShareCaptureUseCase: Sendable {
         in vaultRoot: URL,
         mode: CaptureMode = .inbox
     ) throws -> URL {
+        // Write image data to disk first if needed
+        let resolvedItem = try writeImageAssetIfNeeded(item, vaultRoot: vaultRoot)
+
         switch mode {
         case .inbox:
-            return try appendToInbox(item, vaultRoot: vaultRoot)
+            return try appendToInbox(resolvedItem, vaultRoot: vaultRoot)
         case .newNote(let title):
-            return try createNewNote(item, title: title, vaultRoot: vaultRoot)
+            return try createNewNote(resolvedItem, title: title, vaultRoot: vaultRoot)
         }
+    }
+
+    /// Writes image data to the assets folder and returns an updated SharedItem with the correct path.
+    private func writeImageAssetIfNeeded(_ item: SharedItem, vaultRoot: URL) throws -> SharedItem {
+        guard case .image(let imageData, let caption) = item else { return item }
+
+        let assetsFolder = vaultRoot.appending(path: "assets")
+        try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let fileName = "capture-\(formatter.string(from: Date())).png"
+        let imageURL = assetsFolder.appending(path: fileName)
+
+        try imageData.write(to: imageURL, options: .atomic)
+
+        return .image(imageData, caption: caption, assetPath: "assets/\(fileName)")
     }
 
     // MARK: - Private
@@ -66,14 +87,21 @@ public struct ShareCaptureUseCase: Sendable {
     }
 
     private func createNewNote(_ item: SharedItem, title: String, vaultRoot: URL) throws -> URL {
-        let safeTitle = title.replacingOccurrences(of: "/", with: "-")
+        let safeTitle = title
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\n", with: " ")
         let fileName = safeTitle.hasSuffix(".md") ? safeTitle : "\(safeTitle).md"
         let fileURL = vaultRoot.appending(path: fileName)
         let now = ISO8601DateFormatter().string(from: Date())
 
+        // Quote title if it contains YAML special characters
+        let yamlTitle = safeTitle.contains(":") || safeTitle.contains("#") || safeTitle.contains("[")
+            ? "\"\(safeTitle.replacingOccurrences(of: "\"", with: "\\\""))\""
+            : safeTitle
+
         let content = """
         ---
-        title: \(safeTitle)
+        title: \(yamlTitle)
         tags: [capture]
         created: \(now)
         modified: \(now)
@@ -82,7 +110,10 @@ public struct ShareCaptureUseCase: Sendable {
         \(item.markdownContent)
         """
 
-        try content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        guard let data = content.data(using: .utf8) else {
+            throw FileSystemError.encodingFailed(fileURL)
+        }
+        try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
 }
@@ -93,7 +124,7 @@ public struct ShareCaptureUseCase: Sendable {
 public enum SharedItem: Sendable {
     case text(String)
     case url(URL, title: String?)
-    case image(Data, caption: String?)
+    case image(Data, caption: String?, assetPath: String? = nil)
     case mixed(text: String, url: URL?)
 
     /// Markdown-Darstellung des geteilten Inhalts.
@@ -106,12 +137,12 @@ public enum SharedItem: Sendable {
             let displayTitle = title ?? url.host() ?? url.absoluteString
             return "[\(displayTitle)](\(url.absoluteString))"
 
-        case .image(_, let caption):
-            // Bild wird als Asset gespeichert, hier nur Referenz
+        case .image(_, let caption, let assetPath):
+            let path = assetPath ?? "attachment.png"
             if let caption {
-                return "![\(caption)](attachment.png)\n\n\(caption)"
+                return "![\(caption)](\(path))\n\n\(caption)"
             }
-            return "![Captured Image](attachment.png)"
+            return "![Captured Image](\(path))"
 
         case .mixed(let text, let url):
             if let url {

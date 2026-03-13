@@ -102,6 +102,8 @@ public struct OnboardingView: View {
 
     // MARK: - Choose Folder
 
+    @State private var showFilePicker = false
+
     private var chooseFolderStep: some View {
         VStack(spacing: 0) {
             Spacer()
@@ -125,10 +127,10 @@ public struct OnboardingView: View {
 
             VStack(spacing: 12) {
                 QuartzButton(String(localized: "Choose Folder"), icon: "folder") {
-                    // Triggered by fileImporter
+                    showFilePicker = true
                 }
                 .fileImporter(
-                    isPresented: .constant(true),
+                    isPresented: $showFilePicker,
                     allowedContentTypes: [.folder],
                     allowsMultipleSelection: false
                 ) { result in

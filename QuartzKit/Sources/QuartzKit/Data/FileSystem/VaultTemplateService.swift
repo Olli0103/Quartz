@@ -24,6 +24,7 @@ public actor VaultTemplateService {
         try fileManager.createDirectory(at: dailyFolder, withIntermediateDirectories: true)
 
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let fileName = "\(formatter.string(from: Date())).md"
         let fileURL = dailyFolder.appending(path: fileName)
@@ -57,7 +58,10 @@ public actor VaultTemplateService {
 
         """
 
-        try content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        guard let data = content.data(using: .utf8) else {
+            throw FileSystemError.encodingFailed(fileURL)
+        }
+        try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
 
@@ -71,7 +75,10 @@ public actor VaultTemplateService {
         let fileURL = folder.appending(path: fileName)
 
         let content = templateType.content(title: name.replacingOccurrences(of: ".md", with: ""))
-        try content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        guard let data = content.data(using: .utf8) else {
+            throw FileSystemError.encodingFailed(fileURL)
+        }
+        try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
 
@@ -114,10 +121,12 @@ public actor VaultTemplateService {
         Use `Daily Notes` for your daily journal and `Templates` for reusable note templates.
         """
 
-        try readme.data(using: .utf8)?.write(
-            to: root.appending(path: "Welcome.md"),
-            options: .atomic
-        )
+        if let readmeData = readme.data(using: .utf8) {
+            try readmeData.write(
+                to: root.appending(path: "Welcome.md"),
+                options: .atomic
+            )
+        }
     }
 
     private func createZettelkastenStructure(in root: URL) throws {
@@ -153,10 +162,12 @@ public actor VaultTemplateService {
         Use `[[wiki-links]]` to connect your notes and build a knowledge graph.
         """
 
-        try readme.data(using: .utf8)?.write(
-            to: root.appending(path: "Welcome.md"),
-            options: .atomic
-        )
+        if let readmeData = readme.data(using: .utf8) {
+            try readmeData.write(
+                to: root.appending(path: "Welcome.md"),
+                options: .atomic
+            )
+        }
     }
 }
 

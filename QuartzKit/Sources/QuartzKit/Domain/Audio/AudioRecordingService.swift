@@ -75,6 +75,7 @@ public final class AudioRecordingService: NSObject {
     @discardableResult
     public func startRecording(vaultURL: URL) throws -> URL {
         // Audio Session konfigurieren
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
@@ -82,9 +83,11 @@ public final class AudioRecordingService: NSObject {
         } catch {
             throw RecordingError.sessionSetupFailed(error.localizedDescription)
         }
+        #endif
 
         // Dateiname generieren
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let fileName = "recording-\(formatter.string(from: Date())).m4a"
 
@@ -151,8 +154,10 @@ public final class AudioRecordingService: NSObject {
 
         state = .idle
 
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try? session.setActive(false)
+        #endif
 
         guard let url = lastRecordingURL else {
             throw RecordingError.noActiveRecording

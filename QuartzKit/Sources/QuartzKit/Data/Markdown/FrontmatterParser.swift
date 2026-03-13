@@ -72,12 +72,20 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
 
         for line in yaml.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty, let colonIndex = trimmed.firstIndex(of: ":") else {
+            guard !trimmed.isEmpty else { continue }
+
+            // Split on first ": " to preserve colons in values (e.g. URLs)
+            let key: String
+            let rawValue: String
+            if let separatorRange = trimmed.range(of: ": ") {
+                key = String(trimmed[..<separatorRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+                rawValue = String(trimmed[separatorRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            } else if let colonIndex = trimmed.firstIndex(of: ":") {
+                key = String(trimmed[..<colonIndex]).trimmingCharacters(in: .whitespaces)
+                rawValue = String(trimmed[trimmed.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
+            } else {
                 continue
             }
-
-            let key = String(trimmed[trimmed.startIndex..<colonIndex]).trimmingCharacters(in: .whitespaces)
-            let rawValue = String(trimmed[trimmed.index(after: colonIndex)...]).trimmingCharacters(in: .whitespaces)
 
             switch key {
             case "title":

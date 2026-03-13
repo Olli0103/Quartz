@@ -24,12 +24,10 @@ public struct BacklinkUseCase: Sendable {
     ) async throws -> [Backlink] {
         let noteName = noteURL.deletingPathExtension().lastPathComponent
         let tree = try await vaultProvider.loadFileTree(at: vaultRoot)
-        var backlinks: [Backlink] = []
 
-        try await scanForBacklinks(
+        let backlinks = try await scanForBacklinks(
             in: tree,
-            targetName: noteName,
-            backlinks: &backlinks
+            targetName: noteName
         )
 
         return backlinks.sorted { $0.sourceNoteName < $1.sourceNoteName }
@@ -37,9 +35,10 @@ public struct BacklinkUseCase: Sendable {
 
     private func scanForBacklinks(
         in nodes: [FileNode],
-        targetName: String,
-        backlinks: inout [Backlink]
-    ) async throws {
+        targetName: String
+    ) async throws -> [Backlink] {
+        var backlinks: [Backlink] = []
+
         for node in nodes {
             if node.isNote {
                 let note = try await vaultProvider.readNote(at: node.url)
@@ -55,9 +54,11 @@ public struct BacklinkUseCase: Sendable {
                 }
             }
             if let children = node.children {
-                try await scanForBacklinks(in: children, targetName: targetName, backlinks: &backlinks)
+                backlinks += try await scanForBacklinks(in: children, targetName: targetName)
             }
         }
+
+        return backlinks
     }
 
     /// Extrahiert den umgebenden Text um einen Link herum.

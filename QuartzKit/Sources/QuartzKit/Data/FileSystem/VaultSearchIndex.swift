@@ -123,23 +123,15 @@ public actor VaultSearchIndex {
 
     /// Extrahiert den Kontext um den ersten Treffer im Body.
     private func extractSearchContext(query: String, in body: String) -> String {
-        let bodyLower = body.lowercased()
-        guard let range = bodyLower.range(of: query) else { return "" }
+        // Use case-insensitive search directly on body to avoid string index incompatibility
+        guard let range = body.range(of: query, options: .caseInsensitive) else { return "" }
 
-        let matchStart = body.distance(from: body.startIndex, to: range.lowerBound)
-        let contextStart = max(0, matchStart - 40)
-        let contextEnd = min(body.count, matchStart + query.count + 60)
-
-        let startIndex = body.index(body.startIndex, offsetBy: contextStart)
-        let endIndex = body.index(body.startIndex, offsetBy: contextEnd)
-
-        var context = String(body[startIndex..<endIndex])
+        let lineRange = body.lineRange(for: range)
+        let context = String(body[lineRange])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
 
-        if contextStart > 0 { context = "…" + context }
-        if contextEnd < body.count { context += "…" }
-
-        return context
+        return String(context.prefix(120))
     }
 }
 

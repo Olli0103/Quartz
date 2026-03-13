@@ -29,22 +29,23 @@ public actor FileWatcher {
                 queue: .global(qos: .utility)
             )
 
+            let watchedURL = self.url
             dispatchSource.setEventHandler {
                 let event = dispatchSource.data
                 if event.contains(.delete) {
-                    continuation.yield(.deleted(self.url))
+                    continuation.yield(.deleted(watchedURL))
                     continuation.finish()
                     return
                 }
                 if event.contains(.rename) {
                     // Ordner wurde umbenannt oder verschoben – Stream beenden,
                     // damit der Aufrufer einen neuen Watcher erstellen kann.
-                    continuation.yield(.deleted(self.url))
+                    continuation.yield(.deleted(watchedURL))
                     continuation.finish()
                     return
                 }
                 if event.contains(.write) {
-                    continuation.yield(.modified(self.url))
+                    continuation.yield(.modified(watchedURL))
                 }
             }
 

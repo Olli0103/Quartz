@@ -240,10 +240,11 @@ public final class GeminiProvider: AIProvider, Sendable {
             generationConfig: GeminiGenerationConfig(temperature: temperature, maxOutputTokens: 8192)
         )
 
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent?key=\(apiKey)"
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
         var request = URLRequest(url: URL(string: urlString)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONEncoder().encode(body)
 
         let (rawData, httpResponse) = try await URLSession.shared.data(for: request)

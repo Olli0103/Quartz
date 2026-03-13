@@ -59,7 +59,8 @@ public actor DrawingStorageService {
         let drawingURL = assetsFolder.appending(path: "\(drawingID).drawing")
         let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
 
-        try? fileManager.removeItem(at: drawingURL)
+        try fileManager.removeItem(at: drawingURL)
+        // Thumbnail deletion is best-effort since the drawing file is primary
         try? fileManager.removeItem(at: thumbnailURL)
     }
 
@@ -87,6 +88,7 @@ public actor DrawingStorageService {
     /// Generiert eine neue eindeutige Drawing-ID.
     public func generateDrawingID() -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let timestamp = formatter.string(from: Date())
         let suffix = String(UUID().uuidString.prefix(4)).lowercased()

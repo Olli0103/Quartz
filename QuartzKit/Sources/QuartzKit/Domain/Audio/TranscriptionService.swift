@@ -107,13 +107,20 @@ public actor TranscriptionService {
         request.addsPunctuation = true
 
         return try await withCheckedThrowingContinuation { continuation in
+            var hasResumed = false
+
             recognizer.recognitionTask(with: request) { result, error in
+                guard !hasResumed else { return }
+
                 if let error {
+                    hasResumed = true
                     continuation.resume(throwing: TranscriptionError.recognitionFailed(error.localizedDescription))
                     return
                 }
 
                 guard let result, result.isFinal else { return }
+
+                hasResumed = true
 
                 let segments = result.bestTranscription.segments.map { segment in
                     TranscriptionSegment(
