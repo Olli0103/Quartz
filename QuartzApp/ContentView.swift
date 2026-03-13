@@ -6,6 +6,7 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var sidebarViewModel: SidebarViewModel?
     @State private var selectedNoteURL: URL?
+    @State private var editorViewModel: NoteEditorViewModel?
     @State private var showVaultPicker = false
 
     var body: some View {
@@ -40,9 +41,8 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            if let url = selectedNoteURL {
-                Text("Editor for: \(url.lastPathComponent)")
-                    .navigationTitle(url.deletingPathExtension().lastPathComponent)
+            if let viewModel = editorViewModel {
+                NoteEditorView(viewModel: viewModel)
             } else {
                 ContentUnavailableView(
                     "No Note Selected",
@@ -50,6 +50,19 @@ struct ContentView: View {
                     description: Text("Select a note from the sidebar.")
                 )
             }
+        }
+        .onChange(of: selectedNoteURL) { _, newURL in
+            guard let url = newURL else {
+                editorViewModel = nil
+                return
+            }
+            let container = ServiceContainer.shared
+            let vm = NoteEditorViewModel(
+                vaultProvider: container.resolveVaultProvider(),
+                frontmatterParser: container.resolveFrontmatterParser()
+            )
+            editorViewModel = vm
+            Task { await vm.loadNote(at: url) }
         }
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in
