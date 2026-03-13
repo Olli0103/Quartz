@@ -1,0 +1,113 @@
+import SwiftUI
+
+/// SwiftUI View für das Quick Note Panel.
+///
+/// Kompakter Editor mit Titel, Body und Speichern-Button.
+/// Unterstützt ⌘+Return zum schnellen Speichern.
+public struct QuickNoteView: View {
+    @State private var noteTitle: String = ""
+    @State private var noteBody: String = ""
+    @State private var isSaving: Bool = false
+    @State private var savedSuccessfully: Bool = false
+    @FocusState private var focusedField: Field?
+
+    let vaultRoot: URL
+    let onDismiss: () -> Void
+
+    private enum Field {
+        case title, body
+    }
+
+    public init(vaultRoot: URL, onDismiss: @escaping () -> Void) {
+        self.vaultRoot = vaultRoot
+        self.onDismiss = onDismiss
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            // Title
+            TextField("Title", text: $noteTitle)
+                .textFieldStyle(.plain)
+                .font(.title3.bold())
+                .focused($focusedField, equals: .title)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .onSubmit { focusedField = .body }
+
+            Divider()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+
+            // Body
+            TextEditor(text: $noteBody)
+                .font(.body)
+                .focused($focusedField, equals: .body)
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 12)
+
+            Divider()
+
+            // Actions
+            HStack {
+                Text("⌘↩ to save")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+
+                Button("Cancel") {
+                    onDismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Save") {
+                    save()
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .disabled(noteTitle.isEmpty || isSaving)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .frame(minWidth: 350, minHeight: 200)
+        .onAppear {
+            focusedField = .title
+        }
+        .overlay {
+            if savedSuccessfully {
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.green)
+                    Text("Saved")
+                        .font(.caption.bold())
+                }
+                .padding(24)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+    }
+
+    private func save() {
+        guard !noteTitle.isEmpty else { return }
+        isSaving = true
+
+        let useCase = ShareCaptureUseCase()
+        let item: SharedItem = .text(noteBody)
+
+        do {
+            _ = try useCase.capture(item, in: vaultRoot, mode: .newNote(title: noteTitle))
+            withAnimation {
+                savedSuccessfully = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                onDismiss()
+            }
+        } catch {
+            isSaving = false
+        }
+    }
+}
