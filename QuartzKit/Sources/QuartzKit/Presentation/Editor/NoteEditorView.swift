@@ -7,6 +7,7 @@ import SwiftUI
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     @Environment(\.appearanceManager) private var appearance
+    private let formatter = MarkdownFormatter()
 
     public init(viewModel: NoteEditorViewModel) {
         self.viewModel = viewModel
@@ -14,6 +15,17 @@ public struct NoteEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            // Formatting Toolbar
+            FormattingToolbar { action in
+                let (newText, _) = formatter.apply(
+                    action,
+                    to: viewModel.content,
+                    selectedRange: NSRange(location: viewModel.content.count, length: 0)
+                )
+                viewModel.content = newText
+            }
+            .background(.bar)
+
             // WYSIWYG Editor
             MarkdownTextViewRepresentable(
                 text: $viewModel.content,
