@@ -1,0 +1,312 @@
+import Foundation
+
+/// Erstellt Vault-Strukturen aus vordefinierten Templates.
+public actor VaultTemplateService {
+    private let fileManager = FileManager.default
+
+    public init() {}
+
+    /// Erstellt die Ordnerstruktur für ein Template im Vault.
+    public func applyTemplate(_ template: VaultTemplate, to vaultRoot: URL) throws {
+        switch template {
+        case .para:
+            try createPARAStructure(in: vaultRoot)
+        case .zettelkasten:
+            try createZettelkastenStructure(in: vaultRoot)
+        case .custom:
+            break
+        }
+    }
+
+    /// Erstellt eine Daily Note für heute.
+    public func createDailyNote(in vaultRoot: URL) throws -> URL {
+        let dailyFolder = vaultRoot.appending(path: "Daily Notes")
+        try fileManager.createDirectory(at: dailyFolder, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let fileName = "\(formatter.string(from: Date())).md"
+        let fileURL = dailyFolder.appending(path: fileName)
+
+        guard !fileManager.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
+            return fileURL
+        }
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .full
+        displayFormatter.locale = Locale.current
+
+        let content = """
+        ---
+        title: \(displayFormatter.string(from: Date()))
+        tags: [daily]
+        created: \(ISO8601DateFormatter().string(from: Date()))
+        modified: \(ISO8601DateFormatter().string(from: Date()))
+        template: daily
+        ---
+
+        ## Tasks
+
+        - [ ]
+
+        ## Notes
+
+
+        ## Journal
+
+
+        """
+
+        try content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    /// Erstellt eine Notiz aus einer Vorlage.
+    public func createFromTemplate(
+        _ templateType: NoteTemplate,
+        named name: String,
+        in folder: URL
+    ) throws -> URL {
+        let fileName = name.hasSuffix(".md") ? name : "\(name).md"
+        let fileURL = folder.appending(path: fileName)
+
+        let content = templateType.content(title: name.replacingOccurrences(of: ".md", with: ""))
+        try content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    // MARK: - Private Structure Creators
+
+    private func createPARAStructure(in root: URL) throws {
+        let folders = [
+            "1 Projects",
+            "2 Areas",
+            "3 Resources",
+            "4 Archive",
+            "Daily Notes",
+            "Templates",
+        ]
+        for folder in folders {
+            try fileManager.createDirectory(
+                at: root.appending(path: folder),
+                withIntermediateDirectories: true
+            )
+        }
+
+        // README erstellen
+        let readme = """
+        ---
+        title: Welcome to your Vault
+        tags: [meta]
+        created: \(ISO8601DateFormatter().string(from: Date()))
+        modified: \(ISO8601DateFormatter().string(from: Date()))
+        ---
+
+        # Welcome to Quartz
+
+        Your vault is organized using the **PARA** method:
+
+        - **1 Projects** – Active projects with a deadline
+        - **2 Areas** – Ongoing areas of responsibility
+        - **3 Resources** – Topics of interest, reference material
+        - **4 Archive** – Completed or inactive items
+
+        Use `Daily Notes` for your daily journal and `Templates` for reusable note templates.
+        """
+
+        try readme.data(using: .utf8)?.write(
+            to: root.appending(path: "Welcome.md"),
+            options: .atomic
+        )
+    }
+
+    private func createZettelkastenStructure(in root: URL) throws {
+        let folders = [
+            "Fleeting Notes",
+            "Literature Notes",
+            "Permanent Notes",
+            "Projects",
+            "Daily Notes",
+        ]
+        for folder in folders {
+            try fileManager.createDirectory(
+                at: root.appending(path: folder),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let readme = """
+        ---
+        title: Welcome to your Zettelkasten
+        tags: [meta]
+        created: \(ISO8601DateFormatter().string(from: Date()))
+        modified: \(ISO8601DateFormatter().string(from: Date()))
+        ---
+
+        # Welcome to your Zettelkasten
+
+        - **Fleeting Notes** – Quick captures, raw ideas
+        - **Literature Notes** – Notes from books, articles, podcasts
+        - **Permanent Notes** – Refined, atomic ideas in your own words
+        - **Projects** – Output-oriented collections
+
+        Use `[[wiki-links]]` to connect your notes and build a knowledge graph.
+        """
+
+        try readme.data(using: .utf8)?.write(
+            to: root.appending(path: "Welcome.md"),
+            options: .atomic
+        )
+    }
+}
+
+// MARK: - Note Templates
+
+/// Vordefinierte Notiz-Vorlagen.
+public enum NoteTemplate: String, CaseIterable, Sendable {
+    case blank
+    case daily
+    case meeting
+    case zettel
+    case project
+
+    public var displayName: String {
+        switch self {
+        case .blank: "Blank Note"
+        case .daily: "Daily Note"
+        case .meeting: "Meeting Notes"
+        case .zettel: "Zettelkasten Note"
+        case .project: "Project Brief"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .blank: "doc"
+        case .daily: "calendar"
+        case .meeting: "person.3"
+        case .zettel: "brain"
+        case .project: "folder"
+        }
+    }
+
+    func content(title: String) -> String {
+        let now = ISO8601DateFormatter().string(from: Date())
+
+        switch self {
+        case .blank:
+            return """
+            ---
+            title: \(title)
+            tags: []
+            created: \(now)
+            modified: \(now)
+            ---
+
+
+            """
+
+        case .daily:
+            let formatter = DateFormatter()
+            formatter.dateStyle = .full
+            return """
+            ---
+            title: \(formatter.string(from: Date()))
+            tags: [daily]
+            created: \(now)
+            modified: \(now)
+            template: daily
+            ---
+
+            ## Tasks
+
+            - [ ]
+
+            ## Notes
+
+
+            ## Journal
+
+
+            """
+
+        case .meeting:
+            return """
+            ---
+            title: \(title)
+            tags: [meeting]
+            created: \(now)
+            modified: \(now)
+            template: meeting
+            ---
+
+            ## Attendees
+
+            -
+
+            ## Agenda
+
+            1.
+
+            ## Notes
+
+
+            ## Action Items
+
+            - [ ]
+
+            """
+
+        case .zettel:
+            return """
+            ---
+            title: \(title)
+            tags: []
+            created: \(now)
+            modified: \(now)
+            template: zettelkasten
+            ---
+
+            ## Idea
+
+
+            ## Source
+
+
+            ## Connections
+
+            - [[]]
+
+            """
+
+        case .project:
+            return """
+            ---
+            title: \(title)
+            tags: [project]
+            created: \(now)
+            modified: \(now)
+            template: project
+            ---
+
+            ## Goal
+
+
+            ## Timeline
+
+
+            ## Tasks
+
+            - [ ]
+
+            ## Notes
+
+
+            ## Resources
+
+            -
+
+            """
+        }
+    }
+}
