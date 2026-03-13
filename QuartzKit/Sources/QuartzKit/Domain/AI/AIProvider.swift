@@ -61,7 +61,7 @@ public struct AIMessage: Identifiable, Sendable, Codable {
 // MARK: - Provider Implementations
 
 /// OpenAI Provider (GPT-4o, etc.)
-public final class OpenAIProvider: AIProvider, @unchecked Sendable {
+public final class OpenAIProvider: AIProvider, Sendable {
     public let id = "openai"
     public let displayName = "OpenAI"
     private let keychain: KeychainHelper
@@ -106,7 +106,7 @@ public final class OpenAIProvider: AIProvider, @unchecked Sendable {
 }
 
 /// Anthropic Provider (Claude)
-public final class AnthropicProvider: AIProvider, @unchecked Sendable {
+public final class AnthropicProvider: AIProvider, Sendable {
     public let id = "anthropic"
     public let displayName = "Anthropic"
     private let keychain: KeychainHelper
@@ -160,7 +160,7 @@ public final class AnthropicProvider: AIProvider, @unchecked Sendable {
 }
 
 /// Ollama Provider (lokale Modelle)
-public final class OllamaProvider: AIProvider, @unchecked Sendable {
+public final class OllamaProvider: AIProvider, Sendable {
     public let id = "ollama"
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
@@ -202,7 +202,7 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
 }
 
 /// Google Gemini Provider
-public final class GeminiProvider: AIProvider, @unchecked Sendable {
+public final class GeminiProvider: AIProvider, Sendable {
     public let id = "gemini"
     public let displayName = "Google Gemini"
     private let keychain: KeychainHelper
@@ -253,7 +253,7 @@ public final class GeminiProvider: AIProvider, @unchecked Sendable {
 }
 
 /// OpenRouter Provider – Zugang zu hunderten Modellen über eine API.
-public final class OpenRouterProvider: AIProvider, @unchecked Sendable {
+public final class OpenRouterProvider: AIProvider, Sendable {
     public let id = "openrouter"
     public let displayName = "OpenRouter"
     private let keychain: KeychainHelper
@@ -306,7 +306,8 @@ public final class OpenRouterProvider: AIProvider, @unchecked Sendable {
 // MARK: - Provider Registry
 
 /// Registry für alle verfügbaren KI-Provider.
-public final class AIProviderRegistry: ObservableObject, @unchecked Sendable {
+@MainActor
+public final class AIProviderRegistry: ObservableObject {
     @Published public private(set) var providers: [any AIProvider]
     @Published public var selectedProviderID: String
     @Published public var selectedModelID: String?
@@ -337,51 +338,48 @@ public final class AIProviderRegistry: ObservableObject, @unchecked Sendable {
     }
 
     /// Alle Modelle eines Providers: Built-in + benutzerdefinierte.
-    public func allModels(for providerID: String) -> [AIModel] {
+    public func allModels(for providerID: String) async -> [AIModel] {
         let builtIn = providers.first { $0.id == providerID }?.availableModels ?? []
-        let custom = customModelStore.customModels(for: providerID)
+        let custom = await customModelStore.customModels(for: providerID)
         return builtIn + custom
     }
 
     /// Benutzerdefiniertes Modell hinzufügen.
-    public func addCustomModel(id modelID: String, name: String? = nil, contextWindow: Int = 128_000, forProvider providerID: String) {
+    public func addCustomModel(id modelID: String, name: String? = nil, contextWindow: Int = 128_000, forProvider providerID: String) async {
         let model = AIModel(
             id: modelID,
             name: name ?? modelID,
             contextWindow: contextWindow,
             provider: providerID
         )
-        customModelStore.add(model, for: providerID)
+        await customModelStore.add(model, for: providerID)
         objectWillChange.send()
     }
 
     /// Benutzerdefiniertes Modell entfernen.
-    public func removeCustomModel(id modelID: String, forProvider providerID: String) {
-        customModelStore.remove(modelID: modelID, for: providerID)
+    public func removeCustomModel(id modelID: String, forProvider providerID: String) async {
+        await customModelStore.remove(modelID: modelID, for: providerID)
         objectWillChange.send()
     }
 
     /// Alle benutzerdefinierten Modelle eines Providers.
-    public func customModels(for providerID: String) -> [AIModel] {
-        customModelStore.customModels(for: providerID)
+    public func customModels(for providerID: String) async -> [AIModel] {
+        await customModelStore.customModels(for: providerID)
     }
 }
 
 // MARK: - Custom Model Store
 
 /// Persistiert benutzerdefinierte Modelle in UserDefaults.
-public final class CustomModelStore: Sendable {
+/// Actor-Isolation garantiert atomare Lese-/Schreibzugriffe.
+public actor CustomModelStore {
     private let defaults = UserDefaults.standard
     private let storageKey = "com.quartz.customModels"
 
     public init() {}
 
     public func customModels(for providerID: String) -> [AIModel] {
-        guard let data = defaults.data(forKey: storageKey),
-              let all = try? JSONDecoder().decode([String: [AIModel]].self, from: data) else {
-            return []
-        }
-        return all[providerID] ?? []
+        loadAll()[providerID] ?? []
     }
 
     public func add(_ model: AIModel, for providerID: String) {
@@ -418,14 +416,19 @@ public final class CustomModelStore: Sendable {
 // MARK: - Keychain Helper
 
 /// Sichere Speicherung von API-Keys in der Keychain.
-public final class KeychainHelper: Sendable {
+/// NSLock schützt vor gleichzeitigen Keychain-Zugriffen (Delete+Add ist nicht atomar).
+public final class KeychainHelper: @unchecked Sendable {
     public static let shared = KeychainHelper()
 
     private let servicePrefix = "com.quartz.ai-provider."
+    private let lock = NSLock()
 
     public init() {}
 
     public func saveKey(_ key: String, for providerID: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+
         let service = servicePrefix + providerID
         let data = Data(key.utf8)
 
@@ -451,6 +454,9 @@ public final class KeychainHelper: Sendable {
     }
 
     public func getKey(for providerID: String) throws -> String {
+        lock.lock()
+        defer { lock.unlock() }
+
         let service = servicePrefix + providerID
 
         let query: [String: Any] = [
@@ -475,6 +481,9 @@ public final class KeychainHelper: Sendable {
     }
 
     public func deleteKey(for providerID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
         let service = servicePrefix + providerID
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

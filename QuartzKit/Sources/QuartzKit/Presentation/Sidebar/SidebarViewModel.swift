@@ -4,15 +4,22 @@ import SwiftUI
 @Observable
 @MainActor
 public final class SidebarViewModel {
-    public var fileTree: [FileNode] = []
-    public var searchText: String = ""
-    public var selectedTag: String?
+    public var fileTree: [FileNode] = [] {
+        didSet { invalidateFilterCache() }
+    }
+    public var searchText: String = "" {
+        didSet { invalidateFilterCache() }
+    }
+    public var selectedTag: String? {
+        didSet { invalidateFilterCache() }
+    }
     public var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
 
     private let vaultProvider: any VaultProviding
     private var vaultRoot: URL?
+    private var cachedFilteredTree: [FileNode]?
 
     /// Öffentlicher Zugriff auf die Vault-Root-URL.
     public var vaultRootURL: URL? { vaultRoot }
@@ -107,7 +114,12 @@ public final class SidebarViewModel {
     }
 
     /// Gefilterte Nodes basierend auf Suchtext und ausgewähltem Tag.
+    /// Ergebnis wird gecacht, bis sich fileTree, searchText oder selectedTag ändern.
     public var filteredTree: [FileNode] {
+        if let cached = cachedFilteredTree {
+            return cached
+        }
+
         var result = fileTree
 
         if let tag = selectedTag {
@@ -118,7 +130,12 @@ public final class SidebarViewModel {
             result = result.compactMap { filterNode($0, matching: searchText) }
         }
 
+        cachedFilteredTree = result
         return result
+    }
+
+    private func invalidateFilterCache() {
+        cachedFilteredTree = nil
     }
 
     private func filterNode(_ node: FileNode, matching query: String) -> FileNode? {

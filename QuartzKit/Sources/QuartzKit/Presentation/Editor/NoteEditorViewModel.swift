@@ -76,10 +76,10 @@ public final class NoteEditorViewModel {
     /// Plant Autosave nach Inaktivität.
     private func scheduleAutosave() {
         autosaveTask?.cancel()
-        autosaveTask = Task {
-            try? await Task.sleep(for: autosaveDelay)
-            guard !Task.isCancelled else { return }
-            await save()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(for: self?.autosaveDelay ?? .seconds(2))
+            guard !Task.isCancelled, let self, self.note != nil else { return }
+            await self.save()
         }
     }
 

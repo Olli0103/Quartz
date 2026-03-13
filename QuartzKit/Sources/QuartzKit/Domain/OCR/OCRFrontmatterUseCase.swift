@@ -66,19 +66,36 @@ public actor OCRFrontmatterUseCase {
         try await vaultProvider.saveNote(note)
     }
 
+    /// Ergebnis einer Batch-OCR-Verarbeitung.
+    public struct BatchResult: Sendable {
+        /// Anzahl erfolgreich verarbeiteter Zeichnungen.
+        public let succeeded: Int
+        /// Fehler pro Zeichnungs-ID, falls aufgetreten.
+        public let failures: [(drawingID: String, error: String)]
+
+        public var hasFailures: Bool { !failures.isEmpty }
+    }
+
     /// Führt OCR auf allen Zeichnungen einer Notiz durch.
-    public func processAllDrawings(for noteURL: URL) async throws {
+    ///
+    /// - Returns: BatchResult mit Erfolgs-/Fehlerzählung.
+    @discardableResult
+    public func processAllDrawings(for noteURL: URL) async throws -> BatchResult {
         let drawingIDs = await drawingStorage.listDrawings(for: noteURL)
+        var succeeded = 0
+        var failures: [(drawingID: String, error: String)] = []
 
         for drawingID in drawingIDs {
             do {
                 let drawing = try await drawingStorage.load(drawingID: drawingID, noteURL: noteURL)
                 try await processDrawing(drawing, drawingID: drawingID, noteURL: noteURL)
+                succeeded += 1
             } catch {
-                // Einzelne Fehler nicht propagieren, weiter mit nächster Zeichnung
-                continue
+                failures.append((drawingID: drawingID, error: error.localizedDescription))
             }
         }
+
+        return BatchResult(succeeded: succeeded, failures: failures)
     }
 
     /// Entfernt OCR-Text für eine gelöschte Zeichnung.

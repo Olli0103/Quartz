@@ -35,6 +35,11 @@ public actor VaultChatService {
         }
 
         // 1. Semantische Suche
+        let indexedCount = await embeddingService.entryCount
+        guard indexedCount > 0 else {
+            throw VaultChatError.indexEmpty
+        }
+
         let searchResults = await embeddingService.search(
             query: question,
             limit: maxContextChunks,
@@ -243,12 +248,14 @@ public struct VaultChatMessage: Identifiable, Sendable {
 public enum VaultChatError: LocalizedError, Sendable {
     case noProviderConfigured
     case noRelevantContent
+    case indexEmpty
     case providerError(String)
 
     public var errorDescription: String? {
         switch self {
         case .noProviderConfigured: "No AI provider configured. Add an API key in Settings."
-        case .noRelevantContent: "No relevant notes found for your question."
+        case .noRelevantContent: "No relevant notes found for your question. Try rephrasing."
+        case .indexEmpty: "No notes have been indexed yet. Please index your vault first."
         case .providerError(let msg): "AI error: \(msg)"
         }
     }
