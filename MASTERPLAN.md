@@ -176,6 +176,59 @@ Quartz/
 
 **QuartzKit** ist ein **Swift Package** innerhalb des Monorepos. Es kann unabhängig gebaut, getestet und als Open-Source-Paket veröffentlicht werden.
 
+### 2.3 Repository-Strategie
+
+**Modell:** Privates Hauptrepo + automatisch gespiegeltes Public Package.
+
+```
+quartz (privat, GitHub)          ←  Hauptentwicklung
+  ├── QuartzApp/                      proprietär
+  ├── QuartzKit/                      ── GitHub Action ──→  quartz-kit (öffentlich, GitHub)
+  ├── QuartzPro/                      proprietär
+  └── Extensions/                     proprietär
+```
+
+- **Ein privates Repo** (`quartz`) für die gesamte Entwicklung. Alle Targets, alle Features.
+- **GitHub Action** spiegelt `QuartzKit/` bei jedem Release automatisch in ein separates öffentliches `quartz-kit` Repo.
+- Pro-Code kann niemals versehentlich öffentlich werden.
+- Community-Contributors stellen PRs gegen `quartz-kit`, die zurück ins Hauptrepo gemergt werden.
+
+### 2.4 Feature-Flag-System
+
+Jedes Feature wird über ein zentrales `FeatureFlag`-System gesteuert. Features können **flexibel zwischen Free und Pro verschoben** werden – eine einzige Konfigurationsänderung genügt.
+
+```swift
+// Domain/Models/Feature.swift
+enum Feature: String, CaseIterable, Codable {
+    // Editor
+    case markdownEditor, focusMode, typewriterMode
+    // Organisation
+    case biDirectionalLinks, tagSystem, fullTextSearch
+    // AI
+    case aiChat, aiSummarize, vaultSearch
+    // Audio
+    case audioRecording, transcription, meetingMinutes, speakerDiarization
+}
+
+enum FeatureTier: String, Codable {
+    case free       // Immer verfügbar
+    case pro        // Nur mit Pro-Kauf
+}
+
+// Domain/Protocols/FeatureGating.swift
+protocol FeatureGating: Sendable {
+    func isEnabled(_ feature: Feature) -> Bool
+    func tier(for feature: Feature) -> FeatureTier
+}
+```
+
+**Architektur-Regeln:**
+- `DefaultFeatureGate` definiert die zentrale Free/Pro-Zuordnung als Dictionary.
+- Zum Verschieben eines Features von Pro → Free: **eine Zeile ändern**.
+- Views prüfen per `@Environment(\.featureGate)` ob ein Feature verfügbar ist.
+- Nicht freigeschaltete Features zeigen einen "Pro"-Badge + Upgrade-Sheet.
+- `QuartzPro` Target registriert die Pro-Freischaltung über `ProFeatureGate`, der die Käufe via StoreKit prüft.
+
 ---
 
 ## 3. Framework-Mapping
@@ -502,7 +555,7 @@ Intelligenz und Audio-Features.
 | **Markdown-Parser** | `swift-markdown` (Apple) vs. komplett eigener Parser | `swift-markdown` als Basis, eigene Extensions |
 | **Vektor-Embeddings & Suche** | Native Apple Vector Search APIs (iOS 18+) vs. eigene Implementierung | **Native Apple APIs first.** Fallback: `NLEmbedding` + `Accelerate` für ältere OS-Versionen |
 | **WebDAV-Implementation** | Eigener Client vs. Open-Source-Lib | Eigener minimaler Client (wenige HTTP-Calls) |
-| **Pro-Feature-Abgrenzung** | Welche Features sind Core vs. Pro? | Core: Editor, Sync, Organisation. Pro: KI-Chat, Meeting Minutes, Vault-Suche |
+| **Pro-Feature-Abgrenzung** | ~~Welche Features sind Core vs. Pro?~~ **Gelöst:** Flexibles Feature-Flag-System (siehe 2.4). Features jederzeit zwischen Free ↔ Pro verschiebbar. | Default: Core = Editor, Sync, Organisation. Pro = KI-Chat, Meeting Minutes, Vault-Suche. Aber konfigurierbar. |
 
 ### 7.3 Mindest-Anforderungen
 
