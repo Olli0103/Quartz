@@ -201,6 +201,57 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
     }
 }
 
+/// Google Gemini Provider
+public final class GeminiProvider: AIProvider, @unchecked Sendable {
+    public let id = "gemini"
+    public let displayName = "Google Gemini"
+    private let keychain: KeychainHelper
+
+    public var isConfigured: Bool { keychain.hasKey(for: id) }
+
+    public var availableModels: [AIModel] {
+        [
+            AIModel(id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", contextWindow: 1_000_000, provider: id),
+            AIModel(id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", contextWindow: 1_000_000, provider: id),
+            AIModel(id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", contextWindow: 1_000_000, provider: id),
+        ]
+    }
+
+    public init(keychain: KeychainHelper = .shared) {
+        self.keychain = keychain
+    }
+
+    public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
+        let apiKey = try keychain.getKey(for: id)
+        let modelID = model ?? "gemini-2.5-flash"
+
+        let systemMsg = messages.first { $0.role == .system }?.content
+        let chatMessages = messages
+            .filter { $0.role != .system }
+            .map { GeminiContent(role: $0.role == .user ? "user" : "model", parts: [.init(text: $0.content)]) }
+
+        let body = GeminiChatBody(
+            contents: chatMessages,
+            systemInstruction: systemMsg.map { GeminiContent(role: "user", parts: [.init(text: $0)]) },
+            generationConfig: GeminiGenerationConfig(temperature: temperature, maxOutputTokens: 8192)
+        )
+
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(GeminiChatResponse.self, from: data)
+
+        guard let text = response.candidates?.first?.content.parts.first?.text else {
+            throw AIProviderError.emptyResponse
+        }
+        return AIMessage(role: .assistant, content: text)
+    }
+}
+
 /// OpenRouter Provider – Zugang zu hunderten Modellen über eine API.
 public final class OpenRouterProvider: AIProvider, @unchecked Sendable {
     public let id = "openrouter"
@@ -262,10 +313,13 @@ public final class AIProviderRegistry: ObservableObject, @unchecked Sendable {
 
     public static let shared = AIProviderRegistry()
 
+    private let customModelStore = CustomModelStore()
+
     public init() {
         let providers: [any AIProvider] = [
             OpenAIProvider(),
             AnthropicProvider(),
+            GeminiProvider(),
             OpenRouterProvider(),
             OllamaProvider(),
         ]
@@ -280,6 +334,84 @@ public final class AIProviderRegistry: ObservableObject, @unchecked Sendable {
 
     public var configuredProviders: [any AIProvider] {
         providers.filter(\.isConfigured)
+    }
+
+    /// Alle Modelle eines Providers: Built-in + benutzerdefinierte.
+    public func allModels(for providerID: String) -> [AIModel] {
+        let builtIn = providers.first { $0.id == providerID }?.availableModels ?? []
+        let custom = customModelStore.customModels(for: providerID)
+        return builtIn + custom
+    }
+
+    /// Benutzerdefiniertes Modell hinzufügen.
+    public func addCustomModel(id modelID: String, name: String? = nil, contextWindow: Int = 128_000, forProvider providerID: String) {
+        let model = AIModel(
+            id: modelID,
+            name: name ?? modelID,
+            contextWindow: contextWindow,
+            provider: providerID
+        )
+        customModelStore.add(model, for: providerID)
+        objectWillChange.send()
+    }
+
+    /// Benutzerdefiniertes Modell entfernen.
+    public func removeCustomModel(id modelID: String, forProvider providerID: String) {
+        customModelStore.remove(modelID: modelID, for: providerID)
+        objectWillChange.send()
+    }
+
+    /// Alle benutzerdefinierten Modelle eines Providers.
+    public func customModels(for providerID: String) -> [AIModel] {
+        customModelStore.customModels(for: providerID)
+    }
+}
+
+// MARK: - Custom Model Store
+
+/// Persistiert benutzerdefinierte Modelle in UserDefaults.
+public final class CustomModelStore: Sendable {
+    private let defaults = UserDefaults.standard
+    private let storageKey = "com.quartz.customModels"
+
+    public init() {}
+
+    public func customModels(for providerID: String) -> [AIModel] {
+        guard let data = defaults.data(forKey: storageKey),
+              let all = try? JSONDecoder().decode([String: [AIModel]].self, from: data) else {
+            return []
+        }
+        return all[providerID] ?? []
+    }
+
+    public func add(_ model: AIModel, for providerID: String) {
+        var all = loadAll()
+        var models = all[providerID] ?? []
+        // Duplikat vermeiden
+        models.removeAll { $0.id == model.id }
+        models.append(model)
+        all[providerID] = models
+        save(all)
+    }
+
+    public func remove(modelID: String, for providerID: String) {
+        var all = loadAll()
+        all[providerID]?.removeAll { $0.id == modelID }
+        save(all)
+    }
+
+    private func loadAll() -> [String: [AIModel]] {
+        guard let data = defaults.data(forKey: storageKey),
+              let all = try? JSONDecoder().decode([String: [AIModel]].self, from: data) else {
+            return [:]
+        }
+        return all
+    }
+
+    private func save(_ models: [String: [AIModel]]) {
+        if let data = try? JSONEncoder().encode(models) {
+            defaults.set(data, forKey: storageKey)
+        }
     }
 }
 
@@ -431,4 +563,34 @@ struct OllamaOptions: Codable {
 
 struct OllamaChatResponse: Codable {
     let message: OllamaChatMessage
+}
+
+// Gemini DTOs
+
+struct GeminiChatBody: Codable {
+    let contents: [GeminiContent]
+    let systemInstruction: GeminiContent?
+    let generationConfig: GeminiGenerationConfig
+}
+
+struct GeminiContent: Codable {
+    let role: String
+    let parts: [GeminiPart]
+}
+
+struct GeminiPart: Codable {
+    let text: String
+}
+
+struct GeminiGenerationConfig: Codable {
+    let temperature: Double
+    let maxOutputTokens: Int
+}
+
+struct GeminiChatResponse: Codable {
+    let candidates: [GeminiCandidate]?
+}
+
+struct GeminiCandidate: Codable {
+    let content: GeminiContent
 }
