@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Einfacher Plaintext-Editor für Markdown-Dateien.
+/// WYSIWYG Markdown-Editor mit TextKit 2.
 ///
-/// Nutzt SwiftUI `TextEditor` als Platzhalter bis der
-/// TextKit 2 WYSIWYG-Editor in Phase 2 implementiert wird.
+/// Rendert Markdown live: Headlines, Bold, Italic, Code, Listen, Checkboxen.
+/// Fallback auf einfachen TextEditor wenn nötig.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
+    @Environment(\.appearanceManager) private var appearance
 
     public init(viewModel: NoteEditorViewModel) {
         self.viewModel = viewModel
@@ -13,12 +14,11 @@ public struct NoteEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Editor
-            TextEditor(text: $viewModel.content)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+            // WYSIWYG Editor
+            MarkdownTextViewRepresentable(
+                text: $viewModel.content,
+                editorFontScale: appearance.editorFontScale
+            )
 
             // Status Bar
             HStack {
