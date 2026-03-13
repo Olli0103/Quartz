@@ -129,7 +129,7 @@ public struct FormattingToolbar: View {
             }
             .padding(.horizontal, 8)
         }
-        .frame(height: 40)
+        .frame(height: 44)
     }
 }
 

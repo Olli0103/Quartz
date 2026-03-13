@@ -9,6 +9,7 @@ public struct QuickNoteView: View {
     @State private var noteBody: String = ""
     @State private var isSaving: Bool = false
     @State private var savedSuccessfully: Bool = false
+    @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
 
     let vaultRoot: URL
@@ -26,7 +27,7 @@ public struct QuickNoteView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Title
-            TextField("Title", text: $noteTitle)
+            TextField(String(localized: "Title"), text: $noteTitle)
                 .textFieldStyle(.plain)
                 .font(.title3.bold())
                 .focused($focusedField, equals: .title)
@@ -47,20 +48,29 @@ public struct QuickNoteView: View {
 
             Divider()
 
+            // Error
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+            }
+
             // Actions
             HStack {
-                Text("⌘↩ to save")
+                Text(String(localized: "⌘↩ to save"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
                 Spacer()
 
-                Button("Cancel") {
+                Button(String(localized: "Cancel")) {
                     onDismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                Button(String(localized: "Save")) {
                     save()
                 }
                 .keyboardShortcut(.return, modifiers: .command)
@@ -80,7 +90,7 @@ public struct QuickNoteView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 36))
                         .foregroundStyle(.green)
-                    Text("Saved")
+                    Text(String(localized: "Saved"))
                         .font(.caption.bold())
                 }
                 .padding(24)
@@ -108,6 +118,7 @@ public struct QuickNoteView: View {
             }
         } catch {
             isSaving = false
+            errorMessage = error.localizedDescription
         }
     }
 }

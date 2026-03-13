@@ -72,12 +72,12 @@ struct ContentView: View {
                                 Button {
                                     showVaultPicker = true
                                 } label: {
-                                    Label("Open Vault", systemImage: "folder.badge.plus")
+                                    Label(String(localized: "Open Vault"), systemImage: "folder.badge.plus")
                                 }
                                 Button {
                                     showSettings = true
                                 } label: {
-                                    Label("Settings", systemImage: "gearshape")
+                                    Label(String(localized: "Settings"), systemImage: "gearshape")
                                 }
                             } label: {
                                 Image(systemName: "ellipsis.circle")
@@ -106,8 +106,8 @@ struct ContentView: View {
         } else {
             QuartzEmptyState(
                 icon: "doc.text",
-                title: "No Note Selected",
-                subtitle: "Choose a note from the sidebar to start editing."
+                title: String(localized: "No Note Selected"),
+                subtitle: String(localized: "Choose a note from the sidebar to start editing.")
             )
             .transition(.opacity)
         }
@@ -125,17 +125,17 @@ struct ContentView: View {
                     .foregroundStyle(QuartzColors.accentGradient)
                     .symbolEffect(.breathe, options: .repeating)
 
-                Text("Welcome to Quartz")
+                Text(String(localized: "Welcome to Quartz"))
                     .font(.title.bold())
 
-                Text("Open a vault folder to start\ntaking beautiful notes.")
+                Text(String(localized: "Open a vault folder to start\ntaking beautiful notes."))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
             .slideUp()
 
-            QuartzButton("Open Vault", icon: "folder.badge.plus") {
+            QuartzButton(String(localized: "Open Vault"), icon: "folder.badge.plus") {
                 showVaultPicker = true
             }
             .padding(.horizontal, 40)

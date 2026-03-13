@@ -1,24 +1,27 @@
 import SwiftUI
+#if canImport(LocalAuthentication)
+import LocalAuthentication
+#endif
 
 /// App-Lock Screen: Zeigt Biometrie-Prompt beim App-Start.
 ///
 /// Wird als Overlay über die gesamte App gelegt wenn
 /// App-Lock aktiviert ist. Verschwindet nach erfolgreicher
 /// Authentifizierung.
-public struct AppLockView: View {
+public struct AppLockView<Content: View>: View {
     @State private var isUnlocked: Bool = false
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
 
     let authService: BiometricAuthService
-    let content: AnyView
+    let content: Content
 
-    public init<Content: View>(
+    public init(
         authService: BiometricAuthService,
         @ViewBuilder content: () -> Content
     ) {
         self.authService = authService
-        self.content = AnyView(content())
+        self.content = content()
     }
 
     public var body: some View {
@@ -82,8 +85,22 @@ public struct AppLockView: View {
     }
 
     private var biometryIcon: String {
-        // Wird zur Laufzeit basierend auf Geräte-Biometrie bestimmt
-        "faceid" // Default, könnte auch touchid oder opticid sein
+        #if canImport(LocalAuthentication)
+        let context = LAContext()
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        switch context.biometryType {
+        case .faceID:
+            return "faceid"
+        case .touchID:
+            return "touchid"
+        case .opticID:
+            return "opticid"
+        @unknown default:
+            return "lock.fill"
+        }
+        #else
+        return "lock.fill"
+        #endif
     }
 
     private func authenticate() async {

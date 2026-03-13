@@ -187,7 +187,7 @@ struct DrawingThumbnailView: View {
                     Spacer()
                 }
             } else {
-                let scale = UITraitCollection.current.displayScale
+                let scale: CGFloat = 2.0 // Default retina scale
                 let image = drawing.image(
                     from: drawing.bounds,
                     scale: scale

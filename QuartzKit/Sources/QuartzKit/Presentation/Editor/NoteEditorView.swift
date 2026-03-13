@@ -60,12 +60,14 @@ public struct NoteEditorView: View {
 
     private var formattingBar: some View {
         FormattingToolbar { action in
-            let (newText, _) = formatter.apply(
+            let cursorPosition = viewModel.cursorPosition
+            let (newText, newSelection) = formatter.apply(
                 action,
                 to: viewModel.content,
-                selectedRange: NSRange(location: viewModel.content.count, length: 0)
+                selectedRange: cursorPosition
             )
             viewModel.content = newText
+            viewModel.cursorPosition = newSelection
         }
         .background(.ultraThinMaterial)
     }
@@ -96,7 +98,7 @@ public struct NoteEditorView: View {
 
             Spacer()
 
-            Text("\(wordCount) \(String(localized: "words"))")
+            Text("\(viewModel.wordCount) \(String(localized: "words"))")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
@@ -146,10 +148,4 @@ public struct NoteEditorView: View {
         }
     }
 
-    private var wordCount: Int {
-        viewModel.content
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
-    }
 }

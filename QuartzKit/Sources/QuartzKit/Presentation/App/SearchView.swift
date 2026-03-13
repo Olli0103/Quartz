@@ -19,17 +19,6 @@ public struct SearchView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                // Subtle background gradient
-                LinearGradient(
-                    colors: [
-                        Color(.systemBackground),
-                        Color(.secondarySystemBackground).opacity(0.5)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
                 List {
                     if results.isEmpty && !query.isEmpty && !isSearching {
                         ContentUnavailableView.search(text: query)
@@ -48,17 +37,17 @@ public struct SearchView: View {
                 }
                 .listStyle(.plain)
             }
-            .searchable(text: $query, isPresented: .constant(true), prompt: "Search all notes…")
+            .searchable(text: $query, isPresented: .constant(true), prompt: Text(String(localized: "Search all notes…")))
             .onChange(of: query) { _, newQuery in
                 performSearch(newQuery)
             }
-            .navigationTitle("Search")
+            .navigationTitle(String(localized: "Search"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(String(localized: "Cancel")) { dismiss() }
                 }
             }
         }

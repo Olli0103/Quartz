@@ -11,6 +11,7 @@ public final class NoteEditorViewModel {
         didSet {
             guard content != oldValue else { return }
             isDirty = true
+            updateWordCount()
             scheduleAutosave()
         }
     }
@@ -18,6 +19,12 @@ public final class NoteEditorViewModel {
     public var isDirty: Bool = false
     public var isSaving: Bool = false
     public var errorMessage: String?
+
+    /// Cached word count, updated on content change.
+    public private(set) var wordCount: Int = 0
+
+    /// Current cursor position in the editor.
+    public var cursorPosition: NSRange = NSRange(location: 0, length: 0)
 
     public private(set) var note: NoteDocument?
 
@@ -71,6 +78,13 @@ public final class NoteEditorViewModel {
         note?.frontmatter = newFrontmatter
         isDirty = true
         scheduleAutosave()
+    }
+
+    private func updateWordCount() {
+        wordCount = content
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
     }
 
     /// Plant Autosave nach Inaktivität.

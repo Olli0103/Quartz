@@ -11,6 +11,7 @@ public struct ShareExtensionView: View {
     @State private var useInbox: Bool = true
     @State private var isSaving: Bool = false
     @State private var showSuccess: Bool = false
+    @State private var errorMessage: String?
 
     let sharedItem: SharedItem
     let vaultRoot: URL
@@ -30,7 +31,7 @@ public struct ShareExtensionView: View {
         NavigationStack {
             Form {
                 // Preview
-                Section("Preview") {
+                Section(String(localized: "Preview")) {
                     Text(sharedItem.markdownContent)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -38,24 +39,31 @@ public struct ShareExtensionView: View {
                 }
 
                 // Capture Mode
-                Section("Save to") {
-                    Toggle("Append to Inbox", isOn: $useInbox)
+                Section(String(localized: "Save to")) {
+                    Toggle(String(localized: "Append to Inbox"), isOn: $useInbox)
 
                     if !useInbox {
-                        TextField("Note title", text: $noteTitle)
+                        TextField(String(localized: "Note title"), text: $noteTitle)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
                     }
                 }
             }
-            .navigationTitle("Save to Quartz")
+            .navigationTitle(String(localized: "Save to Quartz"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { onDismiss() }
+                    Button(String(localized: "Cancel")) { onDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(String(localized: "Save")) { save() }
                         .disabled(isSaving || (!useInbox && noteTitle.isEmpty))
                 }
             }
@@ -71,6 +79,7 @@ public struct ShareExtensionView: View {
 
     private func save() {
         isSaving = true
+        errorMessage = nil
 
         let useCase = ShareCaptureUseCase()
         let mode: CaptureMode = useInbox ? .inbox : .newNote(title: noteTitle)
@@ -85,6 +94,7 @@ public struct ShareExtensionView: View {
             }
         } catch {
             isSaving = false
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -93,7 +103,7 @@ public struct ShareExtensionView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
-            Text("Saved!")
+            Text(String(localized: "Saved!"))
                 .font(.headline)
         }
         .padding(32)

@@ -4,10 +4,13 @@ import Foundation
 ///
 /// Definiert welche Features Free vs. Pro sind.
 /// Zum Verschieben eines Features: eine Zeile in `tierMap` ändern.
+/// Thread-safe durch NSLock-geschützte Properties.
 public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
+    private let lock = NSLock()
+
     /// Zentrale Zuordnung: Feature → Tier.
     /// Hier ändern um Features zwischen Free und Pro zu verschieben.
-    private var tierMap: [Feature: FeatureTier] = [
+    private var _tierMap: [Feature: FeatureTier] = [
         // Editor – Free
         .markdownEditor:      .free,
         .focusMode:           .free,
@@ -31,7 +34,12 @@ public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
     ]
 
     /// Ob der Nutzer Pro gekauft hat. Wird von `ProFeatureGate` gesetzt.
-    public var isProUnlocked: Bool = false
+    private var _isProUnlocked: Bool = false
+
+    public var isProUnlocked: Bool {
+        get { lock.withLock { _isProUnlocked } }
+        set { lock.withLock { _isProUnlocked = newValue } }
+    }
 
     public init() {}
 
@@ -45,11 +53,11 @@ public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
     }
 
     public func tier(for feature: Feature) -> FeatureTier {
-        tierMap[feature] ?? .free
+        lock.withLock { _tierMap[feature] ?? .free }
     }
 
     /// Überschreibt den Tier eines Features zur Laufzeit.
     public func setTier(_ tier: FeatureTier, for feature: Feature) {
-        tierMap[feature] = tier
+        lock.withLock { _tierMap[feature] = tier }
     }
 }

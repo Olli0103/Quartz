@@ -82,28 +82,28 @@ public struct KeyboardShortcutCommands: Commands {
 
     public var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Note") { onNewNote() }
+            Button(String(localized: "New Note")) { onNewNote() }
                 .keyboardShortcut("n", modifiers: .command)
 
-            Button("New Folder") { onNewFolder() }
+            Button(String(localized: "New Folder")) { onNewFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Divider()
 
-            Button("Daily Note") { onDailyNote() }
+            Button(String(localized: "Daily Note")) { onDailyNote() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .textEditing) {
-            Button("Find in Note") { onSearch() }
+            Button(String(localized: "Find in Note")) { onSearch() }
                 .keyboardShortcut("f", modifiers: .command)
 
-            Button("Search All Notes") { onGlobalSearch() }
+            Button(String(localized: "Search All Notes")) { onGlobalSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .sidebar) {
-            Button("Toggle Sidebar") { onToggleSidebar() }
+            Button(String(localized: "Toggle Sidebar")) { onToggleSidebar() }
                 .keyboardShortcut("/", modifiers: .command)
         }
     }

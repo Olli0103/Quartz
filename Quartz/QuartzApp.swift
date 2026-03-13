@@ -8,10 +8,6 @@ struct QuartzApp: App {
     @State private var focusModeManager = FocusModeManager()
     private let proFeatureGate = ProFeatureGate()
 
-    init() {
-        ServiceContainer.shared.register(featureGate: proFeatureGate)
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -22,6 +18,7 @@ struct QuartzApp: App {
                 .preferredColorScheme(appearanceManager.theme.colorScheme)
                 .tint(Color(hex: 0xF2994A))
                 .task {
+                    ServiceContainer.shared.register(featureGate: proFeatureGate)
                     await proFeatureGate.checkPurchaseStatus()
                     _ = proFeatureGate.observeTransactionUpdates()
                 }

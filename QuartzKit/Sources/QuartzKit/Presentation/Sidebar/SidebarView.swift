@@ -153,30 +153,27 @@ public struct SidebarView: View {
 
     // MARK: - Node View
 
-    private func nodeView(for node: FileNode) -> AnyView {
+    @ViewBuilder
+    private func nodeView(for node: FileNode) -> some View {
         if node.isFolder, let children = node.children {
-            AnyView(
-                DisclosureGroup {
-                    ForEach(children) { child in
-                        nodeView(for: child)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    }
-                } label: {
-                    FileNodeRow(node: node)
+            DisclosureGroup {
+                ForEach(children) { child in
+                    nodeView(for: child)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .opacity
+                        ))
                 }
-                .contextMenu { folderContextMenu(for: node) }
-            )
-        } else if node.isNote {
-            AnyView(
+            } label: {
                 FileNodeRow(node: node)
-                    .tag(node.url)
-                    .contextMenu { noteContextMenu(for: node) }
-            )
+            }
+            .contextMenu { folderContextMenu(for: node) }
+        } else if node.isNote {
+            FileNodeRow(node: node)
+                .tag(node.url)
+                .contextMenu { noteContextMenu(for: node) }
         } else {
-            AnyView(FileNodeRow(node: node))
+            FileNodeRow(node: node)
         }
     }
 

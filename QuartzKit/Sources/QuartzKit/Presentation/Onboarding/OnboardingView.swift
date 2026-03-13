@@ -65,17 +65,17 @@ public struct OnboardingView: View {
                     .slideUp()
 
                 VStack(spacing: 10) {
-                    Text("Quartz")
+                    Text(verbatim: "Quartz")
                         .font(.system(size: 40, weight: .bold, design: .rounded))
                         .slideUp(delay: 0.1)
 
-                    Text("Your notes. Your files. Your way.")
+                    Text(String(localized: "Your notes. Your files. Your way."))
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .slideUp(delay: 0.15)
                 }
 
-                Text("Beautiful Markdown notes stored as plain files – always portable, always yours.")
+                Text(String(localized: "Beautiful Markdown notes stored as plain files – always portable, always yours."))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -86,11 +86,11 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 16) {
-                QuartzButton("Get Started", icon: "arrow.right") {
+                QuartzButton(String(localized: "Get Started"), icon: "arrow.right") {
                     currentStep = .chooseFolder
                 }
 
-                Text("No account needed")
+                Text(String(localized: "No account needed"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -111,10 +111,10 @@ public struct OnboardingView: View {
                     .font(.system(size: 56, weight: .thin))
                     .foregroundStyle(QuartzColors.folderYellow)
 
-                Text("Choose a Vault Folder")
+                Text(String(localized: "Choose a Vault Folder"))
                     .font(.title2.bold())
 
-                Text("Pick a folder where Quartz will store your notes.")
+                Text(String(localized: "Pick a folder where Quartz will store your notes."))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -124,7 +124,7 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                QuartzButton("Choose Folder", icon: "folder") {
+                QuartzButton(String(localized: "Choose Folder"), icon: "folder") {
                     // Triggered by fileImporter
                 }
                 .fileImporter(
@@ -139,7 +139,7 @@ public struct OnboardingView: View {
                     }
                 }
 
-                Button("Back") {
+                Button(String(localized: "Back")) {
                     currentStep = .welcome
                 }
                 .foregroundStyle(.secondary)
@@ -154,10 +154,10 @@ public struct OnboardingView: View {
     private var chooseTemplateStep: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text("Choose a Structure")
+                Text(String(localized: "Choose a Structure"))
                     .font(.title2.bold())
 
-                Text("Start with a proven system or a blank canvas.")
+                Text(String(localized: "Start with a proven system or a blank canvas."))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -199,12 +199,12 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                QuartzButton("Create Vault", icon: "checkmark") {
+                QuartzButton(String(localized: "Create Vault"), icon: "checkmark") {
                     currentStep = .creating
                     createVault()
                 }
 
-                Button("Back") {
+                Button(String(localized: "Back")) {
                     currentStep = .chooseFolder
                 }
                 .foregroundStyle(.secondary)
@@ -241,11 +241,11 @@ public struct OnboardingView: View {
             .bounceIn()
 
             VStack(spacing: 8) {
-                Text("Setting up your vault…")
+                Text(String(localized: "Setting up your vault…"))
                     .font(.title3.weight(.medium))
                     .slideUp(delay: 0.2)
 
-                Text("This will only take a moment.")
+                Text(String(localized: "This will only take a moment."))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .slideUp(delay: 0.3)
@@ -320,7 +320,14 @@ public struct OnboardingView: View {
 
         Task {
             let templateService = VaultTemplateService()
-            try? await templateService.applyTemplate(selectedTemplate, to: url)
+            do {
+                try await templateService.applyTemplate(selectedTemplate, to: url)
+            } catch {
+                await MainActor.run {
+                    currentStep = .chooseTemplate
+                }
+                return
+            }
 
             let vault = VaultConfig(
                 name: url.lastPathComponent,
@@ -350,7 +357,7 @@ private struct MeshGradientBackground: View {
     @State private var phase: CGFloat = 0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 10.0)) { timeline in
             Canvas { context, size in
                 let w = size.width
                 let h = size.height
@@ -384,6 +391,6 @@ private struct MeshGradientBackground: View {
             }
         }
         .blur(radius: 60)
-        .background(Color(.systemBackground))
+        .background(.background)
     }
 }

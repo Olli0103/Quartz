@@ -20,8 +20,8 @@ public struct LatestNoteEntry: TimelineEntry {
 
     public static let placeholder = LatestNoteEntry(
         date: .now,
-        noteTitle: "My Note",
-        notePreview: "Start writing to see your latest note here…",
+        noteTitle: String(localized: "My Note"),
+        notePreview: String(localized: "Start writing to see your latest note here…"),
         noteURL: nil
     )
 }
