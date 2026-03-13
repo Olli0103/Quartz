@@ -6,7 +6,7 @@ import Foundation
 /// und Code-Blöcke. Tags dürfen Buchstaben, Zahlen, `-`, `_` und `/` enthalten.
 public struct TagExtractor: Sendable {
     /// Pattern: `#` gefolgt von mindestens einem Wort-Zeichen, nicht am Zeilenanfang mit Leerzeichen danach (Heading)
-    private static let tagPattern = try! Regex(#"(?:^|(?<=\s))#([a-zA-Z\u00C0-\u024F0-9][a-zA-Z\u00C0-\u024F0-9_/\-]*)"#)
+    private static let tagPattern = /(?:^|(?<=\s))#([a-zA-Z\u{00C0}-\u{024F}0-9][a-zA-Z\u{00C0}-\u{024F}0-9_\/\-]*)/
 
     public init() {}
 
@@ -43,11 +43,11 @@ public struct TagExtractor: Sendable {
 
     private func removeCodeBlocks(from text: String) -> String {
         // Entferne fenced code blocks (```...```)
-        let fencedPattern = try! Regex(#"```[\s\S]*?```"#)
+        let fencedPattern = /```[\s\S]*?```/
         var cleaned = text.replacing(fencedPattern, with: "")
 
         // Entferne inline code (`...`)
-        let inlinePattern = try! Regex(#"`[^`]+`"#)
+        let inlinePattern = /`[^`]+`/
         cleaned = cleaned.replacing(inlinePattern, with: "")
 
         return cleaned

@@ -35,20 +35,18 @@ public struct ShareCaptureUseCase: Sendable {
         let inboxURL = vaultRoot.appending(path: "Inbox.md")
         let now = ISO8601DateFormatter().string(from: Date())
         let timeFormatter = DateFormatter()
+        timeFormatter.locale = .autoupdatingCurrent
         timeFormatter.dateStyle = .none
         timeFormatter.timeStyle = .short
 
         let entry = "\n\n---\n_Captured \(timeFormatter.string(from: Date()))_\n\n\(item.markdownContent)"
 
         if fileManager.fileExists(atPath: inboxURL.path(percentEncoded: false)) {
-            let handle = try FileHandle(forWritingTo: inboxURL)
-            handle.seekToEndOfFile()
-            if let data = entry.data(using: .utf8) {
-                handle.write(data)
-            }
-            try handle.close()
+            var existing = try String(contentsOf: inboxURL, encoding: .utf8)
+            existing.append(entry)
+            try existing.write(to: inboxURL, atomically: true, encoding: .utf8)
         } else {
-            let frontmatter = """
+            let content = """
             ---
             title: Inbox
             tags: [inbox, capture]
@@ -61,7 +59,7 @@ public struct ShareCaptureUseCase: Sendable {
             Quick captures from Share Extension.
             \(entry)
             """
-            try frontmatter.data(using: .utf8)?.write(to: inboxURL, options: .atomic)
+            try content.write(to: inboxURL, atomically: true, encoding: .utf8)
         }
 
         return inboxURL

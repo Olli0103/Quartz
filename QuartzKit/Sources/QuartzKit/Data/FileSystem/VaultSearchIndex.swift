@@ -22,13 +22,9 @@ public actor VaultSearchIndex {
     }
 
     /// Baut den kompletten Index für einen Vault auf.
-    public func buildIndex(at root: URL) async {
-        do {
-            let tree = try await vaultProvider.loadFileTree(at: root)
-            await indexNodes(tree)
-        } catch {
-            // Index-Aufbau fehlgeschlagen, leerer Index
-        }
+    public func buildIndex(at root: URL) async throws {
+        let tree = try await vaultProvider.loadFileTree(at: root)
+        await indexNodes(tree)
     }
 
     /// Aktualisiert den Index für eine einzelne Notiz.

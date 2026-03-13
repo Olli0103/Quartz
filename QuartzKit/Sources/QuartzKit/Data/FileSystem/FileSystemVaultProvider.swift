@@ -19,7 +19,7 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func readNote(at url: URL) async throws -> NoteDocument {
-        let data = try Data(contentsOf: url)
+        let data = try coordinatedRead(at: url)
         guard let rawContent = String(data: data, encoding: .utf8) else {
             throw FileSystemError.encodingFailed(url)
         }
@@ -48,7 +48,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard let data = rawContent.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(note.fileURL)
         }
-        try data.write(to: note.fileURL, options: .atomic)
+        try coordinatedWrite(data: data, to: note.fileURL)
     }
 
     public func createNote(named name: String, in folder: URL) async throws -> NoteDocument {
@@ -80,7 +80,15 @@ public actor FileSystemVaultProvider: VaultProviding {
         #if os(macOS)
         try fileManager.trashItem(at: url, resultingItemURL: nil)
         #else
-        try fileManager.removeItem(at: url)
+        let trashFolder = url.deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: ".trash")
+        try fileManager.createDirectory(at: trashFolder, withIntermediateDirectories: true)
+        let dest = trashFolder.appending(path: url.lastPathComponent)
+        if fileManager.fileExists(atPath: dest.path(percentEncoded: false)) {
+            try fileManager.removeItem(at: dest)
+        }
+        try fileManager.moveItem(at: url, to: dest)
         #endif
     }
 
@@ -91,9 +99,57 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func createFolder(named name: String, in parent: URL) async throws -> URL {
-        let folderURL = parent.appending(path: name)
+        let sanitized = name
+            .components(separatedBy: CharacterSet.alphanumerics.union(.whitespaces).union(CharacterSet(charactersIn: "-_")).inverted)
+            .joined()
+        guard !sanitized.isEmpty, !sanitized.hasPrefix(".") else {
+            throw FileSystemError.invalidName(name)
+        }
+        let folderURL = parent.appending(path: sanitized)
+        guard folderURL.standardizedFileURL.path().hasPrefix(parent.standardizedFileURL.path()) else {
+            throw FileSystemError.invalidName(name)
+        }
         try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: false)
         return folderURL
+    }
+
+    // MARK: - File Coordination
+
+    private func coordinatedRead(at url: URL) throws -> Data {
+        var coordinatorError: NSError?
+        var readData: Data?
+        var readError: Error?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            do {
+                readData = try Data(contentsOf: actualURL)
+            } catch {
+                readError = error
+            }
+        }
+
+        if let coordinatorError { throw coordinatorError }
+        if let readError { throw readError }
+        guard let data = readData else { throw FileSystemError.fileNotFound(url) }
+        return data
+    }
+
+    private func coordinatedWrite(data: Data, to url: URL) throws {
+        var coordinatorError: NSError?
+        var writeError: Error?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            do {
+                try data.write(to: actualURL, options: .atomic)
+            } catch {
+                writeError = error
+            }
+        }
+
+        if let coordinatorError { throw coordinatorError }
+        if let writeError { throw writeError }
     }
 
     // MARK: - Private
@@ -101,7 +157,7 @@ public actor FileSystemVaultProvider: VaultProviding {
     private func buildTree(at url: URL, relativeTo root: URL) throws -> [FileNode] {
         let contents = try fileManager.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         )
 
@@ -109,8 +165,11 @@ public actor FileSystemVaultProvider: VaultProviding {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             .compactMap { itemURL -> FileNode? in
                 let resourceValues = try itemURL.resourceValues(forKeys: [
-                    .isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey
+                    .isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey
                 ])
+
+                // Skip symlinks to prevent infinite loops
+                if resourceValues.isSymbolicLink == true { return nil }
 
                 let isDirectory = resourceValues.isDirectory ?? false
                 let metadata = FileMetadata(
@@ -153,15 +212,18 @@ public enum FileSystemError: LocalizedError, Sendable {
     case encodingFailed(URL)
     case fileAlreadyExists(URL)
     case fileNotFound(URL)
+    case invalidName(String)
 
     public var errorDescription: String? {
         switch self {
         case .encodingFailed(let url):
-            "Failed to encode/decode file: \(url.lastPathComponent)"
+            String(localized: "Unable to read file: \(url.lastPathComponent)", bundle: .module)
         case .fileAlreadyExists(let url):
-            "File already exists: \(url.lastPathComponent)"
+            String(localized: "File already exists: \(url.lastPathComponent)", bundle: .module)
         case .fileNotFound(let url):
-            "File not found: \(url.lastPathComponent)"
+            String(localized: "File not found: \(url.lastPathComponent)", bundle: .module)
+        case .invalidName(let name):
+            String(localized: "Invalid name: \(name)", bundle: .module)
         }
     }
 }

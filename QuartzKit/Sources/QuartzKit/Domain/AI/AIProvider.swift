@@ -96,7 +96,8 @@ public final class OpenAIProvider: AIProvider, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 
         guard let content = response.choices.first?.message.content else {
@@ -150,7 +151,8 @@ public final class AnthropicProvider: AIProvider, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(AnthropicChatResponse.self, from: data)
 
         guard let content = response.content.first?.text else {
@@ -195,7 +197,8 @@ public final class OllamaProvider: AIProvider, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
 
         return AIMessage(role: .assistant, content: response.message.content)
@@ -243,7 +246,8 @@ public final class GeminiProvider: AIProvider, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(GeminiChatResponse.self, from: data)
 
         guard let text = response.candidates?.first?.content.parts.first?.text else {
@@ -294,7 +298,8 @@ public final class OpenRouterProvider: AIProvider, Sendable {
         request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 
         guard let content = response.choices.first?.message.content else {
@@ -416,47 +421,38 @@ public actor CustomModelStore {
 // MARK: - Keychain Helper
 
 /// Sichere Speicherung von API-Keys in der Keychain.
-/// NSLock schützt vor gleichzeitigen Keychain-Zugriffen (Delete+Add ist nicht atomar).
-public final class KeychainHelper: @unchecked Sendable {
+public actor KeychainHelper {
     public static let shared = KeychainHelper()
 
     private let servicePrefix = "com.quartz.ai-provider."
-    private let lock = NSLock()
 
     public init() {}
 
     public func saveKey(_ key: String, for providerID: String) throws {
-        lock.lock()
-        defer { lock.unlock() }
-
         let service = servicePrefix + providerID
         let data = Data(key.utf8)
 
-        // Bestehenden löschen
-        let deleteQuery: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        // Neuen speichern
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+        let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery.merge(attributes) { _, new in new }
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
         guard status == errSecSuccess else {
             throw AIProviderError.keychainError(status)
         }
     }
 
     public func getKey(for providerID: String) throws -> String {
-        lock.lock()
-        defer { lock.unlock() }
-
         let service = servicePrefix + providerID
 
         let query: [String: Any] = [
@@ -476,14 +472,16 @@ public final class KeychainHelper: @unchecked Sendable {
         return key
     }
 
-    public func hasKey(for providerID: String) -> Bool {
-        (try? getKey(for: providerID)) != nil
+    public nonisolated func hasKey(for providerID: String) -> Bool {
+        let service = servicePrefix + providerID
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     public func deleteKey(for providerID: String) {
-        lock.lock()
-        defer { lock.unlock() }
-
         let service = servicePrefix + providerID
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -500,14 +498,41 @@ public enum AIProviderError: LocalizedError, Sendable {
     case emptyResponse
     case keychainError(OSStatus)
     case networkError(String)
+    case unauthorized(String)
+    case rateLimited
+    case serverError(Int)
+    case httpError(Int, String)
 
     public var errorDescription: String? {
         switch self {
-        case .noAPIKey(let provider): "No API key configured for \(provider)."
-        case .emptyResponse: "AI provider returned an empty response."
-        case .keychainError(let status): "Keychain error: \(status)"
-        case .networkError(let msg): "Network error: \(msg)"
+        case .noAPIKey(let provider): String(localized: "No API key configured for \(provider).", bundle: .module)
+        case .emptyResponse: String(localized: "AI provider returned an empty response.", bundle: .module)
+        case .keychainError(let status): String(localized: "Keychain error: \(status)", bundle: .module)
+        case .networkError(let msg): String(localized: "Network error: \(msg)", bundle: .module)
+        case .unauthorized(let provider): String(localized: "Invalid API key for \(provider). Check Settings.", bundle: .module)
+        case .rateLimited: String(localized: "Too many requests. Please wait a moment.", bundle: .module)
+        case .serverError(let code): String(localized: "Server error (\(code)). Try again later.", bundle: .module)
+        case .httpError(let code, _): String(localized: "Request failed with status \(code).", bundle: .module)
         }
+    }
+}
+
+// MARK: - HTTP Validation
+
+private func validateHTTPResponse(_ data: Data, _ response: URLResponse, provider: String) throws -> Data {
+    guard let http = response as? HTTPURLResponse else { return data }
+    switch http.statusCode {
+    case 200..<300:
+        return data
+    case 401:
+        throw AIProviderError.unauthorized(provider)
+    case 429:
+        throw AIProviderError.rateLimited
+    case 500..<600:
+        throw AIProviderError.serverError(http.statusCode)
+    default:
+        let body = String(data: data, encoding: .utf8) ?? ""
+        throw AIProviderError.httpError(http.statusCode, body)
     }
 }
 

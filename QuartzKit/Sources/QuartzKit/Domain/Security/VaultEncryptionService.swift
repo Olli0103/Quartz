@@ -107,23 +107,23 @@ public actor VaultEncryptionService {
     // MARK: - Keychain Helpers
 
     private func storeInKeychain(data: Data, account: String) throws {
-        // Erst versuchen zu löschen (falls schon vorhanden)
-        let deleteQuery: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
+        let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        // Try update first (atomic, no delete needed)
+        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = query
+            addQuery.merge(attributes) { _, new in new }
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
         guard status == errSecSuccess else {
             throw EncryptionError.keychainError(status)
         }
