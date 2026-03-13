@@ -29,6 +29,10 @@
 		FC4D86B12F644172004187F7 /* QuartzUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartzUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXBuildFile section */
+		FC4D86D22F644172004187F7 /* QuartzKit in Frameworks */ = {isa = PBXBuildFile; productRef = FC4D86D12F644172004187F7 /* QuartzKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FC4D869C2F644170004187F7 /* Quartz */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FC4D86D22F644172004187F7 /* QuartzKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = Quartz;
 			packageProductDependencies = (
+				FC4D86D12F644172004187F7 /* QuartzKit */,
 			);
 			productName = Quartz;
 			productReference = FC4D869A2F644170004187F7 /* Quartz.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = FC4D86912F644170004187F7;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FC4D86D02F644172004187F7 /* XCLocalSwiftPackageReference "QuartzKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FC4D869B2F644170004187F7 /* Products */;
 			projectDirPath = "";
@@ -615,6 +624,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		FC4D86D02F644172004187F7 /* XCLocalSwiftPackageReference "QuartzKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = QuartzKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FC4D86D12F644172004187F7 /* QuartzKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = QuartzKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FC4D86922F644170004187F7 /* Project object */;
 }
