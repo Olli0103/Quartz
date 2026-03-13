@@ -201,6 +201,57 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
     }
 }
 
+/// OpenRouter Provider – Zugang zu hunderten Modellen über eine API.
+public final class OpenRouterProvider: AIProvider, @unchecked Sendable {
+    public let id = "openrouter"
+    public let displayName = "OpenRouter"
+    private let keychain: KeychainHelper
+
+    public var isConfigured: Bool { keychain.hasKey(for: id) }
+
+    public var availableModels: [AIModel] {
+        [
+            AIModel(id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 200_000, provider: id),
+            AIModel(id: "openai/gpt-4o", name: "GPT-4o", contextWindow: 128_000, provider: id),
+            AIModel(id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", contextWindow: 1_000_000, provider: id),
+            AIModel(id: "meta-llama/llama-4-maverick", name: "Llama 4 Maverick", contextWindow: 1_000_000, provider: id),
+            AIModel(id: "deepseek/deepseek-r1", name: "DeepSeek R1", contextWindow: 64_000, provider: id),
+            AIModel(id: "mistralai/mistral-large-2", name: "Mistral Large 2", contextWindow: 128_000, provider: id),
+        ]
+    }
+
+    public init(keychain: KeychainHelper = .shared) {
+        self.keychain = keychain
+    }
+
+    public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
+        let apiKey = try keychain.getKey(for: id)
+        let modelID = model ?? "anthropic/claude-sonnet-4"
+
+        // OpenRouter nutzt das OpenAI-kompatible Format
+        let body = OpenAIChatBody(
+            model: modelID,
+            messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+            temperature: temperature
+        )
+
+        var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+
+        guard let content = response.choices.first?.message.content else {
+            throw AIProviderError.emptyResponse
+        }
+        return AIMessage(role: .assistant, content: content)
+    }
+}
+
 // MARK: - Provider Registry
 
 /// Registry für alle verfügbaren KI-Provider.
@@ -215,6 +266,7 @@ public final class AIProviderRegistry: ObservableObject, @unchecked Sendable {
         let providers: [any AIProvider] = [
             OpenAIProvider(),
             AnthropicProvider(),
+            OpenRouterProvider(),
             OllamaProvider(),
         ]
         self.providers = providers
