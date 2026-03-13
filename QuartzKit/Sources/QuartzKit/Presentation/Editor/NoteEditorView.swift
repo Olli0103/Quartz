@@ -1,12 +1,11 @@
 import SwiftUI
 
-/// WYSIWYG Markdown-Editor mit TextKit 2.
-///
-/// Rendert Markdown live: Headlines, Bold, Italic, Code, Listen, Checkboxen.
-/// Fallback auf einfachen TextEditor wenn nötig.
+/// WYSIWYG Markdown-Editor mit TextKit 2, Focus Mode und Typewriter Mode.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     @Environment(\.appearanceManager) private var appearance
+    @Environment(\.focusModeManager) private var focusMode
+    @Environment(\.featureGate) private var featureGate
     private let formatter = MarkdownFormatter()
 
     public init(viewModel: NoteEditorViewModel) {
@@ -15,7 +14,7 @@ public struct NoteEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Formatting Toolbar
+            // Formatting Toolbar (hidden in focus mode)
             FormattingToolbar { action in
                 let (newText, _) = formatter.apply(
                     action,
@@ -25,8 +24,9 @@ public struct NoteEditorView: View {
                 viewModel.content = newText
             }
             .background(.bar)
+            .hidesInFocusMode()
 
-            // Frontmatter (collapsible)
+            // Frontmatter (hidden in focus mode)
             if viewModel.note != nil {
                 FrontmatterEditorView(
                     frontmatter: Binding(
@@ -34,6 +34,7 @@ public struct NoteEditorView: View {
                         set: { viewModel.updateFrontmatter($0) }
                     )
                 )
+                .hidesInFocusMode()
             }
 
             // WYSIWYG Editor
@@ -42,7 +43,7 @@ public struct NoteEditorView: View {
                 editorFontScale: appearance.editorFontScale
             )
 
-            // Status Bar
+            // Status Bar (hidden in focus mode)
             HStack {
                 if viewModel.isSaving {
                     Label("Saving...", systemImage: "arrow.triangle.2.circlepath")
@@ -67,6 +68,7 @@ public struct NoteEditorView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .background(.bar)
+            .hidesInFocusMode()
         }
         .navigationTitle(viewModel.note?.displayName ?? "Note")
         #if os(iOS)
@@ -74,13 +76,44 @@ public struct NoteEditorView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if viewModel.isDirty {
-                    Button {
-                        Task { await viewModel.save() }
-                    } label: {
-                        Image(systemName: "square.and.arrow.down")
+                HStack(spacing: 12) {
+                    // Focus Mode Toggle
+                    if featureGate.isEnabled(.focusMode) {
+                        Button {
+                            focusMode.toggleFocusMode()
+                        } label: {
+                            Image(systemName: focusMode.isFocusModeActive
+                                  ? "eye.slash.fill" : "eye.fill")
+                        }
+                        .accessibilityLabel("Focus Mode")
+                    }
+
+                    // Typewriter Mode Toggle
+                    if featureGate.isEnabled(.typewriterMode) {
+                        Button {
+                            focusMode.toggleTypewriterMode()
+                        } label: {
+                            Image(systemName: focusMode.isTypewriterModeActive
+                                  ? "text.cursor" : "text.alignleft")
+                        }
+                        .accessibilityLabel("Typewriter Mode")
+                    }
+
+                    // Save Button
+                    if viewModel.isDirty {
+                        Button {
+                            Task { await viewModel.save() }
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
                     }
                 }
+            }
+        }
+        // Tap to exit focus mode
+        .onTapGesture(count: 3) {
+            if focusMode.isFocusModeActive {
+                focusMode.toggleFocusMode()
             }
         }
     }
