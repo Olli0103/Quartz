@@ -6,6 +6,8 @@ import SwiftUI
 public final class SidebarViewModel {
     public var fileTree: [FileNode] = []
     public var searchText: String = ""
+    public var selectedTag: String?
+    public var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
 
@@ -79,10 +81,41 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Gefilterte Nodes basierend auf Suchtext.
+    /// Sammelt Tags aus dem Dateibaum.
+    public func collectTags() {
+        var tagCounts: [String: Int] = [:]
+        collectTagsFromNodes(fileTree, into: &tagCounts)
+        tagInfos = tagCounts
+            .map { TagInfo(name: $0.key, count: $0.value) }
+            .sorted { $0.count > $1.count }
+    }
+
+    private func collectTagsFromNodes(_ nodes: [FileNode], into counts: inout [String: Int]) {
+        for node in nodes {
+            if let tags = node.frontmatter?.tags {
+                for tag in tags {
+                    counts[tag, default: 0] += 1
+                }
+            }
+            if let children = node.children {
+                collectTagsFromNodes(children, into: &counts)
+            }
+        }
+    }
+
+    /// Gefilterte Nodes basierend auf Suchtext und ausgewähltem Tag.
     public var filteredTree: [FileNode] {
-        guard !searchText.isEmpty else { return fileTree }
-        return fileTree.compactMap { filterNode($0, matching: searchText) }
+        var result = fileTree
+
+        if let tag = selectedTag {
+            result = result.compactMap { filterByTag($0, tag: tag) }
+        }
+
+        if !searchText.isEmpty {
+            result = result.compactMap { filterNode($0, matching: searchText) }
+        }
+
+        return result
     }
 
     private func filterNode(_ node: FileNode, matching query: String) -> FileNode? {
@@ -99,5 +132,21 @@ public final class SidebarViewModel {
         }
 
         return nameMatches ? node : nil
+    }
+
+    private func filterByTag(_ node: FileNode, tag: String) -> FileNode? {
+        let hasTag = node.frontmatter?.tags.contains(tag) ?? false
+
+        if node.isFolder, let children = node.children {
+            let filtered = children.compactMap { filterByTag($0, tag: tag) }
+            if !filtered.isEmpty {
+                var copy = node
+                copy.children = filtered
+                return copy
+            }
+            return nil
+        }
+
+        return hasTag ? node : nil
     }
 }
