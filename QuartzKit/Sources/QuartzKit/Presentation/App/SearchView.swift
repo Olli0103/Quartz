@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Spotlight-ähnliche Volltextsuche über den gesamten Vault.
+/// Glasmorphismus-Design mit Live-Ergebnissen.
 public struct SearchView: View {
     @State private var query: String = ""
     @State private var results: [SearchResult] = []
     @State private var isSearching: Bool = false
+    @Environment(\.dismiss) private var dismiss
 
     let searchIndex: VaultSearchIndex
     let onSelect: (URL) -> Void
@@ -16,21 +18,37 @@ public struct SearchView: View {
 
     public var body: some View {
         NavigationStack {
-            List {
-                if results.isEmpty && !query.isEmpty && !isSearching {
-                    ContentUnavailableView.search(text: query)
-                } else {
-                    ForEach(results) { result in
-                        Button {
-                            onSelect(result.noteURL)
-                        } label: {
-                            SearchResultRow(result: result)
+            ZStack {
+                // Subtle background gradient
+                LinearGradient(
+                    colors: [
+                        Color(.systemBackground),
+                        Color(.secondarySystemBackground).opacity(0.5)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                List {
+                    if results.isEmpty && !query.isEmpty && !isSearching {
+                        ContentUnavailableView.search(text: query)
+                    } else {
+                        ForEach(results) { result in
+                            Button {
+                                onSelect(result.noteURL)
+                                dismiss()
+                            } label: {
+                                SearchResultRow(result: result)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.clear)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
+                .listStyle(.plain)
             }
-            .searchable(text: $query, isPresented: .constant(true), prompt: "Search all notes")
+            .searchable(text: $query, isPresented: .constant(true), prompt: "Search all notes…")
             .onChange(of: query) { _, newQuery in
                 performSearch(newQuery)
             }
@@ -38,6 +56,11 @@ public struct SearchView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 
@@ -59,13 +82,14 @@ private struct SearchResultRow: View {
     let result: SearchResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "doc.text.fill")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(QuartzColors.noteBlue)
+
                 Text(result.title)
-                    .font(.callout.bold())
+                    .font(.callout.weight(.semibold))
                     .lineLimit(1)
             }
 
@@ -79,16 +103,11 @@ private struct SearchResultRow: View {
             if !result.matchedTags.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(result.matchedTags, id: \.self) { tag in
-                        Text("#\(tag)")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.fill.tertiary)
-                            .clipShape(Capsule())
+                        QuartzTagBadge(text: tag)
                     }
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }

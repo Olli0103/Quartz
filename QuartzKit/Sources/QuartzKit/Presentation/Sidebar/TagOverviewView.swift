@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Zeigt eine Übersicht aller Tags im Vault mit Filterfunktion.
+/// Übersicht aller Tags im Vault – Pill-Style mit Farbpalette.
 public struct TagOverviewView: View {
     let tags: [TagInfo]
     @Binding var selectedTag: String?
@@ -13,49 +13,71 @@ public struct TagOverviewView: View {
     public var body: some View {
         Section {
             if tags.isEmpty {
-                Text("No tags yet")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "tag")
+                            .font(.title2)
+                            .foregroundStyle(.quaternary)
+                        Text("No tags yet")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 12)
+                    Spacer()
+                }
             } else {
                 ForEach(tags) { tag in
                     Button {
-                        if selectedTag == tag.name {
-                            selectedTag = nil
-                        } else {
-                            selectedTag = tag.name
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if selectedTag == tag.name {
+                                selectedTag = nil
+                            } else {
+                                selectedTag = tag.name
+                            }
                         }
                     } label: {
-                        HStack {
-                            Image(systemName: "number")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(QuartzColors.tagColor(for: tag.name))
+                                .frame(width: 8, height: 8)
+
                             Text(tag.name)
                                 .font(.callout)
+
                             Spacer()
+
                             Text("\(tag.count)")
-                                .font(.caption)
+                                .font(.caption.weight(.medium))
                                 .foregroundStyle(.tertiary)
                                 .monospacedDigit()
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(.fill.tertiary)
+                                )
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .listRowBackground(
                         selectedTag == tag.name
-                        ? Color.accentColor.opacity(0.15)
+                        ? QuartzColors.tagColor(for: tag.name).opacity(0.1)
                         : Color.clear
                     )
                 }
             }
         } header: {
             HStack {
-                Text("Tags")
+                QuartzSectionHeader("Tags", icon: "tag")
                 Spacer()
                 if selectedTag != nil {
                     Button("Clear") {
-                        selectedTag = nil
+                        withAnimation { selectedTag = nil }
                     }
                     .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
         }

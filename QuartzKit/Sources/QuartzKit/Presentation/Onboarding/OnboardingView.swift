@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// First-Start Onboarding: Vault erstellen und optionale Struktur wählen.
+/// First-Start Onboarding – Liquid Glass Design.
 ///
 /// "Second brain in 30 seconds" – minimaler Flow:
-/// 1. Welcome Screen
+/// 1. Welcome Screen mit Gradient-Animation
 /// 2. Vault-Ordner wählen
 /// 3. Struktur wählen (PARA / Zettelkasten / Leer)
 /// 4. Fertig
@@ -11,7 +11,6 @@ public struct OnboardingView: View {
     @State private var currentStep: OnboardingStep = .welcome
     @State private var selectedTemplate: VaultTemplate = .para
     @State private var vaultURL: URL?
-    @State private var isCreating = false
 
     let onComplete: (VaultConfig) -> Void
 
@@ -20,213 +19,272 @@ public struct OnboardingView: View {
     }
 
     public var body: some View {
-        Group {
-            switch currentStep {
-            case .welcome:
-                welcomeStep
-            case .chooseFolder:
-                chooseFolderStep
-            case .chooseTemplate:
-                chooseTemplateStep
-            case .creating:
-                creatingStep
-            }
-        }
-        .animation(.easeInOut, value: currentStep)
-    }
+        ZStack {
+            // Animated background gradient
+            backgroundGradient
 
-    // MARK: - Steps
-
-    private var welcomeStep: some View {
-        VStack(spacing: 32) {
-            Spacer()
-
-            Image(systemName: "square.and.pencil")
-                .font(.system(size: 72))
-                .foregroundStyle(.tint)
-
-            VStack(spacing: 12) {
-                Text("Welcome to Quartz")
-                    .font(.largeTitle.bold())
-                Text("Your notes. Your files. Your way.")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("Quartz saves your notes as plain Markdown files – always portable, always yours.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Spacer()
-
-            Button {
-                currentStep = .chooseFolder
-            } label: {
-                Text("Get Started")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 32)
-            .padding(.bottom, 32)
-        }
-    }
-
-    private var chooseFolderStep: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
-
-            Text("Choose a Vault Folder")
-                .font(.title2.bold())
-
-            Text("Pick a folder where Quartz will store your notes.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            Spacer()
-
-            Button {
-                // fileImporter wird per sheet geöffnet
-            } label: {
-                Label("Choose Folder", systemImage: "folder")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 32)
-            .fileImporter(
-                isPresented: .constant(true),
-                allowedContentTypes: [.folder],
-                allowsMultipleSelection: false
-            ) { result in
-                if case .success(let urls) = result, let url = urls.first {
-                    _ = url.startAccessingSecurityScopedResource()
-                    vaultURL = url
-                    currentStep = .chooseTemplate
+            Group {
+                switch currentStep {
+                case .welcome:
+                    welcomeStep
+                case .chooseFolder:
+                    chooseFolderStep
+                case .chooseTemplate:
+                    chooseTemplateStep
+                case .creating:
+                    creatingStep
                 }
             }
+            .transition(.asymmetric(
+                insertion: .move(edge: .trailing).combined(with: .opacity),
+                removal: .move(edge: .leading).combined(with: .opacity)
+            ))
+        }
+        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: currentStep)
+    }
 
-            Button("Back") {
-                currentStep = .welcome
+    // MARK: - Background
+
+    private var backgroundGradient: some View {
+        MeshGradientBackground()
+            .ignoresSafeArea()
+    }
+
+    // MARK: - Welcome
+
+    private var welcomeStep: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 24) {
+                // App Icon
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 72, weight: .thin))
+                    .foregroundStyle(QuartzColors.accentGradient)
+                    .symbolEffect(.breathe, options: .repeating)
+                    .slideUp()
+
+                VStack(spacing: 10) {
+                    Text("Quartz")
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .slideUp(delay: 0.1)
+
+                    Text("Your notes. Your files. Your way.")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .slideUp(delay: 0.15)
+                }
+
+                Text("Beautiful Markdown notes stored as plain files – always portable, always yours.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .slideUp(delay: 0.2)
             }
-            .padding(.bottom, 32)
+
+            Spacer()
+
+            VStack(spacing: 16) {
+                QuartzButton("Get Started", icon: "arrow.right") {
+                    currentStep = .chooseFolder
+                }
+
+                Text("No account needed")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+            .slideUp(delay: 0.3)
         }
     }
 
-    private var chooseTemplateStep: some View {
-        VStack(spacing: 24) {
-            Text("Choose a Structure")
-                .font(.title2.bold())
-                .padding(.top, 32)
+    // MARK: - Choose Folder
 
-            Text("Start with a proven organization system or start from scratch.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+    private var chooseFolderStep: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 20) {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 56, weight: .thin))
+                    .foregroundStyle(QuartzColors.folderYellow)
+
+                Text("Choose a Vault Folder")
+                    .font(.title2.bold())
+
+                Text("Pick a folder where Quartz will store your notes.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            Spacer()
 
             VStack(spacing: 12) {
-                templateOption(
+                QuartzButton("Choose Folder", icon: "folder") {
+                    // Triggered by fileImporter
+                }
+                .fileImporter(
+                    isPresented: .constant(true),
+                    allowedContentTypes: [.folder],
+                    allowsMultipleSelection: false
+                ) { result in
+                    if case .success(let urls) = result, let url = urls.first {
+                        _ = url.startAccessingSecurityScopedResource()
+                        vaultURL = url
+                        currentStep = .chooseTemplate
+                    }
+                }
+
+                Button("Back") {
+                    currentStep = .welcome
+                }
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
+        }
+    }
+
+    // MARK: - Choose Template
+
+    private var chooseTemplateStep: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                Text("Choose a Structure")
+                    .font(.title2.bold())
+
+                Text("Start with a proven system or a blank canvas.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 48)
+
+            Spacer()
+
+            VStack(spacing: 10) {
+                templateCard(
                     template: .para,
                     title: "PARA Method",
-                    description: "Projects, Areas, Resources, Archive – by Tiago Forte",
-                    icon: "square.grid.2x2"
+                    description: "Projects, Areas, Resources, Archive",
+                    icon: "square.grid.2x2.fill",
+                    color: QuartzColors.noteBlue
                 )
 
-                templateOption(
+                templateCard(
                     template: .zettelkasten,
                     title: "Zettelkasten",
-                    description: "Fleeting, Literature, Permanent Notes – atomic thinking",
-                    icon: "brain"
+                    description: "Fleeting, Literature & Permanent Notes",
+                    icon: "brain.head.profile.fill",
+                    color: QuartzColors.canvasPurple
                 )
 
-                templateOption(
+                templateCard(
                     template: .custom,
                     title: "Empty Vault",
                     description: "Start with a blank canvas",
-                    icon: "doc"
+                    icon: "doc",
+                    color: .gray
                 )
             }
             .padding(.horizontal, 24)
 
             Spacer()
 
-            Button {
-                currentStep = .creating
-                createVault()
-            } label: {
-                Text("Create Vault")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 32)
+            VStack(spacing: 12) {
+                QuartzButton("Create Vault", icon: "checkmark") {
+                    currentStep = .creating
+                    createVault()
+                }
 
-            Button("Back") {
-                currentStep = .chooseFolder
+                Button("Back") {
+                    currentStep = .chooseFolder
+                }
+                .foregroundStyle(.secondary)
             }
-            .padding(.bottom, 32)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 48)
         }
     }
+
+    // MARK: - Creating
 
     private var creatingStep: some View {
         VStack(spacing: 24) {
             Spacer()
+
             ProgressView()
                 .controlSize(.large)
-            Text("Setting up your vault…")
-                .font(.title3)
-                .foregroundStyle(.secondary)
+                .tint(Color(hex: 0xF2994A))
+
+            VStack(spacing: 8) {
+                Text("Setting up your vault…")
+                    .font(.title3.weight(.medium))
+
+                Text("This will only take a moment.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
         }
     }
 
-    // MARK: - Template Option
+    // MARK: - Template Card
 
-    private func templateOption(
+    private func templateCard(
         template: VaultTemplate,
         title: String,
         description: String,
-        icon: String
+        icon: String,
+        color: Color
     ) -> some View {
-        Button {
-            selectedTemplate = template
+        let isSelected = selectedTemplate == template
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedTemplate = template
+            }
         } label: {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.title2)
-                    .frame(width: 44)
-                    .foregroundStyle(selectedTemplate == template ? .white : .accentColor)
+                    .font(.title3)
+                    .frame(width: 40)
+                    .foregroundStyle(isSelected ? .white : color)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.callout.bold())
-                        .foregroundStyle(selectedTemplate == template ? .white : .primary)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(isSelected ? .white : .primary)
                     Text(description)
                         .font(.caption)
-                        .foregroundStyle(selectedTemplate == template ? .white.opacity(0.8) : .secondary)
+                        .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
                 }
 
                 Spacer()
 
-                if selectedTemplate == template {
+                if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.white)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
             .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(selectedTemplate == template ? Color.accentColor : Color(.secondarySystemBackground))
-            )
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? color.gradient : AnyShapeStyle(.regularMaterial))
+                    .shadow(color: isSelected ? color.opacity(0.3) : .clear, radius: 8, y: 4)
+            }
+            .overlay {
+                if !isSelected {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -253,11 +311,55 @@ public struct OnboardingView: View {
     }
 }
 
-// MARK: - Onboarding Steps
+// MARK: - Steps
 
-private enum OnboardingStep {
+private enum OnboardingStep: Equatable {
     case welcome
     case chooseFolder
     case chooseTemplate
     case creating
+}
+
+// MARK: - Mesh Gradient Background
+
+private struct MeshGradientBackground: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            Canvas { context, size in
+                let w = size.width
+                let h = size.height
+                let t = timeline.date.timeIntervalSinceReferenceDate
+
+                // Soft gradient circles
+                let colors: [Color] = [
+                    Color(hex: 0xFDCB6E).opacity(0.15),
+                    Color(hex: 0x74B9FF).opacity(0.1),
+                    Color(hex: 0xA29BFE).opacity(0.12),
+                ]
+
+                for (i, color) in colors.enumerated() {
+                    let offset = Double(i) * 2.1
+                    let x = w * (0.3 + 0.4 * sin(t * 0.3 + offset))
+                    let y = h * (0.3 + 0.4 * cos(t * 0.2 + offset))
+                    let radius = min(w, h) * 0.4
+
+                    let rect = CGRect(
+                        x: x - radius,
+                        y: y - radius,
+                        width: radius * 2,
+                        height: radius * 2
+                    )
+
+                    context.fill(
+                        Path(ellipseIn: rect),
+                        with: .color(color)
+                    )
+                }
+            }
+        }
+        .blur(radius: 60)
+        .background(Color(.systemBackground))
+    }
 }

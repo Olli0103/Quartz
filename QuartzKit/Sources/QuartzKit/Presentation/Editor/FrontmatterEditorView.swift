@@ -1,9 +1,7 @@
 import SwiftUI
 
 /// Zeigt den YAML-Frontmatter-Block als editierbare Key-Value-Liste.
-///
-/// Standard: Eingeklappt. Per Toggle sichtbar. Änderungen werden
-/// direkt im ViewModel reflektiert.
+/// Collapsible mit Liquid Glass Design.
 public struct FrontmatterEditorView: View {
     @Binding var frontmatter: Frontmatter
     @State private var isExpanded: Bool = false
@@ -17,35 +15,44 @@ public struct FrontmatterEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Toggle-Button
+            // Toggle Header
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 12)
+
+                    Image(systemName: "doc.badge.gearshape")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     Text("Frontmatter")
-                        .font(.caption.bold())
+                        .font(.caption.weight(.semibold))
+
                     Spacer()
+
                     if !isExpanded {
                         Text(summaryText)
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.quaternary)
                             .lineLimit(1)
                     }
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.bar)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
             }
             .buttonStyle(.plain)
 
-            // Expandierter Inhalt
+            // Expanded Content
             if isExpanded {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     // Title
                     LabeledField(label: "Title") {
                         TextField("Note title", text: Binding(
@@ -59,8 +66,16 @@ public struct FrontmatterEditorView: View {
                     LabeledField(label: "Tags") {
                         FlowLayout(spacing: 6) {
                             ForEach(frontmatter.tags, id: \.self) { tag in
-                                TagChip(text: tag) {
-                                    frontmatter.tags.removeAll { $0 == tag }
+                                HStack(spacing: 4) {
+                                    QuartzTagBadge(text: tag)
+                                    Button {
+                                        frontmatter.tags.removeAll { $0 == tag }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
 
@@ -68,13 +83,11 @@ public struct FrontmatterEditorView: View {
                                 TextField("Add tag", text: $newTag)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 100)
-                                    .onSubmit {
-                                        addTag()
-                                    }
-                                Button {
-                                    addTag()
-                                } label: {
+                                    .onSubmit { addTag() }
+
+                                Button { addTag() } label: {
                                     Image(systemName: "plus.circle.fill")
+                                        .foregroundStyle(Color(hex: 0xF2994A))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(newTag.isEmpty)
@@ -82,31 +95,16 @@ public struct FrontmatterEditorView: View {
                         }
                     }
 
-                    // Aliases
-                    LabeledField(label: "Aliases") {
-                        Text(frontmatter.aliases.joined(separator: ", "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
                     // Dates
-                    LabeledField(label: "Created") {
-                        Text(frontmatter.createdAt, style: .date)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    HStack(spacing: 16) {
+                        LabeledField(label: "Created") {
+                            Text(frontmatter.createdAt, style: .date)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                    LabeledField(label: "Modified") {
-                        Text(frontmatter.modifiedAt, style: .relative)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // Template
-                    if let template = frontmatter.template {
-                        LabeledField(label: "Template") {
-                            Text(template)
+                        LabeledField(label: "Modified") {
+                            Text(frontmatter.modifiedAt, style: .relative)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -135,10 +133,9 @@ public struct FrontmatterEditorView: View {
                             .frame(maxWidth: 100)
                         TextField("Value", text: $newCustomValue)
                             .textFieldStyle(.roundedBorder)
-                        Button {
-                            addCustomField()
-                        } label: {
+                        Button { addCustomField() } label: {
                             Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Color(hex: 0xF2994A))
                         }
                         .buttonStyle(.plain)
                         .disabled(newCustomKey.isEmpty)
@@ -147,6 +144,7 @@ public struct FrontmatterEditorView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(.background.secondary)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -185,34 +183,12 @@ private struct LabeledField<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption2.bold())
-                .foregroundStyle(.secondary)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
+                .tracking(0.5)
             content()
         }
-    }
-}
-
-private struct TagChip: View {
-    let text: String
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .font(.caption)
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.caption2)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.fill.tertiary)
-        .clipShape(Capsule())
     }
 }
 

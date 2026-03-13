@@ -14,6 +14,9 @@ public final class SidebarViewModel {
     private let vaultProvider: any VaultProviding
     private var vaultRoot: URL?
 
+    /// Öffentlicher Zugriff auf die Vault-Root-URL.
+    public var vaultRootURL: URL? { vaultRoot }
+
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
     }

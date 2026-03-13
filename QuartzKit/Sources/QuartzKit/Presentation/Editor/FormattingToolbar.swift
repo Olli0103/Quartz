@@ -46,7 +46,6 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         }
     }
 
-    /// Das Markdown-Prefix/Wrapper für diese Aktion.
     var markdownSyntax: MarkdownSyntax {
         switch self {
         case .bold: .wrap("**")
@@ -66,31 +65,22 @@ public enum FormattingAction: String, CaseIterable, Sendable {
 
 /// Beschreibt wie Markdown-Syntax auf Text angewandt wird.
 public enum MarkdownSyntax: Sendable {
-    /// Umschließt ausgewählten Text: `**text**`
     case wrap(String)
-    /// Prefix am Zeilenanfang: `# text`
     case linePrefix(String)
-    /// Block-Syntax: ```\ntext\n```
     case block(String, String)
-    /// Template mit Cursor-Platzierung: `[text](url)`
     case template(String, String)
 }
 
 // MARK: - Formatting Toolbar View
 
-/// Toolbar für Markdown-Formatierung.
-///
-/// iOS: Wird über der Tastatur angezeigt.
-/// macOS: Wird in der Toolbar des Editors angezeigt.
+/// Toolbar für Markdown-Formatierung – Liquid Glass Stil.
 public struct FormattingToolbar: View {
     let onAction: (FormattingAction) -> Void
 
-    /// Die primären Aktionen die direkt sichtbar sind.
     private let primaryActions: [FormattingAction] = [
         .bold, .italic, .heading, .bulletList, .checkbox, .code, .link
     ]
 
-    /// Sekundäre Aktionen im Overflow-Menü.
     private let secondaryActions: [FormattingAction] = [
         .numberedList, .codeBlock, .image, .blockquote
     ]
@@ -100,53 +90,53 @@ public struct FormattingToolbar: View {
     }
 
     public var body: some View {
-        HStack(spacing: 4) {
-            ForEach(primaryActions, id: \.self) { action in
-                Button {
-                    onAction(action)
-                } label: {
-                    Image(systemName: action.icon)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(action.label)
-            }
-
-            Divider()
-                .frame(height: 20)
-
-            Menu {
-                ForEach(secondaryActions, id: \.self) { action in
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(primaryActions, id: \.self) { action in
                     Button {
                         onAction(action)
                     } label: {
-                        Label(action.label, systemImage: action.icon)
+                        Image(systemName: action.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(action.label)
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .frame(width: 32, height: 32)
+
+                Divider()
+                    .frame(height: 18)
+                    .padding(.horizontal, 4)
+
+                Menu {
+                    ForEach(secondaryActions, id: \.self) { action in
+                        Button {
+                            onAction(action)
+                        } label: {
+                            Label(action.label, systemImage: action.icon)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .frame(height: 40)
     }
 }
 
 // MARK: - Markdown Text Formatting Logic
 
-/// Wendet Markdown-Formatierung auf Text an.
 public struct MarkdownFormatter: Sendable {
     public init() {}
 
-    /// Wendet eine Formatierungsaktion auf den gegebenen Text an.
-    ///
-    /// - Parameters:
-    ///   - action: Die Formatierungsaktion
-    ///   - text: Der gesamte Text
-    ///   - selectedRange: Der ausgewählte Bereich (NSRange)
-    /// - Returns: Neuer Text und neue Cursor-Position
     public func apply(
         _ action: FormattingAction,
         to text: String,
@@ -172,7 +162,6 @@ public struct MarkdownFormatter: Sendable {
             let replacement = "\(before)\(selectedText)\(after)"
             let newText = nsText.replacingCharacters(in: selectedRange, with: replacement)
             if selectedText.isEmpty {
-                // Cursor zwischen before und after
                 let cursorPos = selectedRange.location + before.count
                 return (newText, NSRange(location: cursorPos, length: 0))
             } else {
@@ -190,7 +179,6 @@ public struct MarkdownFormatter: Sendable {
     ) -> (String, NSRange) {
         let nsText = text as NSString
 
-        // Toggle: Wenn bereits gewrappt, entferne den Wrapper
         let markerLen = marker.count
         let before = selection.location >= markerLen
             ? nsText.substring(with: NSRange(location: selection.location - markerLen, length: markerLen))
@@ -201,12 +189,10 @@ public struct MarkdownFormatter: Sendable {
             : ""
 
         if before == marker && after == marker {
-            // Entfernen
             let removeRange = NSRange(location: selection.location - markerLen, length: selection.length + markerLen * 2)
             let newText = nsText.replacingCharacters(in: removeRange, with: selectedText)
             return (newText, NSRange(location: selection.location - markerLen, length: selectedText.count))
         } else {
-            // Hinzufügen
             let replacement = "\(marker)\(selectedText)\(marker)"
             let newText = nsText.replacingCharacters(in: selection, with: replacement)
             return (newText, NSRange(location: selection.location + markerLen, length: selectedText.count))
@@ -219,19 +205,15 @@ public struct MarkdownFormatter: Sendable {
         selection: NSRange
     ) -> (String, NSRange) {
         let nsText = text as NSString
-
-        // Finde den Anfang der aktuellen Zeile
         let lineRange = nsText.lineRange(for: selection)
         let line = nsText.substring(with: lineRange)
 
         if line.hasPrefix(prefix) {
-            // Toggle: Prefix entfernen
             let newLine = String(line.dropFirst(prefix.count))
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
             let newLoc = max(selection.location - prefix.count, lineRange.location)
             return (newText, NSRange(location: newLoc, length: 0))
         } else {
-            // Prefix hinzufügen
             let newLine = prefix + line
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
             return (newText, NSRange(location: selection.location + prefix.count, length: 0))

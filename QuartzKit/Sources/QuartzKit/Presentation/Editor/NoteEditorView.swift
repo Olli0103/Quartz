@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// WYSIWYG Markdown-Editor mit TextKit 2, Focus Mode und Typewriter Mode.
+/// WYSIWYG Markdown-Editor – clean, minimal, Apple-Notes-inspiriert.
+/// Liquid Glass Statusbar + Formatting Toolbar.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     @Environment(\.appearanceManager) private var appearance
@@ -14,19 +15,11 @@ public struct NoteEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Formatting Toolbar (hidden in focus mode)
-            FormattingToolbar { action in
-                let (newText, _) = formatter.apply(
-                    action,
-                    to: viewModel.content,
-                    selectedRange: NSRange(location: viewModel.content.count, length: 0)
-                )
-                viewModel.content = newText
-            }
-            .background(.bar)
-            .hidesInFocusMode()
+            // Formatting Toolbar
+            formattingBar
+                .hidesInFocusMode()
 
-            // Frontmatter (hidden in focus mode)
+            // Frontmatter (collapsible)
             if viewModel.note != nil {
                 FrontmatterEditorView(
                     frontmatter: Binding(
@@ -37,38 +30,15 @@ public struct NoteEditorView: View {
                 .hidesInFocusMode()
             }
 
-            // WYSIWYG Editor
+            // Editor
             MarkdownTextViewRepresentable(
                 text: $viewModel.content,
                 editorFontScale: appearance.editorFontScale
             )
 
-            // Status Bar (hidden in focus mode)
-            HStack {
-                if viewModel.isSaving {
-                    Label("Saving...", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if viewModel.isDirty {
-                    Label("Unsaved changes", systemImage: "pencil.circle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else {
-                    Label("Saved", systemImage: "checkmark.circle")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
-
-                Spacer()
-
-                Text("\(wordCount) words")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(.bar)
-            .hidesInFocusMode()
+            // Status Bar
+            statusBar
+                .hidesInFocusMode()
         }
         .navigationTitle(viewModel.note?.displayName ?? "Note")
         #if os(iOS)
@@ -76,44 +46,89 @@ public struct NoteEditorView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 12) {
-                    // Focus Mode Toggle
-                    if featureGate.isEnabled(.focusMode) {
-                        Button {
-                            focusMode.toggleFocusMode()
-                        } label: {
-                            Image(systemName: focusMode.isFocusModeActive
-                                  ? "eye.slash.fill" : "eye.fill")
-                        }
-                        .accessibilityLabel("Focus Mode")
-                    }
-
-                    // Typewriter Mode Toggle
-                    if featureGate.isEnabled(.typewriterMode) {
-                        Button {
-                            focusMode.toggleTypewriterMode()
-                        } label: {
-                            Image(systemName: focusMode.isTypewriterModeActive
-                                  ? "text.cursor" : "text.alignleft")
-                        }
-                        .accessibilityLabel("Typewriter Mode")
-                    }
-
-                    // Save Button
-                    if viewModel.isDirty {
-                        Button {
-                            Task { await viewModel.save() }
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                    }
-                }
+                editorToolbar
             }
         }
-        // Tap to exit focus mode
         .onTapGesture(count: 3) {
             if focusMode.isFocusModeActive {
                 focusMode.toggleFocusMode()
+            }
+        }
+    }
+
+    // MARK: - Formatting Bar
+
+    private var formattingBar: some View {
+        FormattingToolbar { action in
+            let (newText, _) = formatter.apply(
+                action,
+                to: viewModel.content,
+                selectedRange: NSRange(location: viewModel.content.count, length: 0)
+            )
+            viewModel.content = newText
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Status Bar
+
+    private var statusBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+
+                Text(statusText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text("\(wordCount) words")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+    }
+
+    private var statusColor: Color {
+        if viewModel.isSaving { return .orange }
+        if viewModel.isDirty { return .yellow }
+        return .green
+    }
+
+    private var statusText: String {
+        if viewModel.isSaving { return "Saving…" }
+        if viewModel.isDirty { return "Edited" }
+        return "Saved"
+    }
+
+    // MARK: - Editor Toolbar
+
+    private var editorToolbar: some View {
+        HStack(spacing: 12) {
+            if featureGate.isEnabled(.focusMode) {
+                Button {
+                    focusMode.toggleFocusMode()
+                } label: {
+                    Image(systemName: focusMode.isFocusModeActive
+                          ? "eye.slash.fill" : "eye.fill")
+                        .symbolRenderingMode(.hierarchical)
+                }
+            }
+
+            if viewModel.isDirty {
+                Button {
+                    Task { await viewModel.save() }
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .symbolRenderingMode(.hierarchical)
+                }
             }
         }
     }
