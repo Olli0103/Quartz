@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var showVaultPicker = false
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var searchIndex: VaultSearchIndex?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
@@ -26,16 +27,23 @@ struct ContentView: View {
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in
                 appState.currentVault = vault
-                let provider = ServiceContainer.shared.resolveVaultProvider()
-                let viewModel = SidebarViewModel(vaultProvider: provider)
-                sidebarViewModel = viewModel
-                Task {
-                    await viewModel.loadTree(at: vault.rootURL)
-                }
+                loadVault(vault)
             }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showSearch) {
+            if let searchIndex {
+                SearchView(searchIndex: searchIndex) { url in
+                    selectedNoteURL = url
+                }
+            }
+        }
+        .overlay {
+            if let error = appState.errorMessage {
+                errorBanner(message: error)
+            }
         }
         .tint(Color(hex: 0xF2994A))
     }
@@ -58,6 +66,7 @@ struct ContentView: View {
                             } label: {
                                 Image(systemName: "magnifyingglass")
                             }
+                            .disabled(searchIndex == nil)
 
                             Menu {
                                 Button {
@@ -145,7 +154,59 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Error Banner
+
+    private func errorBanner(message: String) -> some View {
+        VStack {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text(message)
+                    .font(.callout)
+                    .lineLimit(2)
+                Spacer()
+                Button {
+                    withAnimation { appState.errorMessage = nil }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+
+            Spacer()
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: appState.errorMessage)
+    }
+
     // MARK: - Actions
+
+    private func loadVault(_ vault: VaultConfig) {
+        let provider = ServiceContainer.shared.resolveVaultProvider()
+        let viewModel = SidebarViewModel(vaultProvider: provider)
+        sidebarViewModel = viewModel
+
+        let index = VaultSearchIndex(vaultProvider: provider)
+        searchIndex = index
+
+        Task {
+            await viewModel.loadTree(at: vault.rootURL)
+            do {
+                try await index.buildIndex(at: vault.rootURL)
+            } catch {
+                appState.errorMessage = "Failed to build search index: \(error.localizedDescription)"
+            }
+        }
+    }
 
     private func openNote(at url: URL?) {
         guard let url else {
