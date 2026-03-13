@@ -1,7 +1,7 @@
 import Foundation
 
 /// YAML-Metadaten einer Notiz, gespeichert im Frontmatter-Block.
-public struct Frontmatter: Codable, Equatable, Sendable {
+public struct Frontmatter: Codable, Hashable, Sendable {
     public var title: String?
     public var tags: [String]
     public var aliases: [String]

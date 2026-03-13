@@ -33,31 +33,32 @@ public actor CloudSyncService {
             let center = NotificationCenter.default
 
             // Initial results
-            let initialObserver = center.addObserver(
+            nonisolated(unsafe) let initialObserver = center.addObserver(
                 forName: .NSMetadataQueryDidFinishGathering,
                 object: query,
                 queue: .main
-            ) { notification in
+            ) { [weak self] notification in
                 guard let query = notification.object as? NSMetadataQuery else { return }
                 query.disableUpdates()
-                self.processQueryResults(query, continuation: continuation)
+                self?.processQueryResults(query, continuation: continuation)
                 query.enableUpdates()
             }
 
             // Updates
-            let updateObserver = center.addObserver(
+            nonisolated(unsafe) let updateObserver = center.addObserver(
                 forName: .NSMetadataQueryDidUpdate,
                 object: query,
                 queue: .main
-            ) { notification in
+            ) { [weak self] notification in
                 guard let query = notification.object as? NSMetadataQuery else { return }
                 query.disableUpdates()
-                self.processQueryResults(query, continuation: continuation)
+                self?.processQueryResults(query, continuation: continuation)
                 query.enableUpdates()
             }
 
+            nonisolated(unsafe) let queryRef = query
             continuation.onTermination = { @Sendable _ in
-                query.stop()
+                queryRef.stop()
                 center.removeObserver(initialObserver)
                 center.removeObserver(updateObserver)
             }

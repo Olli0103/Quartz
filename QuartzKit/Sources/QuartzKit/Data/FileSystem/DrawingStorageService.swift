@@ -1,6 +1,9 @@
 #if canImport(PencilKit)
 import Foundation
 import PencilKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Service für das Speichern und Laden von PencilKit-Zeichnungen.
 ///
@@ -103,7 +106,13 @@ public actor DrawingStorageService {
         let scale = min(maxSize / bounds.width, maxSize / bounds.height, 2.0)
         let image = drawing.image(from: bounds, scale: scale)
 
+        #if canImport(UIKit)
         guard let pngData = image.pngData() else { return }
+        #elseif canImport(AppKit)
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+        #endif
         try pngData.write(to: url, options: .atomic)
     }
 }
