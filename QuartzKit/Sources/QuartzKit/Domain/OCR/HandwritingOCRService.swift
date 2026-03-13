@@ -1,0 +1,126 @@
+#if canImport(Vision) && canImport(PencilKit)
+import Foundation
+import Vision
+import PencilKit
+import CoreGraphics
+
+/// Service für Handschrift-Erkennung auf PencilKit-Zeichnungen.
+///
+/// Nutzt `VNRecognizeTextRequest` im Hintergrund um
+/// handschriftlichen Text aus Zeichnungen zu extrahieren.
+public actor HandwritingOCRService {
+    public enum OCRError: LocalizedError, Sendable {
+        case renderingFailed
+        case recognitionFailed(String)
+        case noTextFound
+
+        public var errorDescription: String? {
+            switch self {
+            case .renderingFailed: "Failed to render drawing for OCR."
+            case .recognitionFailed(let msg): "Text recognition failed: \(msg)"
+            case .noTextFound: "No text found in drawing."
+            }
+        }
+    }
+
+    /// Ergebnis einer OCR-Erkennung.
+    public struct OCRResult: Sendable {
+        /// Der erkannte Text (alle Zeilen zusammengefügt).
+        public let fullText: String
+        /// Einzelne erkannte Textblöcke mit Konfidenz.
+        public let observations: [TextObservation]
+
+        public init(fullText: String, observations: [TextObservation]) {
+            self.fullText = fullText
+            self.observations = observations
+        }
+    }
+
+    /// Ein einzelner erkannter Textblock.
+    public struct TextObservation: Sendable {
+        public let text: String
+        public let confidence: Float
+
+        public init(text: String, confidence: Float) {
+            self.text = text
+            self.confidence = confidence
+        }
+    }
+
+    /// Unterstützte Sprachen für die Erkennung.
+    public let supportedLanguages: [String]
+
+    public init(languages: [String] = ["de-DE", "en-US"]) {
+        self.supportedLanguages = languages
+    }
+
+    /// Erkennt Text in einer PencilKit-Zeichnung.
+    ///
+    /// - Parameter drawing: Die zu analysierende Zeichnung
+    /// - Returns: OCRResult mit erkanntem Text
+    public func recognizeText(in drawing: PKDrawing) async throws -> OCRResult {
+        guard !drawing.bounds.isEmpty else {
+            throw OCRError.noTextFound
+        }
+
+        // Zeichnung als Bild rendern
+        let image = drawing.image(from: drawing.bounds, scale: 2.0)
+        guard let cgImage = image.cgImage else {
+            throw OCRError.renderingFailed
+        }
+
+        return try await performOCR(on: cgImage)
+    }
+
+    /// Erkennt Text in einem Bild (z.B. gescanntes Dokument).
+    public func recognizeText(in cgImage: CGImage) async throws -> OCRResult {
+        try await performOCR(on: cgImage)
+    }
+
+    // MARK: - Private
+
+    private func performOCR(on cgImage: CGImage) async throws -> OCRResult {
+        try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                if let error {
+                    continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
+                    return
+                }
+
+                guard let observations = request.results as? [VNRecognizedTextObservation],
+                      !observations.isEmpty else {
+                    continuation.resume(throwing: OCRError.noTextFound)
+                    return
+                }
+
+                let textObservations = observations.compactMap { observation -> TextObservation? in
+                    guard let topCandidate = observation.topCandidates(1).first else { return nil }
+                    return TextObservation(
+                        text: topCandidate.string,
+                        confidence: topCandidate.confidence
+                    )
+                }
+
+                let fullText = textObservations.map(\.text).joined(separator: "\n")
+
+                continuation.resume(returning: OCRResult(
+                    fullText: fullText,
+                    observations: textObservations
+                ))
+            }
+
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = supportedLanguages
+            request.usesLanguageCorrection = true
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
+            }
+        }
+    }
+}
+#endif
