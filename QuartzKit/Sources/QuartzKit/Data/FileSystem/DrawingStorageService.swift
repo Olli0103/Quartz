@@ -1,0 +1,110 @@
+#if canImport(PencilKit)
+import Foundation
+import PencilKit
+
+/// Service für das Speichern und Laden von PencilKit-Zeichnungen.
+///
+/// Zeichnungen werden als `.drawing` Dateien im `assets/` Ordner
+/// neben der zugehörigen Notiz gespeichert. Im Markdown werden sie
+/// als `![[drawing-id.drawing]]` eingebettet.
+public actor DrawingStorageService {
+    private let fileManager = FileManager.default
+
+    public init() {}
+
+    /// Speichert eine Zeichnung als `.drawing` Datei.
+    ///
+    /// - Parameters:
+    ///   - drawing: Die PencilKit-Zeichnung
+    ///   - drawingID: Eindeutige ID der Zeichnung
+    ///   - noteURL: URL der zugehörigen Notiz
+    /// - Returns: Relativer Pfad zur Zeichnungsdatei (für Markdown-Embed)
+    public func save(
+        drawing: PKDrawing,
+        drawingID: String,
+        noteURL: URL
+    ) throws -> String {
+        let assetsFolder = assetsURL(for: noteURL)
+        try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
+
+        let fileName = "\(drawingID).drawing"
+        let fileURL = assetsFolder.appending(path: fileName)
+
+        let data = drawing.dataRepresentation()
+        try data.write(to: fileURL, options: .atomic)
+
+        // Thumbnail als PNG speichern
+        let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
+        try saveThumbnail(drawing: drawing, to: thumbnailURL)
+
+        return "assets/\(fileName)"
+    }
+
+    /// Lädt eine Zeichnung aus einer `.drawing` Datei.
+    public func load(drawingID: String, noteURL: URL) throws -> PKDrawing {
+        let assetsFolder = assetsURL(for: noteURL)
+        let fileURL = assetsFolder.appending(path: "\(drawingID).drawing")
+
+        let data = try Data(contentsOf: fileURL)
+        return try PKDrawing(data: data)
+    }
+
+    /// Löscht eine Zeichnung und ihren Thumbnail.
+    public func delete(drawingID: String, noteURL: URL) throws {
+        let assetsFolder = assetsURL(for: noteURL)
+
+        let drawingURL = assetsFolder.appending(path: "\(drawingID).drawing")
+        let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
+
+        try? fileManager.removeItem(at: drawingURL)
+        try? fileManager.removeItem(at: thumbnailURL)
+    }
+
+    /// Listet alle Zeichnungs-IDs für eine Notiz auf.
+    public func listDrawings(for noteURL: URL) -> [String] {
+        let assetsFolder = assetsURL(for: noteURL)
+
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: assetsFolder,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+
+        return contents
+            .filter { $0.pathExtension == "drawing" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+    }
+
+    /// Generiert den Markdown-Embed-String für eine Zeichnung.
+    public func markdownEmbed(for drawingID: String) -> String {
+        "![[assets/\(drawingID).drawing]]"
+    }
+
+    /// Generiert eine neue eindeutige Drawing-ID.
+    public func generateDrawingID() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let timestamp = formatter.string(from: Date())
+        let suffix = String(UUID().uuidString.prefix(4)).lowercased()
+        return "drawing-\(timestamp)-\(suffix)"
+    }
+
+    // MARK: - Private
+
+    private func assetsURL(for noteURL: URL) -> URL {
+        noteURL.deletingLastPathComponent().appending(path: "assets")
+    }
+
+    private func saveThumbnail(drawing: PKDrawing, to url: URL, maxSize: CGFloat = 800) throws {
+        guard !drawing.bounds.isEmpty else { return }
+
+        let bounds = drawing.bounds
+        let scale = min(maxSize / bounds.width, maxSize / bounds.height, 2.0)
+        let image = drawing.image(from: bounds, scale: scale)
+
+        guard let pngData = image.pngData() else { return }
+        try pngData.write(to: url, options: .atomic)
+    }
+}
+#endif
