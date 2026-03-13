@@ -66,6 +66,13 @@ public final class NoteEditorViewModel {
         isSaving = false
     }
 
+    /// Aktualisiert das Frontmatter und markiert die Notiz als dirty.
+    public func updateFrontmatter(_ newFrontmatter: Frontmatter) {
+        note?.frontmatter = newFrontmatter
+        isDirty = true
+        scheduleAutosave()
+    }
+
     /// Plant Autosave nach Inaktivität.
     private func scheduleAutosave() {
         autosaveTask?.cancel()

@@ -26,6 +26,16 @@ public struct NoteEditorView: View {
             }
             .background(.bar)
 
+            // Frontmatter (collapsible)
+            if viewModel.note != nil {
+                FrontmatterEditorView(
+                    frontmatter: Binding(
+                        get: { viewModel.note?.frontmatter ?? Frontmatter() },
+                        set: { viewModel.updateFrontmatter($0) }
+                    )
+                )
+            }
+
             // WYSIWYG Editor
             MarkdownTextViewRepresentable(
                 text: $viewModel.content,
