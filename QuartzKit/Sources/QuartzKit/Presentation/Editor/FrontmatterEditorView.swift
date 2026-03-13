@@ -31,7 +31,7 @@ public struct FrontmatterEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Frontmatter")
+                    Text(String(localized: "Frontmatter"))
                         .font(.caption.weight(.semibold))
 
                     Spacer()
@@ -49,13 +49,14 @@ public struct FrontmatterEditorView: View {
                 .background(.ultraThinMaterial)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse frontmatter" : "Expand frontmatter")
 
             // Expanded Content
             if isExpanded {
                 VStack(spacing: 14) {
                     // Title
-                    LabeledField(label: "Title") {
-                        TextField("Note title", text: Binding(
+                    LabeledField(label: String(localized: "Title")) {
+                        TextField(String(localized: "Note title"), text: Binding(
                             get: { frontmatter.title ?? "" },
                             set: { frontmatter.title = $0.isEmpty ? nil : $0 }
                         ))
@@ -63,7 +64,7 @@ public struct FrontmatterEditorView: View {
                     }
 
                     // Tags
-                    LabeledField(label: "Tags") {
+                    LabeledField(label: String(localized: "Tags")) {
                         FlowLayout(spacing: 6) {
                             ForEach(frontmatter.tags, id: \.self) { tag in
                                 HStack(spacing: 4) {
@@ -76,11 +77,12 @@ public struct FrontmatterEditorView: View {
                                             .foregroundStyle(.tertiary)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("Remove tag \(tag)")
                                 }
                             }
 
                             HStack(spacing: 4) {
-                                TextField("Add tag", text: $newTag)
+                                TextField(String(localized: "Add tag"), text: $newTag)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 100)
                                     .onSubmit { addTag() }
@@ -91,19 +93,20 @@ public struct FrontmatterEditorView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(newTag.isEmpty)
+                                .accessibilityLabel("Add tag")
                             }
                         }
                     }
 
                     // Dates
                     HStack(spacing: 16) {
-                        LabeledField(label: "Created") {
+                        LabeledField(label: String(localized: "Created")) {
                             Text(frontmatter.createdAt, style: .date)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
-                        LabeledField(label: "Modified") {
+                        LabeledField(label: String(localized: "Modified")) {
                             Text(frontmatter.modifiedAt, style: .relative)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -128,10 +131,10 @@ public struct FrontmatterEditorView: View {
 
                     // Add Custom Field
                     HStack(spacing: 8) {
-                        TextField("Key", text: $newCustomKey)
+                        TextField(String(localized: "Key"), text: $newCustomKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 100)
-                        TextField("Value", text: $newCustomValue)
+                        TextField(String(localized: "Value"), text: $newCustomValue)
                             .textFieldStyle(.roundedBorder)
                         Button { addCustomField() } label: {
                             Image(systemName: "plus.circle.fill")
@@ -139,6 +142,7 @@ public struct FrontmatterEditorView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(newCustomKey.isEmpty)
+                        .accessibilityLabel("Add custom field")
                     }
                 }
                 .padding(.horizontal, 16)

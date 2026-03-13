@@ -40,7 +40,7 @@ public struct NoteEditorView: View {
             statusBar
                 .hidesInFocusMode()
         }
-        .navigationTitle(viewModel.note?.displayName ?? "Note")
+        .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note"))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -96,7 +96,7 @@ public struct NoteEditorView: View {
 
             Spacer()
 
-            Text("\(wordCount) words")
+            Text("\(wordCount) \(String(localized: "words"))")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
@@ -114,9 +114,9 @@ public struct NoteEditorView: View {
     }
 
     private var statusText: String {
-        if viewModel.isSaving { return "Saving…" }
-        if viewModel.isDirty { return "Edited" }
-        return "Saved"
+        if viewModel.isSaving { return String(localized: "Saving…") }
+        if viewModel.isDirty { return String(localized: "Edited") }
+        return String(localized: "Saved")
     }
 
     // MARK: - Editor Toolbar
@@ -131,6 +131,7 @@ public struct NoteEditorView: View {
                           ? "eye.slash.fill" : "eye.fill")
                         .symbolRenderingMode(.hierarchical)
                 }
+                .accessibilityLabel(focusMode.isFocusModeActive ? String(localized: "Exit focus mode") : String(localized: "Enter focus mode"))
             }
 
             if viewModel.isDirty {
@@ -140,6 +141,7 @@ public struct NoteEditorView: View {
                     Image(systemName: "square.and.arrow.down")
                         .symbolRenderingMode(.hierarchical)
                 }
+                .accessibilityLabel(String(localized: "Save note"))
             }
         }
     }

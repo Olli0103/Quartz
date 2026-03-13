@@ -32,17 +32,17 @@ public enum FormattingAction: String, CaseIterable, Sendable {
 
     var label: String {
         switch self {
-        case .bold: "Bold"
-        case .italic: "Italic"
-        case .heading: "Heading"
-        case .bulletList: "Bullet List"
-        case .numberedList: "Numbered List"
-        case .checkbox: "Checkbox"
-        case .code: "Inline Code"
-        case .codeBlock: "Code Block"
-        case .link: "Link"
-        case .image: "Image"
-        case .blockquote: "Quote"
+        case .bold: String(localized: "Bold")
+        case .italic: String(localized: "Italic")
+        case .heading: String(localized: "Heading")
+        case .bulletList: String(localized: "Bullet List")
+        case .numberedList: String(localized: "Numbered List")
+        case .checkbox: String(localized: "Checkbox")
+        case .code: String(localized: "Inline Code")
+        case .codeBlock: String(localized: "Code Block")
+        case .link: String(localized: "Link")
+        case .image: String(localized: "Image")
+        case .blockquote: String(localized: "Quote")
         }
     }
 
@@ -98,7 +98,7 @@ public struct FormattingToolbar: View {
                     } label: {
                         Image(systemName: action.icon)
                             .font(.system(size: 14, weight: .medium))
-                            .frame(width: 36, height: 36)
+                            .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -121,10 +121,11 @@ public struct FormattingToolbar: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 14, weight: .medium))
-                        .frame(width: 36, height: 36)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(String(localized: "More formatting options"))
             }
             .padding(.horizontal, 8)
         }

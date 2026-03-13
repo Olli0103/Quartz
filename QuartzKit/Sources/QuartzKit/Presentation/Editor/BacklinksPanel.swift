@@ -29,7 +29,7 @@ public struct BacklinksPanel: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("Backlinks")
+                    Text(String(localized: "Backlinks"))
                         .font(.caption.weight(.semibold))
 
                     Spacer()
@@ -48,13 +48,14 @@ public struct BacklinksPanel: View {
                 .background(.ultraThinMaterial)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse backlinks" : "Expand backlinks")
 
             // Content
             if isExpanded {
                 if backlinks.isEmpty {
                     HStack {
                         Spacer()
-                        Text("No other notes link here.")
+                        Text(String(localized: "No other notes link here."))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                         Spacer()
@@ -96,6 +97,7 @@ public struct BacklinksPanel: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Open \(backlink.sourceNoteName)")
                         }
                     }
                     .padding(.horizontal, 16)

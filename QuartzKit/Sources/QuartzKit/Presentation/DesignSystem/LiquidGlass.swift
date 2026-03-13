@@ -3,25 +3,68 @@ import SwiftUI
 import AppKit
 #endif
 
+// MARK: - Adaptive Color Helper
+
+/// Creates a Color that adapts between light and dark mode.
+private func adaptiveColor(light: UInt, dark: UInt) -> Color {
+    #if canImport(UIKit)
+    return Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(
+                red: CGFloat((dark >> 16) & 0xFF) / 255.0,
+                green: CGFloat((dark >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(dark & 0xFF) / 255.0,
+                alpha: 1.0
+            )
+            : UIColor(
+                red: CGFloat((light >> 16) & 0xFF) / 255.0,
+                green: CGFloat((light >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(light & 0xFF) / 255.0,
+                alpha: 1.0
+            )
+    })
+    #elseif canImport(AppKit)
+    return Color(nsColor: NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let hex = isDark ? dark : light
+        return NSColor(
+            red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+            green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(hex & 0xFF) / 255.0,
+            alpha: 1.0
+        )
+    })
+    #endif
+}
+
 // MARK: - Quartz Color Palette
 
 /// Zentrale Farbpalette für Quartz – inspiriert von Apple Notes + Liquid Glass.
 public enum QuartzColors {
-    // Primary brand gradient
+    // Primary brand gradient (slightly desaturated/brightened in dark mode)
     public static let accentGradient = LinearGradient(
-        colors: [Color(hex: 0xF7C948), Color(hex: 0xF2994A)],
+        colors: [
+            adaptiveColor(light: 0xF7C948, dark: 0xFFD95A),
+            adaptiveColor(light: 0xF2994A, dark: 0xFFAB5E),
+        ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
     public static let warmGradient = LinearGradient(
-        colors: [Color(hex: 0xFDCB6E), Color(hex: 0xE17055)],
+        colors: [
+            adaptiveColor(light: 0xFDCB6E, dark: 0xFFD97F),
+            adaptiveColor(light: 0xE17055, dark: 0xF08070),
+        ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
     public static let coolGradient = LinearGradient(
-        colors: [Color(hex: 0x74B9FF), Color(hex: 0xA29BFE)],
+        colors: [
+            adaptiveColor(light: 0x74B9FF, dark: 0x8AC4FF),
+            adaptiveColor(light: 0xA29BFE, dark: 0xB5AFFE),
+        ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -36,22 +79,22 @@ public enum QuartzColors {
     public static let subtleText = Color(nsColor: .tertiaryLabelColor)
     #endif
 
-    // Node type colors
-    public static let folderYellow = Color(hex: 0xFDCB6E)
-    public static let noteBlue = Color(hex: 0x74B9FF)
-    public static let assetOrange = Color(hex: 0xE17055)
-    public static let canvasPurple = Color(hex: 0xA29BFE)
+    // Node type colors (brighter variants for dark mode)
+    public static let folderYellow = adaptiveColor(light: 0xFDCB6E, dark: 0xFFD97F)
+    public static let noteBlue = adaptiveColor(light: 0x74B9FF, dark: 0x8AC4FF)
+    public static let assetOrange = adaptiveColor(light: 0xE17055, dark: 0xF08070)
+    public static let canvasPurple = adaptiveColor(light: 0xA29BFE, dark: 0xB5AFFE)
 
-    // Tag colors – cycle for variety
+    // Tag colors – cycle for variety (with dark mode variants)
     public static let tagPalette: [Color] = [
-        Color(hex: 0x74B9FF),
-        Color(hex: 0xA29BFE),
-        Color(hex: 0xFD79A8),
-        Color(hex: 0xFDCB6E),
-        Color(hex: 0x55EFC4),
-        Color(hex: 0xE17055),
-        Color(hex: 0x00CEC9),
-        Color(hex: 0x6C5CE7),
+        adaptiveColor(light: 0x74B9FF, dark: 0x8AC4FF),
+        adaptiveColor(light: 0xA29BFE, dark: 0xB5AFFE),
+        adaptiveColor(light: 0xFD79A8, dark: 0xFF8FB8),
+        adaptiveColor(light: 0xFDCB6E, dark: 0xFFD97F),
+        adaptiveColor(light: 0x55EFC4, dark: 0x6FF5D0),
+        adaptiveColor(light: 0xE17055, dark: 0xF08070),
+        adaptiveColor(light: 0x00CEC9, dark: 0x20DED9),
+        adaptiveColor(light: 0x6C5CE7, dark: 0x8577F0),
     ]
 
     public static func tagColor(for tag: String) -> Color {
@@ -121,6 +164,7 @@ public struct GlassCard: ViewModifier {
 /// Floating Action Button Stil.
 public struct FloatingButtonStyle: ButtonStyle {
     var color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -133,7 +177,7 @@ public struct FloatingButtonStyle: ButtonStyle {
                     .shadow(color: color.opacity(0.4), radius: 12, y: 6)
             )
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -205,13 +249,18 @@ public extension View {
 private struct FadeInModifier: ViewModifier {
     let delay: Double
     @State private var opacity: Double = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .opacity(opacity)
             .onAppear {
-                withAnimation(.easeOut(duration: 0.4).delay(delay)) {
+                if reduceMotion {
                     opacity = 1
+                } else {
+                    withAnimation(.easeOut(duration: 0.4).delay(delay)) {
+                        opacity = 1
+                    }
                 }
             }
     }
@@ -221,15 +270,21 @@ private struct SlideUpModifier: ViewModifier {
     let delay: Double
     @State private var offset: CGFloat = 20
     @State private var opacity: Double = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .offset(y: offset)
             .opacity(opacity)
             .onAppear {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.8).delay(delay)) {
+                if reduceMotion {
                     offset = 0
                     opacity = 1
+                } else {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8).delay(delay)) {
+                        offset = 0
+                        opacity = 1
+                    }
                 }
             }
     }
@@ -240,6 +295,7 @@ private struct StaggeredAppearModifier: ViewModifier {
     let index: Int
     let baseDelay: Double
     @State private var isVisible = false
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -247,9 +303,13 @@ private struct StaggeredAppearModifier: ViewModifier {
             .offset(y: isVisible ? 0 : 12)
             .scaleEffect(isVisible ? 1 : 0.97)
             .onAppear {
-                let delay = baseDelay + Double(index) * 0.04
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.82).delay(delay)) {
+                if reduceMotion {
                     isVisible = true
+                } else {
+                    let delay = baseDelay + Double(index) * 0.04
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82).delay(delay)) {
+                        isVisible = true
+                    }
                 }
             }
     }
@@ -260,15 +320,21 @@ private struct ScaleInModifier: ViewModifier {
     let delay: Double
     @State private var scale: CGFloat = 0.6
     @State private var opacity: Double = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .scaleEffect(scale)
             .opacity(opacity)
             .onAppear {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.7).delay(delay)) {
+                if reduceMotion {
                     scale = 1
                     opacity = 1
+                } else {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.7).delay(delay)) {
+                        scale = 1
+                        opacity = 1
+                    }
                 }
             }
     }
@@ -277,44 +343,51 @@ private struct ScaleInModifier: ViewModifier {
 /// Shimmer-Effekt für Skeleton Loading.
 public struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     public func body(content: Content) -> some View {
-        content
-            .overlay {
-                GeometryReader { geo in
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: max(0, phase - 0.3)),
-                            .init(color: .white.opacity(0.15), location: phase),
-                            .init(color: .clear, location: min(1, phase + 0.3)),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .onAppear {
-                        withAnimation(
-                            .linear(duration: 1.5)
-                            .repeatForever(autoreverses: false)
-                        ) {
-                            phase = 2
+        if reduceMotion {
+            content
+        } else {
+            content
+                .overlay {
+                    GeometryReader { geo in
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: max(0, phase - 0.3)),
+                                .init(color: .white.opacity(0.15), location: phase),
+                                .init(color: .clear, location: min(1, phase + 0.3)),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .onAppear {
+                            withAnimation(
+                                .linear(duration: 1.5)
+                                .repeatForever(autoreverses: false)
+                            ) {
+                                phase = 2
+                            }
                         }
                     }
+                    .mask(content)
                 }
-                .mask(content)
-            }
+        }
     }
 }
 
 /// Sanftes Pulsieren – z.B. für den Save-Indikator.
 private struct PulseModifier: ViewModifier {
     @State private var isPulsing = false
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .scaleEffect(isPulsing ? 1.15 : 1.0)
             .opacity(isPulsing ? 0.7 : 1.0)
             .onAppear {
+                guard !reduceMotion else { return }
                 withAnimation(
                     .easeInOut(duration: 0.8)
                     .repeatForever(autoreverses: true)
@@ -330,15 +403,21 @@ private struct BounceInModifier: ViewModifier {
     let delay: Double
     @State private var scale: CGFloat = 0.3
     @State private var opacity: Double = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .scaleEffect(scale)
             .opacity(opacity)
             .onAppear {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(delay)) {
+                if reduceMotion {
                     scale = 1
                     opacity = 1
+                } else {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(delay)) {
+                        scale = 1
+                        opacity = 1
+                    }
                 }
             }
     }
@@ -349,15 +428,21 @@ private struct SpinInModifier: ViewModifier {
     let delay: Double
     @State private var rotation: Double = -90
     @State private var opacity: Double = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .rotationEffect(.degrees(rotation))
             .opacity(opacity)
             .onAppear {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(delay)) {
+                if reduceMotion {
                     rotation = 0
                     opacity = 1
+                } else {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(delay)) {
+                        rotation = 0
+                        opacity = 1
+                    }
                 }
             }
     }
@@ -366,15 +451,20 @@ private struct SpinInModifier: ViewModifier {
 /// Parallax-Effekt basierend auf Scroll-Position.
 public struct ParallaxModifier: ViewModifier {
     let strength: CGFloat
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     public func body(content: Content) -> some View {
-        GeometryReader { geo in
-            let midY = geo.frame(in: .global).midY
-            let viewHeight = geo.size.height
-            let offset = (midY / max(viewHeight, 1) - 1) * strength
-
+        if reduceMotion {
             content
-                .offset(y: offset)
+        } else {
+            GeometryReader { geo in
+                let midY = geo.frame(in: .global).midY
+                let viewHeight = geo.size.height
+                let offset = (midY / max(viewHeight, 1) - 1) * strength
+
+                content
+                    .offset(y: offset)
+            }
         }
     }
 }
@@ -386,6 +476,7 @@ public struct QuartzTagBadge: View {
     public let text: String
     public var isSelected: Bool = false
     public var showHash: Bool = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(text: String, isSelected: Bool = false, showHash: Bool = true) {
         self.text = text
@@ -416,7 +507,7 @@ public struct QuartzTagBadge: View {
                 .shadow(color: isSelected ? tagColor.opacity(0.3) : .clear, radius: 4, y: 2)
         }
         .scaleEffect(isSelected ? 1.05 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+        .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
     }
 }
 
@@ -482,6 +573,8 @@ public struct QuartzButton: View {
 
 /// Press-ButtonStyle: sanftes Eindrücken + Schatten-Reduktion.
 public struct QuartzPressButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
@@ -493,30 +586,34 @@ public struct QuartzPressButtonStyle: ButtonStyle {
                 radius: configuration.isPressed ? 4 : 12,
                 y: configuration.isPressed ? 2 : 6
             )
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : .spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
 /// Subtiler Card-ButtonStyle für interaktive Karten.
 public struct QuartzCardButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .opacity(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : .spring(response: 0.2, dampingFraction: 0.75), value: configuration.isPressed)
     }
 }
 
 /// Bounce-ButtonStyle für kleine Buttons/Icons.
 public struct QuartzBounceButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.5), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : .spring(response: 0.25, dampingFraction: 0.5), value: configuration.isPressed)
     }
 }
 

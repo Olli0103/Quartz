@@ -9,8 +9,19 @@ import AVFoundation
 public final class AudioRecordingService: NSObject {
     // MARK: - State
 
-    public private(set) var isRecording: Bool = false
-    public private(set) var isPaused: Bool = false
+    public enum RecordingState {
+        case idle
+        case recording
+        case paused
+    }
+
+    public private(set) var state: RecordingState = .idle
+
+    /// Backwards-compatible convenience accessor.
+    public var isRecording: Bool { state == .recording || state == .paused }
+
+    /// Backwards-compatible convenience accessor.
+    public var isPaused: Bool { state == .paused }
     public private(set) var duration: TimeInterval = 0
     public private(set) var currentLevel: Float = 0
     public private(set) var peakLevel: Float = 0
@@ -100,8 +111,7 @@ public final class AudioRecordingService: NSObject {
             throw RecordingError.recordingFailed(error.localizedDescription)
         }
 
-        isRecording = true
-        isPaused = false
+        state = .recording
         duration = 0
         levelHistory = []
         lastRecordingURL = fileURL
@@ -113,17 +123,17 @@ public final class AudioRecordingService: NSObject {
 
     /// Pausiert die laufende Aufnahme.
     public func pause() {
-        guard isRecording, !isPaused else { return }
+        guard state == .recording else { return }
         recorder?.pause()
-        isPaused = true
+        state = .paused
         stopTimers()
     }
 
     /// Setzt eine pausierte Aufnahme fort.
     public func resume() {
-        guard isRecording, isPaused else { return }
+        guard state == .paused else { return }
         recorder?.record()
-        isPaused = false
+        state = .recording
         startTimers()
     }
 
@@ -132,15 +142,14 @@ public final class AudioRecordingService: NSObject {
     /// - Returns: URL der gespeicherten Aufnahmedatei
     @discardableResult
     public func stopRecording() throws -> URL {
-        guard let recorder, isRecording else {
+        guard let recorder, state != .idle else {
             throw RecordingError.noActiveRecording
         }
 
         recorder.stop()
         stopTimers()
 
-        isRecording = false
-        isPaused = false
+        state = .idle
 
         let session = AVAudioSession.sharedInstance()
         try? session.setActive(false)
@@ -158,8 +167,7 @@ public final class AudioRecordingService: NSObject {
         recorder?.deleteRecording()
         stopTimers()
 
-        isRecording = false
-        isPaused = false
+        state = .idle
         duration = 0
         lastRecordingURL = nil
     }
@@ -216,13 +224,11 @@ public final class AudioRecordingService: NSObject {
 extension AudioRecordingService: AVAudioRecorderDelegate {
     public func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         if !flag {
-            isRecording = false
-            isPaused = false
+            state = .idle
         }
     }
 
     public func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        isRecording = false
-        isPaused = false
+        state = .idle
     }
 }
