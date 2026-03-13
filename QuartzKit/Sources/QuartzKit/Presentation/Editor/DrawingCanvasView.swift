@@ -186,9 +186,10 @@ struct DrawingThumbnailView: View {
                     Spacer()
                 }
             } else {
+                let scale = UITraitCollection.current.displayScale
                 let image = drawing.image(
                     from: drawing.bounds,
-                    scale: UIScreen.main.scale
+                    scale: scale
                 )
                 Image(uiImage: image)
                     .resizable()

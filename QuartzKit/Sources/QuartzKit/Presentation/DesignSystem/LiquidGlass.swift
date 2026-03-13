@@ -370,12 +370,8 @@ public struct ParallaxModifier: ViewModifier {
     public func body(content: Content) -> some View {
         GeometryReader { geo in
             let midY = geo.frame(in: .global).midY
-            #if canImport(UIKit)
-            let screenHeight = UIScreen.main.bounds.height
-            #elseif canImport(AppKit)
-            let screenHeight = NSScreen.main?.frame.height ?? 800
-            #endif
-            let offset = (midY - screenHeight / 2) / screenHeight * strength
+            let viewHeight = geo.size.height
+            let offset = (midY / max(viewHeight, 1) - 1) * strength
 
             content
                 .offset(y: offset)

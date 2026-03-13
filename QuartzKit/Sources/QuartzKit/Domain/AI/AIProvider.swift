@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Security
 
 // MARK: - AI Provider Protocol
@@ -306,11 +307,12 @@ public final class OpenRouterProvider: AIProvider, Sendable {
 // MARK: - Provider Registry
 
 /// Registry für alle verfügbaren KI-Provider.
+@Observable
 @MainActor
-public final class AIProviderRegistry: ObservableObject {
-    @Published public private(set) var providers: [any AIProvider]
-    @Published public var selectedProviderID: String
-    @Published public var selectedModelID: String?
+public final class AIProviderRegistry {
+    public private(set) var providers: [any AIProvider]
+    public var selectedProviderID: String
+    public var selectedModelID: String?
 
     public static let shared = AIProviderRegistry()
 
@@ -353,13 +355,11 @@ public final class AIProviderRegistry: ObservableObject {
             provider: providerID
         )
         await customModelStore.add(model, for: providerID)
-        objectWillChange.send()
     }
 
     /// Benutzerdefiniertes Modell entfernen.
     public func removeCustomModel(id modelID: String, forProvider providerID: String) async {
         await customModelStore.remove(modelID: modelID, for: providerID)
-        objectWillChange.send()
     }
 
     /// Alle benutzerdefinierten Modelle eines Providers.
