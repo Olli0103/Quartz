@@ -3,6 +3,9 @@ import Foundation
 import Vision
 import PencilKit
 import CoreGraphics
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Service für Handschrift-Erkennung auf PencilKit-Zeichnungen.
 ///
@@ -65,9 +68,15 @@ public actor HandwritingOCRService {
 
         // Zeichnung als Bild rendern
         let image = drawing.image(from: drawing.bounds, scale: 2.0)
+        #if canImport(UIKit)
         guard let cgImage = image.cgImage else {
             throw OCRError.renderingFailed
         }
+        #elseif canImport(AppKit)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw OCRError.renderingFailed
+        }
+        #endif
 
         return try await performOCR(on: cgImage)
     }
