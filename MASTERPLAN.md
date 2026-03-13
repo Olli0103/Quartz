@@ -1,8 +1,9 @@
-# Cortex – Master Architektur & Entwicklungs-Plan
+# Quartz – Master Architektur & Entwicklungs-Plan
 
-> **Version:** 0.1 · **Datum:** 2026-03-13
+> **Version:** 0.2 · **Datum:** 2026-03-13
 > **Ziel:** Der Sweet Spot zwischen Apple Notes, Obsidian und moderner KI.
 > **Modell:** OpenCore – Open-Source-Kern auf GitHub, polierte Pro-Version als Einmalkauf im App Store.
+> **Projektname:** Quartz (alle Xcode-Targets, Namespaces und Bundle-IDs verwenden diesen Namen)
 
 ---
 
@@ -61,7 +62,15 @@
 - File-I/O wird in dedizierten `Actor`-Isolations-Kontexten ausgeführt.
 - `@MainActor` nur auf Presentation-Schicht.
 
-### 1.5 Dateisystem als Single Source of Truth
+### 1.5 Appearance & Lokalisierung
+
+- **Theme**: Nutzer wählt zwischen Hell, Dunkel und System (folgt `colorScheme`). Gespeichert in `UserDefaults` via `AppearanceManager`.
+- **Sprache**: Vollständige Lokalisierung via **String Catalogs** (`.xcstrings`, Xcode 15+). Startsprachen: Deutsch, Englisch. Weitere Sprachen einfach erweiterbar.
+- **Schriftgröße**: Respektiert Dynamic Type von iOS/macOS. Optionaler Custom-Slider für Editor-Schriftgröße.
+- **App-Icon**: Alternatives App-Icon wählbar in den Einstellungen.
+- Alle Appearance-Einstellungen gebündelt in `AppearanceSettingsView` unter Settings.
+
+### 1.6 Dateisystem als Single Source of Truth
 
 - **Keine SQLite/CoreData-Datenbank** für Notiz-Inhalte.
 - Jede Notiz = eine `.md` Datei auf der Festplatte.
@@ -75,13 +84,13 @@
 ### 2.1 Xcode-Projekt-Struktur
 
 ```
-Cortex/
-├── CortexApp/                      # App Entry Point (Universal: iOS, iPadOS, macOS)
-│   ├── CortexApp.swift
+Quartz/
+├── QuartzApp/                      # App Entry Point (Universal: iOS, iPadOS, macOS)
+│   ├── QuartzApp.swift
 │   ├── Assets.xcassets
 │   └── Info.plist
 │
-├── CortexKit/                      # 🔓 OPEN SOURCE – Swift Package (Core)
+├── QuartzKit/                      # 🔓 OPEN SOURCE – Swift Package (Core)
 │   ├── Sources/
 │   │   ├── Domain/
 │   │   │   ├── Models/
@@ -119,6 +128,7 @@ Cortex/
 │   │   └── Presentation/
 │   │       ├── App/
 │   │       │   ├── AppState.swift
+│   │       │   ├── AppearanceManager.swift  # Dark/Light/System Theme
 │   │       │   └── ServiceContainer.swift
 │   │       ├── Sidebar/
 │   │       │   ├── SidebarView.swift
@@ -131,14 +141,15 @@ Cortex/
 │   │       ├── Onboarding/
 │   │       │   └── OnboardingFlow.swift
 │   │       └── Settings/
-│   │           └── SettingsView.swift
+│   │           ├── SettingsView.swift
+│   │           └── AppearanceSettingsView.swift
 │   │
 │   └── Tests/
 │       ├── DomainTests/
 │       ├── DataTests/
 │       └── PresentationTests/
 │
-├── CortexPro/                      # 🔒 CLOSED SOURCE – Pro Features (separates Target)
+├── QuartzPro/                      # 🔒 CLOSED SOURCE – Pro Features (separates Target)
 │   ├── ProFeatureGate.swift         # Feature-Flag-Logik
 │   ├── AdvancedAI/
 │   ├── MeetingMinutes/
@@ -151,19 +162,19 @@ Cortex/
 │
 └── Resources/
     ├── Templates/                  # Onboarding-Vorlagen (PARA, Zettelkasten)
-    └── Localization/
+    └── Localization/               # String Catalogs (.xcstrings) für Mehrsprachigkeit
 ```
 
 ### 2.2 Target-Aufteilung
 
 | Target | Lizenz | Inhalt |
 |---|---|---|
-| `CortexKit` | MIT / Apache 2.0 | Domain-Modelle, FileSystem-Services, Markdown-Parser, Basis-UI |
-| `CortexPro` | Proprietär | Erweiterte KI, Meeting Minutes, Premium-Templates |
-| `CortexApp` | Proprietär | App-Shell, verbindet Core + Pro, App Store Build |
+| `QuartzKit` | MIT / Apache 2.0 | Domain-Modelle, FileSystem-Services, Markdown-Parser, Basis-UI |
+| `QuartzPro` | Proprietär | Erweiterte KI, Meeting Minutes, Premium-Templates |
+| `QuartzApp` | Proprietär | App-Shell, verbindet Core + Pro, App Store Build |
 | `Extensions` | Proprietär | Share Extension, Widgets, Quick Note |
 
-**CortexKit** ist ein **Swift Package** innerhalb des Monorepos. Es kann unabhängig gebaut, getestet und als Open-Source-Paket veröffentlicht werden.
+**QuartzKit** ist ein **Swift Package** innerhalb des Monorepos. Es kann unabhängig gebaut, getestet und als Open-Source-Paket veröffentlicht werden.
 
 ---
 
@@ -188,12 +199,14 @@ Cortex/
 | **Speaker Diarization** | `SoundAnalysis` + Custom CoreML | `CreateML` für Training | Komplexestes Feature |
 | **On-Device AI** | Apple Intelligence APIs | `NaturalLanguage`, `CoreML` | Zusammenfassen, Umschreiben |
 | **BYOK AI** | `URLSession` (REST) | `Foundation.JSONEncoder` | OpenAI/Anthropic/Gemini/Ollama APIs |
-| **Vektor-Embeddings** | `NaturalLanguage` (`NLEmbedding`) | Custom CoreML Modell | Lokaler Embedding-Index |
-| **Semantic Search** | Eigene Implementierung | `Accelerate` (Cosine Similarity) | FAISS-ähnlich, aber nativ |
+| **Vektor-Embeddings** | Native Apple Vector Search (iOS 18+ / macOS 15+) | `NaturalLanguage` (`NLEmbedding`), `CoreML` | Apple's native Vektor-Suche nutzen – keine externe DB |
+| **Semantic Search** | Native Apple Vector Search APIs | `Accelerate` (Fallback Cosine Similarity) | Primär native APIs, eigene Implementierung nur als Fallback |
 | **Share Extension** | `NSExtensionContext` | `SwiftUI` (Extension UI) | Speichert in Vault-Inbox |
 | **Widgets** | `WidgetKit` | `AppIntents` | Lockscreen + Home Screen |
 | **Mac Quick Note** | `AppKit` (`NSPanel`) | `NSEvent.addGlobalMonitorForEvents` | Globaler Hotkey → Schwebefenster |
 | **Control Center** | `ControlWidget` (iOS 18+) | `AppIntents` | Schnellzugriff |
+| **Appearance (Theme)** | `SwiftUI` (`colorScheme`, `preferredColorScheme`) | `UserDefaults` | Hell / Dunkel / System |
+| **Lokalisierung** | String Catalogs (`.xcstrings`) | `Bundle`, `LocalizedStringKey` | Deutsch + Englisch als Start |
 | **Onboarding Templates** | `FileManager` (Dateien kopieren) | `Bundle` (Template-Ressourcen) | PARA, Zettelkasten etc. |
 
 ### 3.2 Bewusste Nicht-Nutzung
@@ -285,7 +298,7 @@ EmbeddingEntry
 └── lastUpdated: Date
 ```
 
-Der **Embedding-Index** wird als binäre Datei im Vault gespeichert (`.cortex/embeddings.idx`) und beim Start in den Speicher geladen. Updates erfolgen inkrementell bei Dateiänderungen.
+Der **Embedding-Index** wird als binäre Datei im Vault gespeichert (`.quartz/embeddings.idx`) und beim Start in den Speicher geladen. Updates erfolgen inkrementell bei Dateiänderungen. Ab iOS 18+ / macOS 15+ werden bevorzugt die **nativen Apple Vector Search APIs** genutzt; der eigene Index dient als Fallback.
 
 ---
 
@@ -323,7 +336,7 @@ Das Design für den **Editor** wurde finalisiert.
 
 ```
 MeinVault/
-├── .cortex/                        # Versteckter App-Config-Ordner
+├── .quartz/                        # Versteckter App-Config-Ordner
 │   ├── vault.json                  # VaultConfig
 │   ├── embeddings.idx              # Vektor-Index (binär)
 │   └── cache/                      # Thumbnails, Render-Cache
@@ -369,12 +382,13 @@ Das Fundament: Projekt-Setup, Dateisystem-Service und grundlegende Navigation.
 
 | # | Meilenstein | Beschreibung | Ergebnis |
 |---|---|---|---|
-| 1.1 | **Xcode-Projekt & Package-Struktur** | Multi-Platform App Target + `CortexKit` Swift Package erstellen. Ordnerstruktur wie in Abschnitt 2.1. | Baubares Projekt, alle Targets verlinkt |
+| 1.1 | **Xcode-Projekt & Package-Struktur** | Multi-Platform App Target + `QuartzKit` Swift Package erstellen. Ordnerstruktur wie in Abschnitt 2.1. Bundle-ID: `com.quartz.app`. | Baubares Projekt, alle Targets verlinkt |
 | 1.2 | **Domain-Modelle definieren** | `FileNode`, `NoteDocument`, `Frontmatter`, `VaultConfig` als Swift-Structs. Protocols für Services. | Kompilierbare Modelle mit Unit Tests |
 | 1.3 | **FileSystem-Service (lokal)** | `FileSystemVaultProvider`: Vault öffnen, Dateibaum lesen, Dateien erstellen/löschen/umbenennen. Actor-basiert. | CRUD auf Dateisystem funktioniert |
 | 1.4 | **YAML-Frontmatter-Parser** | Frontmatter aus `.md` Dateien lesen und schreiben. Round-Trip-fähig (Body bleibt unverändert). | Parser mit Tests für Edge Cases |
 | 1.5 | **Vault-Auswahl & Sidebar-UI** | Grundlegende SwiftUI-Navigation: Vault öffnen via Folder-Picker, Dateibaum in Sidebar anzeigen. | Navigierbare Sidebar auf iOS + Mac |
 | 1.6 | **Einfacher Plaintext-Editor** | `TextEditor` als Platzhalter zum Bearbeiten von `.md` Dateien. Autosave. | Notizen öffnen, bearbeiten, speichern |
+| 1.7 | **Appearance & Lokalisierung** | `AppearanceManager` (Hell/Dunkel/System), String Catalogs (`.xcstrings`) für DE + EN, Dynamic Type Support. `AppearanceSettingsView` in Settings. | Theme-Wechsel + zweisprachige App |
 
 **Phase 1 Ergebnis:** Eine funktionierende (aber rudimentäre) App, die einen lokalen Ordner als Vault öffnet, Markdown-Dateien anzeigt und bearbeiten kann.
 
@@ -392,6 +406,8 @@ Der Kern: WYSIWYG-Markdown-Editor mit TextKit 2.
 | 2.4 | **Bild-Einbettung & Asset-Management** | Drag & Drop / Paste → Bild wird in `assets/` kopiert, relativer Link eingefügt. Inline-Vorschau im Editor. | Bilder nahtlos im Editor |
 | 2.5 | **Frontmatter-UI** | Versteckter YAML-Block oben in der Notiz. Toggle zum Ein-/Ausblenden. Editierbar als Key-Value-Liste. | Frontmatter sichtbar per Toggle |
 | 2.6 | **Fokus-/Typewriter-Modus** | Aktive Zeile vertikal zentriert. Umgebende Zeilen gedimmt. Alle Menüs ausgeblendet. | Immersives Schreiberlebnis |
+
+> ⚠️ **Dev-Hinweis Phase 2:** TextKit 2 ist mächtig, aber komplex. Die Implementierung muss bewusst simpel gehalten werden: zuerst nur Headlines + Bold/Italic rendern, dann schrittweise weitere Syntax-Elemente hinzufügen. Keine Over-Engineering-Gefahr eingehen. Jeder Meilenstein muss isoliert funktionieren, bevor der nächste begonnen wird.
 
 **Phase 2 Ergebnis:** Ein voll funktionsfähiger WYSIWYG-Markdown-Editor, der sich wie Apple Notes anfühlt, aber reines Markdown speichert.
 
@@ -427,7 +443,7 @@ Die App tief ins Betriebssystem integrieren.
 | 4.5 | **Biometrie & App-Lock** | FaceID/TouchID beim App-Start. Optionaler Ordner-Lock für sensible Bereiche. | Datenschutz per Biometrie |
 | 4.6 | **Vault-Verschlüsselung** | AES-256-GCM Verschlüsselung auf Dateiebene via `CryptoKit`. Key im Secure Enclave/Keychain. | Verschlüsselte Vaults |
 
-**Phase 4 Ergebnis:** Cortex ist tief in iOS und macOS integriert. Quick Capture von überall, Sicherheit durch Biometrie und Verschlüsselung.
+**Phase 4 Ergebnis:** Quartz ist tief in iOS und macOS integriert. Quick Capture von überall, Sicherheit durch Biometrie und Verschlüsselung.
 
 ---
 
@@ -456,14 +472,14 @@ Intelligenz und Audio-Features.
 | 6.1 | **On-Device AI (Apple Intelligence)** | Zusammenfassen, Umschreiben, Tonfall ändern via nativer APIs. Inline über Textmarkierung. | KI ohne Internet |
 | 6.2 | **BYOK-Provider-System** | Settings-UI für API-Keys (OpenAI, Anthropic, Gemini, Ollama). Adapter-Pattern für alle Provider. | Nutzer bringt eigenen KI-Schlüssel |
 | 6.3 | **KI-Chat mit Notiz** | Seitenleiste: Chat über die aktuelle Notiz. Kontext = Notiz-Inhalt. | "Erkläre mir diese Notiz" |
-| 6.4 | **Lokale Vektor-Embeddings** | `NLEmbedding` oder Custom CoreML für Chunk-Embeddings. Speicherung in `.cortex/embeddings.idx`. | Semantischer Index des Vaults |
-| 6.5 | **Vault-weite KI-Suche** | "Chat mit dem Vault": Frage → relevante Chunks via Cosine Similarity → KI-Antwort mit Quellenangabe. | Semantische Vault-Suche |
+| 6.4 | **Lokale Vektor-Embeddings** | **Native Apple Vector Search APIs** (iOS 18+ / macOS 15+) für Embeddings und Indexierung nutzen. Fallback: `NLEmbedding` + eigener Index. Speicherung in `.quartz/embeddings.idx`. | Semantischer Index des Vaults |
+| 6.5 | **Vault-weite KI-Suche** | "Chat mit dem Vault": Frage → relevante Chunks via native Apple Vektor-Suche → KI-Antwort mit Quellenangabe. Kein externer Vektor-DB-Service. | Semantische Vault-Suche |
 | 6.6 | **Audio-Aufnahme** | In-App Mic-Recording via `AVAudioRecorder`. Aufnahme-UI mit Wellenform. Speicherung als `.m4a` im Vault. | Audio-Notizen |
 | 6.7 | **Transkription** | `SFSpeechRecognizer` für On-Device-Transkription. Optional: Whisper CoreML für bessere Qualität. | Sprache → Text |
 | 6.8 | **Meeting Minutes** | KI-Pipeline: Transkription → Zusammenfassung → Strukturierte Minutes mit Action Items als Markdown. | Automatische Meeting-Protokolle |
 | 6.9 | **Speaker Diarization** | `SoundAnalysis` + Custom ML für Sprechererkennung. "Sprecher A sagte..." in Transkription. | Wer hat was gesagt? |
 
-**Phase 6 Ergebnis:** Vollständige KI-Integration und Audio-Pipeline. Cortex wird zum intelligenten Assistenten.
+**Phase 6 Ergebnis:** Vollständige KI-Integration und Audio-Pipeline. Quartz wird zum intelligenten Assistenten.
 
 ---
 
@@ -473,7 +489,7 @@ Intelligenz und Audio-Features.
 
 | Risiko | Impact | Mitigation |
 |---|---|---|
-| **TextKit 2 Komplexität** | Hoch – WYSIWYG-Markdown ist der schwierigste Teil | Frühzeitiger Prototyp in Phase 2. Fallback: Simpler Split-View (Edit/Preview) |
+| **TextKit 2 Komplexität** | Hoch – WYSIWYG-Markdown ist der schwierigste Teil | Frühzeitiger Prototyp in Phase 2. Fallback: Simpler Split-View (Edit/Preview). **WICHTIG: Implementierung bewusst simpel halten!** Schritt für Schritt aufbauen, nicht in den Tiefen des Text-Renderings verlieren. Erst Headlines + Bold/Italic, dann schrittweise erweitern. |
 | **iCloud Sync-Konflikte** | Mittel – Gleichzeitige Edits auf mehreren Geräten | Automatische Conflict Resolution via Timestamps + manuelle Merge-UI |
 | **PencilKit in Markdown** | Mittel – Nicht nativ vorgesehen | Zeichnungen als separate Dateien, im Editor als Blöcke eingebettet |
 | **Apple Intelligence Verfügbarkeit** | Mittel – Nur auf neueren Geräten | Graceful Degradation: Feature nur anzeigen wenn verfügbar |
@@ -484,8 +500,7 @@ Intelligenz und Audio-Features.
 | Entscheidung | Optionen | Tendenz |
 |---|---|---|
 | **Markdown-Parser** | `swift-markdown` (Apple) vs. komplett eigener Parser | `swift-markdown` als Basis, eigene Extensions |
-| **Embedding-Modell** | `NLEmbedding` (Apple) vs. Custom CoreML (z.B. MiniLM) | Start mit `NLEmbedding`, Custom als Upgrade |
-| **Vektor-Index-Format** | Eigenes Binärformat vs. SQLite FTS5 für Suche | Eigenes Format für Portabilität |
+| **Vektor-Embeddings & Suche** | Native Apple Vector Search APIs (iOS 18+) vs. eigene Implementierung | **Native Apple APIs first.** Fallback: `NLEmbedding` + `Accelerate` für ältere OS-Versionen |
 | **WebDAV-Implementation** | Eigener Client vs. Open-Source-Lib | Eigener minimaler Client (wenige HTTP-Calls) |
 | **Pro-Feature-Abgrenzung** | Welche Features sind Core vs. Pro? | Core: Editor, Sync, Organisation. Pro: KI-Chat, Meeting Minutes, Vault-Suche |
 
