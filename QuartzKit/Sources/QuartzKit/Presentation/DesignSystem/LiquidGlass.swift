@@ -155,6 +155,41 @@ public extension View {
     func slideUp(delay: Double = 0) -> some View {
         modifier(SlideUpModifier(delay: delay))
     }
+
+    /// Staggered-Einblendung für Listen-Elemente.
+    func staggered(index: Int, baseDelay: Double = 0.05) -> some View {
+        modifier(StaggeredAppearModifier(index: index, baseDelay: baseDelay))
+    }
+
+    /// Scale-In von der Mitte.
+    func scaleIn(delay: Double = 0) -> some View {
+        modifier(ScaleInModifier(delay: delay))
+    }
+
+    /// Shimmer-Loading-Effekt.
+    func shimmer() -> some View {
+        modifier(ShimmerModifier())
+    }
+
+    /// Sanftes Pulsieren.
+    func pulse() -> some View {
+        modifier(PulseModifier())
+    }
+
+    /// Rubber-Band Bounce.
+    func bounceIn(delay: Double = 0) -> some View {
+        modifier(BounceInModifier(delay: delay))
+    }
+
+    /// Rotation-Einblendung.
+    func spinIn(delay: Double = 0) -> some View {
+        modifier(SpinInModifier(delay: delay))
+    }
+
+    /// Parallax-Scroll-Effekt.
+    func parallax(strength: CGFloat = 40) -> some View {
+        modifier(ParallaxModifier(strength: strength))
+    }
 }
 
 // MARK: - Animation Modifiers
@@ -192,6 +227,150 @@ private struct SlideUpModifier: ViewModifier {
     }
 }
 
+/// Staggered-Einblendung für Listen-Elemente (Index-basiert).
+private struct StaggeredAppearModifier: ViewModifier {
+    let index: Int
+    let baseDelay: Double
+    @State private var isVisible = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 12)
+            .scaleEffect(isVisible ? 1 : 0.97)
+            .onAppear {
+                let delay = baseDelay + Double(index) * 0.04
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.82).delay(delay)) {
+                    isVisible = true
+                }
+            }
+    }
+}
+
+/// Scale-In von der Mitte – für Buttons, Icons, Badges.
+private struct ScaleInModifier: ViewModifier {
+    let delay: Double
+    @State private var scale: CGFloat = 0.6
+    @State private var opacity: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.7).delay(delay)) {
+                    scale = 1
+                    opacity = 1
+                }
+            }
+    }
+}
+
+/// Shimmer-Effekt für Skeleton Loading.
+public struct ShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = -1
+
+    public func body(content: Content) -> some View {
+        content
+            .overlay {
+                GeometryReader { geo in
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: max(0, phase - 0.3)),
+                            .init(color: .white.opacity(0.15), location: phase),
+                            .init(color: .clear, location: min(1, phase + 0.3)),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .onAppear {
+                        withAnimation(
+                            .linear(duration: 1.5)
+                            .repeatForever(autoreverses: false)
+                        ) {
+                            phase = 2
+                        }
+                    }
+                }
+                .mask(content)
+            }
+    }
+}
+
+/// Sanftes Pulsieren – z.B. für den Save-Indikator.
+private struct PulseModifier: ViewModifier {
+    @State private var isPulsing = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPulsing ? 1.15 : 1.0)
+            .opacity(isPulsing ? 0.7 : 1.0)
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 0.8)
+                    .repeatForever(autoreverses: true)
+                ) {
+                    isPulsing = true
+                }
+            }
+    }
+}
+
+/// Rubber-Band Bounce bei Erscheinen.
+private struct BounceInModifier: ViewModifier {
+    let delay: Double
+    @State private var scale: CGFloat = 0.3
+    @State private var opacity: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(delay)) {
+                    scale = 1
+                    opacity = 1
+                }
+            }
+    }
+}
+
+/// Rotation-In – z.B. für Checkmarks, Icons.
+private struct SpinInModifier: ViewModifier {
+    let delay: Double
+    @State private var rotation: Double = -90
+    @State private var opacity: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(rotation))
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(delay)) {
+                    rotation = 0
+                    opacity = 1
+                }
+            }
+    }
+}
+
+/// Parallax-Effekt basierend auf Scroll-Position.
+public struct ParallaxModifier: ViewModifier {
+    let strength: CGFloat
+
+    public func body(content: Content) -> some View {
+        GeometryReader { geo in
+            let midY = geo.frame(in: .global).midY
+            let screenHeight = UIScreen.main.bounds.height
+            let offset = (midY - screenHeight / 2) / screenHeight * strength
+
+            content
+                .offset(y: offset)
+        }
+    }
+}
+
 // MARK: - Reusable Components
 
 /// Pill-förmiger Tag-Badge.
@@ -226,7 +405,10 @@ public struct QuartzTagBadge: View {
         .background {
             Capsule()
                 .fill(isSelected ? tagColor : tagColor.opacity(0.12))
+                .shadow(color: isSelected ? tagColor.opacity(0.3) : .clear, radius: 4, y: 2)
         }
+        .scaleEffect(isSelected ? 1.05 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
     }
 }
 
@@ -256,7 +438,7 @@ public struct QuartzSectionHeader: View {
     }
 }
 
-/// Prominenter CTA-Button im Quartz-Stil.
+/// Prominenter CTA-Button im Quartz-Stil mit Press-Animation.
 public struct QuartzButton: View {
     public let title: String
     public let icon: String?
@@ -286,7 +468,74 @@ public struct QuartzButton: View {
             }
             .foregroundStyle(.white)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuartzPressButtonStyle())
+    }
+}
+
+/// Press-ButtonStyle: sanftes Eindrücken + Schatten-Reduktion.
+public struct QuartzPressButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .shadow(
+                color: Color.accentColor.opacity(configuration.isPressed ? 0.1 : 0.3),
+                radius: configuration.isPressed ? 4 : 12,
+                y: configuration.isPressed ? 2 : 6
+            )
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+/// Subtiler Card-ButtonStyle für interaktive Karten.
+public struct QuartzCardButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.75), value: configuration.isPressed)
+    }
+}
+
+/// Bounce-ButtonStyle für kleine Buttons/Icons.
+public struct QuartzBounceButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.5), value: configuration.isPressed)
+    }
+}
+
+/// Skeleton Loading Placeholder.
+public struct SkeletonRow: View {
+    public init() {}
+
+    public var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.fill.tertiary)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 6) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.fill.tertiary)
+                    .frame(width: .random(in: 80...160), height: 12)
+
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.fill.quaternary)
+                    .frame(width: .random(in: 50...100), height: 8)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .shimmer()
     }
 }
 

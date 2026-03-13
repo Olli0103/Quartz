@@ -32,10 +32,18 @@ public struct SidebarView: View {
         .searchable(text: $viewModel.searchText, prompt: Text("Search notes…"))
         .overlay {
             if viewModel.isLoading {
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
+                VStack(spacing: 0) {
+                    ForEach(0..<6, id: \.self) { i in
+                        SkeletonRow()
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 4)
+                            .staggered(index: i, baseDelay: 0.1)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.ultraThinMaterial)
             } else if viewModel.fileTree.isEmpty {
                 QuartzEmptyState(
                     icon: "tray",
@@ -94,7 +102,7 @@ public struct SidebarView: View {
         Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(viewModel.tagInfos.prefix(12)) { tag in
+                    ForEach(Array(viewModel.tagInfos.prefix(12).enumerated()), id: \.element.id) { index, tag in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 if viewModel.selectedTag == tag.name {
@@ -109,7 +117,8 @@ public struct SidebarView: View {
                                 isSelected: viewModel.selectedTag == tag.name
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(QuartzBounceButtonStyle())
+                        .scaleIn(delay: Double(index) * 0.05)
                     }
                 }
                 .padding(.vertical, 2)
@@ -133,8 +142,9 @@ public struct SidebarView: View {
 
     private var notesSection: some View {
         Section {
-            ForEach(viewModel.filteredTree) { node in
+            ForEach(Array(viewModel.filteredTree.enumerated()), id: \.element.id) { index, node in
                 nodeView(for: node)
+                    .staggered(index: index)
             }
         } header: {
             QuartzSectionHeader("Notes", icon: "doc.text")
@@ -149,6 +159,10 @@ public struct SidebarView: View {
             DisclosureGroup {
                 ForEach(children) { child in
                     nodeView(for: child)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .opacity
+                        ))
                 }
             } label: {
                 FileNodeRow(node: node)

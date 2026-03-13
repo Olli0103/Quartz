@@ -78,11 +78,21 @@ public struct NoteEditorView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 6, height: 6)
+                    .scaleEffect(viewModel.isSaving ? 1.3 : 1.0)
+                    .shadow(color: statusColor.opacity(viewModel.isSaving ? 0.6 : 0), radius: 4)
+                    .animation(
+                        viewModel.isSaving
+                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.3),
+                        value: viewModel.isSaving
+                    )
 
                 Text(statusText)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
             }
+            .animation(.easeInOut(duration: 0.2), value: statusText)
 
             Spacer()
 
@@ -90,6 +100,7 @@ public struct NoteEditorView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
+                .contentTransition(.numericText())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

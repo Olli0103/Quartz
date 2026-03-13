@@ -174,6 +174,7 @@ public struct OnboardingView: View {
                     icon: "square.grid.2x2.fill",
                     color: QuartzColors.noteBlue
                 )
+                .slideUp(delay: 0.1)
 
                 templateCard(
                     template: .zettelkasten,
@@ -182,6 +183,7 @@ public struct OnboardingView: View {
                     icon: "brain.head.profile.fill",
                     color: QuartzColors.canvasPurple
                 )
+                .slideUp(delay: 0.2)
 
                 templateCard(
                     template: .custom,
@@ -190,6 +192,7 @@ public struct OnboardingView: View {
                     icon: "doc",
                     color: .gray
                 )
+                .slideUp(delay: 0.3)
             }
             .padding(.horizontal, 24)
 
@@ -214,20 +217,38 @@ public struct OnboardingView: View {
     // MARK: - Creating
 
     private var creatingStep: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 32) {
             Spacer()
 
-            ProgressView()
-                .controlSize(.large)
-                .tint(Color(hex: 0xF2994A))
+            ZStack {
+                // Pulsing ring
+                Circle()
+                    .stroke(Color(hex: 0xF2994A).opacity(0.2), lineWidth: 3)
+                    .frame(width: 80, height: 80)
+                    .scaleEffect(1.3)
+                    .pulse()
+
+                Circle()
+                    .stroke(Color(hex: 0xF2994A).opacity(0.1), lineWidth: 2)
+                    .frame(width: 80, height: 80)
+                    .scaleEffect(1.7)
+                    .pulse()
+
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(Color(hex: 0xF2994A))
+            }
+            .bounceIn()
 
             VStack(spacing: 8) {
                 Text("Setting up your vault…")
                     .font(.title3.weight(.medium))
+                    .slideUp(delay: 0.2)
 
                 Text("This will only take a moment.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .slideUp(delay: 0.3)
             }
 
             Spacer()
@@ -246,7 +267,7 @@ public struct OnboardingView: View {
         let isSelected = selectedTemplate == template
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                 selectedTemplate = template
             }
         } label: {
@@ -255,6 +276,7 @@ public struct OnboardingView: View {
                     .font(.title3)
                     .frame(width: 40)
                     .foregroundStyle(isSelected ? .white : color)
+                    .symbolEffect(.bounce, value: isSelected)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -271,13 +293,14 @@ public struct OnboardingView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.white)
                         .transition(.scale.combined(with: .opacity))
+                        .spinIn()
                 }
             }
             .padding(16)
             .background {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? color.gradient : AnyShapeStyle(.regularMaterial))
-                    .shadow(color: isSelected ? color.opacity(0.3) : .clear, radius: 8, y: 4)
+                    .shadow(color: isSelected ? color.opacity(0.35) : .clear, radius: isSelected ? 12 : 0, y: isSelected ? 6 : 0)
             }
             .overlay {
                 if !isSelected {
@@ -285,8 +308,9 @@ public struct OnboardingView: View {
                         .strokeBorder(.quaternary, lineWidth: 0.5)
                 }
             }
+            .scaleEffect(isSelected ? 1.02 : 1.0)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuartzCardButtonStyle())
     }
 
     // MARK: - Create Vault

@@ -19,6 +19,7 @@ struct ContentView: View {
         } detail: {
             detailColumn
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: editorViewModel?.note?.fileURL)
         .onChange(of: selectedNoteURL) { _, newURL in
             openNote(at: newURL)
         }
@@ -86,13 +87,20 @@ struct ContentView: View {
     private var detailColumn: some View {
         if let viewModel = editorViewModel {
             NoteEditorView(viewModel: viewModel)
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+                .id(viewModel.note?.fileURL)
+                .transition(.asymmetric(
+                    insertion: .opacity
+                        .combined(with: .scale(scale: 0.98, anchor: .top))
+                        .combined(with: .offset(y: 8)),
+                    removal: .opacity.combined(with: .scale(scale: 0.99))
+                ))
         } else {
             QuartzEmptyState(
                 icon: "doc.text",
                 title: "No Note Selected",
                 subtitle: "Choose a note from the sidebar to start editing."
             )
+            .transition(.opacity)
         }
     }
 

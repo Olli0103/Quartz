@@ -68,6 +68,7 @@ public struct AppearanceSettingsView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(.fill.quaternary)
                         )
+                        .animation(.spring(response: 0.3), value: appearance.editorFontScale)
                 }
             } header: {
                 QuartzSectionHeader("Editor", icon: "textformat.size")
@@ -95,18 +96,28 @@ private struct ThemeCard: View {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(
                                 isSelected ? Color.accentColor : .clear,
-                                lineWidth: 2
+                                lineWidth: 2.5
                             )
                     }
                     .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+
+                // Selected indicator
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
+                        .transition(.scale.combined(with: .opacity))
+                }
 
                 Text(theme.displayName)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(isSelected ? .primary : .secondary)
             }
             .frame(maxWidth: .infinity)
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuartzCardButtonStyle())
     }
 
     private var previewFill: some ShapeStyle {
