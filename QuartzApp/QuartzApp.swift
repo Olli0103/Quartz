@@ -3,9 +3,13 @@ import QuartzKit
 
 @main
 struct QuartzApp: App {
+    @State private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
-            Text("Quartz – v\(QuartzKit.version)")
+            ContentView()
+                .environment(appState)
+                .environment(\.featureGate, ServiceContainer.shared.resolveFeatureGate())
         }
     }
 }
