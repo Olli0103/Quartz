@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Quartz Color Palette
 
@@ -25,8 +28,13 @@ public enum QuartzColors {
 
     // Semantic colors
     public static let sidebarBackground = Color("SidebarBG", bundle: nil)
+    #if canImport(UIKit)
     public static let cardBackground = Color(.secondarySystemBackground)
     public static let subtleText = Color(.tertiaryLabel)
+    #elseif canImport(AppKit)
+    public static let cardBackground = Color(nsColor: .controlBackgroundColor)
+    public static let subtleText = Color(nsColor: .tertiaryLabelColor)
+    #endif
 
     // Node type colors
     public static let folderYellow = Color(hex: 0xFDCB6E)
@@ -362,7 +370,11 @@ public struct ParallaxModifier: ViewModifier {
     public func body(content: Content) -> some View {
         GeometryReader { geo in
             let midY = geo.frame(in: .global).midY
+            #if canImport(UIKit)
             let screenHeight = UIScreen.main.bounds.height
+            #elseif canImport(AppKit)
+            let screenHeight = NSScreen.main?.frame.height ?? 800
+            #endif
             let offset = (midY - screenHeight / 2) / screenHeight * strength
 
             content

@@ -1,4 +1,4 @@
-#if canImport(PencilKit)
+#if canImport(PencilKit) && canImport(UIKit)
 import SwiftUI
 import PencilKit
 
