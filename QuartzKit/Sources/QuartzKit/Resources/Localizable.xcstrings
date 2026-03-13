@@ -1,0 +1,102 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "System": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "System" } },
+        "en": { "stringUnit": { "state": "translated", "value": "System" } }
+      }
+    },
+    "Light": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Hell" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Light" } }
+      }
+    },
+    "Dark": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Dunkel" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Dark" } }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Einstellungen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Settings" } }
+      }
+    },
+    "Appearance": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Darstellung" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Appearance" } }
+      }
+    },
+    "Theme": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Farbschema" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Theme" } }
+      }
+    },
+    "Editor Font Size": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Editor-Schriftgröße" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Editor Font Size" } }
+      }
+    },
+    "Editor": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Editor" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Editor" } }
+      }
+    },
+    "Preview text at current size": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Vorschautext in aktueller Größe" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Preview text at current size" } }
+      }
+    },
+    "Vault": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Vault" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Vault" } }
+      }
+    },
+    "Version": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Version" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Version" } }
+      }
+    },
+    "About": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Über" } },
+        "en": { "stringUnit": { "state": "translated", "value": "About" } }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Fertig" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } }
+      }
+    },
+    "Search notes": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Notizen suchen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Search notes" } }
+      }
+    },
+    "No Notes": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Keine Notizen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "No Notes" } }
+      }
+    },
+    "Open a vault to get started.": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Öffne einen Vault, um loszulegen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Open a vault to get started." } }
+      }
+    }
+  },
+  "version": "1.0"
+}

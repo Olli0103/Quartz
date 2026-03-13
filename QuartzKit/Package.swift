@@ -23,7 +23,10 @@ let package = Package(
             dependencies: [
                 .product(name: "Markdown", package: "swift-markdown"),
             ],
-            path: "Sources/QuartzKit"
+            path: "Sources/QuartzKit",
+            resources: [
+                .process("Resources"),
+            ]
         ),
         .testTarget(
             name: "QuartzKitTests",
