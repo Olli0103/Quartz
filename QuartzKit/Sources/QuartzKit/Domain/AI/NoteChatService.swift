@@ -30,7 +30,10 @@ public actor NoteChatService {
         chatHistory: [AIMessage] = [],
         temperature: Double = 0.7
     ) async throws -> AIMessage {
-        guard let provider = providerRegistry.selectedProvider else {
+        let provider = await providerRegistry.selectedProvider
+        let modelID = await providerRegistry.selectedModelID
+
+        guard let provider else {
             throw NoteChatError.noProviderConfigured
         }
 
@@ -44,7 +47,7 @@ public actor NoteChatService {
 
         return try await provider.chat(
             messages: messages,
-            model: providerRegistry.selectedModelID,
+            model: modelID,
             temperature: temperature
         )
     }
@@ -146,9 +149,9 @@ public enum NoteChatError: LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .noProviderConfigured: "No AI provider configured. Add an API key in Settings."
-        case .providerError(let msg): "AI error: \(msg)"
-        case .rateLimited: "Too many requests. Please wait a moment."
+        case .noProviderConfigured: String(localized: "No AI provider configured. Add an API key in Settings.", bundle: .module)
+        case .providerError(let msg): String(localized: "AI error: \(msg)", bundle: .module)
+        case .rateLimited: String(localized: "Too many requests. Please wait a moment.", bundle: .module)
         }
     }
 }

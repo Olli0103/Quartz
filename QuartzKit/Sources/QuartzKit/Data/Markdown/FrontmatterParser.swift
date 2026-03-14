@@ -14,7 +14,8 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
             return (Frontmatter(), rawContent)
         }
 
-        let scanner = rawContent.dropFirst(4) // Skip opening "---\n"
+        let dropCount = rawContent.hasPrefix("---\r\n") ? 5 : 4
+        let scanner = rawContent.dropFirst(dropCount) // Skip opening "---\n" or "---\r\n"
         guard let closingRange = scanner.range(of: "\n---\n") ?? scanner.range(of: "\n---\r\n") else {
             return (Frontmatter(), rawContent)
         }
@@ -135,6 +136,8 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
         if (v.hasPrefix("\"") && v.hasSuffix("\"")) || (v.hasPrefix("'") && v.hasSuffix("'")) {
             v.removeFirst()
             v.removeLast()
+            v = v.replacingOccurrences(of: "\\\"", with: "\"")
+            v = v.replacingOccurrences(of: "\\'", with: "'")
         }
         return v
     }

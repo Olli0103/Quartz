@@ -21,10 +21,10 @@ struct VaultPickerView: View {
                         .foregroundStyle(QuartzColors.folderYellow)
                         .symbolEffect(.bounce, options: .nonRepeating)
 
-                    Text("Open a Vault")
+                    Text(String(localized: "Open a Vault"))
                         .font(.title2.bold())
 
-                    Text("Choose a folder on your device.\nQuartz will use it as your note vault.")
+                    Text(String(localized: "Choose a folder on your device.\nQuartz will use it as your note vault."))
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -42,17 +42,17 @@ struct VaultPickerView: View {
 
                 Spacer()
 
-                QuartzButton("Choose Folder", icon: "folder") {
+                QuartzButton(String(localized: "Choose Folder"), icon: "folder") {
                     showFilePicker = true
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 32)
             }
             .padding()
-            .navigationTitle("Vault")
+            .navigationTitle(String(localized: "Vault"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button(String(localized: "Cancel")) {
                         dismiss()
                     }
                 }
@@ -72,7 +72,7 @@ struct VaultPickerView: View {
         case .success(let urls):
             guard let url = urls.first else { return }
             guard url.startAccessingSecurityScopedResource() else {
-                errorMessage = "Unable to access the selected folder. Please try again."
+                errorMessage = String(localized: "Unable to access the selected folder. Please try again.")
                 return
             }
 
@@ -99,7 +99,7 @@ struct VaultPickerView: View {
             dismiss()
 
         case .failure(let error):
-            errorMessage = "Could not open folder: \(error.localizedDescription)"
+            errorMessage = String(localized: "Could not open folder: \(error.localizedDescription)")
         }
     }
 }

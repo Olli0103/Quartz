@@ -62,9 +62,9 @@ public actor AppleIntelligenceService {
 
         public var errorDescription: String? {
             switch self {
-            case .notAvailable: "Apple Intelligence is not available on this device."
-            case .processingFailed(let msg): "AI processing failed: \(msg)"
-            case .emptyInput: "No text provided for AI processing."
+            case .notAvailable: String(localized: "Apple Intelligence is not available on this device.", bundle: .module)
+            case .processingFailed(let msg): String(localized: "AI processing failed: \(msg)", bundle: .module)
+            case .emptyInput: String(localized: "No text provided for AI processing.", bundle: .module)
             }
         }
     }
@@ -194,6 +194,7 @@ public actor AppleIntelligenceService {
         let fullRange = NSRange(location: 0, length: nsText.length)
 
         var corrections: [(NSRange, String)] = []
+        let language = Locale.preferredLanguages.first ?? "en"
         var offset = 0
         while offset < nsText.length {
             let misspelled = checker.rangeOfMisspelledWord(
@@ -201,11 +202,11 @@ public actor AppleIntelligenceService {
                 range: fullRange,
                 startingAt: offset,
                 wrap: false,
-                language: "en"
+                language: language
             )
             guard misspelled.location != NSNotFound else { break }
 
-            let guesses = checker.guesses(forWordRange: misspelled, in: mutableText, language: "en")
+            let guesses = checker.guesses(forWordRange: misspelled, in: mutableText, language: language)
             if let correction = guesses?.first {
                 corrections.append((misspelled, correction))
             }

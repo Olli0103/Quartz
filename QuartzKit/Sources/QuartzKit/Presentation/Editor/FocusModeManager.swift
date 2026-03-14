@@ -21,14 +21,14 @@ public final class FocusModeManager {
 
     /// Toggled Focus Mode.
     public func toggleFocusMode() {
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             isFocusModeActive.toggle()
         }
     }
 
     /// Toggled Typewriter Mode.
     public func toggleTypewriterMode() {
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             isTypewriterModeActive.toggle()
         }
     }
@@ -57,7 +57,7 @@ public struct FocusModeModifier: ViewModifier {
         content
             .opacity(focusMode.isFocusModeActive ? 0 : 1)
             .allowsHitTesting(!focusMode.isFocusModeActive)
-            .animation(.easeInOut(duration: 0.3), value: focusMode.isFocusModeActive)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: focusMode.isFocusModeActive)
     }
 }
 

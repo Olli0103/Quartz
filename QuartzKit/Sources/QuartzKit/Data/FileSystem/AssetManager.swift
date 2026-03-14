@@ -175,9 +175,9 @@ public enum AssetError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .conversionFailed:
-            "Failed to convert image data"
+            String(localized: "Failed to convert image data", bundle: .module)
         case .fileNotFound(let url):
-            "Asset not found: \(url.lastPathComponent)"
+            String(localized: "Asset not found: \(url.lastPathComponent)", bundle: .module)
         }
     }
 }

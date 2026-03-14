@@ -30,7 +30,10 @@ public actor VaultChatService {
         chatHistory: [AIMessage] = [],
         noteResolver: @Sendable (UUID) -> String?
     ) async throws -> VaultAnswer {
-        guard let provider = providerRegistry.selectedProvider else {
+        let provider = await providerRegistry.selectedProvider
+        let modelID = await providerRegistry.selectedModelID
+
+        guard let provider else {
             throw VaultChatError.noProviderConfigured
         }
 
@@ -87,7 +90,7 @@ public actor VaultChatService {
 
         let response = try await provider.chat(
             messages: messages,
-            model: providerRegistry.selectedModelID,
+            model: modelID,
             temperature: 0.5
         )
 
@@ -253,10 +256,10 @@ public enum VaultChatError: LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .noProviderConfigured: "No AI provider configured. Add an API key in Settings."
-        case .noRelevantContent: "No relevant notes found for your question. Try rephrasing."
-        case .indexEmpty: "No notes have been indexed yet. Please index your vault first."
-        case .providerError(let msg): "AI error: \(msg)"
+        case .noProviderConfigured: String(localized: "No AI provider configured. Add an API key in Settings.", bundle: .module)
+        case .noRelevantContent: String(localized: "No relevant notes found for your question. Try rephrasing.", bundle: .module)
+        case .indexEmpty: String(localized: "No notes have been indexed yet. Please index your vault first.", bundle: .module)
+        case .providerError(let msg): String(localized: "AI error: \(msg)", bundle: .module)
         }
     }
 }

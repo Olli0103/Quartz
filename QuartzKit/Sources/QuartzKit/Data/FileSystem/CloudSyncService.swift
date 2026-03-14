@@ -198,11 +198,11 @@ public enum CloudSyncError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .readFailed(let url):
-            "Failed to read from iCloud: \(url.lastPathComponent)"
+            String(localized: "Failed to read from iCloud: \(url.lastPathComponent)", bundle: .module)
         case .writeFailed(let url):
-            "Failed to write to iCloud: \(url.lastPathComponent)"
+            String(localized: "Failed to write to iCloud: \(url.lastPathComponent)", bundle: .module)
         case .notAvailable:
-            "iCloud Drive is not available"
+            String(localized: "iCloud Drive is not available", bundle: .module)
         }
     }
 }

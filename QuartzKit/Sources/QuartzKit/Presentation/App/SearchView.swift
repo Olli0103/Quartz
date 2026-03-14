@@ -16,6 +16,8 @@ public struct SearchView: View {
         self.onSelect = onSelect
     }
 
+    @State private var searchTask: Task<Void, Never>?
+
     public var body: some View {
         NavigationStack {
             ZStack {
@@ -54,9 +56,21 @@ public struct SearchView: View {
     }
 
     private func performSearch(_ query: String) {
+        searchTask?.cancel()
+        guard !query.isEmpty else {
+            results = []
+            isSearching = false
+            return
+        }
+
         isSearching = true
-        Task {
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+
             let searchResults = await searchIndex.search(query: query)
+            guard !Task.isCancelled else { return }
+
             await MainActor.run {
                 results = searchResults
                 isSearching = false
