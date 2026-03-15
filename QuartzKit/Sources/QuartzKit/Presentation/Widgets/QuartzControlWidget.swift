@@ -1,4 +1,4 @@
-#if canImport(WidgetKit) && canImport(AppIntents)
+#if canImport(WidgetKit) && canImport(AppIntents) && os(iOS)
 import WidgetKit
 import SwiftUI
 import AppIntents

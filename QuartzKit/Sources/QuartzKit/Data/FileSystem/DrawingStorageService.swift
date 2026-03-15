@@ -85,12 +85,16 @@ public actor DrawingStorageService {
         "![[assets/\(drawingID).drawing]]"
     }
 
-    /// Generiert eine neue eindeutige Drawing-ID.
-    public func generateDrawingID() -> String {
+    private static let drawingIDFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let timestamp = formatter.string(from: Date())
+        return formatter
+    }()
+
+    /// Generiert eine neue eindeutige Drawing-ID.
+    public func generateDrawingID() -> String {
+        let timestamp = Self.drawingIDFormatter.string(from: Date())
         let suffix = String(UUID().uuidString.prefix(4)).lowercased()
         return "drawing-\(timestamp)-\(suffix)"
     }

@@ -11,7 +11,7 @@ public final class NoteEditorViewModel {
         didSet {
             guard content != oldValue else { return }
             isDirty = true
-            updateWordCount()
+            scheduleWordCountUpdate()
             scheduleAutosave()
         }
     }
@@ -49,7 +49,7 @@ public final class NoteEditorViewModel {
             isDirty = false
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
         }
     }
 
@@ -67,7 +67,7 @@ public final class NoteEditorViewModel {
             isDirty = false
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
         }
 
         isSaving = false
@@ -80,18 +80,28 @@ public final class NoteEditorViewModel {
         scheduleAutosave()
     }
 
-    private func updateWordCount() {
-        wordCount = content
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .count
+    private var wordCountTask: Task<Void, Never>?
+
+    private func scheduleWordCountUpdate() {
+        wordCountTask?.cancel()
+        wordCountTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            let text = self.content
+            let count = text.components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .count
+            guard !Task.isCancelled else { return }
+            self.wordCount = count
+        }
     }
 
     /// Plant Autosave nach Inaktivität.
     private func scheduleAutosave() {
         autosaveTask?.cancel()
+        let delay = autosaveDelay
         autosaveTask = Task { [weak self] in
-            try? await Task.sleep(for: self?.autosaveDelay ?? .seconds(2))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self, self.note != nil else { return }
             await self.save()
         }
@@ -99,5 +109,6 @@ public final class NoteEditorViewModel {
 
     deinit {
         autosaveTask?.cancel()
+        wordCountTask?.cancel()
     }
 }

@@ -183,15 +183,19 @@ public actor VectorEmbeddingService {
     }
 
     /// Erzeugt ein Embedding mit NLEmbedding.
+    private var cachedEmbedding: NLEmbedding?
+
+    private func getEmbedding() -> NLEmbedding? {
+        if let cached = cachedEmbedding { return cached }
+        cachedEmbedding = NLEmbedding.sentenceEmbedding(for: language)
+        return cachedEmbedding
+    }
+
     private func generateEmbedding(for text: String) -> [Float]? {
-        guard let embedding = NLEmbedding.sentenceEmbedding(for: language) else {
+        guard let embedding = getEmbedding(),
+              let vector = embedding.vector(for: text) else {
             return nil
         }
-
-        guard let vector = embedding.vector(for: text) else {
-            return nil
-        }
-
         return vector.map { Float($0) }
     }
 

@@ -49,7 +49,7 @@ public struct FrontmatterEditorView: View {
                 .background(.ultraThinMaterial)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isExpanded ? "Collapse frontmatter" : "Expand frontmatter")
+            .accessibilityLabel(isExpanded ? String(localized: "Collapse frontmatter", bundle: .module) : String(localized: "Expand frontmatter", bundle: .module))
 
             // Expanded Content
             if isExpanded {
@@ -75,25 +75,30 @@ public struct FrontmatterEditorView: View {
                                         Image(systemName: "xmark.circle.fill")
                                             .font(.caption2)
                                             .foregroundStyle(.tertiary)
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("Remove tag \(tag)")
+                                    .accessibilityLabel(String(localized: "Remove tag \(tag)", bundle: .module))
                                 }
                             }
 
                             HStack(spacing: 4) {
                                 TextField(String(localized: "Add tag"), text: $newTag)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 100)
+                                    .frame(minWidth: 100)
                                     .onSubmit { addTag() }
 
                                 Button { addTag() } label: {
                                     Image(systemName: "plus.circle.fill")
-                                        .foregroundStyle(Color(hex: 0xF2994A))
+                                        .foregroundStyle(QuartzColors.accent)
+                                        .frame(minWidth: 44, minHeight: 44)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .hoverEffect(.highlight)
                                 .disabled(newTag.isEmpty)
-                                .accessibilityLabel("Add tag")
+                                .accessibilityLabel(String(localized: "Add tag", bundle: .module))
                             }
                         }
                     }
@@ -138,11 +143,14 @@ public struct FrontmatterEditorView: View {
                             .textFieldStyle(.roundedBorder)
                         Button { addCustomField() } label: {
                             Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(Color(hex: 0xF2994A))
+                                .foregroundStyle(QuartzColors.accent)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
                         .disabled(newCustomKey.isEmpty)
-                        .accessibilityLabel("Add custom field")
+                        .accessibilityLabel(String(localized: "Add custom field", bundle: .module))
                     }
                 }
                 .padding(.horizontal, 16)
@@ -158,7 +166,7 @@ public struct FrontmatterEditorView: View {
     private var summaryText: String {
         var parts: [String] = []
         if let title = frontmatter.title { parts.append(title) }
-        if !frontmatter.tags.isEmpty { parts.append("\(frontmatter.tags.count) tags") }
+        if !frontmatter.tags.isEmpty { parts.append(String(localized: "\(frontmatter.tags.count) tags", bundle: .module)) }
         return parts.joined(separator: " · ")
     }
 

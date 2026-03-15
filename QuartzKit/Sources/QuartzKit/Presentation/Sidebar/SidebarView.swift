@@ -104,7 +104,7 @@ public struct SidebarView: View {
                 HStack(spacing: 8) {
                     ForEach(Array(viewModel.tagInfos.prefix(12).enumerated()), id: \.element.id) { index, tag in
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 if viewModel.selectedTag == tag.name {
                                     viewModel.selectedTag = nil
                                 } else {

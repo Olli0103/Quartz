@@ -20,7 +20,7 @@ public final class QuickNotePanel: NSPanel {
             defer: false
         )
 
-        title = "Quick Note"
+        title = String(localized: "Quick Note", bundle: .module)
         isFloatingPanel = true
         level = .floating
         isMovableByWindowBackground = true
@@ -46,7 +46,11 @@ public final class QuickNotePanel: NSPanel {
     /// Zeigt das Panel und bringt es in den Fokus.
     public func showPanel() {
         makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 

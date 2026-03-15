@@ -6,6 +6,7 @@ import AVFoundation
 /// Nimmt Audio via `AVAudioRecorder` auf und speichert als `.m4a` im Vault.
 /// Bietet eine Wellenform-Visualisierung via Metering.
 @Observable
+@MainActor
 public final class AudioRecordingService: NSObject {
     // MARK: - State
 
@@ -53,6 +54,13 @@ public final class AudioRecordingService: NSObject {
     private var durationTimer: Timer?
     private let maxLevelHistory = 200
 
+    private static let timestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return f
+    }()
+
     public override init() {
         super.init()
     }
@@ -61,11 +69,21 @@ public final class AudioRecordingService: NSObject {
 
     /// Prüft und fordert Mikrofon-Berechtigung an.
     public func requestPermission() async -> Bool {
+        #if os(iOS)
         await withCheckedContinuation { continuation in
             AVAudioApplication.requestRecordPermission { granted in
                 continuation.resume(returning: granted)
             }
         }
+        #elseif os(macOS)
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+        #else
+        return false
+        #endif
     }
 
     /// Startet eine neue Aufnahme.
@@ -86,10 +104,7 @@ public final class AudioRecordingService: NSObject {
         #endif
 
         // Dateiname generieren
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        let fileName = "recording-\(formatter.string(from: Date())).m4a"
+        let fileName = "recording-\(Self.timestampFormatter.string(from: Date())).m4a"
 
         let recordingsDir = vaultURL.appending(path: "assets").appending(path: "recordings")
         try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
@@ -187,7 +202,7 @@ public final class AudioRecordingService: NSObject {
     // MARK: - Private
 
     private func startTimers() {
-        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.083, repeats: true) { [weak self] _ in
             self?.updateMetering()
         }
         durationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -211,10 +226,10 @@ public final class AudioRecordingService: NSObject {
         currentLevel = normalizeLevel(avgPower)
         peakLevel = normalizeLevel(peakPower)
 
-        levelHistory.append(currentLevel)
-        if levelHistory.count > maxLevelHistory {
-            levelHistory.removeFirst()
+        if levelHistory.count >= maxLevelHistory {
+            levelHistory.replaceSubrange(0..<1, with: [])
         }
+        levelHistory.append(currentLevel)
     }
 
     private func normalizeLevel(_ level: Float) -> Float {
@@ -227,13 +242,21 @@ public final class AudioRecordingService: NSObject {
 // MARK: - AVAudioRecorderDelegate
 
 extension AudioRecordingService: AVAudioRecorderDelegate {
-    public func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if !flag {
-            state = .idle
+    public nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self, !flag else { return }
+            self.state = .idle
+            self.lastRecordingURL = nil
+            self.stopTimers()
         }
     }
 
-    public func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        state = .idle
+    public nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.state = .idle
+            self.lastRecordingURL = nil
+            self.stopTimers()
+        }
     }
 }

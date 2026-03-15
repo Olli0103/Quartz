@@ -19,7 +19,7 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func readNote(at url: URL) async throws -> NoteDocument {
-        let data = try coordinatedRead(at: url)
+        let data = try await coordinatedRead(at: url)
         guard let rawContent = String(data: data, encoding: .utf8) else {
             throw FileSystemError.encodingFailed(url)
         }
@@ -48,7 +48,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard let data = rawContent.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(note.fileURL)
         }
-        try coordinatedWrite(data: data, to: note.fileURL)
+        try await coordinatedWrite(data: data, to: note.fileURL)
     }
 
     public func createNote(named name: String, in folder: URL) async throws -> NoteDocument {
@@ -93,7 +93,18 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func rename(at url: URL, to newName: String) async throws -> URL {
-        let newURL = url.deletingLastPathComponent().appending(path: newName)
+        let sanitized = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty, !sanitized.hasPrefix("."), !sanitized.contains("/"), !sanitized.contains("\\") else {
+            throw FileSystemError.invalidName(newName)
+        }
+        let parent = url.deletingLastPathComponent()
+        let newURL = parent.appending(path: sanitized)
+        guard newURL.standardizedFileURL.path().hasPrefix(parent.standardizedFileURL.path()) else {
+            throw FileSystemError.invalidName(newName)
+        }
+        guard !fileManager.fileExists(atPath: newURL.path(percentEncoded: false)) else {
+            throw FileSystemError.fileAlreadyExists(newURL)
+        }
         try fileManager.moveItem(at: url, to: newURL)
         return newURL
     }
@@ -115,41 +126,55 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     // MARK: - File Coordination
 
-    private func coordinatedRead(at url: URL) throws -> Data {
-        var coordinatorError: NSError?
-        var readData: Data?
-        var readError: Error?
+    private func coordinatedRead(at url: URL) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var coordinatorError: NSError?
+                var readData: Data?
+                var readError: Error?
 
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
-            do {
-                readData = try Data(contentsOf: actualURL)
-            } catch {
-                readError = error
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+                    do {
+                        readData = try Data(contentsOf: actualURL)
+                    } catch {
+                        readError = error
+                    }
+                }
+
+                if let error = coordinatorError ?? readError {
+                    continuation.resume(throwing: error)
+                } else if let data = readData {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: FileSystemError.fileNotFound(url))
+                }
             }
         }
-
-        if let coordinatorError { throw coordinatorError }
-        if let readError { throw readError }
-        guard let data = readData else { throw FileSystemError.fileNotFound(url) }
-        return data
     }
 
-    private func coordinatedWrite(data: Data, to url: URL) throws {
-        var coordinatorError: NSError?
-        var writeError: Error?
+    private func coordinatedWrite(data: Data, to url: URL) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var coordinatorError: NSError?
+                var writeError: Error?
 
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
-            do {
-                try data.write(to: actualURL, options: .atomic)
-            } catch {
-                writeError = error
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+                    do {
+                        try data.write(to: actualURL, options: .atomic)
+                    } catch {
+                        writeError = error
+                    }
+                }
+
+                if let error = coordinatorError ?? writeError {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
             }
         }
-
-        if let coordinatorError { throw coordinatorError }
-        if let writeError { throw writeError }
     }
 
     // MARK: - Private

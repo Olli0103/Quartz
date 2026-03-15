@@ -169,6 +169,7 @@ public struct VaultSource: Identifiable, Sendable {
 
 /// Observable Chat-Session für Vault-weite KI-Suche.
 @Observable
+@MainActor
 public final class VaultChatSession {
     public private(set) var messages: [VaultChatMessage] = []
     public private(set) var isLoading: Bool = false
@@ -185,7 +186,6 @@ public final class VaultChatSession {
         self.noteResolver = noteResolver
     }
 
-    @MainActor
     public func ask(_ question: String) async {
         let userMsg = VaultChatMessage(role: .user, content: question, sources: [])
         messages.append(userMsg)
@@ -219,7 +219,6 @@ public final class VaultChatSession {
         isLoading = false
     }
 
-    @MainActor
     public func clear() {
         messages.removeAll()
         error = nil

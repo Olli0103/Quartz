@@ -1,6 +1,7 @@
 import Foundation
 import Speech
 import AVFoundation
+import os
 
 /// On-Device Transkription via `SFSpeechRecognizer`.
 ///
@@ -107,20 +108,28 @@ public actor TranscriptionService {
         request.addsPunctuation = true
 
         return try await withCheckedThrowingContinuation { continuation in
-            var hasResumed = false
+            let didResume = OSAllocatedUnfairLock(initialState: false)
 
             recognizer.recognitionTask(with: request) { result, error in
-                guard !hasResumed else { return }
-
                 if let error {
-                    hasResumed = true
+                    let alreadyResumed = didResume.withLock { resumed -> Bool in
+                        if resumed { return true }
+                        resumed = true
+                        return false
+                    }
+                    guard !alreadyResumed else { return }
                     continuation.resume(throwing: TranscriptionError.recognitionFailed(error.localizedDescription))
                     return
                 }
 
                 guard let result, result.isFinal else { return }
 
-                hasResumed = true
+                let alreadyResumed = didResume.withLock { resumed -> Bool in
+                    if resumed { return true }
+                    resumed = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
 
                 let segments = result.bestTranscription.segments.map { segment in
                     TranscriptionSegment(
@@ -158,6 +167,8 @@ public actor TranscriptionService {
 
     // MARK: - Private
 
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
     private func formatAsMarkdown(_ result: TranscriptionResult, audioFileName: String) -> String {
         let durationMinutes = Int(result.duration) / 60
         let durationSeconds = Int(result.duration) % 60
@@ -168,7 +179,7 @@ public actor TranscriptionService {
         audio: \(audioFileName)
         duration: \(String(format: "%02d:%02d", durationMinutes, durationSeconds))
         language: \(result.locale.identifier)
-        date: \(ISO8601DateFormatter().string(from: Date()))
+        date: \(Self.iso8601Formatter.string(from: Date()))
         ---
 
         # Transcription

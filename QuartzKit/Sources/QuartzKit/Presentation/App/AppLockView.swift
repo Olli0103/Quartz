@@ -35,7 +35,7 @@ public struct AppLockView<Content: View>: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: isUnlocked)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isUnlocked)
         .task {
             await authenticate()
         }

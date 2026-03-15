@@ -17,7 +17,7 @@ public struct AppearanceSettingsView: View {
                             theme: theme,
                             isSelected: appearance.theme == theme
                         ) {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 appearance.theme = theme
                             }
                         }

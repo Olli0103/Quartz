@@ -40,7 +40,7 @@ public struct NoteEditorView: View {
             statusBar
                 .hidesInFocusMode()
         }
-        .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note"))
+        .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -98,7 +98,7 @@ public struct NoteEditorView: View {
 
             Spacer()
 
-            Text("\(viewModel.wordCount) \(String(localized: "words"))")
+            Text("\(viewModel.wordCount) \(String(localized: "words", bundle: .module))")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
@@ -116,9 +116,9 @@ public struct NoteEditorView: View {
     }
 
     private var statusText: String {
-        if viewModel.isSaving { return String(localized: "Saving…") }
-        if viewModel.isDirty { return String(localized: "Edited") }
-        return String(localized: "Saved")
+        if viewModel.isSaving { return String(localized: "Saving…", bundle: .module) }
+        if viewModel.isDirty { return String(localized: "Edited", bundle: .module) }
+        return String(localized: "Saved", bundle: .module)
     }
 
     // MARK: - Editor Toolbar
@@ -133,7 +133,7 @@ public struct NoteEditorView: View {
                           ? "eye.slash.fill" : "eye.fill")
                         .symbolRenderingMode(.hierarchical)
                 }
-                .accessibilityLabel(focusMode.isFocusModeActive ? String(localized: "Exit focus mode") : String(localized: "Enter focus mode"))
+                .accessibilityLabel(focusMode.isFocusModeActive ? String(localized: "Exit focus mode", bundle: .module) : String(localized: "Enter focus mode", bundle: .module))
             }
 
             if viewModel.isDirty {
@@ -144,7 +144,7 @@ public struct NoteEditorView: View {
                         .symbolRenderingMode(.hierarchical)
                 }
                 .keyboardShortcut("s", modifiers: .command)
-                .accessibilityLabel(String(localized: "Save note"))
+                .accessibilityLabel(String(localized: "Save note", bundle: .module))
             }
         }
     }

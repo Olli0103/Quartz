@@ -87,6 +87,7 @@ public actor NoteChatService {
 
 /// Eine Chat-Session mit einer Notiz.
 @Observable
+@MainActor
 public final class NoteChatSession {
     public private(set) var messages: [AIMessage] = []
     public private(set) var isLoading: Bool = false
@@ -107,7 +108,6 @@ public final class NoteChatSession {
     }
 
     /// Sendet eine Nachricht und wartet auf Antwort.
-    @MainActor
     public func send(_ message: String) async {
         let userMessage = AIMessage(role: .user, content: message)
         messages.append(userMessage)
@@ -133,7 +133,6 @@ public final class NoteChatSession {
     }
 
     /// Löscht den Chat-Verlauf.
-    @MainActor
     public func clear() {
         messages.removeAll()
         error = nil
