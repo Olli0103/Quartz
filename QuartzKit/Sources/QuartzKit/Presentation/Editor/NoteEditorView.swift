@@ -143,6 +143,7 @@ public struct NoteEditorView: View {
                     Image(systemName: "square.and.arrow.down")
                         .symbolRenderingMode(.hierarchical)
                 }
+                .keyboardShortcut("s", modifiers: .command)
                 .accessibilityLabel(String(localized: "Save note"))
             }
         }

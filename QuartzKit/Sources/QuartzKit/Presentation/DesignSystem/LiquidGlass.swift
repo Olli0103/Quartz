@@ -364,7 +364,7 @@ public struct ShimmerModifier: ViewModifier {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .onAppear {
                             withAnimation(
-                                .linear(duration: 1.5)
+                                .easeInOut(duration: 1.5)
                                 .repeatForever(autoreverses: false)
                             ) {
                                 phase = 2
@@ -659,7 +659,8 @@ public struct QuartzEmptyState: View {
     public var body: some View {
         VStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 48))
+                .font(.system(size: 48, weight: .regular, design: .default))
+                .imageScale(.large)
                 .foregroundStyle(.quaternary)
                 .symbolEffect(.pulse, options: .repeating)
 

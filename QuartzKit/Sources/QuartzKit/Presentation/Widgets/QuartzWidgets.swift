@@ -77,7 +77,7 @@ public struct LatestNoteWidgetView: View {
                     Image(systemName: "doc.text.fill")
                         .font(.caption)
                         .foregroundStyle(.tint)
-                    Text("Latest Note")
+                    Text(String(localized: "Latest Note", bundle: .module))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -98,7 +98,7 @@ public struct LatestNoteWidgetView: View {
                     HStack {
                         Image(systemName: "doc.text.fill")
                             .foregroundStyle(.tint)
-                        Text("Latest Note")
+                        Text(String(localized: "Latest Note", bundle: .module))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -171,7 +171,7 @@ public struct QuickCaptureWidgetView: View {
                 Image(systemName: "square.and.pencil")
                     .font(.largeTitle)
                     .foregroundStyle(.tint)
-                Text("Quick Note")
+                Text(String(localized: "Quick Note", bundle: .module))
                     .font(.caption.bold())
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -229,7 +229,7 @@ public struct PinnedNotesWidgetView: View {
             HStack {
                 Image(systemName: "pin.fill")
                     .foregroundStyle(.orange)
-                Text("Pinned Notes")
+                Text(String(localized: "Pinned Notes", bundle: .module))
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
                 Spacer()

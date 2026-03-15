@@ -99,9 +99,9 @@ public struct FormattingToolbar: View {
                         Image(systemName: action.icon)
                             .font(.system(size: 14, weight: .medium))
                             .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(action.label)
                 }

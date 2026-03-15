@@ -17,8 +17,8 @@ public struct QuickNoteControlWidget: ControlWidget {
                 Label("Quick Note", systemImage: "square.and.pencil")
             }
         }
-        .displayName("Quick Note")
-        .description("Create a new note instantly.")
+        .displayName(String(localized: "Quick Note", bundle: .module))
+        .description(String(localized: "Create a new note instantly.", bundle: .module))
     }
 
     public init() {}
@@ -51,8 +51,8 @@ public struct DailyNoteControlWidget: ControlWidget {
                 Label("Daily Note", systemImage: "calendar")
             }
         }
-        .displayName("Daily Note")
-        .description("Open or create today's daily note.")
+        .displayName(String(localized: "Daily Note", bundle: .module))
+        .description(String(localized: "Open or create today's daily note.", bundle: .module))
     }
 
     public init() {}
