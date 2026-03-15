@@ -67,6 +67,9 @@ public final class OpenAIProvider: AIProvider, Sendable {
     public let displayName = "OpenAI"
     private let keychain: KeychainHelper
 
+    // nonisolated(unsafe) is fine – these are truly immutable constants.
+    nonisolated(unsafe) private static let chatURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
     public var availableModels: [AIModel] {
@@ -90,7 +93,7 @@ public final class OpenAIProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -112,6 +115,8 @@ public final class AnthropicProvider: AIProvider, Sendable {
     public let id = "anthropic"
     public let displayName = "Anthropic"
     private let keychain: KeychainHelper
+
+    nonisolated(unsafe) private static let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -144,7 +149,7 @@ public final class AnthropicProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        var request = URLRequest(url: Self.messagesURL)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
@@ -168,6 +173,8 @@ public final class OllamaProvider: AIProvider, Sendable {
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
+    nonisolated(unsafe) private static let defaultBaseURL = URL(string: "http://localhost:11434")!
+
     public var isConfigured: Bool { true } // Kein API-Key nötig
 
     public var availableModels: [AIModel] {
@@ -178,7 +185,7 @@ public final class OllamaProvider: AIProvider, Sendable {
         ]
     }
 
-    public init(baseURL: URL = URL(string: "http://localhost:11434")!) {
+    public init(baseURL: URL = OllamaProvider.defaultBaseURL) {
         self.baseURL = baseURL
     }
 
@@ -267,6 +274,8 @@ public final class OpenRouterProvider: AIProvider, Sendable {
     public let displayName = "OpenRouter"
     private let keychain: KeychainHelper
 
+    nonisolated(unsafe) private static let chatURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
     public var availableModels: [AIModel] {
@@ -295,7 +304,7 @@ public final class OpenRouterProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
+        var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -194,7 +194,7 @@ public actor AppleIntelligenceService {
         let fullRange = NSRange(location: 0, length: nsText.length)
 
         var corrections: [(NSRange, String)] = []
-        let language = Locale.preferredLanguages.first ?? "en"
+        let language = Locale.preferredLanguages.first ?? Locale.current.language.languageCode?.identifier ?? "en"
         var offset = 0
         while offset < nsText.length {
             let misspelled = checker.rangeOfMisspelledWord(

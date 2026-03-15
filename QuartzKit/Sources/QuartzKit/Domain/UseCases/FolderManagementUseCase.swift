@@ -20,11 +20,14 @@ public struct FolderManagementUseCase: Sendable {
 
     /// Verschiebt eine Datei oder einen Ordner.
     public func move(at sourceURL: URL, to destinationFolder: URL) async throws -> URL {
-        let fileName = sourceURL.lastPathComponent
-        let destination = destinationFolder.appending(path: fileName)
-        let fileManager = FileManager.default
-        try fileManager.moveItem(at: sourceURL, to: destination)
-        return destination
+        let source = sourceURL
+        let destFolder = destinationFolder
+        return try await Task.detached(priority: .userInitiated) {
+            let fileName = source.lastPathComponent
+            let destination = destFolder.appending(path: fileName)
+            try FileManager.default.moveItem(at: source, to: destination)
+            return destination
+        }.value
     }
 
     /// Löscht einen Ordner (verschiebt in den Papierkorb auf macOS).
