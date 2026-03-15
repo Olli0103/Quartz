@@ -141,7 +141,7 @@ public struct OnboardingView: View {
                     }
                 }
 
-                Button(String(localized: "Back")) {
+                Button(String(localized: "Back", bundle: .module)) {
                     currentStep = .welcome
                 }
                 .foregroundStyle(.secondary)
@@ -206,7 +206,7 @@ public struct OnboardingView: View {
                     createVault()
                 }
 
-                Button(String(localized: "Back")) {
+                Button(String(localized: "Back", bundle: .module)) {
                     currentStep = .chooseFolder
                 }
                 .foregroundStyle(.secondary)
