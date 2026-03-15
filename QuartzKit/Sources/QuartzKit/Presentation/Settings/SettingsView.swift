@@ -22,7 +22,7 @@ public struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        Text("Editor settings – coming soon")
+                        Text(String(localized: "Editor settings – coming soon", bundle: .module))
                     } label: {
                         SettingsRow(
                             icon: "textformat",
@@ -31,13 +31,13 @@ public struct SettingsView: View {
                         )
                     }
                 } header: {
-                    QuartzSectionHeader("General")
+                    QuartzSectionHeader(String(localized: "General", bundle: .module))
                 }
 
                 // Vault
                 Section {
                     NavigationLink {
-                        Text("Vault settings – coming soon")
+                        Text(String(localized: "Vault settings – coming soon", bundle: .module))
                     } label: {
                         SettingsRow(
                             icon: "folder.fill",
@@ -47,16 +47,16 @@ public struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        Text("iCloud sync – coming soon")
+                        Text(String(localized: "iCloud sync – coming soon", bundle: .module))
                     } label: {
                         SettingsRow(
                             icon: "icloud.fill",
                             iconColor: .blue,
-                            title: "iCloud Sync"
+                            title: String(localized: "iCloud Sync", bundle: .module)
                         )
                     }
                 } header: {
-                    QuartzSectionHeader("Data")
+                    QuartzSectionHeader(String(localized: "Data", bundle: .module))
                 }
 
                 // About
@@ -73,7 +73,7 @@ public struct SettingsView: View {
                             .foregroundStyle(.tertiary)
                     }
                 } header: {
-                    QuartzSectionHeader("About")
+                    QuartzSectionHeader(String(localized: "About", bundle: .module))
                 }
             }
             .navigationTitle(String(localized: "Settings", bundle: .module))

@@ -27,7 +27,7 @@ public struct AppearanceSettingsView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             } header: {
-                QuartzSectionHeader("Theme", icon: "paintbrush")
+                QuartzSectionHeader(String(localized: "Theme", bundle: .module), icon: "paintbrush")
             }
 
             // Editor Font Size
@@ -59,7 +59,7 @@ public struct AppearanceSettingsView: View {
                     )
                     .tint(Color(hex: 0xF2994A))
 
-                    Text("The quick brown fox jumps over the lazy dog.")
+                    Text(String(localized: "The quick brown fox jumps over the lazy dog.", bundle: .module))
                         .font(.system(size: 16 * appearance.editorFontScale))
                         .foregroundStyle(.secondary)
                         .padding(12)
@@ -71,7 +71,7 @@ public struct AppearanceSettingsView: View {
                         .animation(.spring(response: 0.3), value: appearance.editorFontScale)
                 }
             } header: {
-                QuartzSectionHeader("Editor", icon: "textformat.size")
+                QuartzSectionHeader(String(localized: "Editor", bundle: .module), icon: "textformat.size")
             }
         }
         .navigationTitle(String(localized: "Appearance", bundle: .module))

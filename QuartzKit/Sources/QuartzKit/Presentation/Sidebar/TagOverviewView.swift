@@ -19,7 +19,7 @@ public struct TagOverviewView: View {
                         Image(systemName: "tag")
                             .font(.title2)
                             .foregroundStyle(.quaternary)
-                        Text("No tags yet")
+                        Text(String(localized: "No tags yet", bundle: .module))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -70,10 +70,10 @@ public struct TagOverviewView: View {
             }
         } header: {
             HStack {
-                QuartzSectionHeader("Tags", icon: "tag")
+                QuartzSectionHeader(String(localized: "Tags", bundle: .module), icon: "tag")
                 Spacer()
                 if selectedTag != nil {
-                    Button("Clear") {
+                    Button(String(localized: "Clear", bundle: .module)) {
                         withAnimation { selectedTag = nil }
                     }
                     .font(.caption)
