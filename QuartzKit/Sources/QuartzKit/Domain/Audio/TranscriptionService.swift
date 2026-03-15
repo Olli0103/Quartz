@@ -15,10 +15,10 @@ public actor TranscriptionService {
 
         public var errorDescription: String? {
             switch self {
-            case .permissionDenied: "Speech recognition permission denied."
-            case .recognizerUnavailable: "Speech recognizer is not available for this language."
-            case .recognitionFailed(let msg): "Transcription failed: \(msg)"
-            case .fileNotFound: "Audio file not found."
+            case .permissionDenied: String(localized: "Speech recognition permission denied.", bundle: .module)
+            case .recognizerUnavailable: String(localized: "Speech recognizer is not available for this language.", bundle: .module)
+            case .recognitionFailed(let msg): String(localized: "Transcription failed: \(msg)", bundle: .module)
+            case .fileNotFound: String(localized: "Audio file not found.", bundle: .module)
             }
         }
     }

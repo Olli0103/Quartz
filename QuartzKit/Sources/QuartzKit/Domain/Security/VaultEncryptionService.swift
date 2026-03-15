@@ -16,10 +16,10 @@ public actor VaultEncryptionService {
 
         public var errorDescription: String? {
             switch self {
-            case .keyNotFound: "Encryption key not found in Keychain."
-            case .encryptionFailed(let msg): "Encryption failed: \(msg)"
-            case .decryptionFailed(let msg): "Decryption failed: \(msg)"
-            case .keychainError(let status): "Keychain error: \(status)"
+            case .keyNotFound: String(localized: "Encryption key not found in Keychain.", bundle: .module)
+            case .encryptionFailed(let msg): String(localized: "Encryption failed: \(msg)", bundle: .module)
+            case .decryptionFailed(let msg): String(localized: "Decryption failed: \(msg)", bundle: .module)
+            case .keychainError(let status): String(localized: "Keychain error: \(status)", bundle: .module)
             }
         }
     }

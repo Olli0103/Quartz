@@ -241,7 +241,10 @@ public final class GeminiProvider: AIProvider, Sendable {
         )
 
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
-        var request = URLRequest(url: URL(string: urlString)!)
+        guard let url = URL(string: urlString) else {
+            throw AIProviderError.networkError("Invalid model ID: \(modelID)")
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")

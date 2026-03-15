@@ -38,10 +38,10 @@ public final class AudioRecordingService: NSObject {
 
         public var errorDescription: String? {
             switch self {
-            case .permissionDenied: "Microphone access denied. Please enable in Settings."
-            case .sessionSetupFailed(let msg): "Audio session setup failed: \(msg)"
-            case .recordingFailed(let msg): "Recording failed: \(msg)"
-            case .noActiveRecording: "No active recording."
+            case .permissionDenied: String(localized: "Microphone access denied. Please enable in Settings.", bundle: .module)
+            case .sessionSetupFailed(let msg): String(localized: "Audio session setup failed: \(msg)", bundle: .module)
+            case .recordingFailed(let msg): String(localized: "Recording failed: \(msg)", bundle: .module)
+            case .noActiveRecording: String(localized: "No active recording.", bundle: .module)
             }
         }
     }

@@ -19,9 +19,9 @@ public actor HandwritingOCRService {
 
         public var errorDescription: String? {
             switch self {
-            case .renderingFailed: "Failed to render drawing for OCR."
-            case .recognitionFailed(let msg): "Text recognition failed: \(msg)"
-            case .noTextFound: "No text found in drawing."
+            case .renderingFailed: String(localized: "Failed to render drawing for OCR.", bundle: .module)
+            case .recognitionFailed(let msg): String(localized: "Text recognition failed: \(msg)", bundle: .module)
+            case .noTextFound: String(localized: "No text found in drawing.", bundle: .module)
             }
         }
     }

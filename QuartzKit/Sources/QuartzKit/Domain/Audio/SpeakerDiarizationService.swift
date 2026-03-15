@@ -17,10 +17,10 @@ public actor SpeakerDiarizationService {
 
         public var errorDescription: String? {
             switch self {
-            case .fileNotFound: "Audio file not found."
-            case .analysisUnavailable: "Audio analysis is not available."
-            case .analysisFailed(let msg): "Speaker analysis failed: \(msg)"
-            case .insufficientAudio: "Audio too short for speaker detection."
+            case .fileNotFound: String(localized: "Audio file not found.", bundle: .module)
+            case .analysisUnavailable: String(localized: "Audio analysis is not available.", bundle: .module)
+            case .analysisFailed(let msg): String(localized: "Speaker analysis failed: \(msg)", bundle: .module)
+            case .insufficientAudio: String(localized: "Audio too short for speaker detection.", bundle: .module)
             }
         }
     }

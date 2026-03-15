@@ -95,6 +95,7 @@ public actor MeetingMinutesService {
         let markdown = minutes.toMarkdown()
 
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let dateStr = formatter.string(from: minutes.date)
 
@@ -154,6 +155,7 @@ public struct MeetingMinutes: Sendable {
     /// Generiert Markdown-Darstellung der Meeting Minutes.
     public func toMarkdown() -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         let dateStr = formatter.string(from: date)
 
@@ -212,9 +214,9 @@ public enum MeetingMinutesError: LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .noProviderConfigured: "No AI provider configured for meeting summarization."
-        case .transcriptionFailed(let msg): "Transcription failed: \(msg)"
-        case .summarizationFailed(let msg): "Summarization failed: \(msg)"
+        case .noProviderConfigured: String(localized: "No AI provider configured for meeting summarization.", bundle: .module)
+        case .transcriptionFailed(let msg): String(localized: "Transcription failed: \(msg)", bundle: .module)
+        case .summarizationFailed(let msg): String(localized: "Summarization failed: \(msg)", bundle: .module)
         }
     }
 }
