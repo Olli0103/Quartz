@@ -69,13 +69,13 @@ public struct OnboardingView: View {
                         .font(.system(size: 40, weight: .bold, design: .rounded))
                         .slideUp(delay: 0.1)
 
-                    Text(String(localized: "Your notes. Your files. Your way."))
+                    Text(String(localized: "Your notes. Your files. Your way.", bundle: .module))
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .slideUp(delay: 0.15)
                 }
 
-                Text(String(localized: "Beautiful Markdown notes stored as plain files – always portable, always yours."))
+                Text(String(localized: "Beautiful Markdown notes stored as plain files – always portable, always yours.", bundle: .module))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -86,11 +86,11 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 16) {
-                QuartzButton(String(localized: "Get Started"), icon: "arrow.right") {
+                QuartzButton(String(localized: "Get Started", bundle: .module), icon: "arrow.right") {
                     currentStep = .chooseFolder
                 }
 
-                Text(String(localized: "No account needed"))
+                Text(String(localized: "No account needed", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -113,10 +113,10 @@ public struct OnboardingView: View {
                     .font(.system(size: 56, weight: .thin))
                     .foregroundStyle(QuartzColors.folderYellow)
 
-                Text(String(localized: "Choose a Vault Folder"))
+                Text(String(localized: "Choose a Vault Folder", bundle: .module))
                     .font(.title2.bold())
 
-                Text(String(localized: "Pick a folder where Quartz will store your notes."))
+                Text(String(localized: "Pick a folder where Quartz will store your notes.", bundle: .module))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -126,7 +126,7 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                QuartzButton(String(localized: "Choose Folder"), icon: "folder") {
+                QuartzButton(String(localized: "Choose Folder", bundle: .module), icon: "folder") {
                     showFilePicker = true
                 }
                 .fileImporter(
@@ -156,10 +156,10 @@ public struct OnboardingView: View {
     private var chooseTemplateStep: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                Text(String(localized: "Choose a Structure"))
+                Text(String(localized: "Choose a Structure", bundle: .module))
                     .font(.title2.bold())
 
-                Text(String(localized: "Start with a proven system or a blank canvas."))
+                Text(String(localized: "Start with a proven system or a blank canvas.", bundle: .module))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -201,7 +201,7 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                QuartzButton(String(localized: "Create Vault"), icon: "checkmark") {
+                QuartzButton(String(localized: "Create Vault", bundle: .module), icon: "checkmark") {
                     currentStep = .creating
                     createVault()
                 }
@@ -243,11 +243,11 @@ public struct OnboardingView: View {
             .bounceIn()
 
             VStack(spacing: 8) {
-                Text(String(localized: "Setting up your vault…"))
+                Text(String(localized: "Setting up your vault…", bundle: .module))
                     .font(.title3.weight(.medium))
                     .slideUp(delay: 0.2)
 
-                Text(String(localized: "This will only take a moment."))
+                Text(String(localized: "This will only take a moment.", bundle: .module))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .slideUp(delay: 0.3)
