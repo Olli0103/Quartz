@@ -29,7 +29,7 @@ public struct TagOverviewView: View {
             } else {
                 ForEach(tags) { tag in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             if selectedTag == tag.name {
                                 selectedTag = nil
                             } else {

@@ -32,17 +32,17 @@ public enum FormattingAction: String, CaseIterable, Sendable {
 
     var label: String {
         switch self {
-        case .bold: String(localized: "Bold")
-        case .italic: String(localized: "Italic")
-        case .heading: String(localized: "Heading")
-        case .bulletList: String(localized: "Bullet List")
-        case .numberedList: String(localized: "Numbered List")
-        case .checkbox: String(localized: "Checkbox")
-        case .code: String(localized: "Inline Code")
-        case .codeBlock: String(localized: "Code Block")
-        case .link: String(localized: "Link")
-        case .image: String(localized: "Image")
-        case .blockquote: String(localized: "Quote")
+        case .bold: String(localized: "Bold", bundle: .module)
+        case .italic: String(localized: "Italic", bundle: .module)
+        case .heading: String(localized: "Heading", bundle: .module)
+        case .bulletList: String(localized: "Bullet List", bundle: .module)
+        case .numberedList: String(localized: "Numbered List", bundle: .module)
+        case .checkbox: String(localized: "Checkbox", bundle: .module)
+        case .code: String(localized: "Inline Code", bundle: .module)
+        case .codeBlock: String(localized: "Code Block", bundle: .module)
+        case .link: String(localized: "Link", bundle: .module)
+        case .image: String(localized: "Image", bundle: .module)
+        case .blockquote: String(localized: "Quote", bundle: .module)
         }
     }
 
@@ -125,7 +125,7 @@ public struct FormattingToolbar: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .accessibilityLabel(String(localized: "More formatting options"))
+                .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
             }
             .padding(.horizontal, 8)
         }

@@ -48,7 +48,7 @@ public struct BacklinksPanel: View {
                 .background(.ultraThinMaterial)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isExpanded ? "Collapse backlinks" : "Expand backlinks")
+            .accessibilityLabel(isExpanded ? String(localized: "Collapse backlinks", bundle: .module) : String(localized: "Expand backlinks", bundle: .module))
 
             // Content
             if isExpanded {
@@ -97,7 +97,7 @@ public struct BacklinksPanel: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Open \(backlink.sourceNoteName)")
+                            .accessibilityLabel(String(localized: "Open \(backlink.sourceNoteName)", bundle: .module))
                         }
                     }
                     .padding(.horizontal, 16)

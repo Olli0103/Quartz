@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// Protocol für das Feature-Flag-System.
 ///
@@ -11,6 +11,9 @@ public protocol FeatureGating: Sendable {
     /// Gibt den Tier (Free/Pro) eines Features zurück.
     func tier(for feature: Feature) -> FeatureTier
 }
+
+#if canImport(SwiftUI)
+import SwiftUI
 
 // MARK: - SwiftUI Environment
 
@@ -30,3 +33,4 @@ private struct DefaultFeatureGateStub: FeatureGating {
     func isEnabled(_ feature: Feature) -> Bool { true }
     func tier(for feature: Feature) -> FeatureTier { .free }
 }
+#endif

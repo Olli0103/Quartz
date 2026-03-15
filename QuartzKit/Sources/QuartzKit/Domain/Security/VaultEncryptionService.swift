@@ -19,7 +19,17 @@ public actor VaultEncryptionService {
             case .keyNotFound: String(localized: "Encryption key not found in Keychain.", bundle: .module)
             case .encryptionFailed(let msg): String(localized: "Encryption failed: \(msg)", bundle: .module)
             case .decryptionFailed(let msg): String(localized: "Decryption failed: \(msg)", bundle: .module)
-            case .keychainError(let status): String(localized: "Keychain error: \(status)", bundle: .module)
+            case .keychainError(let status):
+                switch status {
+                case errSecItemNotFound:
+                    String(localized: "Encryption key not found. You may need to set up encryption again.", bundle: .module)
+                case errSecAuthFailed:
+                    String(localized: "Authentication failed when accessing encryption key.", bundle: .module)
+                case errSecInteractionNotAllowed:
+                    String(localized: "Cannot access encryption key while device is locked.", bundle: .module)
+                default:
+                    String(localized: "A keychain error occurred. Please try again. (Code: \(status))", bundle: .module)
+                }
             }
         }
     }
@@ -93,15 +103,37 @@ public actor VaultEncryptionService {
 
     /// Verschlüsselt eine Datei in-place.
     public func encryptFile(at url: URL, with key: SymmetricKey) throws {
-        let plaintext = try Data(contentsOf: url)
-        let encrypted = try encrypt(data: plaintext, with: key)
-        try encrypted.write(to: url, options: .atomic)
+        var coordinatorError: NSError?
+        var opError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            do {
+                let plaintext = try Data(contentsOf: actualURL)
+                let encrypted = try encrypt(data: plaintext, with: key)
+                try encrypted.write(to: actualURL, options: .atomic)
+            } catch {
+                opError = error
+            }
+        }
+        if let error = coordinatorError ?? opError { throw error }
     }
 
     /// Entschlüsselt eine Datei und gibt den Plaintext zurück.
     public func decryptFile(at url: URL, with key: SymmetricKey) throws -> Data {
-        let encrypted = try Data(contentsOf: url)
-        return try decrypt(data: encrypted, with: key)
+        var coordinatorError: NSError?
+        var opError: Error?
+        var result: Data?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+            do {
+                let encrypted = try Data(contentsOf: actualURL)
+                result = try decrypt(data: encrypted, with: key)
+            } catch {
+                opError = error
+            }
+        }
+        if let error = coordinatorError ?? opError { throw error }
+        return result!
     }
 
     // MARK: - Keychain Helpers

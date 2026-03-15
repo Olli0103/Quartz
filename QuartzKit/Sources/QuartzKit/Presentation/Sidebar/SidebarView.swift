@@ -29,7 +29,7 @@ public struct SidebarView: View {
             notesSection
         }
         .listStyle(.sidebar)
-        .searchable(text: $viewModel.searchText, prompt: Text(String(localized: "Search notes…")))
+        .searchable(text: $viewModel.searchText, prompt: Text(String(localized: "Search notes…", bundle: .module)))
         .overlay {
             if viewModel.isLoading {
                 VStack(spacing: 0) {
@@ -47,28 +47,28 @@ public struct SidebarView: View {
             } else if viewModel.fileTree.isEmpty {
                 QuartzEmptyState(
                     icon: "tray",
-                    title: String(localized: "No Notes Yet"),
-                    subtitle: String(localized: "Create your first note to get started.")
+                    title: String(localized: "No Notes Yet", bundle: .module),
+                    subtitle: String(localized: "Create your first note to get started.", bundle: .module)
                 )
             }
         }
-        .alert(String(localized: "New Folder"), isPresented: $showNewFolderDialog) {
-            TextField(String(localized: "Folder name"), text: $newItemName)
-            Button(String(localized: "Create")) {
+        .alert(String(localized: "New Folder", bundle: .module), isPresented: $showNewFolderDialog) {
+            TextField(String(localized: "Folder name", bundle: .module), text: $newItemName)
+            Button(String(localized: "Create", bundle: .module)) {
                 guard let parent = newItemParent else { return }
                 Task { await viewModel.createFolder(named: newItemName, in: parent) }
                 newItemName = ""
             }
-            Button(String(localized: "Cancel"), role: .cancel) { newItemName = "" }
+            Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
-        .alert(String(localized: "New Note"), isPresented: $showNewNoteDialog) {
-            TextField(String(localized: "Note name"), text: $newItemName)
-            Button(String(localized: "Create")) {
+        .alert(String(localized: "New Note", bundle: .module), isPresented: $showNewNoteDialog) {
+            TextField(String(localized: "Note name", bundle: .module), text: $newItemName)
+            Button(String(localized: "Create", bundle: .module)) {
                 guard let parent = newItemParent else { return }
                 Task { await viewModel.createNote(named: newItemName, in: parent) }
                 newItemName = ""
             }
-            Button(String(localized: "Cancel"), role: .cancel) { newItemName = "" }
+            Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
         .task {
             viewModel.collectTags()
@@ -86,7 +86,7 @@ public struct SidebarView: View {
                 }
             } label: {
                 Label {
-                    Text(String(localized: "New Note"))
+                    Text(String(localized: "New Note", bundle: .module))
                         .foregroundStyle(.primary)
                 } icon: {
                     Image(systemName: "square.and.pencil")
@@ -125,10 +125,10 @@ public struct SidebarView: View {
             }
         } header: {
             HStack {
-                QuartzSectionHeader(String(localized: "Tags"), icon: "tag")
+                QuartzSectionHeader(String(localized: "Tags", bundle: .module), icon: "tag")
                 Spacer()
                 if viewModel.selectedTag != nil {
-                    Button(String(localized: "Clear")) {
+                    Button(String(localized: "Clear", bundle: .module)) {
                         withAnimation { viewModel.selectedTag = nil }
                     }
                     .font(.caption)
@@ -147,7 +147,7 @@ public struct SidebarView: View {
                     .staggered(index: index)
             }
         } header: {
-            QuartzSectionHeader(String(localized: "Notes"), icon: "doc.text")
+            QuartzSectionHeader(String(localized: "Notes", bundle: .module), icon: "doc.text")
         }
     }
 
@@ -185,14 +185,14 @@ public struct SidebarView: View {
             newItemParent = node.url
             showNewNoteDialog = true
         } label: {
-            Label(String(localized: "New Note"), systemImage: "doc.badge.plus")
+            Label(String(localized: "New Note", bundle: .module), systemImage: "doc.badge.plus")
         }
 
         Button {
             newItemParent = node.url
             showNewFolderDialog = true
         } label: {
-            Label(String(localized: "New Folder"), systemImage: "folder.badge.plus")
+            Label(String(localized: "New Folder", bundle: .module), systemImage: "folder.badge.plus")
         }
 
         Divider()
@@ -200,7 +200,7 @@ public struct SidebarView: View {
         Button(role: .destructive) {
             Task { await viewModel.delete(at: node.url) }
         } label: {
-            Label(String(localized: "Delete"), systemImage: "trash")
+            Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
         }
     }
 
@@ -212,7 +212,7 @@ public struct SidebarView: View {
             }
             Task { await viewModel.delete(at: node.url) }
         } label: {
-            Label(String(localized: "Delete"), systemImage: "trash")
+            Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
         }
     }
 }

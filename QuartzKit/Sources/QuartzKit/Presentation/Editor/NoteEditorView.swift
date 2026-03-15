@@ -40,6 +40,7 @@ public struct NoteEditorView: View {
             statusBar
                 .hidesInFocusMode()
         }
+        .sensoryFeedback(.success, trigger: viewModel.isSaving) { $0 && !$1 }
         .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -84,8 +85,8 @@ public struct NoteEditorView: View {
                     .shadow(color: statusColor.opacity(viewModel.isSaving ? 0.6 : 0), radius: 4)
                     .animation(
                         viewModel.isSaving
-                            ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
-                            : .easeOut(duration: 0.3),
+                            ? .spring(response: 0.6, dampingFraction: 0.5).repeatForever(autoreverses: true)
+                            : .spring(response: 0.3, dampingFraction: 0.8),
                         value: viewModel.isSaving
                     )
 
@@ -94,7 +95,7 @@ public struct NoteEditorView: View {
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
             }
-            .animation(.easeInOut(duration: 0.2), value: statusText)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: statusText)
 
             Spacer()
 

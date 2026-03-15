@@ -70,7 +70,7 @@ public enum QuartzColors {
     )
 
     // Semantic colors
-    public static let sidebarBackground = Color("SidebarBG", bundle: nil)
+    public static let sidebarBackground = Color("SidebarBG", bundle: .module)
     #if canImport(UIKit)
     public static let cardBackground = Color(.secondarySystemBackground)
     public static let subtleText = Color(.tertiaryLabel)
@@ -78,6 +78,9 @@ public enum QuartzColors {
     public static let cardBackground = Color(nsColor: .controlBackgroundColor)
     public static let subtleText = Color(nsColor: .tertiaryLabelColor)
     #endif
+
+    // Accent color
+    public static let accent = adaptiveColor(light: 0xF2994A, dark: 0xFFAB5E)
 
     // Node type colors (brighter variants for dark mode)
     public static let folderYellow = adaptiveColor(light: 0xFDCB6E, dark: 0xFFD97F)

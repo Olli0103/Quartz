@@ -78,11 +78,19 @@ struct VaultPickerView: View {
 
             // Persist bookmark for future access
             do {
+                #if os(macOS)
+                let bookmarkData = try url.bookmarkData(
+                    options: .withSecurityScope,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+                #else
                 let bookmarkData = try url.bookmarkData(
                     options: .minimalBookmark,
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
+                #endif
                 UserDefaults.standard.set(bookmarkData, forKey: "quartz.vault.bookmark.\(url.lastPathComponent)")
             } catch {
                 // Bookmark persistence is best-effort; vault still works for this session
