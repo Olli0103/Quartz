@@ -39,17 +39,17 @@ public struct SearchView: View {
                 }
                 .listStyle(.plain)
             }
-            .searchable(text: $query, isPresented: .constant(true), prompt: Text(String(localized: "Search all notes…")))
+            .searchable(text: $query, isPresented: .constant(true), prompt: Text(String(localized: "Search all notes…", bundle: .module)))
             .onChange(of: query) { _, newQuery in
                 performSearch(newQuery)
             }
-            .navigationTitle(String(localized: "Search"))
+            .navigationTitle(String(localized: "Search", bundle: .module))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Cancel")) { dismiss() }
+                    Button(String(localized: "Cancel", bundle: .module)) { dismiss() }
                 }
             }
         }

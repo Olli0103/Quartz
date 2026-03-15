@@ -50,9 +50,9 @@ public struct AppLockView<Content: View>: View {
                 .foregroundStyle(.tint)
 
             VStack(spacing: 8) {
-                Text(String(localized: "Quartz is Locked"))
+                Text(String(localized: "Quartz is Locked", bundle: .module))
                     .font(.title2.bold())
-                Text(String(localized: "Authenticate to access your notes"))
+                Text(String(localized: "Authenticate to access your notes", bundle: .module))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -70,7 +70,7 @@ public struct AppLockView<Content: View>: View {
             Button {
                 Task { await authenticate() }
             } label: {
-                Label(String(localized: "Unlock"), systemImage: biometryIcon)
+                Label(String(localized: "Unlock", bundle: .module), systemImage: biometryIcon)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -107,7 +107,7 @@ public struct AppLockView<Content: View>: View {
         isAuthenticating = true
         errorMessage = nil
 
-        let result = await authService.authenticate(reason: String(localized: "Unlock Quartz to access your notes"))
+        let result = await authService.authenticate(reason: String(localized: "Unlock Quartz to access your notes", bundle: .module))
 
         switch result {
         case .success:

@@ -31,7 +31,7 @@ public struct ShareExtensionView: View {
         NavigationStack {
             Form {
                 // Preview
-                Section(String(localized: "Preview")) {
+                Section(String(localized: "Preview", bundle: .module)) {
                     Text(sharedItem.markdownContent)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -39,11 +39,11 @@ public struct ShareExtensionView: View {
                 }
 
                 // Capture Mode
-                Section(String(localized: "Save to")) {
-                    Toggle(String(localized: "Append to Inbox"), isOn: $useInbox)
+                Section(String(localized: "Save to", bundle: .module)) {
+                    Toggle(String(localized: "Append to Inbox", bundle: .module), isOn: $useInbox)
 
                     if !useInbox {
-                        TextField(String(localized: "Note title"), text: $noteTitle)
+                        TextField(String(localized: "Note title", bundle: .module), text: $noteTitle)
                     }
                 }
 
@@ -54,16 +54,16 @@ public struct ShareExtensionView: View {
                     }
                 }
             }
-            .navigationTitle(String(localized: "Save to Quartz"))
+            .navigationTitle(String(localized: "Save to Quartz", bundle: .module))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Cancel")) { onDismiss() }
+                    Button(String(localized: "Cancel", bundle: .module)) { onDismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "Save")) { save() }
+                    Button(String(localized: "Save", bundle: .module)) { save() }
                         .disabled(isSaving || (!useInbox && noteTitle.isEmpty))
                 }
             }
@@ -103,7 +103,7 @@ public struct ShareExtensionView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
-            Text(String(localized: "Saved!"))
+            Text(String(localized: "Saved!", bundle: .module))
                 .font(.headline)
         }
         .padding(32)

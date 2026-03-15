@@ -27,7 +27,7 @@ public struct QuickNoteView: View {
     public var body: some View {
         VStack(spacing: 0) {
             // Title
-            TextField(String(localized: "Title"), text: $noteTitle)
+            TextField(String(localized: "Title", bundle: .module), text: $noteTitle)
                 .textFieldStyle(.plain)
                 .font(.title3.bold())
                 .focused($focusedField, equals: .title)
@@ -59,18 +59,18 @@ public struct QuickNoteView: View {
 
             // Actions
             HStack {
-                Text(String(localized: "⌘↩ to save"))
+                Text(String(localized: "⌘↩ to save", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
                 Spacer()
 
-                Button(String(localized: "Cancel")) {
+                Button(String(localized: "Cancel", bundle: .module)) {
                     onDismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button(String(localized: "Save")) {
+                Button(String(localized: "Save", bundle: .module)) {
                     save()
                 }
                 .keyboardShortcut(.return, modifiers: .command)
@@ -90,7 +90,7 @@ public struct QuickNoteView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 36))
                         .foregroundStyle(.green)
-                    Text(String(localized: "Saved"))
+                    Text(String(localized: "Saved", bundle: .module))
                         .font(.caption.bold())
                 }
                 .padding(24)
