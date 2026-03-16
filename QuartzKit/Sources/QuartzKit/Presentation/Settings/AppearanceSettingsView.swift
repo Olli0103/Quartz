@@ -4,6 +4,7 @@ import SwiftUI
 /// Cleanes Apple-Design mit visuellen Theme-Karten.
 public struct AppearanceSettingsView: View {
     @Environment(\.appearanceManager) private var appearance
+    @ScaledMetric(relativeTo: .body) private var baseBodySize: CGFloat = 17
 
     public init() {}
 
@@ -60,7 +61,7 @@ public struct AppearanceSettingsView: View {
                     .tint(Color(hex: 0xF2994A))
 
                     Text(String(localized: "The quick brown fox jumps over the lazy dog.", bundle: .module))
-                        .font(.system(size: 16 * appearance.editorFontScale))
+                        .font(.system(size: baseBodySize * appearance.editorFontScale))
                         .foregroundStyle(.secondary)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)

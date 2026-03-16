@@ -37,6 +37,9 @@ public struct FileNodeRow: View {
                 .frame(width: 22)
         }
         .padding(.vertical, 1)
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        #endif
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }

@@ -11,6 +11,10 @@ struct ContentView: View {
     @State private var showVaultPicker = false
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var showNewNote = false
+    @State private var showNewFolder = false
+    @State private var newNoteName = ""
+    @State private var newNoteParent: URL?
     @State private var searchIndex: VaultSearchIndex?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
@@ -24,6 +28,33 @@ struct ContentView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: editorViewModel?.note?.fileURL)
         .onChange(of: selectedNoteURL) { _, newURL in
             openNote(at: newURL)
+        }
+        // MARK: - Keyboard Shortcut Handlers
+        .onChange(of: appState.newNoteAction) {
+            if let root = sidebarViewModel?.vaultRootURL {
+                newNoteParent = root
+                showNewNote = true
+            }
+        }
+        .onChange(of: appState.newFolderAction) {
+            if let root = sidebarViewModel?.vaultRootURL {
+                newNoteParent = root
+                showNewFolder = true
+            }
+        }
+        .onChange(of: appState.searchAction) {
+            showSearch = true
+        }
+        .onChange(of: appState.globalSearchAction) {
+            showSearch = true
+        }
+        .onChange(of: appState.toggleSidebarAction) {
+            withAnimation {
+                columnVisibility = columnVisibility == .all ? .detailOnly : .all
+            }
+        }
+        .onChange(of: appState.dailyNoteAction) {
+            createDailyNote()
         }
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in
@@ -40,6 +71,26 @@ struct ContentView: View {
                     selectedNoteURL = url
                 }
             }
+        }
+        .alert(String(localized: "New Note"), isPresented: $showNewNote) {
+            TextField(String(localized: "Note name"), text: $newNoteName)
+            Button(String(localized: "Create")) {
+                guard let parent = newNoteParent else { return }
+                let name = newNoteName
+                newNoteName = ""
+                Task { await sidebarViewModel?.createNote(named: name, in: parent) }
+            }
+            Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
+        }
+        .alert(String(localized: "New Folder"), isPresented: $showNewFolder) {
+            TextField(String(localized: "Folder name"), text: $newNoteName)
+            Button(String(localized: "Create")) {
+                guard let parent = newNoteParent else { return }
+                let name = newNoteName
+                newNoteName = ""
+                Task { await sidebarViewModel?.createFolder(named: name, in: parent) }
+            }
+            Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
         .overlay {
             if let error = appState.errorMessage {
@@ -210,6 +261,16 @@ struct ContentView: View {
             } catch {
                 appState.errorMessage = String(localized: "Search index could not be built. Search may be incomplete.")
             }
+        }
+    }
+
+    private func createDailyNote() {
+        guard let root = sidebarViewModel?.vaultRootURL else { return }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let name = formatter.string(from: Date())
+        Task {
+            await sidebarViewModel?.createNote(named: name, in: root)
         }
     }
 

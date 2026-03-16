@@ -106,7 +106,8 @@ public struct NoteEditorView: View {
 
             Spacer()
 
-            Text("\(viewModel.wordCount) \(String(localized: "words", bundle: .module))")
+            Text(String(localized: "\(viewModel.wordCount) word(s)", bundle: .module,
+                        comment: "Word count in editor status bar. Uses plural rules."))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()

@@ -10,6 +10,9 @@ public struct SidebarView: View {
     @State private var newItemName: String = ""
     @State private var newItemParent: URL?
     @State private var deletionTrigger: Bool = false
+    @State private var showDeleteConfirmation = false
+    @State private var pendingDeleteURL: URL?
+    @State private var pendingDeleteIsNote = false
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>) {
         self.viewModel = viewModel
@@ -70,6 +73,39 @@ public struct SidebarView: View {
                 newItemName = ""
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
+        }
+        .confirmationDialog(
+            String(localized: "Delete this item?", bundle: .module),
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Delete", bundle: .module), role: .destructive) {
+                guard let url = pendingDeleteURL else { return }
+                if pendingDeleteIsNote, selectedNoteURL == url {
+                    selectedNoteURL = nil
+                }
+                deletionTrigger.toggle()
+                Task { await viewModel.delete(at: url) }
+                pendingDeleteURL = nil
+            }
+            Button(String(localized: "Cancel", bundle: .module), role: .cancel) {
+                pendingDeleteURL = nil
+            }
+        } message: {
+            Text(String(localized: "This action cannot be undone.", bundle: .module))
+        }
+        .alert(
+            String(localized: "Error", bundle: .module),
+            isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "OK", bundle: .module), role: .cancel) {}
+        } message: {
+            if let msg = viewModel.errorMessage {
+                Text(msg)
+            }
         }
         .sensoryFeedback(.selection, trigger: viewModel.selectedTag)
         .sensoryFeedback(.warning, trigger: deletionTrigger)
@@ -206,8 +242,9 @@ public struct SidebarView: View {
         Divider()
 
         Button(role: .destructive) {
-            deletionTrigger.toggle()
-            Task { await viewModel.delete(at: node.url) }
+            pendingDeleteURL = node.url
+            pendingDeleteIsNote = false
+            showDeleteConfirmation = true
         } label: {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
         }
@@ -216,11 +253,9 @@ public struct SidebarView: View {
     @ViewBuilder
     private func noteContextMenu(for node: FileNode) -> some View {
         Button(role: .destructive) {
-            if selectedNoteURL == node.url {
-                selectedNoteURL = nil
-            }
-            deletionTrigger.toggle()
-            Task { await viewModel.delete(at: node.url) }
+            pendingDeleteURL = node.url
+            pendingDeleteIsNote = true
+            showDeleteConfirmation = true
         } label: {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
         }
