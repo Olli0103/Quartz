@@ -204,7 +204,7 @@ struct ContentView: View {
             do {
                 try await index.buildIndex(at: vault.rootURL)
             } catch {
-                appState.errorMessage = "Failed to build search index: \(error.localizedDescription)"
+                appState.errorMessage = String(localized: "Search index could not be built. Search may be incomplete.")
             }
         }
     }

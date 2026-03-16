@@ -108,7 +108,7 @@ struct VaultPickerView: View {
             dismiss()
 
         case .failure(let error):
-            errorMessage = String(localized: "Could not open folder: \(error.localizedDescription)")
+            errorMessage = String(localized: "Could not open the selected folder. Please try again.")
         }
     }
 }
