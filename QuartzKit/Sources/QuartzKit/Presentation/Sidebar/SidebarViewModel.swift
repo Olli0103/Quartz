@@ -37,7 +37,7 @@ public final class SidebarViewModel {
         do {
             fileTree = try await vaultProvider.loadFileTree(at: root)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = userFacingMessage(for: error)
         }
 
         isLoading = false
@@ -57,7 +57,7 @@ public final class SidebarViewModel {
             _ = try await vaultProvider.createFolder(named: name, in: parent)
             await refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = userFacingMessage(for: error)
         }
     }
 
@@ -67,7 +67,7 @@ public final class SidebarViewModel {
             _ = try await vaultProvider.createNote(named: name, in: folder)
             await refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = userFacingMessage(for: error)
         }
     }
 
@@ -77,7 +77,7 @@ public final class SidebarViewModel {
             _ = try await vaultProvider.rename(at: url, to: newName)
             await refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = userFacingMessage(for: error)
         }
     }
 
@@ -87,7 +87,7 @@ public final class SidebarViewModel {
             try await vaultProvider.deleteNote(at: url)
             await refresh()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = userFacingMessage(for: error)
         }
     }
 
@@ -168,5 +168,12 @@ public final class SidebarViewModel {
         }
 
         return hasTag ? node : nil
+    }
+
+    private func userFacingMessage(for error: Error) -> String {
+        if let fsError = error as? FileSystemError {
+            return fsError.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
+        }
+        return String(localized: "An unexpected error occurred. Please try again.", bundle: .module)
     }
 }

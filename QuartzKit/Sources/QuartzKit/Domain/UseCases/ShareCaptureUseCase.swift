@@ -9,6 +9,22 @@ public struct ShareCaptureUseCase: Sendable {
 
     public init() {}
 
+    private func coordinatedWrite(_ data: Data, to url: URL) throws {
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+            do {
+                try data.write(to: actualURL, options: .atomic)
+            } catch {
+                writeError = error
+            }
+        }
+        if let error = coordinatorError ?? writeError {
+            throw error
+        }
+    }
+
     /// Verarbeitet geteilten Inhalt und speichert ihn im Vault.
     ///
     /// - Parameters:
@@ -65,7 +81,8 @@ public struct ShareCaptureUseCase: Sendable {
         if fileManager.fileExists(atPath: inboxURL.path(percentEncoded: false)) {
             var existing = try String(contentsOf: inboxURL, encoding: .utf8)
             existing.append(entry)
-            try existing.write(to: inboxURL, atomically: true, encoding: .utf8)
+            guard let data = existing.data(using: .utf8) else { throw FileSystemError.encodingFailed(inboxURL) }
+            try coordinatedWrite(data, to: inboxURL)
         } else {
             let content = """
             ---
@@ -80,7 +97,8 @@ public struct ShareCaptureUseCase: Sendable {
             Quick captures from Share Extension.
             \(entry)
             """
-            try content.write(to: inboxURL, atomically: true, encoding: .utf8)
+            guard let contentData = content.data(using: .utf8) else { throw FileSystemError.encodingFailed(inboxURL) }
+            try coordinatedWrite(contentData, to: inboxURL)
         }
 
         return inboxURL
@@ -113,7 +131,7 @@ public struct ShareCaptureUseCase: Sendable {
         guard let data = content.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(fileURL)
         }
-        try data.write(to: fileURL, options: .atomic)
+        try coordinatedWrite(data, to: fileURL)
         return fileURL
     }
 }

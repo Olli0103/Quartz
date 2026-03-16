@@ -9,6 +9,7 @@ public struct SidebarView: View {
     @State private var showNewNoteDialog = false
     @State private var newItemName: String = ""
     @State private var newItemParent: URL?
+    @State private var deletionTrigger: Bool = false
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>) {
         self.viewModel = viewModel
@@ -70,6 +71,8 @@ public struct SidebarView: View {
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
+        .sensoryFeedback(.selection, trigger: viewModel.selectedTag)
+        .sensoryFeedback(.warning, trigger: deletionTrigger)
         .task {
             viewModel.collectTags()
         }
@@ -198,6 +201,7 @@ public struct SidebarView: View {
         Divider()
 
         Button(role: .destructive) {
+            deletionTrigger.toggle()
             Task { await viewModel.delete(at: node.url) }
         } label: {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
@@ -210,6 +214,7 @@ public struct SidebarView: View {
             if selectedNoteURL == node.url {
                 selectedNoteURL = nil
             }
+            deletionTrigger.toggle()
             Task { await viewModel.delete(at: node.url) }
         } label: {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")

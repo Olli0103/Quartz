@@ -53,8 +53,8 @@ public actor BiometricAuthService {
     /// - Returns: AuthResult mit Erfolg oder Fehler
     public func authenticate(reason: String = "Unlock Quartz") async -> AuthResult {
         let context = LAContext()
-        context.localizedCancelTitle = "Cancel"
-        context.localizedFallbackTitle = "Use Passcode"
+        context.localizedCancelTitle = String(localized: "Cancel", bundle: .module)
+        context.localizedFallbackTitle = String(localized: "Use Passcode", bundle: .module)
 
         do {
             let success = try await context.evaluatePolicy(
@@ -62,17 +62,17 @@ public actor BiometricAuthService {
                 localizedReason: reason
             )
 
-            return success ? .success : .failed("Authentication failed")
+            return success ? .success : .failed(String(localized: "Authentication failed.", bundle: .module))
         } catch let error as LAError {
             switch error.code {
             case .userCancel, .appCancel, .systemCancel:
                 return .cancelled
             case .biometryNotAvailable:
-                return .failed("Biometry is not available on this device.")
+                return .failed(String(localized: "Biometry is not available on this device.", bundle: .module))
             case .biometryNotEnrolled:
-                return .failed("No biometric data enrolled. Please set up Face ID or Touch ID.")
+                return .failed(String(localized: "No biometric data enrolled. Please set up Face ID or Touch ID.", bundle: .module))
             case .biometryLockout:
-                return .failed("Biometry is locked. Please use your passcode.")
+                return .failed(String(localized: "Biometry is locked. Please use your passcode.", bundle: .module))
             default:
                 return .failed(error.localizedDescription)
             }

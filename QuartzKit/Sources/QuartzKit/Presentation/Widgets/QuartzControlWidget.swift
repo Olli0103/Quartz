@@ -14,7 +14,7 @@ public struct QuickNoteControlWidget: ControlWidget {
     public var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "app.quartz.quicknote") {
             ControlWidgetButton(action: QuickNoteControlIntent()) {
-                Label("Quick Note", systemImage: "square.and.pencil")
+                Label(String(localized: "Quick Note", bundle: .module), systemImage: "square.and.pencil")
             }
         }
         .displayName(String(localized: "Quick Note", bundle: .module))
@@ -28,7 +28,7 @@ public struct QuickNoteControlWidget: ControlWidget {
 @available(iOS 18.0, macOS 15.0, *)
 public struct QuickNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Quick Note"
-    public static var description = IntentDescription("Opens Quartz for a quick note.")
+    public static var description = IntentDescription(String(localized: "Opens Quartz for a quick note.", bundle: .module))
     public static var openAppWhenRun: Bool = true
     public static var isDiscoverable: Bool = true
 
@@ -48,7 +48,7 @@ public struct DailyNoteControlWidget: ControlWidget {
     public var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "app.quartz.dailynote") {
             ControlWidgetButton(action: DailyNoteControlIntent()) {
-                Label("Daily Note", systemImage: "calendar")
+                Label(String(localized: "Daily Note", bundle: .module), systemImage: "calendar")
             }
         }
         .displayName(String(localized: "Daily Note", bundle: .module))
@@ -62,7 +62,7 @@ public struct DailyNoteControlWidget: ControlWidget {
 @available(iOS 18.0, macOS 15.0, *)
 public struct DailyNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Daily Note"
-    public static var description = IntentDescription("Opens today's daily note.")
+    public static var description = IntentDescription(String(localized: "Opens today's daily note.", bundle: .module))
     public static var openAppWhenRun: Bool = true
     public static var isDiscoverable: Bool = true
 

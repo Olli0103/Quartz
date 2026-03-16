@@ -89,7 +89,8 @@ public struct ShareExtensionView: View {
             withAnimation {
                 showSuccess = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
                 onDismiss()
             }
         } catch {

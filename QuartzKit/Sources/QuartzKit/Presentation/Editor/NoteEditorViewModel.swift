@@ -107,6 +107,13 @@ public final class NoteEditorViewModel {
         }
     }
 
+    public func cancelAllTasks() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        wordCountTask?.cancel()
+        wordCountTask = nil
+    }
+
     deinit {
         autosaveTask?.cancel()
         wordCountTask?.cancel()

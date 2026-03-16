@@ -622,7 +622,13 @@ public struct QuartzBounceButtonStyle: ButtonStyle {
 
 /// Skeleton Loading Placeholder.
 public struct SkeletonRow: View {
-    public init() {}
+    private let titleWidth: CGFloat
+    private let subtitleWidth: CGFloat
+
+    public init() {
+        titleWidth = .random(in: 80...160)
+        subtitleWidth = .random(in: 50...100)
+    }
 
     public var body: some View {
         HStack(spacing: 12) {
@@ -633,11 +639,11 @@ public struct SkeletonRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(.fill.tertiary)
-                    .frame(width: .random(in: 80...160), height: 12)
+                    .frame(width: titleWidth, height: 12)
 
                 RoundedRectangle(cornerRadius: 3)
                     .fill(.fill.quaternary)
-                    .frame(width: .random(in: 50...100), height: 8)
+                    .frame(width: subtitleWidth, height: 8)
             }
 
             Spacer()

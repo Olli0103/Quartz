@@ -82,28 +82,28 @@ public struct KeyboardShortcutCommands: Commands {
 
     public var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button(String(localized: "New Note")) { onNewNote() }
+            Button(String(localized: "New Note", bundle: .module)) { onNewNote() }
                 .keyboardShortcut("n", modifiers: .command)
 
-            Button(String(localized: "New Folder")) { onNewFolder() }
+            Button(String(localized: "New Folder", bundle: .module)) { onNewFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Divider()
 
-            Button(String(localized: "Daily Note")) { onDailyNote() }
+            Button(String(localized: "Daily Note", bundle: .module)) { onDailyNote() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .textEditing) {
-            Button(String(localized: "Find in Note")) { onSearch() }
+            Button(String(localized: "Find in Note", bundle: .module)) { onSearch() }
                 .keyboardShortcut("f", modifiers: .command)
 
-            Button(String(localized: "Search All Notes")) { onGlobalSearch() }
+            Button(String(localized: "Search All Notes", bundle: .module)) { onGlobalSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .sidebar) {
-            Button(String(localized: "Toggle Sidebar")) { onToggleSidebar() }
+            Button(String(localized: "Toggle Sidebar", bundle: .module)) { onToggleSidebar() }
                 .keyboardShortcut("/", modifiers: .command)
         }
     }

@@ -41,6 +41,7 @@ public struct NoteEditorView: View {
                 .hidesInFocusMode()
         }
         .sensoryFeedback(.success, trigger: viewModel.isSaving) { $0 && !$1 }
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: focusMode.isFocusModeActive)
         .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

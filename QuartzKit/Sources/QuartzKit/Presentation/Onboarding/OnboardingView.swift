@@ -11,6 +11,7 @@ public struct OnboardingView: View {
     @State private var currentStep: OnboardingStep = .welcome
     @State private var selectedTemplate: VaultTemplate = .para
     @State private var vaultURL: URL?
+    @State private var errorMessage: String?
 
     let onComplete: (VaultConfig) -> Void
 
@@ -135,9 +136,10 @@ public struct OnboardingView: View {
                     allowsMultipleSelection: false
                 ) { result in
                     if case .success(let urls) = result, let url = urls.first {
-                        _ = url.startAccessingSecurityScopedResource()
+                        guard url.startAccessingSecurityScopedResource() else { return }
                         vaultURL = url
                         currentStep = .chooseTemplate
+                        url.stopAccessingSecurityScopedResource()
                     }
                 }
 
@@ -171,8 +173,8 @@ public struct OnboardingView: View {
             VStack(spacing: 10) {
                 templateCard(
                     template: .para,
-                    title: "PARA Method",
-                    description: "Projects, Areas, Resources, Archive",
+                    title: String(localized: "PARA Method", bundle: .module),
+                    description: String(localized: "Projects, Areas, Resources, Archive", bundle: .module),
                     icon: "square.grid.2x2.fill",
                     color: QuartzColors.noteBlue
                 )
@@ -180,8 +182,8 @@ public struct OnboardingView: View {
 
                 templateCard(
                     template: .zettelkasten,
-                    title: "Zettelkasten",
-                    description: "Fleeting, Literature & Permanent Notes",
+                    title: String(localized: "Zettelkasten", bundle: .module),
+                    description: String(localized: "Fleeting, Literature & Permanent Notes", bundle: .module),
                     icon: "brain.head.profile.fill",
                     color: QuartzColors.canvasPurple
                 )
@@ -189,8 +191,8 @@ public struct OnboardingView: View {
 
                 templateCard(
                     template: .custom,
-                    title: "Empty Vault",
-                    description: "Start with a blank canvas",
+                    title: String(localized: "Empty Vault", bundle: .module),
+                    description: String(localized: "Start with a blank canvas", bundle: .module),
                     icon: "doc",
                     color: .gray
                 )
@@ -199,6 +201,15 @@ public struct OnboardingView: View {
             .padding(.horizontal, 24)
 
             Spacer()
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .transition(.opacity)
+            }
 
             VStack(spacing: 12) {
                 QuartzButton(String(localized: "Create Vault", bundle: .module), icon: "checkmark") {
@@ -326,6 +337,7 @@ public struct OnboardingView: View {
                 try await templateService.applyTemplate(selectedTemplate, to: url)
             } catch {
                 await MainActor.run {
+                    errorMessage = error.localizedDescription
                     currentStep = .chooseTemplate
                 }
                 return
@@ -357,42 +369,55 @@ private enum OnboardingStep: Equatable {
 
 private struct MeshGradientBackground: View {
     @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 10.0)) { timeline in
-            Canvas { context, size in
-                let w = size.width
-                let h = size.height
-                let t = timeline.date.timeIntervalSinceReferenceDate
-
-                // Soft gradient circles
-                let colors: [Color] = [
+        if reduceMotion {
+            LinearGradient(
+                colors: [
                     Color(hex: 0xFDCB6E).opacity(0.15),
                     Color(hex: 0x74B9FF).opacity(0.1),
                     Color(hex: 0xA29BFE).opacity(0.12),
-                ]
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .background(.background)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 10.0)) { timeline in
+                Canvas { context, size in
+                    let w = size.width
+                    let h = size.height
+                    let t = timeline.date.timeIntervalSinceReferenceDate
 
-                for (i, color) in colors.enumerated() {
-                    let offset = Double(i) * 2.1
-                    let x = w * (0.3 + 0.4 * sin(t * 0.3 + offset))
-                    let y = h * (0.3 + 0.4 * cos(t * 0.2 + offset))
-                    let radius = min(w, h) * 0.4
+                    let colors: [Color] = [
+                        Color(hex: 0xFDCB6E).opacity(0.15),
+                        Color(hex: 0x74B9FF).opacity(0.1),
+                        Color(hex: 0xA29BFE).opacity(0.12),
+                    ]
 
-                    let rect = CGRect(
-                        x: x - radius,
-                        y: y - radius,
-                        width: radius * 2,
-                        height: radius * 2
-                    )
+                    for (i, color) in colors.enumerated() {
+                        let offset = Double(i) * 2.1
+                        let x = w * (0.3 + 0.4 * sin(t * 0.3 + offset))
+                        let y = h * (0.3 + 0.4 * cos(t * 0.2 + offset))
+                        let radius = min(w, h) * 0.4
 
-                    context.fill(
-                        Path(ellipseIn: rect),
-                        with: .color(color)
-                    )
+                        let rect = CGRect(
+                            x: x - radius,
+                            y: y - radius,
+                            width: radius * 2,
+                            height: radius * 2
+                        )
+
+                        context.fill(
+                            Path(ellipseIn: rect),
+                            with: .color(color)
+                        )
+                    }
                 }
             }
+            .blur(radius: 60)
+            .background(.background)
         }
-        .blur(radius: 60)
-        .background(.background)
     }
 }

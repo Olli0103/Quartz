@@ -203,12 +203,13 @@ struct ContentView: View {
             do {
                 try await index.buildIndex(at: vault.rootURL)
             } catch {
-                appState.errorMessage = "Failed to build search index: \(error.localizedDescription)"
+                appState.errorMessage = String(localized: "Failed to build search index: \(error.localizedDescription)")
             }
         }
     }
 
     private func openNote(at url: URL?) {
+        editorViewModel?.cancelAllTasks()
         guard let url else {
             editorViewModel = nil
             return

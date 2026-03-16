@@ -75,7 +75,7 @@ public final class AppearanceManager {
 // MARK: - SwiftUI Environment
 
 private struct AppearanceManagerKey: EnvironmentKey {
-    nonisolated(unsafe) static let defaultValue = AppearanceManager()
+    @MainActor static let defaultValue = AppearanceManager()
 }
 
 extension EnvironmentValues {

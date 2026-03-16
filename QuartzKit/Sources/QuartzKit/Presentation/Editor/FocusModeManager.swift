@@ -37,7 +37,7 @@ public final class FocusModeManager {
 // MARK: - SwiftUI Environment
 
 private struct FocusModeManagerKey: EnvironmentKey {
-    nonisolated(unsafe) static let defaultValue = FocusModeManager()
+    @MainActor static let defaultValue = FocusModeManager()
 }
 
 extension EnvironmentValues {

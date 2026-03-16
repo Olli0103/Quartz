@@ -108,13 +108,13 @@ public struct DrawingBlockView: View {
             HStack {
                 Image(systemName: "pencil.tip.crop.circle")
                     .foregroundStyle(.secondary)
-                Text(String(localized: "Drawing"))
+                Text(String(localized: "Drawing", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
 
                 if isEditing {
-                    Button(String(localized: "Done")) {
+                    Button(String(localized: "Done", bundle: .module)) {
                         isEditing = false
                         showToolPicker = false
                         onSave(drawing)
@@ -128,7 +128,7 @@ public struct DrawingBlockView: View {
                         Image(systemName: "pencil")
                             .font(.caption)
                     }
-                    .accessibilityLabel(String(localized: "Edit drawing"))
+                    .accessibilityLabel(String(localized: "Edit drawing", bundle: .module))
                 }
             }
             .padding(.horizontal, 12)
@@ -178,7 +178,7 @@ struct DrawingThumbnailView: View {
                             Image(systemName: "hand.draw")
                                 .font(.title2)
                                 .foregroundStyle(.tertiary)
-                            Text(String(localized: "Tap to draw"))
+                            Text(String(localized: "Tap to draw", bundle: .module))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }

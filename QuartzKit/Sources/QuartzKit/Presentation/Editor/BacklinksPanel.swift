@@ -29,7 +29,7 @@ public struct BacklinksPanel: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text(String(localized: "Backlinks"))
+                    Text(String(localized: "Backlinks", bundle: .module))
                         .font(.caption.weight(.semibold))
 
                     Spacer()
@@ -55,7 +55,7 @@ public struct BacklinksPanel: View {
                 if backlinks.isEmpty {
                     HStack {
                         Spacer()
-                        Text(String(localized: "No other notes link here."))
+                        Text(String(localized: "No other notes link here.", bundle: .module))
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                         Spacer()

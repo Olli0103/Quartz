@@ -23,7 +23,8 @@ public class MarkdownUITextView: UITextView {
     }
 
     private func setup() {
-        font = .systemFont(ofSize: 16)
+        font = .preferredFont(forTextStyle: .body)
+        adjustsFontForContentSizeCategory = true
         textContainerInset = UIEdgeInsets(top: 16, left: 12, bottom: 16, right: 12)
         autocorrectionType = .default
         autocapitalizationType = .sentences
@@ -91,6 +92,8 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: MarkdownUITextView, context: Context) {
+        let baseSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        uiView.font = .systemFont(ofSize: baseSize * editorFontScale)
         if uiView.rawMarkdown != text {
             uiView.setMarkdown(text)
         }
@@ -124,7 +127,7 @@ public class MarkdownNSTextView: NSTextView {
     }
 
     private func setup() {
-        font = .systemFont(ofSize: 16)
+        font = .preferredFont(forTextStyle: .body)
         textContainerInset = NSSize(width: 12, height: 16)
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
@@ -194,6 +197,8 @@ public struct MarkdownTextViewRepresentable: NSViewRepresentable {
 
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MarkdownNSTextView else { return }
+        let baseSize = NSFont.preferredFont(forTextStyle: .body).pointSize
+        textView.font = .systemFont(ofSize: baseSize * editorFontScale)
         if textView.rawMarkdown != text {
             textView.setMarkdown(text)
         }

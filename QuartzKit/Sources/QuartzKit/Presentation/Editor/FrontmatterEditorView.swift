@@ -96,7 +96,9 @@ public struct FrontmatterEditorView: View {
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                #if os(iOS)
                                 .hoverEffect(.highlight)
+                                #endif
                                 .disabled(newTag.isEmpty)
                                 .accessibilityLabel(String(localized: "Add tag", bundle: .module))
                             }
@@ -148,7 +150,9 @@ public struct FrontmatterEditorView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        #if os(iOS)
                         .hoverEffect(.highlight)
+                        #endif
                         .disabled(newCustomKey.isEmpty)
                         .accessibilityLabel(String(localized: "Add custom field", bundle: .module))
                     }
