@@ -6,13 +6,6 @@ import Foundation
 struct SearchIndexTests {
     let vaultRoot = URL(fileURLWithPath: "/vault")
 
-    private func makeProvider(notes: [NoteDocument], tree: [FileNode]) -> MockVaultProvider {
-        let provider = MockVaultProvider()
-        // We need to set these synchronously since MockVaultProvider is an actor
-        // Use a task and wait pattern
-        return provider
-    }
-
     @Test("Empty search returns empty results")
     func emptySearch() async {
         let provider = MockVaultProvider()
