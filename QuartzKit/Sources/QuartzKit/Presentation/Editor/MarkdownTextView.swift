@@ -151,7 +151,15 @@ public class MarkdownNSTextView: NSTextView {
             let nsAttributed = try NSAttributedString(attributed, including: MarkdownAttributes.self)
             let selectedRanges = self.selectedRanges
             textStorage?.setAttributedString(nsAttributed)
-            self.selectedRanges = selectedRanges
+            // Clamp restored ranges to new text length to prevent NSRangeException
+            let maxLen = nsAttributed.length
+            let clampedRanges = selectedRanges.compactMap { rangeValue -> NSValue? in
+                let range = rangeValue.rangeValue
+                let loc = min(range.location, maxLen)
+                let len = min(range.length, maxLen - loc)
+                return NSValue(range: NSRange(location: loc, length: len))
+            }
+            self.selectedRanges = clampedRanges.isEmpty ? [NSValue(range: NSRange(location: maxLen, length: 0))] : clampedRanges
         } catch {
             logger.warning("Markdown rendering failed, falling back to plain text: \(error.localizedDescription)")
             self.string = markdown

@@ -142,7 +142,9 @@ public struct OnboardingView: View {
                         guard url.startAccessingSecurityScopedResource() else { return }
                         vaultURL = url
                         currentStep = .chooseTemplate
-                        url.stopAccessingSecurityScopedResource()
+                        // Do NOT call stopAccessingSecurityScopedResource() here.
+                        // The resource must remain accessible for createVault()
+                        // which writes template files to this folder.
                     }
                 }
 

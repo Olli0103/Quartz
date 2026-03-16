@@ -111,6 +111,7 @@ public struct QuickNoteView: View {
 
         do {
             _ = try useCase.capture(item, in: vaultRoot, mode: .newNote(title: noteTitle))
+            isSaving = false
             withAnimation {
                 savedSuccessfully = true
             }

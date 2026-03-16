@@ -15,21 +15,21 @@ public actor FileWatcher {
 
     /// Startet die Beobachtung und gibt einen Stream von Änderungen zurück.
     public func startWatching() -> AsyncStream<FileChangeEvent> {
-        AsyncStream { continuation in
-            let fd = open(url.path(percentEncoded: false), O_EVTONLY)
-            guard fd >= 0 else {
-                continuation.finish()
-                return
-            }
-            self.fileDescriptor = fd
+        let fd = open(url.path(percentEncoded: false), O_EVTONLY)
+        guard fd >= 0 else {
+            return AsyncStream { $0.finish() }
+        }
+        self.fileDescriptor = fd
 
-            let dispatchSource = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fd,
-                eventMask: [.write, .delete, .rename],
-                queue: .global(qos: .utility)
-            )
+        let dispatchSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .global(qos: .utility)
+        )
+        self.source = dispatchSource
 
-            let watchedURL = self.url
+        let watchedURL = self.url
+        return AsyncStream { continuation in
             dispatchSource.setEventHandler {
                 let event = dispatchSource.data
                 if event.contains(.delete) {
@@ -57,7 +57,6 @@ public actor FileWatcher {
                 dispatchSource.cancel()
             }
 
-            self.source = dispatchSource
             dispatchSource.resume()
         }
     }

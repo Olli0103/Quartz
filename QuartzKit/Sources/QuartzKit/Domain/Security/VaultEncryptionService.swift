@@ -177,7 +177,7 @@ public actor VaultEncryptionService {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess, let data = result as? Data else {
-            throw EncryptionError.keyNotFound
+            throw EncryptionError.keychainError(status)
         }
 
         return data

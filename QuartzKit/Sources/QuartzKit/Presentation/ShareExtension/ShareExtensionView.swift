@@ -87,6 +87,7 @@ public struct ShareExtensionView: View {
 
         do {
             _ = try useCase.capture(sharedItem, in: vaultRoot, mode: mode)
+            isSaving = false
             withAnimation {
                 showSuccess = true
             }
