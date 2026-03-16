@@ -20,14 +20,43 @@ public struct FolderManagementUseCase: Sendable {
 
     /// Verschiebt eine Datei oder einen Ordner.
     public func move(at sourceURL: URL, to destinationFolder: URL) async throws -> URL {
-        let source = sourceURL
-        let destFolder = destinationFolder
-        return try await Task.detached(priority: .userInitiated) {
-            let fileName = source.lastPathComponent
-            let destination = destFolder.appending(path: fileName)
-            try FileManager.default.moveItem(at: source, to: destination)
-            return destination
-        }.value
+        let fileName = sourceURL.lastPathComponent
+        let destination = destinationFolder.appending(path: fileName)
+
+        // Validate destination is inside the same parent hierarchy (prevent path traversal)
+        guard destination.standardizedFileURL.path()
+                .hasPrefix(destinationFolder.standardizedFileURL.path()) else {
+            throw FileSystemError.invalidName(fileName)
+        }
+
+        // Use file coordination for iCloud-safe moves
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var coordinatorError: NSError?
+                var moveError: Error?
+
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(
+                    writingItemAt: sourceURL, options: .forMoving,
+                    writingItemAt: destination, options: .forReplacing,
+                    error: &coordinatorError
+                ) { actualSource, actualDest in
+                    do {
+                        try FileManager.default.moveItem(at: actualSource, to: actualDest)
+                    } catch {
+                        moveError = error
+                    }
+                }
+
+                if let error = coordinatorError ?? moveError {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+
+        return destination
     }
 
     /// Löscht einen Ordner (verschiebt in den Papierkorb auf macOS).

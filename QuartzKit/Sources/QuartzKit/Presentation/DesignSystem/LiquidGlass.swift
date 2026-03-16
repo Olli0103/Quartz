@@ -70,11 +70,12 @@ public enum QuartzColors {
     )
 
     // Semantic colors
-    public static let sidebarBackground = Color("SidebarBG", bundle: .module)
     #if canImport(UIKit)
+    public static let sidebarBackground = Color(.systemGroupedBackground)
     public static let cardBackground = Color(.secondarySystemBackground)
     public static let subtleText = Color(.tertiaryLabel)
     #elseif canImport(AppKit)
+    public static let sidebarBackground = Color(nsColor: .windowBackgroundColor)
     public static let cardBackground = Color(nsColor: .controlBackgroundColor)
     public static let subtleText = Color(nsColor: .tertiaryLabelColor)
     #endif

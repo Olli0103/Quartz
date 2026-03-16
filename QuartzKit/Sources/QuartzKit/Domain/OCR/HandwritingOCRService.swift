@@ -3,6 +3,7 @@ import Foundation
 import Vision
 import PencilKit
 import CoreGraphics
+import os
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -90,7 +91,16 @@ public actor HandwritingOCRService {
 
     private func performOCR(on cgImage: CGImage) async throws -> OCRResult {
         try await withCheckedThrowingContinuation { continuation in
+            let didResume = OSAllocatedUnfairLock(initialState: false)
+
             let request = VNRecognizeTextRequest { request, error in
+                let alreadyResumed = didResume.withLock { resumed -> Bool in
+                    if resumed { return true }
+                    resumed = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
+
                 if let error {
                     continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
                     return
@@ -127,6 +137,12 @@ public actor HandwritingOCRService {
             do {
                 try handler.perform([request])
             } catch {
+                let alreadyResumed = didResume.withLock { resumed -> Bool in
+                    if resumed { return true }
+                    resumed = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
                 continuation.resume(throwing: OCRError.recognitionFailed(error.localizedDescription))
             }
         }

@@ -244,10 +244,13 @@ public final class AudioRecordingService: NSObject {
 extension AudioRecordingService: AVAudioRecorderDelegate {
     public nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         Task { @MainActor [weak self] in
-            guard let self, !flag else { return }
-            self.state = .idle
-            self.lastRecordingURL = nil
-            self.stopTimers()
+            guard let self else { return }
+            if !flag {
+                // Recording failed — clear state
+                self.state = .idle
+                self.lastRecordingURL = nil
+                self.stopTimers()
+            }
         }
     }
 

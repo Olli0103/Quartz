@@ -29,7 +29,10 @@ public actor MeetingMinutesService {
         meetingTitle: String? = nil,
         participants: [String] = []
     ) async throws -> MeetingMinutes {
-        guard let provider = providerRegistry.selectedProvider else {
+        let provider = await providerRegistry.selectedProvider
+        let modelID = await providerRegistry.selectedModelID
+
+        guard let provider else {
             throw MeetingMinutesError.noProviderConfigured
         }
 
@@ -69,7 +72,7 @@ public actor MeetingMinutesService {
 
         let response = try await provider.chat(
             messages: messages,
-            model: providerRegistry.selectedModelID,
+            model: modelID,
             temperature: 0.3
         )
 

@@ -24,29 +24,31 @@ public actor CloudSyncService {
 
     /// Startet das Monitoring des Sync-Status für einen Vault.
     public func startMonitoring(vaultRoot: URL) -> AsyncStream<(URL, CloudSyncStatus)> {
-        AsyncStream { continuation in
-            let query = NSMetadataQuery()
-            query.searchScopes = [vaultRoot]
-            query.predicate = NSPredicate(format: "%K LIKE '*.md'", NSMetadataItemPathKey)
+        let query = NSMetadataQuery()
+        query.searchScopes = [vaultRoot]
+        query.predicate = NSPredicate(format: "%K LIKE '*.md'", NSMetadataItemPathKey)
+        self.metadataQuery = query
 
+        return AsyncStream { continuation in
             let center = NotificationCenter.default
 
-            // Use structured async notification sequences instead of nonisolated(unsafe)
-            let gatherTask = Task { [weak self] in
+            // processQueryResults is nonisolated, so we can call it directly
+            let service = self
+            let gatherTask = Task {
                 for await notification in center.notifications(named: .NSMetadataQueryDidFinishGathering, object: query) {
-                    guard let query = notification.object as? NSMetadataQuery else { continue }
-                    query.disableUpdates()
-                    self?.processQueryResults(query, continuation: continuation)
-                    query.enableUpdates()
+                    guard let metaQuery = notification.object as? NSMetadataQuery else { continue }
+                    metaQuery.disableUpdates()
+                    service.processQueryResults(metaQuery, continuation: continuation)
+                    metaQuery.enableUpdates()
                 }
             }
 
-            let updateTask = Task { [weak self] in
+            let updateTask = Task {
                 for await notification in center.notifications(named: .NSMetadataQueryDidUpdate, object: query) {
-                    guard let query = notification.object as? NSMetadataQuery else { continue }
-                    query.disableUpdates()
-                    self?.processQueryResults(query, continuation: continuation)
-                    query.enableUpdates()
+                    guard let metaQuery = notification.object as? NSMetadataQuery else { continue }
+                    metaQuery.disableUpdates()
+                    service.processQueryResults(metaQuery, continuation: continuation)
+                    metaQuery.enableUpdates()
                 }
             }
 
@@ -56,7 +58,6 @@ public actor CloudSyncService {
                 query.stop()
             }
 
-            self.metadataQuery = query
             query.start()
         }
     }
