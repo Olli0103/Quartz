@@ -248,7 +248,10 @@ public final class GeminiProvider: AIProvider, Sendable {
             generationConfig: GeminiGenerationConfig(temperature: temperature, maxOutputTokens: 8192)
         )
 
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(modelID):generateContent"
+        guard let encodedModelID = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw AIProviderError.networkError("Invalid model ID: \(modelID)")
+        }
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(encodedModelID):generateContent"
         guard let url = URL(string: urlString) else {
             throw AIProviderError.networkError("Invalid model ID: \(modelID)")
         }
