@@ -23,6 +23,16 @@ struct QuartzApp: App {
                     _ = proFeatureGate.observeTransactionUpdates()
                 }
         }
+        .commands {
+            KeyboardShortcutCommands(
+                onNewNote: {},
+                onNewFolder: {},
+                onSearch: {},
+                onGlobalSearch: {},
+                onToggleSidebar: {},
+                onDailyNote: {}
+            )
+        }
         #if os(macOS)
         .defaultSize(width: 1100, height: 700)
 
