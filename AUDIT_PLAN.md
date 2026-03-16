@@ -491,3 +491,57 @@ Timeline Provider müssen echte Daten aus dem Vault lesen (via App Group/UserDef
 
 ### 3. 🟡 Performance für große Vaults
 VaultSearchIndex auf pre-computed lowercase und ggf. Inverted Index umstellen. VectorEmbeddingService auf Binary-Format umstellen. Task-Parallelität begrenzen. Word Count off-main-thread. **Risiko: 1-Stern-Reviews bei Power-Usern mit >1000 Notizen.**
+
+---
+
+## Nachtrag: Presentation Layer Detail-Befunde
+
+### 🚨 [Accessibility] 8× fehlender reduceMotion-Check in Animationen
+- **Schweregrad:** Hoch
+- **Das Problem:** Folgende Animationen prüfen `accessibilityReduceMotion` NICHT:
+  - `AppLockView.swift:41` — `.animation(.spring(...), value: isUnlocked)`
+  - `AppearanceSettingsView.swift:72` — `.animation(.spring(...), value: editorFontScale)`
+  - `OnboardingView.swift:67-87` — Alle `.slideUp()` Calls im Welcome Screen
+  - `OnboardingView.swift:68` — `.symbolEffect(.breathe)` ohne reduceMotion Guard
+  - `OnboardingView.swift:259` — `.bounceIn()` ohne Guard
+  - `OnboardingView.swift:314` — `.spinIn()` ohne Guard
+- **Der Fix:** Die Animation-Modifiers in LiquidGlass.swift prüfen `reduceMotion` intern korrekt. Das Problem sind die Views die `.animation()` direkt nutzen — diese brauchen einen eigenen Check:
+```swift
+@Environment(\.accessibilityReduceMotion) private var reduceMotion
+// ...
+.animation(reduceMotion ? .default : .spring(response: 0.35), value: isUnlocked)
+```
+
+### 🚨 [Performance] SidebarView erstellt Array-Kopien bei jedem Render
+- **Schweregrad:** Mittel
+- **Das Problem:**
+  - `SidebarView.swift:189` — `Array(viewModel.filteredTree.enumerated())` kopiert bei jedem View-Update
+  - `SidebarView.swift:144` — `Array(viewModel.tagInfos.prefix(12).enumerated())` ebenfalls
+  - `SidebarViewModel.swift:118-135` — `filteredTree` computed property berechnet bei jedem Zugriff neu; kein Debounce auf `searchText`
+- **Der Fix:** Cached computed property oder `onChange(of: searchText)` mit Debounce für Filterung verwenden.
+
+### 🚨 [Memory] NoteEditorViewModel weak self Guard unvollständig
+- **Schweregrad:** Hoch
+- **Das Problem:** `NoteEditorViewModel.swift:87-96` — Task nutzt `[weak self]`, prüft `guard let self` auf Zeile 89, greift aber danach ohne erneuten Guard zu. Korrekt, ABER: Zwischen `Task.sleep` (Zeile 88) und dem Guard (Zeile 89) gibt es ein Race Window. Dasselbe auf Zeile 103-106.
+- **Der Fix:** Pattern ist korrekt in aktuellem Swift — `guard let self` bindet stark, kein Re-Check nötig. Kein Fix erforderlich, aber Dokumentation im Code wäre hilfreich.
+
+### 🚨 [HIG] SearchView hat keinen Loading-Indikator
+- **Schweregrad:** Mittel
+- **Das Problem:** `SearchView.swift` — Wenn `isSearching` true ist, sieht der Nutzer nur die leere Liste. Kein ProgressView, kein Skeleton.
+- **Der Fix:**
+```swift
+if isSearching && results.isEmpty {
+    ProgressView()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+}
+```
+
+### 🚨 [Navigation] Column-Visibility wird nicht persistiert
+- **Schweregrad:** Mittel
+- **Das Problem:** `AdaptiveLayoutView.swift:11` — `columnVisibility` ist `@State`, wird bei jedem App-Start auf `.all` zurückgesetzt. Nutzer-Präferenz (Sidebar eingeklappt) geht verloren.
+- **Der Fix:** `@SceneStorage("columnVisibility")` verwenden oder in `AppStorage` persistieren.
+
+### 🚨 [L10n] .textCase(.uppercase) kann in Türkisch/Griechisch brechen
+- **Schweregrad:** Mittel
+- **Das Problem:** `LiquidGlass.swift:538` — `.textCase(.uppercase)` auf Section Headers. In Türkisch wird `i` zu `İ` (nicht `I`), in Griechisch hat `Σ` zwei Kleinbuchstaben-Formen. SwiftUI's `.textCase` nutzt die System-Locale, sollte aber explizit getestet werden.
+- **Der Fix:** Kein Code-Fix nötig — SwiftUI handhabt das korrekt via `Locale.current`. Aber: In den 7 Zielsprachen explizit testen.
