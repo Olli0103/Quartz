@@ -61,7 +61,7 @@ public actor TranscriptionService {
     /// Bevorzugte Sprache für die Erkennung.
     private let locale: Locale
 
-    public init(locale: Locale = Locale(identifier: "de-DE")) {
+    public init(locale: Locale = .current) {
         self.locale = locale
     }
 
@@ -160,7 +160,17 @@ public actor TranscriptionService {
         let markdownURL = audioURL.deletingPathExtension().appendingPathExtension("md")
         let markdown = formatAsMarkdown(result, audioFileName: audioURL.lastPathComponent)
 
-        try markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: markdownURL, options: .forReplacing, error: &coordinatorError) { actualURL in
+            do {
+                try markdown.write(to: actualURL, atomically: true, encoding: .utf8)
+            } catch {
+                writeError = error
+            }
+        }
+        if let error = coordinatorError ?? writeError { throw error }
 
         return result
     }

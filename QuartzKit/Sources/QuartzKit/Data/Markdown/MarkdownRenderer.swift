@@ -1,5 +1,10 @@
 import Foundation
 import Markdown
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Wandelt einen Markdown-String via `swift-markdown` AST in einen `AttributedString` um.
 ///
@@ -53,20 +58,28 @@ private struct AttributedStringVisitor: MarkupVisitor {
         }
         currentHeadingLevel = 0
 
-        // Heading-Stil anwenden
-        let fontSize: CGFloat = switch heading.level {
-        case 1: 28
-        case 2: 24
-        case 3: 20
-        case 4: 18
-        default: 16
-        }
-
+        // Heading-Stil: Dynamic Type via preferred text styles
         result.markdownHeadingLevel = heading.level
         #if canImport(UIKit)
-        result.font = .systemFont(ofSize: fontSize, weight: .bold)
+        let textStyle: UIFont.TextStyle = switch heading.level {
+        case 1: .title1
+        case 2: .title2
+        case 3: .title3
+        case 4: .headline
+        default: .body
+        }
+        let baseFont = UIFont.preferredFont(forTextStyle: textStyle)
+        result.font = UIFont.boldSystemFont(ofSize: baseFont.pointSize)
         #elseif canImport(AppKit)
-        result.font = .systemFont(ofSize: fontSize, weight: .bold)
+        let scaleFactor: CGFloat = switch heading.level {
+        case 1: 2.0
+        case 2: 1.7
+        case 3: 1.4
+        case 4: 1.2
+        default: 1.0
+        }
+        let bodySize = NSFont.systemFontSize
+        result.font = .boldSystemFont(ofSize: bodySize * scaleFactor)
         #endif
 
         result.append(AttributedString("\n"))
@@ -118,9 +131,10 @@ private struct AttributedStringVisitor: MarkupVisitor {
         var result = AttributedString(inlineCode.code)
         result.markdownInlineCode = true
         #if canImport(UIKit)
-        result.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        let inlineCodeSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        result.font = .monospacedSystemFont(ofSize: inlineCodeSize, weight: .regular)
         #elseif canImport(AppKit)
-        result.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        result.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         #endif
         return result
     }
@@ -130,9 +144,10 @@ private struct AttributedStringVisitor: MarkupVisitor {
         result.markdownCodeBlock = true
         result.markdownCodeLanguage = codeBlock.language
         #if canImport(UIKit)
-        result.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let codeBlockSize = UIFont.preferredFont(forTextStyle: .footnote).pointSize
+        result.font = .monospacedSystemFont(ofSize: codeBlockSize, weight: .regular)
         #elseif canImport(AppKit)
-        result.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        result.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         #endif
         result.append(AttributedString("\n"))
         return result

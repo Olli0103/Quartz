@@ -31,35 +31,29 @@ public actor CloudSyncService {
 
             let center = NotificationCenter.default
 
-            // Initial results
-            nonisolated(unsafe) let initialObserver = center.addObserver(
-                forName: .NSMetadataQueryDidFinishGathering,
-                object: query,
-                queue: .main
-            ) { [weak self] notification in
-                guard let query = notification.object as? NSMetadataQuery else { return }
-                query.disableUpdates()
-                self?.processQueryResults(query, continuation: continuation)
-                query.enableUpdates()
+            // Use structured async notification sequences instead of nonisolated(unsafe)
+            let gatherTask = Task { [weak self] in
+                for await notification in center.notifications(named: .NSMetadataQueryDidFinishGathering, object: query) {
+                    guard let query = notification.object as? NSMetadataQuery else { continue }
+                    query.disableUpdates()
+                    self?.processQueryResults(query, continuation: continuation)
+                    query.enableUpdates()
+                }
             }
 
-            // Updates
-            nonisolated(unsafe) let updateObserver = center.addObserver(
-                forName: .NSMetadataQueryDidUpdate,
-                object: query,
-                queue: .main
-            ) { [weak self] notification in
-                guard let query = notification.object as? NSMetadataQuery else { return }
-                query.disableUpdates()
-                self?.processQueryResults(query, continuation: continuation)
-                query.enableUpdates()
+            let updateTask = Task { [weak self] in
+                for await notification in center.notifications(named: .NSMetadataQueryDidUpdate, object: query) {
+                    guard let query = notification.object as? NSMetadataQuery else { continue }
+                    query.disableUpdates()
+                    self?.processQueryResults(query, continuation: continuation)
+                    query.enableUpdates()
+                }
             }
 
-            nonisolated(unsafe) let queryRef = query
             continuation.onTermination = { @Sendable _ in
-                queryRef.stop()
-                center.removeObserver(initialObserver)
-                center.removeObserver(updateObserver)
+                gatherTask.cancel()
+                updateTask.cancel()
+                query.stop()
             }
 
             self.metadataQuery = query

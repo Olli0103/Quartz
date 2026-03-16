@@ -71,10 +71,8 @@ public struct SearchView: View {
             let searchResults = await searchIndex.search(query: query)
             guard !Task.isCancelled else { return }
 
-            await MainActor.run {
-                results = searchResults
-                isSearching = false
-            }
+            results = searchResults
+            isSearching = false
         }
     }
 }
@@ -112,5 +110,6 @@ private struct SearchResultRow: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }

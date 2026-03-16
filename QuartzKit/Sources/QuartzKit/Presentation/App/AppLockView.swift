@@ -12,6 +12,7 @@ public struct AppLockView<Content: View>: View {
     @State private var isUnlocked: Bool = false
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
+    @State private var biometryIcon: String = "lock.fill"
 
     let authService: BiometricAuthService
     let content: Content
@@ -29,14 +30,17 @@ public struct AppLockView<Content: View>: View {
             content
                 .disabled(!isUnlocked)
                 .blur(radius: isUnlocked ? 0 : 20)
+                .accessibilityHidden(!isUnlocked)
 
             if !isUnlocked {
                 lockScreen
                     .transition(.opacity)
+                    .accessibilityAddTraits(.isModal)
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isUnlocked)
         .task {
+            resolveBiometryIcon()
             await authenticate()
         }
     }
@@ -63,6 +67,7 @@ public struct AppLockView<Content: View>: View {
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
+                    .accessibilityAddTraits(.updatesFrequently)
             }
 
             Spacer()
@@ -84,22 +89,16 @@ public struct AppLockView<Content: View>: View {
         .background(.ultraThinMaterial)
     }
 
-    private var biometryIcon: String {
+    private func resolveBiometryIcon() {
         #if canImport(LocalAuthentication)
         let context = LAContext()
         _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        switch context.biometryType {
-        case .faceID:
-            return "faceid"
-        case .touchID:
-            return "touchid"
-        case .opticID:
-            return "opticid"
-        @unknown default:
-            return "lock.fill"
+        biometryIcon = switch context.biometryType {
+        case .faceID: "faceid"
+        case .touchID: "touchid"
+        case .opticID: "opticid"
+        @unknown default: "lock.fill"
         }
-        #else
-        return "lock.fill"
         #endif
     }
 

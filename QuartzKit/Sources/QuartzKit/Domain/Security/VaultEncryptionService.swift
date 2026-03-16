@@ -133,7 +133,10 @@ public actor VaultEncryptionService {
             }
         }
         if let error = coordinatorError ?? opError { throw error }
-        return result!
+        guard let result else {
+            throw EncryptionError.decryptionFailed("File coordination completed without producing data")
+        }
+        return result
     }
 
     // MARK: - Keychain Helpers
