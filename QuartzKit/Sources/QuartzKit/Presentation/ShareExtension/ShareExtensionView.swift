@@ -12,6 +12,7 @@ public struct ShareExtensionView: View {
     @State private var isSaving: Bool = false
     @State private var showSuccess: Bool = false
     @State private var errorMessage: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var successIconSize: CGFloat = 48
 
     let sharedItem: SharedItem
     let vaultRoot: URL
@@ -95,14 +96,14 @@ public struct ShareExtensionView: View {
             }
         } catch {
             isSaving = false
-            errorMessage = error.localizedDescription
+            errorMessage = String(localized: "Could not save content. Please try again.", bundle: .module)
         }
     }
 
     private var successOverlay: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 48))
+                .font(.system(size: successIconSize))
                 .foregroundStyle(.green)
             Text(String(localized: "Saved!", bundle: .module))
                 .font(.headline)

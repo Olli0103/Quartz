@@ -7,6 +7,7 @@ struct VaultPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showFilePicker = false
     @State private var errorMessage: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var folderIconSize: CGFloat = 56
 
     let onVaultSelected: (VaultConfig) -> Void
 
@@ -17,7 +18,7 @@ struct VaultPickerView: View {
 
                 VStack(spacing: 16) {
                     Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 56, weight: .thin))
+                        .font(.system(size: folderIconSize, weight: .thin))
                         .foregroundStyle(QuartzColors.folderYellow)
                         .symbolEffect(.bounce, options: .nonRepeating)
 

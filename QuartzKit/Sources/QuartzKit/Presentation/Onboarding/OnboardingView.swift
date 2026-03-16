@@ -12,6 +12,9 @@ public struct OnboardingView: View {
     @State private var selectedTemplate: VaultTemplate = .para
     @State private var vaultURL: URL?
     @State private var errorMessage: String?
+    @ScaledMetric(relativeTo: .largeTitle) private var heroIconSize: CGFloat = 72
+    @ScaledMetric(relativeTo: .largeTitle) private var brandingFontSize: CGFloat = 40
+    @ScaledMetric(relativeTo: .title) private var folderIconSize: CGFloat = 56
 
     let onComplete: (VaultConfig) -> Void
 
@@ -60,14 +63,14 @@ public struct OnboardingView: View {
             VStack(spacing: 24) {
                 // App Icon
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 72, weight: .thin))
+                    .font(.system(size: heroIconSize, weight: .thin))
                     .foregroundStyle(QuartzColors.accentGradient)
                     .symbolEffect(.breathe, options: .repeating)
                     .slideUp()
 
                 VStack(spacing: 10) {
                     Text(verbatim: "Quartz")
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .font(.system(size: brandingFontSize, weight: .bold, design: .rounded))
                         .slideUp(delay: 0.1)
 
                     Text(String(localized: "Your notes. Your files. Your way.", bundle: .module))
@@ -111,7 +114,7 @@ public struct OnboardingView: View {
 
             VStack(spacing: 20) {
                 Image(systemName: "folder.badge.plus")
-                    .font(.system(size: 56, weight: .thin))
+                    .font(.system(size: folderIconSize, weight: .thin))
                     .foregroundStyle(QuartzColors.folderYellow)
 
                 Text(String(localized: "Choose a Vault Folder", bundle: .module))

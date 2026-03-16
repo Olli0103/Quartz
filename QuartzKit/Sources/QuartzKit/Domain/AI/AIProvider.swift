@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Security
+import os
 
 // MARK: - AI Provider Protocol
 
@@ -393,6 +394,7 @@ public final class AIProviderRegistry {
 public actor CustomModelStore {
     private let defaults = UserDefaults.standard
     private let storageKey = "com.quartz.customModels"
+    private let logger = Logger(subsystem: "com.quartz", category: "CustomModelStore")
 
     public init() {}
 
@@ -417,16 +419,23 @@ public actor CustomModelStore {
     }
 
     private func loadAll() -> [String: [AIModel]] {
-        guard let data = defaults.data(forKey: storageKey),
-              let all = try? JSONDecoder().decode([String: [AIModel]].self, from: data) else {
+        guard let data = defaults.data(forKey: storageKey) else {
             return [:]
         }
-        return all
+        do {
+            return try JSONDecoder().decode([String: [AIModel]].self, from: data)
+        } catch {
+            logger.error("Failed to decode custom models: \(error.localizedDescription)")
+            return [:]
+        }
     }
 
     private func save(_ models: [String: [AIModel]]) {
-        if let data = try? JSONEncoder().encode(models) {
+        do {
+            let data = try JSONEncoder().encode(models)
             defaults.set(data, forKey: storageKey)
+        } catch {
+            logger.error("Failed to encode custom models: \(error.localizedDescription)")
         }
     }
 }

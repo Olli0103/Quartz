@@ -121,6 +121,11 @@ public struct SidebarView: View {
                             )
                         }
                         .buttonStyle(QuartzBounceButtonStyle())
+                        .accessibilityAddTraits(viewModel.selectedTag == tag.name ? .isSelected : [])
+                        .accessibilityLabel(tag.name)
+                        .accessibilityHint(viewModel.selectedTag == tag.name
+                            ? String(localized: "Double tap to deselect", bundle: .module)
+                            : String(localized: "Double tap to filter by this tag", bundle: .module))
                         .scaleIn(delay: Double(index) * 0.05)
                     }
                 }

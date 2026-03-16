@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var showSearch = false
     @State private var searchIndex: VaultSearchIndex?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -121,7 +122,7 @@ struct ContentView: View {
 
             VStack(spacing: 16) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 64, weight: .thin))
+                    .font(.system(size: welcomeIconSize, weight: .thin))
                     .foregroundStyle(QuartzColors.accentGradient)
                     .symbolEffect(.breathe, options: .repeating)
 

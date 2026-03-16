@@ -10,6 +10,7 @@ public struct QuickNoteView: View {
     @State private var isSaving: Bool = false
     @State private var savedSuccessfully: Bool = false
     @State private var errorMessage: String?
+    @ScaledMetric(relativeTo: .title) private var successIconSize: CGFloat = 36
     @FocusState private var focusedField: Field?
 
     let vaultRoot: URL
@@ -88,7 +89,7 @@ public struct QuickNoteView: View {
             if savedSuccessfully {
                 VStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 36))
+                        .font(.system(size: successIconSize))
                         .foregroundStyle(.green)
                     Text(String(localized: "Saved", bundle: .module))
                         .font(.caption.bold())
@@ -119,7 +120,7 @@ public struct QuickNoteView: View {
             }
         } catch {
             isSaving = false
-            errorMessage = error.localizedDescription
+            errorMessage = String(localized: "Could not save note. Please try again.", bundle: .module)
         }
     }
 }
