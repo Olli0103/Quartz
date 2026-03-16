@@ -241,20 +241,20 @@ public struct OnboardingView: View {
             ZStack {
                 // Pulsing ring
                 Circle()
-                    .stroke(Color(hex: 0xF2994A).opacity(0.2), lineWidth: 3)
+                    .stroke(QuartzColors.accent.opacity(0.2), lineWidth: 3)
                     .frame(width: 80, height: 80)
                     .scaleEffect(1.3)
                     .pulse()
 
                 Circle()
-                    .stroke(Color(hex: 0xF2994A).opacity(0.1), lineWidth: 2)
+                    .stroke(QuartzColors.accent.opacity(0.1), lineWidth: 2)
                     .frame(width: 80, height: 80)
                     .scaleEffect(1.7)
                     .pulse()
 
                 ProgressView()
                     .controlSize(.large)
-                    .tint(Color(hex: 0xF2994A))
+                    .tint(QuartzColors.accent)
             }
             .bounceIn()
 
@@ -329,6 +329,14 @@ public struct OnboardingView: View {
             .scaleEffect(isSelected ? 1.02 : 1.0)
         }
         .buttonStyle(QuartzCardButtonStyle())
+        #if os(iOS)
+        .hoverEffect(.highlight)
+        #endif
+        .accessibilityLabel(title)
+        .accessibilityHint(isSelected
+            ? String(localized: "Selected", bundle: .module)
+            : String(localized: "Double tap to select", bundle: .module))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Create Vault
@@ -380,9 +388,9 @@ private struct MeshGradientBackground: View {
         if reduceMotion {
             LinearGradient(
                 colors: [
-                    Color(hex: 0xFDCB6E).opacity(0.15),
-                    Color(hex: 0x74B9FF).opacity(0.1),
-                    Color(hex: 0xA29BFE).opacity(0.12),
+                    QuartzColors.folderYellow.opacity(0.15),
+                    QuartzColors.noteBlue.opacity(0.1),
+                    QuartzColors.canvasPurple.opacity(0.12),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -396,9 +404,9 @@ private struct MeshGradientBackground: View {
                     let t = timeline.date.timeIntervalSinceReferenceDate
 
                     let colors: [Color] = [
-                        Color(hex: 0xFDCB6E).opacity(0.15),
-                        Color(hex: 0x74B9FF).opacity(0.1),
-                        Color(hex: 0xA29BFE).opacity(0.12),
+                        QuartzColors.folderYellow.opacity(0.15),
+                        QuartzColors.noteBlue.opacity(0.1),
+                        QuartzColors.canvasPurple.opacity(0.12),
                     ]
 
                     for (i, color) in colors.enumerated() {

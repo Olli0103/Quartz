@@ -129,7 +129,7 @@ public struct SidebarView: View {
                         .foregroundStyle(.primary)
                 } icon: {
                     Image(systemName: "square.and.pencil")
-                        .foregroundStyle(Color(hex: 0xF2994A))
+                        .foregroundStyle(QuartzColors.accent)
                 }
             }
         }

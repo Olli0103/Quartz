@@ -58,7 +58,7 @@ public struct AppearanceSettingsView: View {
                         in: 0.8...2.0,
                         step: 0.1
                     )
-                    .tint(Color(hex: 0xF2994A))
+                    .tint(QuartzColors.accent)
 
                     Text(String(localized: "The quick brown fox jumps over the lazy dog.", bundle: .module))
                         .font(.system(size: baseBodySize * appearance.editorFontScale))
