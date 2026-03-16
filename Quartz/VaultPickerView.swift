@@ -103,11 +103,13 @@ struct VaultPickerView: View {
             )
             onVaultSelected(vault)
 
-            // Stop accessing after callback has captured what it needs
-            url.stopAccessingSecurityScopedResource()
+            // Do NOT call stopAccessingSecurityScopedResource() here.
+            // The security-scoped resource must remain accessible for the
+            // lifetime of the vault session. It will be released when the
+            // app terminates or the bookmark is resolved again.
             dismiss()
 
-        case .failure(let error):
+        case .failure:
             errorMessage = String(localized: "Could not open the selected folder. Please try again.")
         }
     }

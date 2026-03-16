@@ -77,7 +77,7 @@ public actor VaultEncryptionService {
     /// Verschlüsselt Dateidaten mit AES-256-GCM.
     ///
     /// Format: nonce (12 bytes) + ciphertext + tag (16 bytes)
-    public func encrypt(data: Data, with key: SymmetricKey) throws -> Data {
+    public nonisolated func encrypt(data: Data, with key: SymmetricKey) throws -> Data {
         do {
             let sealedBox = try AES.GCM.seal(data, using: key)
             guard let combined = sealedBox.combined else {
@@ -92,7 +92,7 @@ public actor VaultEncryptionService {
     }
 
     /// Entschlüsselt AES-256-GCM verschlüsselte Daten.
-    public func decrypt(data: Data, with key: SymmetricKey) throws -> Data {
+    public nonisolated func decrypt(data: Data, with key: SymmetricKey) throws -> Data {
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
             return try AES.GCM.open(sealedBox, using: key)
