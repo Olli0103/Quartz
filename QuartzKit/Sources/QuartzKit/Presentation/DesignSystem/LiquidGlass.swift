@@ -171,7 +171,7 @@ public struct FloatingButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 18, weight: .semibold))
+            .font(.body.weight(.semibold))
             .foregroundStyle(.white)
             .frame(width: 52, height: 52)
             .background(
@@ -668,7 +668,7 @@ public struct QuartzEmptyState: View {
     public var body: some View {
         VStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 48, weight: .regular, design: .default))
+                .font(.largeTitle.weight(.regular))
                 .imageScale(.large)
                 .foregroundStyle(.quaternary)
                 .symbolEffect(.pulse, options: .repeating)

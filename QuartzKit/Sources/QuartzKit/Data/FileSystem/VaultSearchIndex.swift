@@ -111,14 +111,27 @@ public actor VaultSearchIndex {
     // MARK: - Private
 
     private func indexNodes(_ nodes: [FileNode]) async {
-        for node in nodes {
-            if node.isNote {
-                await updateEntry(for: node.url)
-            }
-            if let children = node.children {
-                await indexNodes(children)
+        let noteURLs = collectNoteURLs(from: nodes)
+        await withTaskGroup(of: Void.self) { group in
+            for url in noteURLs {
+                group.addTask {
+                    await self.updateEntry(for: url)
+                }
             }
         }
+    }
+
+    private func collectNoteURLs(from nodes: [FileNode]) -> [URL] {
+        var urls: [URL] = []
+        for node in nodes {
+            if node.isNote {
+                urls.append(node.url)
+            }
+            if let children = node.children {
+                urls.append(contentsOf: collectNoteURLs(from: children))
+            }
+        }
+        return urls
     }
 
     /// Extrahiert den Kontext um den ersten Treffer im Body.

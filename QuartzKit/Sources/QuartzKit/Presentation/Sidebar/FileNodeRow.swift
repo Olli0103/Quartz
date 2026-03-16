@@ -32,11 +32,26 @@ public struct FileNodeRow: View {
             }
         } icon: {
             Image(systemName: iconName)
-                .font(.system(size: 14))
+                .font(.subheadline)
                 .foregroundStyle(iconColor)
                 .frame(width: 22)
         }
         .padding(.vertical, 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        var parts = [displayName]
+        parts.append(node.isFolder
+            ? String(localized: "Folder", bundle: .module)
+            : String(localized: "Note", bundle: .module))
+        if node.isNote {
+            if let tags = node.frontmatter?.tags, !tags.isEmpty {
+                parts.append(String(localized: "Tags: \(tags.joined(separator: ", "))", bundle: .module))
+            }
+        }
+        return parts.joined(separator: ", ")
     }
 
     private var displayName: String {

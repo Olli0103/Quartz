@@ -56,6 +56,11 @@ public struct NoteEditorView: View {
                 focusMode.toggleFocusMode()
             }
         }
+        .accessibilityAction(named: String(localized: "Exit focus mode", bundle: .module)) {
+            if focusMode.isFocusModeActive {
+                focusMode.toggleFocusMode()
+            }
+        }
     }
 
     // MARK: - Formatting Bar
@@ -82,6 +87,7 @@ public struct NoteEditorView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
                     .scaleEffect(viewModel.isSaving ? 1.3 : 1.0)
                     .shadow(color: statusColor.opacity(viewModel.isSaving ? 0.6 : 0), radius: 4)
                     .animation(

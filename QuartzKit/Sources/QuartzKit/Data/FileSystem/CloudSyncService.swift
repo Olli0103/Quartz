@@ -17,7 +17,6 @@ public enum CloudSyncStatus: String, Sendable {
 /// für konfliktfreies Lesen/Schreiben.
 public actor CloudSyncService {
     private var metadataQuery: NSMetadataQuery?
-    private var statusCallbacks: [(URL, CloudSyncStatus) -> Void] = []
 
     public init() {}
 

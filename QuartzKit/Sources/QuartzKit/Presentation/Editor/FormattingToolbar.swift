@@ -97,7 +97,7 @@ public struct FormattingToolbar: View {
                         onAction(action)
                     } label: {
                         Image(systemName: action.icon)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.subheadline.weight(.medium))
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
@@ -120,7 +120,7 @@ public struct FormattingToolbar: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.subheadline.weight(.medium))
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)

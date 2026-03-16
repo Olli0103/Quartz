@@ -31,7 +31,7 @@ public struct FrontmatterEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text(String(localized: "Frontmatter"))
+                    Text(String(localized: "Frontmatter", bundle: .module))
                         .font(.caption.weight(.semibold))
 
                     Spacer()
@@ -55,8 +55,8 @@ public struct FrontmatterEditorView: View {
             if isExpanded {
                 VStack(spacing: 14) {
                     // Title
-                    LabeledField(label: String(localized: "Title")) {
-                        TextField(String(localized: "Note title"), text: Binding(
+                    LabeledField(label: String(localized: "Title", bundle: .module)) {
+                        TextField(String(localized: "Note title", bundle: .module), text: Binding(
                             get: { frontmatter.title ?? "" },
                             set: { frontmatter.title = $0.isEmpty ? nil : $0 }
                         ))
@@ -64,7 +64,7 @@ public struct FrontmatterEditorView: View {
                     }
 
                     // Tags
-                    LabeledField(label: String(localized: "Tags")) {
+                    LabeledField(label: String(localized: "Tags", bundle: .module)) {
                         FlowLayout(spacing: 6) {
                             ForEach(frontmatter.tags, id: \.self) { tag in
                                 HStack(spacing: 4) {
@@ -84,7 +84,7 @@ public struct FrontmatterEditorView: View {
                             }
 
                             HStack(spacing: 4) {
-                                TextField(String(localized: "Add tag"), text: $newTag)
+                                TextField(String(localized: "Add tag", bundle: .module), text: $newTag)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(minWidth: 100)
                                     .onSubmit { addTag() }
@@ -107,13 +107,13 @@ public struct FrontmatterEditorView: View {
 
                     // Dates
                     HStack(spacing: 16) {
-                        LabeledField(label: String(localized: "Created")) {
+                        LabeledField(label: String(localized: "Created", bundle: .module)) {
                             Text(frontmatter.createdAt, style: .date)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
-                        LabeledField(label: String(localized: "Modified")) {
+                        LabeledField(label: String(localized: "Modified", bundle: .module)) {
                             Text(frontmatter.modifiedAt, style: .relative)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -138,10 +138,10 @@ public struct FrontmatterEditorView: View {
 
                     // Add Custom Field
                     HStack(spacing: 8) {
-                        TextField(String(localized: "Key"), text: $newCustomKey)
+                        TextField(String(localized: "Key", bundle: .module), text: $newCustomKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 100)
-                        TextField(String(localized: "Value"), text: $newCustomValue)
+                        TextField(String(localized: "Value", bundle: .module), text: $newCustomValue)
                             .textFieldStyle(.roundedBorder)
                         Button { addCustomField() } label: {
                             Image(systemName: "plus.circle.fill")
