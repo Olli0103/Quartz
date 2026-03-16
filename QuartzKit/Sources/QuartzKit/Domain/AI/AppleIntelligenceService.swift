@@ -20,11 +20,11 @@ public actor AppleIntelligenceService {
 
         public var displayName: String {
             switch self {
-            case .summarize: "Summarize"
-            case .rewrite: "Rewrite"
-            case .proofread: "Proofread"
-            case .makeConcise: "Make Concise"
-            case .makeDetailed: "Make Detailed"
+            case .summarize: String(localized: "Summarize", bundle: .module)
+            case .rewrite: String(localized: "Rewrite", bundle: .module)
+            case .proofread: String(localized: "Proofread", bundle: .module)
+            case .makeConcise: String(localized: "Make Concise", bundle: .module)
+            case .makeDetailed: String(localized: "Make Detailed", bundle: .module)
             }
         }
 
@@ -47,10 +47,10 @@ public actor AppleIntelligenceService {
 
         public var displayName: String {
             switch self {
-            case .professional: "Professional"
-            case .casual: "Casual"
-            case .friendly: "Friendly"
-            case .academic: "Academic"
+            case .professional: String(localized: "Professional", bundle: .module)
+            case .casual: String(localized: "Casual", bundle: .module)
+            case .friendly: String(localized: "Friendly", bundle: .module)
+            case .academic: String(localized: "Academic", bundle: .module)
             }
         }
     }
@@ -183,7 +183,8 @@ public actor AppleIntelligenceService {
         // Behalte die ersten ~30% der Sätze als Zusammenfassung
         let keepCount = max(1, sentences.count * 3 / 10)
         let summary = sentences.prefix(keepCount).joined(separator: " ")
-        return "**Summary:**\n\n\(summary)"
+        let header = String(localized: "Summary", bundle: .module)
+        return "**\(header):**\n\n\(summary)"
     }
 
     private func proofreadText(_ text: String) -> String {

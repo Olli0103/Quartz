@@ -67,6 +67,7 @@ struct ContentView: View {
                             } label: {
                                 Image(systemName: "magnifyingglass")
                             }
+                            .accessibilityLabel(String(localized: "Search"))
                             .disabled(searchIndex == nil)
 
                             Menu {
@@ -83,6 +84,7 @@ struct ContentView: View {
                             } label: {
                                 Image(systemName: "ellipsis.circle")
                             }
+                            .accessibilityLabel(String(localized: "More options"))
                         }
                     }
                 }
@@ -151,6 +153,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "gearshape")
                 }
+                .accessibilityLabel(String(localized: "Settings"))
             }
         }
     }
@@ -172,6 +175,7 @@ struct ContentView: View {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityLabel(String(localized: "Dismiss"))
                 .buttonStyle(.plain)
             }
             .padding(12)
@@ -210,6 +214,7 @@ struct ContentView: View {
     }
 
     private func openNote(at url: URL?) {
+        editorViewModel?.cancelAllTasks()
         guard let url else {
             editorViewModel = nil
             return
