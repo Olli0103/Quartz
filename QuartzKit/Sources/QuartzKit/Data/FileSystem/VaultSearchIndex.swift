@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// In-Memory Suchindex für den gesamten Vault.
 ///
@@ -16,6 +17,7 @@ public actor VaultSearchIndex {
 
     private var entries: [URL: IndexEntry] = [:]
     private let vaultProvider: any VaultProviding
+    private let logger = Logger(subsystem: "com.quartz", category: "VaultSearchIndex")
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -39,6 +41,7 @@ public actor VaultSearchIndex {
                 modifiedAt: note.frontmatter.modifiedAt
             )
         } catch {
+            logger.warning("Could not index note at \(url.lastPathComponent): \(error.localizedDescription)")
             entries.removeValue(forKey: url)
         }
     }

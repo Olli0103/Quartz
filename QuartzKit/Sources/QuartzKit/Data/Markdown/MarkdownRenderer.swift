@@ -69,7 +69,7 @@ private struct AttributedStringVisitor: MarkupVisitor {
         default: .body
         }
         let baseFont = UIFont.preferredFont(forTextStyle: textStyle)
-        result.font = UIFont.boldSystemFont(ofSize: baseFont.pointSize)
+        result.font = UIFont.systemFont(ofSize: baseFont.pointSize, weight: .bold)
         #elseif canImport(AppKit)
         let scaleFactor: CGFloat = switch heading.level {
         case 1: 2.0
@@ -79,7 +79,7 @@ private struct AttributedStringVisitor: MarkupVisitor {
         default: 1.0
         }
         let bodySize = NSFont.systemFontSize
-        result.font = .boldSystemFont(ofSize: bodySize * scaleFactor)
+        result.font = NSFont.systemFont(ofSize: bodySize * scaleFactor, weight: .bold)
         #endif
 
         result.append(AttributedString("\n"))

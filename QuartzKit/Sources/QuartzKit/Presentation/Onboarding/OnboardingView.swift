@@ -340,7 +340,7 @@ public struct OnboardingView: View {
                 try await templateService.applyTemplate(selectedTemplate, to: url)
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    errorMessage = String(localized: "Could not create vault. Please check folder permissions and try again.", bundle: .module)
                     currentStep = .chooseTemplate
                 }
                 return

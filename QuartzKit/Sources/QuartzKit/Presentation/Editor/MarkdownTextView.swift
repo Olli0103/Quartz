@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 import SwiftUI
+import os
 
 /// TextKit 2 basierte WYSIWYG Markdown-View für iOS/iPadOS.
 ///
@@ -8,6 +9,7 @@ import SwiftUI
 /// Syntax-Zeichen (`**`, `#`) werden ausgeblendet.
 public class MarkdownUITextView: UITextView {
     private let markdownRenderer = MarkdownRenderer()
+    private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
     private var isUpdating = false
 
     public var onTextChange: ((String) -> Void)?
@@ -39,9 +41,8 @@ public class MarkdownUITextView: UITextView {
         defer { isUpdating = false }
 
         let attributed = markdownRenderer.render(markdown)
-        let nsAttributed = try? NSAttributedString(attributed, including: MarkdownAttributes.self)
-
-        if let nsAttributed {
+        do {
+            let nsAttributed = try NSAttributedString(attributed, including: MarkdownAttributes.self)
             // Cursor-Position merken
             let selectedRange = self.selectedRange
             self.attributedText = nsAttributed
@@ -49,7 +50,8 @@ public class MarkdownUITextView: UITextView {
             if selectedRange.location + selectedRange.length <= nsAttributed.length {
                 self.selectedRange = selectedRange
             }
-        } else {
+        } catch {
+            logger.warning("Markdown rendering failed, falling back to plain text: \(error.localizedDescription)")
             self.text = markdown
         }
     }
@@ -103,10 +105,12 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
 #elseif canImport(AppKit)
 import AppKit
 import SwiftUI
+import os
 
 /// TextKit 2 basierte WYSIWYG Markdown-View für macOS.
 public class MarkdownNSTextView: NSTextView {
     private let markdownRenderer = MarkdownRenderer()
+    private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
     private var isUpdating = false
 
     public var onTextChange: ((String) -> Void)?
@@ -143,13 +147,13 @@ public class MarkdownNSTextView: NSTextView {
         defer { isUpdating = false }
 
         let attributed = markdownRenderer.render(markdown)
-        let nsAttributed = try? NSAttributedString(attributed, including: MarkdownAttributes.self)
-
-        if let nsAttributed {
+        do {
+            let nsAttributed = try NSAttributedString(attributed, including: MarkdownAttributes.self)
             let selectedRanges = self.selectedRanges
             textStorage?.setAttributedString(nsAttributed)
             self.selectedRanges = selectedRanges
-        } else {
+        } catch {
+            logger.warning("Markdown rendering failed, falling back to plain text: \(error.localizedDescription)")
             self.string = markdown
         }
     }

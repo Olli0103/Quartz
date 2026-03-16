@@ -1,6 +1,7 @@
 #if canImport(PencilKit)
 import Foundation
 import PencilKit
+import os
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -12,6 +13,7 @@ import AppKit
 /// als `![[drawing-id.drawing]]` eingebettet.
 public actor DrawingStorageService {
     private let fileManager = FileManager.default
+    private let logger = Logger(subsystem: "com.quartz", category: "DrawingStorage")
 
     public init() {}
 
@@ -61,17 +63,25 @@ public actor DrawingStorageService {
 
         try fileManager.removeItem(at: drawingURL)
         // Thumbnail deletion is best-effort since the drawing file is primary
-        try? fileManager.removeItem(at: thumbnailURL)
+        do {
+            try fileManager.removeItem(at: thumbnailURL)
+        } catch {
+            logger.debug("Thumbnail cleanup skipped for \(drawingID): \(error.localizedDescription)")
+        }
     }
 
     /// Listet alle Zeichnungs-IDs für eine Notiz auf.
     public func listDrawings(for noteURL: URL) -> [String] {
         let assetsFolder = assetsURL(for: noteURL)
 
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: assetsFolder,
-            includingPropertiesForKeys: nil
-        ) else {
+        let contents: [URL]
+        do {
+            contents = try fileManager.contentsOfDirectory(
+                at: assetsFolder,
+                includingPropertiesForKeys: nil
+            )
+        } catch {
+            logger.debug("No drawings found at \(assetsFolder.lastPathComponent): \(error.localizedDescription)")
             return []
         }
 
