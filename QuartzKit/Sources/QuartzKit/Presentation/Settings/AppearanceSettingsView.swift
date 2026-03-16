@@ -119,6 +119,8 @@ private struct ThemeCard: View {
             .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
         }
         .buttonStyle(QuartzCardButtonStyle())
+        .accessibilityLabel(String(localized: "\(theme.displayName) theme", bundle: .module))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var previewFill: some ShapeStyle {

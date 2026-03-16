@@ -111,5 +111,7 @@ private struct SearchResultRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(result.title)
+        .accessibilityHint(String(localized: "Double tap to open note", bundle: .module))
     }
 }

@@ -61,6 +61,11 @@ public struct TagOverviewView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(tag.name)
+                    .accessibilityHint(selectedTag == tag.name
+                        ? String(localized: "Double tap to deselect", bundle: .module)
+                        : String(localized: "Double tap to filter by this tag", bundle: .module))
+                    .accessibilityAddTraits(selectedTag == tag.name ? .isSelected : [])
                     .listRowBackground(
                         selectedTag == tag.name
                         ? QuartzColors.tagColor(for: tag.name).opacity(0.1)

@@ -262,7 +262,7 @@ private struct FadeInModifier: ViewModifier {
                 if reduceMotion {
                     opacity = 1
                 } else {
-                    withAnimation(.easeOut(duration: 0.4).delay(delay)) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85).delay(delay)) {
                         opacity = 1
                     }
                 }
@@ -393,7 +393,7 @@ private struct PulseModifier: ViewModifier {
             .onAppear {
                 guard !reduceMotion else { return }
                 withAnimation(
-                    .easeInOut(duration: 0.8)
+                    .spring(response: 0.8, dampingFraction: 0.5)
                     .repeatForever(autoreverses: true)
                 ) {
                     isPulsing = true
