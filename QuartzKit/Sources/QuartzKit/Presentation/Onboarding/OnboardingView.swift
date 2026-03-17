@@ -140,12 +140,13 @@ public struct OnboardingView: View {
                     allowsMultipleSelection: false
                 ) { result in
                     if case .success(let urls) = result, let url = urls.first {
+                        // Release previous security scope before acquiring new one
+                        if let previous = vaultURL, previous != url {
+                            previous.stopAccessingSecurityScopedResource()
+                        }
                         guard url.startAccessingSecurityScopedResource() else { return }
                         vaultURL = url
                         currentStep = .chooseTemplate
-                        // Do NOT call stopAccessingSecurityScopedResource() here.
-                        // The resource must remain accessible for createVault()
-                        // which writes template files to this folder.
                     }
                 }
 

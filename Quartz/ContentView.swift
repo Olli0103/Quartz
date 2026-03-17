@@ -19,7 +19,7 @@ struct ContentView: View {
     @Namespace private var noteTransition
 
     var body: some View {
-        AdaptiveLayoutView {
+        AdaptiveLayoutView(columnVisibility: $columnVisibility) {
             sidebarColumn
         } content: {
             noteListColumn
@@ -27,7 +27,11 @@ struct ContentView: View {
             detailColumn
         }
         .animation(QuartzAnimation.smooth, value: viewModel?.editorViewModel?.note?.fileURL)
-        .task { viewModel = ContentViewModel(appState: appState) }
+        .task {
+            if viewModel == nil {
+                viewModel = ContentViewModel(appState: appState)
+            }
+        }
         .onChange(of: selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)
         }
@@ -46,7 +50,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in
-                appState.currentVault = vault
+                appState.switchVault(to: vault)
                 viewModel?.loadVault(vault)
             }
         }
@@ -144,7 +148,7 @@ struct ContentView: View {
     @ViewBuilder
     private var noteListColumn: some View {
         if let sidebarVM = viewModel?.sidebarViewModel {
-            let notes = collectNotes(from: sidebarVM.filteredTree)
+            let notes = sidebarVM.flatNotes
             List(notes, id: \.url, selection: $selectedNoteURL) { node in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -161,7 +165,11 @@ struct ContentView: View {
                 }
                 .tag(node.url)
             }
-            .listStyle(.insetGrouped)
+            #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.sidebar)
+        #endif
             .navigationTitle(String(localized: "Notes"))
             .overlay {
                 if notes.isEmpty {
@@ -179,20 +187,6 @@ struct ContentView: View {
                 subtitle: String(localized: "Open a vault to browse notes.")
             )
         }
-    }
-
-    /// Flattens the file tree to extract only note files.
-    private func collectNotes(from nodes: [FileNode]) -> [FileNode] {
-        var result: [FileNode] = []
-        for node in nodes {
-            if node.isNote {
-                result.append(node)
-            }
-            if let children = node.children {
-                result.append(contentsOf: collectNotes(from: children))
-            }
-        }
-        return result
     }
 
     // MARK: - Detail Column

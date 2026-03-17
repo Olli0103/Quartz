@@ -59,7 +59,7 @@ public final class NoteEditorViewModel {
 
     /// Speichert die aktuelle Notiz sofort.
     public func save() async {
-        guard var currentNote = note, isDirty else { return }
+        guard var currentNote = note, isDirty, !isSaving else { return }
 
         isSaving = true
         currentNote.body = content

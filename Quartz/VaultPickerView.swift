@@ -78,7 +78,12 @@ struct VaultPickerView: View {
                 return
             }
 
-            // Persist bookmark for future access
+            let vault = VaultConfig(
+                name: url.lastPathComponent,
+                rootURL: url
+            )
+
+            // Persist bookmark for future access – use vault UUID to avoid collisions
             do {
                 #if os(macOS)
                 let bookmarkData = try url.bookmarkData(
@@ -93,16 +98,12 @@ struct VaultPickerView: View {
                     relativeTo: nil
                 )
                 #endif
-                UserDefaults.standard.set(bookmarkData, forKey: "quartz.vault.bookmark.\(url.lastPathComponent)")
+                UserDefaults.standard.set(bookmarkData, forKey: "quartz.vault.bookmark.\(vault.id.uuidString)")
             } catch {
                 Logger(subsystem: "com.quartz", category: "VaultPicker")
                     .error("Failed to persist vault bookmark: \(error.localizedDescription)")
             }
 
-            let vault = VaultConfig(
-                name: url.lastPathComponent,
-                rootURL: url
-            )
             onVaultSelected(vault)
 
             // Do NOT call stopAccessingSecurityScopedResource() here.

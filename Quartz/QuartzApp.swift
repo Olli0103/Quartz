@@ -18,7 +18,9 @@ struct QuartzApp: App {
                 .preferredColorScheme(appearanceManager.theme.colorScheme)
                 .tint(Color(hex: 0xF2994A))
                 .task {
-                    ServiceContainer.shared.register(featureGate: proFeatureGate)
+                    ServiceContainer.shared.bootstrap(
+                        featureGate: proFeatureGate
+                    )
                     await proFeatureGate.checkPurchaseStatus()
                     _ = proFeatureGate.observeTransactionUpdates()
                 }

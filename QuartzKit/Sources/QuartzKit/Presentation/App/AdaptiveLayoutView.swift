@@ -8,7 +8,7 @@ import SwiftUI
 /// - Mac: Three-Column mit resizable Sidebar
 public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
 
     let sidebar: () -> Sidebar
@@ -16,10 +16,12 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
     let detail: () -> Detail
 
     public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
         @ViewBuilder sidebar: @escaping () -> Sidebar,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder detail: @escaping () -> Detail
     ) {
+        self._columnVisibility = columnVisibility
         self.sidebar = sidebar
         self.content = content
         self.detail = detail

@@ -572,6 +572,9 @@ public struct QuartzButton: View {
             .foregroundStyle(.white)
         }
         .buttonStyle(QuartzPressButtonStyle())
+        #if os(macOS)
+        .focusable()
+        #endif
     }
 }
 
@@ -685,5 +688,6 @@ public struct QuartzEmptyState: View {
             }
         }
         .padding(40)
+        .accessibilityElement(children: .combine)
     }
 }

@@ -32,6 +32,11 @@ public actor VaultSearchIndex {
         await indexNodes(tree)
     }
 
+    /// Indexiert Notizen aus einem bereits geladenen Dateibaum (vermeidet doppeltes I/O).
+    public func indexFromPreloadedTree(_ nodes: [FileNode]) async {
+        await indexNodes(nodes)
+    }
+
     /// Aktualisiert den Index für eine einzelne Notiz.
     public func updateEntry(for url: URL) async {
         do {

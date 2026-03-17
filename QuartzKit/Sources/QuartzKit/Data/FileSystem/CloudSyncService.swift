@@ -24,7 +24,12 @@ public actor CloudSyncService {
     // MARK: - Sync Status Monitoring
 
     /// Startet das Monitoring des Sync-Status für einen Vault.
+    /// Returns an empty stream if iCloud is not available.
     public func startMonitoring(vaultRoot: URL) -> AsyncStream<(URL, CloudSyncStatus)> {
+        guard Self.isAvailable else {
+            return AsyncStream { $0.finish() }
+        }
+
         let query = NSMetadataQuery()
         query.searchScopes = [vaultRoot]
         query.predicate = NSPredicate(format: "%K LIKE '*.md'", NSMetadataItemPathKey)

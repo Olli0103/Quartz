@@ -1,6 +1,6 @@
 import Foundation
 import NaturalLanguage
-import Accelerate
+@preconcurrency import Accelerate
 
 // MARK: - Embedding Entry
 
@@ -40,13 +40,21 @@ public actor VectorEmbeddingService {
     public init(
         vaultURL: URL,
         chunkSize: Int = 512,
-        language: NLLanguage = .german
+        language: NLLanguage = .english
     ) {
         self.indexURL = vaultURL
             .appending(path: ".quartz")
             .appending(path: "embeddings.idx")
         self.chunkSize = chunkSize
         self.language = language
+    }
+
+    /// Detects the dominant language of a text using NLLanguageRecognizer.
+    /// Falls back to the configured default language if detection fails.
+    private func detectLanguage(for text: String) -> NLLanguage {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return recognizer.dominantLanguage ?? language
     }
 
     // MARK: - Index Management
@@ -300,18 +308,26 @@ public actor VectorEmbeddingService {
     }
 
     /// Erzeugt ein Embedding mit NLEmbedding.
-    private var cachedEmbedding: NLEmbedding?
+    /// Uses per-language caching to support automatic language detection.
+    private var embeddingCache: [NLLanguage: NLEmbedding] = [:]
 
-    private func getEmbedding() -> NLEmbedding? {
-        if let cached = cachedEmbedding { return cached }
-        cachedEmbedding = NLEmbedding.sentenceEmbedding(for: language)
-        return cachedEmbedding
+    private func getEmbedding(for lang: NLLanguage) -> NLEmbedding? {
+        if let cached = embeddingCache[lang] { return cached }
+        let embedding = NLEmbedding.sentenceEmbedding(for: lang)
+        if let embedding { embeddingCache[lang] = embedding }
+        return embedding
     }
 
     private func generateEmbedding(for text: String) -> [Float]? {
-        guard let embedding = getEmbedding(),
+        let detectedLang = detectLanguage(for: text)
+        guard let embedding = getEmbedding(for: detectedLang),
               let vector = embedding.vector(for: text) else {
-            return nil
+            // Fallback to configured default language
+            guard let fallback = getEmbedding(for: language),
+                  let vector = fallback.vector(for: text) else {
+                return nil
+            }
+            return vector.map { Float($0) }
         }
         return vector.map { Float($0) }
     }

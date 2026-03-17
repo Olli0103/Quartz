@@ -197,13 +197,27 @@ public struct MarkdownTextViewRepresentable: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let textView = MarkdownNSTextView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+
+        // Configure TextKit 2 for modern text layout
+        let contentStorage = NSTextContentStorage()
+        let layoutManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(
+            width: scrollView.contentSize.width,
+            height: .greatestFiniteMagnitude
+        ))
+        container.widthTracksTextView = true
+        layoutManager.textContainer = container
+
+        let textView = MarkdownNSTextView(frame: .zero, textContainer: container)
         textView.autoresizingMask = [.width, .height]
         textView.onTextChange = { [_text] newText in
             _text.wrappedValue = newText
         }
         scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
         return scrollView
     }
 

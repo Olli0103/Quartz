@@ -21,6 +21,10 @@ public final class ContentViewModel {
 
     /// Loads a vault: creates sidebar VM, search index, and builds the file tree.
     public func loadVault(_ vault: VaultConfig) {
+        // Cancel previous editor tasks before switching vault
+        editorViewModel?.cancelAllTasks()
+        editorViewModel = nil
+
         let provider = ServiceContainer.shared.resolveVaultProvider()
         let viewModel = SidebarViewModel(vaultProvider: provider)
         sidebarViewModel = viewModel
@@ -30,11 +34,8 @@ public final class ContentViewModel {
 
         Task {
             await viewModel.loadTree(at: vault.rootURL)
-            do {
-                try await index.buildIndex(at: vault.rootURL)
-            } catch {
-                appState.errorMessage = String(localized: "Search index could not be built. Search may be incomplete.")
-            }
+            // Use the already-loaded tree for the search index to avoid double I/O
+            await index.indexFromPreloadedTree(viewModel.fileTree)
         }
     }
 

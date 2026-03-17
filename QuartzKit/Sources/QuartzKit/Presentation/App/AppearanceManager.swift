@@ -75,6 +75,8 @@ public final class AppearanceManager {
 // MARK: - SwiftUI Environment
 
 private struct AppearanceManagerKey: EnvironmentKey {
+    // SAFETY: Default only accessed from main actor in SwiftUI's
+    // environment resolution. Swift 6 EnvironmentKey workaround.
     nonisolated(unsafe) static let defaultValue = AppearanceManager()
 }
 

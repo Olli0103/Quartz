@@ -20,6 +20,7 @@ public final class SidebarViewModel {
     private let vaultProvider: any VaultProviding
     private var vaultRoot: URL?
     private var cachedFilteredTree: [FileNode]?
+    private var cachedFlatNotes: [FileNode]?
 
     /// Öffentlicher Zugriff auf die Vault-Root-URL.
     public var vaultRootURL: URL? { vaultRoot }
@@ -134,8 +135,28 @@ public final class SidebarViewModel {
         return result
     }
 
+    /// Flattened list of all note nodes from the filtered tree (cached).
+    public var flatNotes: [FileNode] {
+        if let cached = cachedFlatNotes { return cached }
+        let result = collectFlatNotes(from: filteredTree)
+        cachedFlatNotes = result
+        return result
+    }
+
+    private func collectFlatNotes(from nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for node in nodes {
+            if node.isNote { result.append(node) }
+            if let children = node.children {
+                result.append(contentsOf: collectFlatNotes(from: children))
+            }
+        }
+        return result
+    }
+
     private func invalidateFilterCache() {
         cachedFilteredTree = nil
+        cachedFlatNotes = nil
     }
 
     private func filterNode(_ node: FileNode, matching query: String) -> FileNode? {

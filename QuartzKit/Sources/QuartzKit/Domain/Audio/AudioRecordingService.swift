@@ -192,11 +192,16 @@ public final class AudioRecordingService: NSObject {
         lastRecordingURL = nil
     }
 
-    /// Formatierte Dauer als String (MM:SS).
+    /// Formatierte Dauer als String (MM:SS), locale-aware.
+    private static let durationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.zeroFormattingBehavior = .pad
+        return formatter
+    }()
+
     public var formattedDuration: String {
-        let minutes = Int(duration) / 60
-        let seconds = Int(duration) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        Self.durationFormatter.string(from: duration) ?? "00:00"
     }
 
     // MARK: - Private

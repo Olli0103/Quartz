@@ -17,7 +17,17 @@ public enum CommandAction: Equatable, Sendable {
 @MainActor
 public final class AppState {
     /// Aktuell geöffneter Vault.
+    /// Use `switchVault(to:)` to properly release security-scoped resources.
     public var currentVault: VaultConfig?
+
+    /// Switches to a new vault, releasing the security-scoped resource of the previous one.
+    public func switchVault(to newVault: VaultConfig?) {
+        // Release previous vault's security-scoped resource
+        if let previous = currentVault, previous.rootURL != newVault?.rootURL {
+            previous.rootURL.stopAccessingSecurityScopedResource()
+        }
+        currentVault = newVault
+    }
 
     /// Aktuell ausgewählte Notiz im Editor (set via deep linking).
     public var selectedNote: NoteDocument?

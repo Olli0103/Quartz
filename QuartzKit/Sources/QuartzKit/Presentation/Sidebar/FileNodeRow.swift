@@ -36,7 +36,7 @@ public struct FileNodeRow: View {
                 .foregroundStyle(iconColor)
                 .frame(width: 22)
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 4)
         #if os(iOS)
         .hoverEffect(.highlight)
         #elseif os(macOS)

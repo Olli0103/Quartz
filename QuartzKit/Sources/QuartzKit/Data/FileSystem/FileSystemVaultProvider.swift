@@ -18,7 +18,11 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
         vaultRoot = root
-        return try buildTree(at: root, relativeTo: root)
+        // Move heavy recursive I/O off the actor to avoid blocking other actor calls
+        let fm = fileManager
+        return try await Task.detached(priority: .userInitiated) {
+            try FileSystemVaultProvider.buildTreeStatic(at: root, relativeTo: root, fileManager: fm)
+        }.value
     }
 
     public func readNote(at url: URL) async throws -> NoteDocument {
@@ -184,7 +188,17 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     // MARK: - Private
 
-    private func buildTree(at url: URL, relativeTo root: URL) throws -> [FileNode] {
+    /// Static, nonisolated tree builder that can run on any thread.
+    /// Includes a depth limit to prevent stack overflow from pathological directory structures.
+    private static func buildTreeStatic(
+        at url: URL,
+        relativeTo root: URL,
+        depth: Int = 0,
+        fileManager: FileManager = .default
+    ) throws -> [FileNode] {
+        // Prevent stack overflow from circular or extremely deep directory structures
+        guard depth < 50 else { return [] }
+
         let contents = try fileManager.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey],
@@ -209,7 +223,7 @@ public actor FileSystemVaultProvider: VaultProviding {
                 )
 
                 if isDirectory {
-                    let children = try buildTree(at: itemURL, relativeTo: root)
+                    let children = try buildTreeStatic(at: itemURL, relativeTo: root, depth: depth + 1, fileManager: fileManager)
                     return FileNode(
                         name: itemURL.lastPathComponent,
                         url: itemURL,
