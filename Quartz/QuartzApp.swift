@@ -38,7 +38,10 @@ struct QuartzApp: App {
 
         Settings {
             SettingsView()
+                .environment(appState)
                 .environment(\.appearanceManager, appearanceManager)
+                .environment(\.focusModeManager, focusModeManager)
+                .environment(\.featureGate, proFeatureGate)
         }
         #endif
     }

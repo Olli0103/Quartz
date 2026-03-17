@@ -7,6 +7,7 @@ public struct NoteEditorView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.featureGate) private var featureGate
+    @State private var showFocusModeHint = false
     private let formatter = MarkdownFormatter()
 
     public init(viewModel: NoteEditorViewModel) {
@@ -40,7 +41,7 @@ public struct NoteEditorView: View {
             statusBar
                 .hidesInFocusMode()
         }
-        .sensoryFeedback(.success, trigger: viewModel.isSaving) { $0 && !$1 }
+        .sensoryFeedback(.success, trigger: viewModel.manualSaveCompleted)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: focusMode.isFocusModeActive)
         .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
@@ -59,6 +60,29 @@ public struct NoteEditorView: View {
         .accessibilityAction(named: String(localized: "Exit focus mode", bundle: .module)) {
             if focusMode.isFocusModeActive {
                 focusMode.toggleFocusMode()
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showFocusModeHint {
+                Text(String(localized: "Triple-tap to exit focus mode", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onChange(of: focusMode.isFocusModeActive) { _, isActive in
+            if isActive {
+                withAnimation(QuartzAnimation.smooth) { showFocusModeHint = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    withAnimation(QuartzAnimation.smooth) { showFocusModeHint = false }
+                }
+            } else {
+                showFocusModeHint = false
             }
         }
     }
@@ -106,8 +130,8 @@ public struct NoteEditorView: View {
 
             Spacer()
 
-            Text(String(localized: "\(viewModel.wordCount) word(s)", bundle: .module,
-                        comment: "Word count in editor status bar. Uses plural rules."))
+            Text(String(localized: "^[\(viewModel.wordCount) word](inflect: true)", bundle: .module,
+                        comment: "Word count in editor status bar. Uses automatic grammar agreement."))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
@@ -147,7 +171,7 @@ public struct NoteEditorView: View {
 
             if viewModel.isDirty {
                 Button {
-                    Task { await viewModel.save() }
+                    Task { await viewModel.manualSave() }
                 } label: {
                     Image(systemName: "square.and.arrow.down")
                         .symbolRenderingMode(.hierarchical)

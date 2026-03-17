@@ -85,10 +85,8 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> MarkdownUITextView {
         let view = MarkdownUITextView()
-        view.onTextChange = { newText in
-            Task { @MainActor in
-                text = newText
-            }
+        view.onTextChange = { [_text] newText in
+            _text.wrappedValue = newText
         }
         return view
     }
@@ -201,10 +199,8 @@ public struct MarkdownTextViewRepresentable: NSViewRepresentable {
         let scrollView = NSScrollView()
         let textView = MarkdownNSTextView()
         textView.autoresizingMask = [.width, .height]
-        textView.onTextChange = { newText in
-            Task { @MainActor in
-                text = newText
-            }
+        textView.onTextChange = { [_text] newText in
+            _text.wrappedValue = newText
         }
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true

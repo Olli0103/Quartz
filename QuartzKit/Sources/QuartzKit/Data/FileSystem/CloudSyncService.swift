@@ -7,6 +7,7 @@ public enum CloudSyncStatus: String, Sendable {
     case uploading      // Wird hochgeladen
     case downloading    // Wird heruntergeladen
     case notDownloaded  // Nur in der Cloud, nicht lokal
+    case conflict       // Ungelöster Sync-Konflikt
     case error          // Sync-Fehler
     case notApplicable  // Kein iCloud-Vault
 }
@@ -132,6 +133,23 @@ public actor CloudSyncService {
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
     }
 
+    // MARK: - Conflict Resolution
+
+    /// Returns conflict versions for a file, if any exist.
+    public nonisolated func conflictVersions(for url: URL) -> [NSFileVersion] {
+        NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+    }
+
+    /// Resolves a conflict by keeping the current local version.
+    /// Removes all conflict versions and marks them as resolved.
+    public nonisolated func resolveConflictKeepingCurrent(at url: URL) throws {
+        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+        for version in conflicts {
+            version.isResolved = true
+        }
+        try NSFileVersion.removeOtherVersionsOfItem(at: url)
+    }
+
     // MARK: - Ubiquity Container
 
     /// Gibt die iCloud Drive URL für die App zurück (falls verfügbar).
@@ -165,9 +183,11 @@ public actor CloudSyncService {
         let downloadStatus = item.value(forAttribute: NSMetadataUbiquitousItemDownloadingStatusKey) as? String
         let isUploading = item.value(forAttribute: NSMetadataUbiquitousItemIsUploadingKey) as? Bool ?? false
         let isDownloading = item.value(forAttribute: NSMetadataUbiquitousItemIsDownloadingKey) as? Bool ?? false
+        let hasConflict = item.value(forAttribute: NSMetadataUbiquitousItemHasUnresolvedConflictsKey) as? Bool ?? false
         let hasError = item.value(forAttribute: NSMetadataUbiquitousItemDownloadingErrorKey) != nil ||
             item.value(forAttribute: NSMetadataUbiquitousItemUploadingErrorKey) != nil
 
+        if hasConflict { return .conflict }
         if hasError { return .error }
         if isUploading { return .uploading }
         if isDownloading { return .downloading }

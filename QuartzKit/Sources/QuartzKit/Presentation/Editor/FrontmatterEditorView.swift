@@ -170,7 +170,7 @@ public struct FrontmatterEditorView: View {
     private var summaryText: String {
         var parts: [String] = []
         if let title = frontmatter.title { parts.append(title) }
-        if !frontmatter.tags.isEmpty { parts.append(String(localized: "\(frontmatter.tags.count) tags", bundle: .module)) }
+        if !frontmatter.tags.isEmpty { parts.append(String(localized: "^[\(frontmatter.tags.count) tag](inflect: true)", bundle: .module)) }
         return parts.joined(separator: " · ")
     }
 

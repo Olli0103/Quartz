@@ -19,17 +19,30 @@ public final class AppState {
     /// Aktuell geöffneter Vault.
     public var currentVault: VaultConfig?
 
-    /// Dateibaum des aktuellen Vaults.
-    public var fileTree: [FileNode] = []
-
-    /// Aktuell ausgewählte Notiz im Editor.
+    /// Aktuell ausgewählte Notiz im Editor (set via deep linking).
     public var selectedNote: NoteDocument?
 
-    /// Ladeindikator.
-    public var isLoading: Bool = false
+    /// Fehlermeldung für den Nutzer (zeigt den ersten Eintrag der Queue).
+    public var errorMessage: String? {
+        get { errorQueue.first }
+        set {
+            if let msg = newValue {
+                errorQueue.append(msg)
+            } else {
+                // Dismiss current error; show next in queue
+                if !errorQueue.isEmpty { errorQueue.removeFirst() }
+            }
+        }
+    }
 
-    /// Fehlermeldung für den Nutzer.
-    public var errorMessage: String?
+    /// Queue of pending error messages.
+    private var errorQueue: [String] = []
+
+    /// Dismiss current error and advance to next in queue.
+    public func dismissCurrentError() {
+        guard !errorQueue.isEmpty else { return }
+        errorQueue.removeFirst()
+    }
 
     // MARK: - Command Actions (triggered by keyboard shortcuts)
 

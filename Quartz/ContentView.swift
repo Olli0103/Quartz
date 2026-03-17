@@ -5,9 +5,8 @@ import QuartzKit
 /// Liquid Glass Design mit sanften Übergängen.
 struct ContentView: View {
     @Environment(AppState.self) private var appState
-    @State private var sidebarViewModel: SidebarViewModel?
+    @State private var viewModel: ContentViewModel?
     @State private var selectedNoteURL: URL?
-    @State private var editorViewModel: NoteEditorViewModel?
     @State private var showVaultPicker = false
     @State private var showSettings = false
     @State private var showSearch = false
@@ -15,7 +14,6 @@ struct ContentView: View {
     @State private var showNewFolder = false
     @State private var newNoteName = ""
     @State private var newNoteParent: URL?
-    @State private var searchIndex: VaultSearchIndex?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
 
@@ -25,41 +23,28 @@ struct ContentView: View {
         } detail: {
             detailColumn
         }
-        .animation(QuartzAnimation.smooth, value: editorViewModel?.note?.fileURL)
+        .animation(QuartzAnimation.smooth, value: viewModel?.editorViewModel?.note?.fileURL)
+        .task { viewModel = ContentViewModel(appState: appState) }
         .onChange(of: selectedNoteURL) { _, newURL in
-            openNote(at: newURL)
+            viewModel?.openNote(at: newURL)
         }
         // MARK: - Keyboard Shortcut Handlers
         .onChange(of: appState.pendingCommand) { _, command in
             guard command != .none else { return }
             defer { appState.pendingCommand = .none }
-            switch command {
-            case .newNote:
-                if let root = sidebarViewModel?.vaultRootURL {
-                    newNoteParent = root
-                    showNewNote = true
-                }
-            case .newFolder:
-                if let root = sidebarViewModel?.vaultRootURL {
-                    newNoteParent = root
-                    showNewFolder = true
-                }
-            case .search, .globalSearch:
-                showSearch = true
-            case .toggleSidebar:
-                withAnimation {
-                    columnVisibility = columnVisibility == .all ? .detailOnly : .all
-                }
-            case .dailyNote:
-                createDailyNote()
-            case .none:
-                break
-            }
+            viewModel?.handleCommand(
+                command,
+                showNewNote: &showNewNote,
+                showNewFolder: &showNewFolder,
+                showSearch: &showSearch,
+                columnVisibility: &columnVisibility,
+                newNoteParent: &newNoteParent
+            )
         }
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in
                 appState.currentVault = vault
-                loadVault(vault)
+                viewModel?.loadVault(vault)
             }
         }
         #if os(iOS)
@@ -68,7 +53,7 @@ struct ContentView: View {
         }
         #endif
         .sheet(isPresented: $showSearch) {
-            if let searchIndex {
+            if let searchIndex = viewModel?.searchIndex {
                 SearchView(searchIndex: searchIndex) { url in
                     selectedNoteURL = url
                 }
@@ -80,7 +65,7 @@ struct ContentView: View {
                 guard let parent = newNoteParent else { return }
                 let name = newNoteName
                 newNoteName = ""
-                Task { await sidebarViewModel?.createNote(named: name, in: parent) }
+                Task { await viewModel?.sidebarViewModel?.createNote(named: name, in: parent) }
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
@@ -90,16 +75,17 @@ struct ContentView: View {
                 guard let parent = newNoteParent else { return }
                 let name = newNoteName
                 newNoteName = ""
-                Task { await sidebarViewModel?.createFolder(named: name, in: parent) }
+                Task { await viewModel?.sidebarViewModel?.createFolder(named: name, in: parent) }
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
         .overlay(alignment: .top) {
             if let error = appState.errorMessage {
                 errorBanner(message: error)
+                    .id(error) // restart timer for each new error
                     .task {
                         try? await Task.sleep(for: .seconds(5))
-                        withAnimation { appState.errorMessage = nil }
+                        withAnimation { appState.dismissCurrentError() }
                     }
             }
         }
@@ -110,8 +96,8 @@ struct ContentView: View {
 
     @ViewBuilder
     private var sidebarColumn: some View {
-        if let viewModel = sidebarViewModel {
-            SidebarView(viewModel: viewModel, selectedNoteURL: $selectedNoteURL)
+        if let sidebarVM = viewModel?.sidebarViewModel {
+            SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
                 .navigationTitle(appState.currentVault?.name ?? "Quartz")
                 #if os(macOS)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270)
@@ -125,7 +111,7 @@ struct ContentView: View {
                                 Image(systemName: "magnifyingglass")
                             }
                             .accessibilityLabel(String(localized: "Search"))
-                            .disabled(searchIndex == nil)
+                            .disabled(viewModel?.searchIndex == nil)
 
                             Menu {
                                 Button {
@@ -154,9 +140,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let viewModel = editorViewModel {
-            NoteEditorView(viewModel: viewModel)
-                .id(viewModel.note?.fileURL)
+        if let editorVM = viewModel?.editorViewModel {
+            NoteEditorView(viewModel: editorVM)
+                .id(editorVM.note?.fileURL)
                 .transition(.asymmetric(
                     insertion: .opacity
                         .combined(with: .scale(scale: 0.98, anchor: .top))
@@ -227,7 +213,7 @@ struct ContentView: View {
                     .lineLimit(2)
                 Spacer()
                 Button {
-                    withAnimation { appState.errorMessage = nil }
+                    withAnimation { appState.dismissCurrentError() }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -248,51 +234,5 @@ struct ContentView: View {
             Spacer()
         }
         .animation(QuartzAnimation.status, value: appState.errorMessage)
-    }
-
-    // MARK: - Actions
-
-    private func loadVault(_ vault: VaultConfig) {
-        let provider = ServiceContainer.shared.resolveVaultProvider()
-        let viewModel = SidebarViewModel(vaultProvider: provider)
-        sidebarViewModel = viewModel
-
-        let index = VaultSearchIndex(vaultProvider: provider)
-        searchIndex = index
-
-        Task {
-            await viewModel.loadTree(at: vault.rootURL)
-            do {
-                try await index.buildIndex(at: vault.rootURL)
-            } catch {
-                appState.errorMessage = String(localized: "Search index could not be built. Search may be incomplete.")
-            }
-        }
-    }
-
-    private func createDailyNote() {
-        guard let root = sidebarViewModel?.vaultRootURL else { return }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        let name = formatter.string(from: Date())
-        Task {
-            await sidebarViewModel?.createNote(named: name, in: root)
-        }
-    }
-
-    private func openNote(at url: URL?) {
-        editorViewModel?.cancelAllTasks()
-        guard let url else {
-            editorViewModel = nil
-            return
-        }
-        let container = ServiceContainer.shared
-        let vm = NoteEditorViewModel(
-            vaultProvider: container.resolveVaultProvider(),
-            frontmatterParser: container.resolveFrontmatterParser()
-        )
-        editorViewModel = vm
-        Task { await vm.loadNote(at: url) }
     }
 }

@@ -7,6 +7,8 @@ import Foundation
 public actor FileSystemVaultProvider: VaultProviding {
     private let fileManager = FileManager.default
     private let frontmatterParser: any FrontmatterParsing
+    /// Cached vault root URL, set when loadFileTree is called.
+    private var vaultRoot: URL?
 
     public init(frontmatterParser: any FrontmatterParsing) {
         self.frontmatterParser = frontmatterParser
@@ -15,7 +17,8 @@ public actor FileSystemVaultProvider: VaultProviding {
     // MARK: - VaultProviding
 
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
-        try buildTree(at: root, relativeTo: root)
+        vaultRoot = root
+        return try buildTree(at: root, relativeTo: root)
     }
 
     public func readNote(at url: URL) async throws -> NoteDocument {
@@ -80,9 +83,9 @@ public actor FileSystemVaultProvider: VaultProviding {
         #if os(macOS)
         try fileManager.trashItem(at: url, resultingItemURL: nil)
         #else
-        let trashFolder = url.deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: ".trash")
+        // Use cached vault root; fall back to parent directory if not yet set
+        let root = vaultRoot ?? url.deletingLastPathComponent()
+        let trashFolder = root.appending(path: ".trash")
         try fileManager.createDirectory(at: trashFolder, withIntermediateDirectories: true)
         let dest = trashFolder.appending(path: url.lastPathComponent)
         if fileManager.fileExists(atPath: dest.path(percentEncoded: false)) {

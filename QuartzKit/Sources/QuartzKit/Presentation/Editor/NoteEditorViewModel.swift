@@ -20,6 +20,10 @@ public final class NoteEditorViewModel {
     public var isSaving: Bool = false
     public var errorMessage: String?
 
+    /// Toggled only on explicit manual save (Cmd+S / button tap).
+    /// Used to trigger haptic feedback — autosave should not vibrate.
+    public var manualSaveCompleted: Bool = false
+
     /// Cached word count, updated on content change.
     public private(set) var wordCount: Int = 0
 
@@ -68,9 +72,20 @@ public final class NoteEditorViewModel {
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
+            // Retry autosave after failure to prevent data loss
+            scheduleAutosave()
         }
 
         isSaving = false
+    }
+
+    /// Explicit save triggered by user action (Cmd+S, toolbar button).
+    /// Triggers haptic feedback on completion unlike autosave.
+    public func manualSave() async {
+        await save()
+        if errorMessage == nil {
+            manualSaveCompleted.toggle()
+        }
     }
 
     /// Aktualisiert das Frontmatter und markiert die Notiz als dirty.
@@ -88,11 +103,13 @@ public final class NoteEditorViewModel {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
             let text = self.content
-            // Berechnung off-main-thread um 120Hz-Scrolling nicht zu beeinträchtigen
+            // O(1) memory word count via enumerateSubstrings (Unicode-correct)
             let count = await Task.detached(priority: .utility) {
-                text.components(separatedBy: .whitespacesAndNewlines)
-                    .filter { !$0.isEmpty }
-                    .count
+                var wordCount = 0
+                text.enumerateSubstrings(in: text.startIndex..., options: [.byWords, .localized]) { _, _, _, _ in
+                    wordCount += 1
+                }
+                return wordCount
             }.value
             guard !Task.isCancelled else { return }
             self.wordCount = count
@@ -117,8 +134,8 @@ public final class NoteEditorViewModel {
         wordCountTask = nil
     }
 
-    deinit {
-        autosaveTask?.cancel()
-        wordCountTask?.cancel()
-    }
+    // NOTE: No deinit – Task cancellation is handled by cancelAllTasks()
+    // called from the view layer (ContentView.openNote). deinit on a
+    // @MainActor class is nonisolated in Swift 6, so accessing actor-
+    // isolated stored properties here would be a data race.
 }
