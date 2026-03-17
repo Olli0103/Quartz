@@ -15,6 +15,7 @@ public struct OnboardingView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var heroIconSize: CGFloat = 72
     @ScaledMetric(relativeTo: .largeTitle) private var brandingFontSize: CGFloat = 40
     @ScaledMetric(relativeTo: .title) private var folderIconSize: CGFloat = 56
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let onComplete: (VaultConfig) -> Void
 
@@ -44,7 +45,7 @@ public struct OnboardingView: View {
                 removal: .move(edge: .leading).combined(with: .opacity)
             ))
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: currentStep)
+        .animation(reduceMotion ? .default : .spring(response: 0.5, dampingFraction: 0.85), value: currentStep)
     }
 
     // MARK: - Background
@@ -65,7 +66,7 @@ public struct OnboardingView: View {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: heroIconSize, weight: .thin))
                     .foregroundStyle(QuartzColors.accentGradient)
-                    .symbolEffect(.breathe, options: .repeating)
+                    .symbolEffect(.breathe, options: .repeating, isActive: !reduceMotion)
                     .slideUp()
 
                 VStack(spacing: 10) {
@@ -285,7 +286,7 @@ public struct OnboardingView: View {
         let isSelected = selectedTemplate == template
 
         return Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            withAnimation(reduceMotion ? .default : .spring(response: 0.35, dampingFraction: 0.7)) {
                 selectedTemplate = template
             }
         } label: {

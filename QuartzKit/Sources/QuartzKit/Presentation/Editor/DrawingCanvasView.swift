@@ -201,4 +201,52 @@ struct DrawingThumbnailView: View {
         .background(.background)
     }
 }
+#else
+
+import SwiftUI
+
+/// Fallback-View für Plattformen ohne PencilKit (macOS).
+///
+/// Zeigt einen informativen Platzhalter, der erklärt, dass Zeichnen
+/// nur auf iPad mit Apple Pencil verfügbar ist.
+public struct DrawingBlockView: View {
+    let drawingID: String
+    let height: CGFloat
+
+    public init(
+        drawingID: String,
+        height: CGFloat = 300
+    ) {
+        self.drawingID = drawingID
+        self.height = height
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "pencil.tip.crop.circle")
+                .font(.largeTitle)
+                .foregroundStyle(.tertiary)
+
+            Text(String(localized: "Drawing", bundle: .module))
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Text(String(localized: "Drawing is available on iPad with Apple Pencil.", bundle: .module))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.fill.quaternary)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.quaternary, lineWidth: 1)
+        )
+    }
+}
+
 #endif

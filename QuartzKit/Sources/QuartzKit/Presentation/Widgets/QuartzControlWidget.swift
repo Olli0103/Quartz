@@ -35,7 +35,9 @@ public struct QuickNoteControlIntent: ControlConfigurationIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
-        // App öffnet sich automatisch, Deep-Link zu Quick Note Mode
+        // Store deep-link target so the app opens Quick Note mode on launch.
+        UserDefaults(suiteName: "group.app.quartz.shared")?
+            .set("quartz://new", forKey: "pendingDeepLink")
         return .result()
     }
 }
@@ -69,6 +71,8 @@ public struct DailyNoteControlIntent: ControlConfigurationIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
+        UserDefaults(suiteName: "group.app.quartz.shared")?
+            .set("quartz://daily", forKey: "pendingDeepLink")
         return .result()
     }
 }

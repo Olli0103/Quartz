@@ -112,10 +112,14 @@ public actor MeetingMinutesService {
 
         let fileName = "\(dateStr) \(sanitizedTitle).md"
         let meetingsDir = vaultURL.appending(path: "Meetings")
-        try FileManager.default.createDirectory(at: meetingsDir, withIntermediateDirectories: true)
+        let writer = CoordinatedFileWriter.shared
+        try writer.createDirectory(at: meetingsDir)
 
         let fileURL = meetingsDir.appending(path: fileName)
-        try markdown.write(to: fileURL, atomically: true, encoding: .utf8)
+        guard let data = markdown.data(using: .utf8) else {
+            throw MeetingMinutesError.summarizationFailed("Failed to encode markdown")
+        }
+        try writer.write(data, to: fileURL)
 
         return fileURL
     }

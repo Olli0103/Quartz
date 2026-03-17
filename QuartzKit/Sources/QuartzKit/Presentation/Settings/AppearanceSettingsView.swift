@@ -4,6 +4,7 @@ import SwiftUI
 /// Cleanes Apple-Design mit visuellen Theme-Karten.
 public struct AppearanceSettingsView: View {
     @Environment(\.appearanceManager) private var appearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var baseBodySize: CGFloat = 17
 
     public init() {}
@@ -18,7 +19,7 @@ public struct AppearanceSettingsView: View {
                             theme: theme,
                             isSelected: appearance.theme == theme
                         ) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            withAnimation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.8)) {
                                 appearance.theme = theme
                             }
                         }
@@ -69,7 +70,7 @@ public struct AppearanceSettingsView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(.fill.quaternary)
                         )
-                        .animation(.spring(response: 0.3), value: appearance.editorFontScale)
+                        .animation(reduceMotion ? .default : .spring(response: 0.3), value: appearance.editorFontScale)
                 }
             } header: {
                 QuartzSectionHeader(String(localized: "Editor", bundle: .module), icon: "textformat.size")
@@ -85,6 +86,7 @@ private struct ThemeCard: View {
     let theme: AppearanceManager.Theme
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -116,7 +118,7 @@ private struct ThemeCard: View {
             }
             .frame(maxWidth: .infinity)
             .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+            .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
         }
         .buttonStyle(QuartzCardButtonStyle())
         .accessibilityLabel(String(localized: "\(theme.displayName) theme", bundle: .module))

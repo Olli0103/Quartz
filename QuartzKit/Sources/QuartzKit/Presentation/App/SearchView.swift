@@ -38,11 +38,18 @@ public struct SearchView: View {
                     }
                 }
                 .listStyle(.plain)
+                .overlay {
+                    if isSearching && results.isEmpty {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
             }
             .searchable(text: $query, isPresented: .constant(true), prompt: Text(String(localized: "Search all notes…", bundle: .module)))
             .onChange(of: query) { _, newQuery in
                 performSearch(newQuery)
             }
+            .onDisappear { searchTask?.cancel() }
             .navigationTitle(String(localized: "Search", bundle: .module))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

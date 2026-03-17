@@ -13,6 +13,7 @@ public struct AppLockView<Content: View>: View {
     @State private var isAuthenticating: Bool = false
     @State private var errorMessage: String?
     @State private var biometryIcon: String = "lock.fill"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let authService: BiometricAuthService
     let content: Content
@@ -38,7 +39,7 @@ public struct AppLockView<Content: View>: View {
                     .accessibilityAddTraits(.isModal)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isUnlocked)
+        .animation(reduceMotion ? .default : .spring(response: 0.35, dampingFraction: 0.85), value: isUnlocked)
         .task {
             resolveBiometryIcon()
             await authenticate()

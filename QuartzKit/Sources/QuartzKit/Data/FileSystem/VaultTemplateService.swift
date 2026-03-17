@@ -3,6 +3,7 @@ import Foundation
 /// Erstellt Vault-Strukturen aus vordefinierten Templates.
 public actor VaultTemplateService {
     private let fileManager = FileManager.default
+    private let writer = CoordinatedFileWriter.shared
 
     public init() {}
 
@@ -21,7 +22,7 @@ public actor VaultTemplateService {
     /// Erstellt eine Daily Note für heute.
     public func createDailyNote(in vaultRoot: URL) throws -> URL {
         let dailyFolder = vaultRoot.appending(path: "Daily Notes")
-        try fileManager.createDirectory(at: dailyFolder, withIntermediateDirectories: true)
+        try writer.createDirectory(at: dailyFolder)
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -61,7 +62,7 @@ public actor VaultTemplateService {
         guard let data = content.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(fileURL)
         }
-        try data.write(to: fileURL, options: .atomic)
+        try writer.write(data, to: fileURL)
         return fileURL
     }
 
@@ -78,7 +79,7 @@ public actor VaultTemplateService {
         guard let data = content.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(fileURL)
         }
-        try data.write(to: fileURL, options: .atomic)
+        try writer.write(data, to: fileURL)
         return fileURL
     }
 
@@ -94,10 +95,7 @@ public actor VaultTemplateService {
             "Templates",
         ]
         for folder in folders {
-            try fileManager.createDirectory(
-                at: root.appending(path: folder),
-                withIntermediateDirectories: true
-            )
+            try writer.createDirectory(at: root.appending(path: folder))
         }
 
         // README erstellen
@@ -122,10 +120,7 @@ public actor VaultTemplateService {
         """
 
         if let readmeData = readme.data(using: .utf8) {
-            try readmeData.write(
-                to: root.appending(path: "Welcome.md"),
-                options: .atomic
-            )
+            try writer.write(readmeData, to: root.appending(path: "Welcome.md"))
         }
     }
 
@@ -138,10 +133,7 @@ public actor VaultTemplateService {
             "Daily Notes",
         ]
         for folder in folders {
-            try fileManager.createDirectory(
-                at: root.appending(path: folder),
-                withIntermediateDirectories: true
-            )
+            try writer.createDirectory(at: root.appending(path: folder))
         }
 
         let readme = """
@@ -163,10 +155,7 @@ public actor VaultTemplateService {
         """
 
         if let readmeData = readme.data(using: .utf8) {
-            try readmeData.write(
-                to: root.appending(path: "Welcome.md"),
-                options: .atomic
-            )
+            try writer.write(readmeData, to: root.appending(path: "Welcome.md"))
         }
     }
 }

@@ -39,10 +39,55 @@ public struct LatestNoteProvider: TimelineProvider {
     }
 
     public func getTimeline(in context: Context, completion: @escaping (Timeline<LatestNoteEntry>) -> Void) {
-        // In der echten Implementierung: Vault lesen und neueste Notiz finden
-        let entry = LatestNoteEntry.placeholder
-        let timeline = Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(15 * 60)))
+        let entry: LatestNoteEntry
+
+        if let vaultRoot = UserDefaults(suiteName: "group.app.quartz.shared")?.url(forKey: "activeVaultURL"),
+           let latestNote = Self.findLatestNote(in: vaultRoot) {
+            entry = latestNote
+        } else {
+            entry = .placeholder
+        }
+
+        let timeline = Timeline(entries: [entry], policy: .atEnd)
         completion(timeline)
+    }
+
+    /// Findet die zuletzt geänderte .md Datei im Vault.
+    private static func findLatestNote(in vaultRoot: URL) -> LatestNoteEntry? {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: vaultRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return nil }
+
+        var latestURL: URL?
+        var latestDate: Date = .distantPast
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "md" else { continue }
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modified = values.contentModificationDate,
+                  modified > latestDate else { continue }
+            latestDate = modified
+            latestURL = fileURL
+        }
+
+        guard let url = latestURL else { return nil }
+
+        let title = url.deletingPathExtension().lastPathComponent
+        let preview = (try? String(contentsOf: url, encoding: .utf8))?
+            .components(separatedBy: "---").last?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(100)
+            .description ?? ""
+
+        return LatestNoteEntry(
+            date: latestDate,
+            noteTitle: title,
+            notePreview: preview,
+            noteURL: url
+        )
     }
 }
 
@@ -56,6 +101,12 @@ public struct LatestNoteWidgetView: View {
     }
 
     public var body: some View {
+        widgetContent
+            .widgetURL(deepLinkURL)
+    }
+
+    @ViewBuilder
+    private var widgetContent: some View {
         switch family {
         case .accessoryInline:
             Text(entry.noteTitle)
@@ -119,6 +170,16 @@ public struct LatestNoteWidgetView: View {
             Text(entry.noteTitle)
         }
     }
+
+    /// Deep-link URL for tapping the widget.
+    private var deepLinkURL: URL? {
+        guard let noteURL = entry.noteURL else { return nil }
+        var components = URLComponents()
+        components.scheme = "quartz"
+        components.host = "note"
+        components.path = "/\(noteURL.lastPathComponent)"
+        return components.url
+    }
 }
 
 // MARK: - Quick Capture Widget
@@ -158,6 +219,12 @@ public struct QuickCaptureWidgetView: View {
     public init() {}
 
     public var body: some View {
+        quickCaptureContent
+            .widgetURL(URL(string: "quartz://new"))
+    }
+
+    @ViewBuilder
+    private var quickCaptureContent: some View {
         switch family {
         case .accessoryCircular:
             ZStack {

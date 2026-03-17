@@ -11,6 +11,7 @@ import AppKit
 /// relative Markdown-Links werden automatisch generiert.
 public actor AssetManager {
     private let fileManager = FileManager.default
+    private let writer = CoordinatedFileWriter.shared
 
     /// Name des Asset-Ordners innerhalb des Vaults.
     private let assetFolderName = "assets"
@@ -35,7 +36,7 @@ public actor AssetManager {
             in: assetsFolder
         )
 
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        try writer.copyItem(from: sourceURL, to: destinationURL)
 
         let relativePath = self.relativePath(
             from: noteURL.deletingLastPathComponent(),
@@ -61,7 +62,7 @@ public actor AssetManager {
         guard let data = image.pngData() else {
             throw AssetError.conversionFailed
         }
-        try data.write(to: destinationURL, options: .atomic)
+        try writer.write(data, to: destinationURL)
 
         let relativePath = self.relativePath(
             from: noteURL.deletingLastPathComponent(),
@@ -89,7 +90,7 @@ public actor AssetManager {
               let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
             throw AssetError.conversionFailed
         }
-        try pngData.write(to: destinationURL, options: .atomic)
+        try writer.write(pngData, to: destinationURL)
 
         let relativePath = self.relativePath(
             from: noteURL.deletingLastPathComponent(),
@@ -102,7 +103,7 @@ public actor AssetManager {
 
     /// Löscht ein Asset und entfernt den zugehörigen Link aus dem Markdown.
     public func deleteAsset(at url: URL) throws {
-        try fileManager.removeItem(at: url)
+        try writer.removeItem(at: url)
     }
 
     /// Gibt alle Assets im Vault zurück.
@@ -124,7 +125,7 @@ public actor AssetManager {
     private func ensureAssetsFolder(in vaultRoot: URL) throws -> URL {
         let assetsFolder = vaultRoot.appending(path: assetFolderName)
         if !fileManager.fileExists(atPath: assetsFolder.path(percentEncoded: false)) {
-            try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
+            try writer.createDirectory(at: assetsFolder)
         }
         return assetsFolder
     }
