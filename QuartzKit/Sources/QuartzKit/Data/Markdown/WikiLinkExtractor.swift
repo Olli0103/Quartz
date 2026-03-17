@@ -12,11 +12,18 @@ public struct WikiLinkExtractor: Sendable {
     public init() {}
 
     /// Extrahiert alle Wiki-Links aus einem Markdown-String.
+    /// Skips links inside fenced code blocks and inline code.
     public func extractLinks(from markdown: String) -> [WikiLink] {
+        let codeRanges = codeBlockRanges(in: markdown)
         var links: [WikiLink] = []
 
         for match in markdown.matches(of: Self.pattern) {
+            // Skip links that fall inside code blocks
+            let isInCode = codeRanges.contains { $0.contains(match.range.lowerBound) }
+            guard !isInCode else { continue }
+
             let content = String(match.output.1)
+            guard !content.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
             links.append(WikiLink(raw: content))
         }
 
@@ -25,14 +32,39 @@ public struct WikiLinkExtractor: Sendable {
 
     /// Gibt die Ranges aller Wiki-Links im Text zurück.
     public func linkRanges(in text: String) -> [(range: Range<String.Index>, link: WikiLink)] {
+        let codeRanges = codeBlockRanges(in: text)
         var results: [(Range<String.Index>, WikiLink)] = []
 
         for match in text.matches(of: Self.pattern) {
+            let isInCode = codeRanges.contains { $0.contains(match.range.lowerBound) }
+            guard !isInCode else { continue }
+
             let content = String(match.output.1)
+            guard !content.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
             results.append((match.range, WikiLink(raw: content)))
         }
 
         return results
+    }
+
+    // MARK: - Private
+
+    private func codeBlockRanges(in text: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+
+        // Fenced code blocks
+        let fencedPattern = /```[\s\S]*?```/
+        for match in text.matches(of: fencedPattern) {
+            ranges.append(match.range)
+        }
+
+        // Inline code
+        let inlinePattern = /`[^`]+`/
+        for match in text.matches(of: inlinePattern) {
+            ranges.append(match.range)
+        }
+
+        return ranges
     }
 }
 

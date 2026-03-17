@@ -33,6 +33,9 @@ public actor FileWatcher {
         self.source = dispatchSource
 
         let watchedURL = self.url
+        // Use a flag to ensure the file descriptor is closed exactly once,
+        // even if both setCancelHandler and onTermination fire.
+        let closedFlag = ClosedFlag()
         return AsyncStream { continuation in
             dispatchSource.setEventHandler {
                 let event = dispatchSource.data
@@ -54,7 +57,7 @@ public actor FileWatcher {
             }
 
             dispatchSource.setCancelHandler {
-                close(fd)
+                closedFlag.closeOnce(fd)
             }
 
             continuation.onTermination = { @Sendable _ in
@@ -69,5 +72,27 @@ public actor FileWatcher {
     public func stopWatching() {
         source?.cancel()
         source = nil
+    }
+}
+
+/// Thread-safe guard to ensure a file descriptor is closed exactly once.
+private final class ClosedFlag: Sendable {
+    private let lock = NSLock()
+    private let _closed = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+
+    init() {
+        _closed.initialize(to: false)
+    }
+
+    deinit {
+        _closed.deallocate()
+    }
+
+    func closeOnce(_ fd: Int32) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !_closed.pointee else { return }
+        _closed.pointee = true
+        close(fd)
     }
 }

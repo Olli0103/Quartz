@@ -23,7 +23,8 @@ public struct BacklinkUseCase: Sendable {
         to noteURL: URL,
         in vaultRoot: URL
     ) async throws -> [Backlink] {
-        let noteName = noteURL.deletingPathExtension().lastPathComponent
+        // Use lowercased name for consistent case-insensitive matching
+        let noteName = noteURL.deletingPathExtension().lastPathComponent.lowercased()
         let tree = try await vaultProvider.loadFileTree(at: vaultRoot)
 
         let backlinks = try await scanForBacklinks(
@@ -46,7 +47,7 @@ public struct BacklinkUseCase: Sendable {
                     let note = try await self.vaultProvider.readNote(at: node.url)
                     let links = self.linkExtractor.extractLinks(from: note.body)
                     return links
-                        .filter { $0.target.caseInsensitiveCompare(targetName) == .orderedSame }
+                        .filter { $0.target.lowercased() == targetName }
                         .map { link in
                             Backlink(
                                 sourceNoteURL: node.url,

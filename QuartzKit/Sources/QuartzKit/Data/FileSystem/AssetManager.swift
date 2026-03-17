@@ -30,6 +30,12 @@ public actor AssetManager {
         vaultRoot: URL,
         noteURL: URL
     ) async throws -> String {
+        // Prevent symlink-based path traversal
+        let resourceValues = try sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if resourceValues.isSymbolicLink == true {
+            throw AssetError.symlinkNotAllowed
+        }
+
         let assetsFolder = try ensureAssetsFolder(in: vaultRoot)
         let destinationURL = uniqueDestination(
             for: sourceURL.lastPathComponent,
@@ -159,15 +165,13 @@ public actor AssetManager {
         return "\(assetFolderName)/\(target.lastPathComponent)"
     }
 
-    private static let timestampFormatter: DateFormatter = {
+    /// Thread-safe timestamp generator. Creates a new formatter per call to avoid
+    /// data races (DateFormatter is not thread-safe).
+    private static func timestamp() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter
-    }()
-
-    private static func timestamp() -> String {
-        return timestampFormatter.string(from: Date())
+        return formatter.string(from: Date())
     }
 }
 
@@ -176,6 +180,7 @@ public actor AssetManager {
 public enum AssetError: LocalizedError, Sendable {
     case conversionFailed
     case fileNotFound(URL)
+    case symlinkNotAllowed
 
     public var errorDescription: String? {
         switch self {
@@ -183,6 +188,8 @@ public enum AssetError: LocalizedError, Sendable {
             String(localized: "Failed to convert image data", bundle: .module)
         case .fileNotFound(let url):
             String(localized: "Asset not found: \(url.lastPathComponent)", bundle: .module)
+        case .symlinkNotAllowed:
+            String(localized: "Symbolic links are not supported for asset import", bundle: .module)
         }
     }
 }

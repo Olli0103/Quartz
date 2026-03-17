@@ -49,12 +49,16 @@ public struct ShareCaptureUseCase: Sendable {
     }
 
     /// Writes image data to the assets folder and returns an updated SharedItem with the correct path.
-    nonisolated(unsafe) private static let assetDateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        return f
-    }()
+    /// Thread-safe timestamp generator for asset filenames.
+    private static func assetTimestamp() -> String {
+        // ISO8601DateFormatter is thread-safe, unlike DateFormatter
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withYear, .withMonth, .withDay, .withDashSeparatorInDate,
+                           .withTime, .withColonSeparatorInTime]
+        return f.string(from: Date())
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: "-", with: "")
+    }
 
     private func writeImageAssetIfNeeded(_ item: SharedItem, vaultRoot: URL) throws -> SharedItem {
         guard case .image(let imageData, let caption) = item else { return item }
@@ -62,30 +66,32 @@ public struct ShareCaptureUseCase: Sendable {
         let assetsFolder = vaultRoot.appending(path: "assets")
         try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
 
-        let fileName = "capture-\(Self.assetDateFormatter.string(from: Date())).png"
+        let fileName = "capture-\(Self.assetTimestamp()).png"
         let imageURL = assetsFolder.appending(path: fileName)
 
-        try imageData.write(to: imageURL, options: .atomic)
+        try coordinatedWrite(imageData, to: imageURL)
 
         return .image(imageData, caption: caption, assetPath: "assets/\(fileName)")
     }
 
     // MARK: - Private
 
-    nonisolated(unsafe) private static let iso8601Formatter = ISO8601DateFormatter()
-    nonisolated(unsafe) private static let timeFormatter: DateFormatter = {
+    // ISO8601DateFormatter is thread-safe (unlike DateFormatter)
+    private static let iso8601Formatter = ISO8601DateFormatter()
+    // DateFormatter is NOT thread-safe; create per-use for Sendable struct
+    private static func formattedTime() -> String {
         let f = DateFormatter()
         f.locale = .autoupdatingCurrent
         f.dateStyle = .none
         f.timeStyle = .short
-        return f
-    }()
+        return f.string(from: Date())
+    }
 
     private func appendToInbox(_ item: SharedItem, vaultRoot: URL) throws -> URL {
         let inboxURL = vaultRoot.appending(path: "Inbox.md")
         let now = Self.iso8601Formatter.string(from: Date())
 
-        let entry = "\n\n---\n_Captured \(Self.timeFormatter.string(from: Date()))_\n\n\(item.markdownContent)"
+        let entry = "\n\n---\n_Captured \(Self.formattedTime())_\n\n\(item.markdownContent)"
 
         if fileManager.fileExists(atPath: inboxURL.path(percentEncoded: false)) {
             var existing = try String(contentsOf: inboxURL, encoding: .utf8)
@@ -122,9 +128,7 @@ public struct ShareCaptureUseCase: Sendable {
         let now = Self.iso8601Formatter.string(from: Date())
 
         // Quote title if it contains YAML special characters
-        let yamlTitle = safeTitle.contains(":") || safeTitle.contains("#") || safeTitle.contains("[")
-            ? "\"\(safeTitle.replacingOccurrences(of: "\"", with: "\\\""))\""
-            : safeTitle
+        let yamlTitle = Self.yamlSafeString(safeTitle)
 
         let content = """
         ---
@@ -142,6 +146,19 @@ public struct ShareCaptureUseCase: Sendable {
         }
         try coordinatedWrite(data, to: fileURL)
         return fileURL
+    }
+
+    /// Escapes a string for safe YAML value insertion, quoting if it contains special characters.
+    private static func yamlSafeString(_ value: String) -> String {
+        let specialChars = CharacterSet(charactersIn: ":{}[]#&*!|>'\"%@`,")
+        guard value.rangeOfCharacter(from: specialChars) != nil ||
+              value.hasPrefix(" ") || value.hasSuffix(" ") else {
+            return value
+        }
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 }
 

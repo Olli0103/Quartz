@@ -23,9 +23,10 @@ public struct FolderManagementUseCase: Sendable {
         let fileName = sourceURL.lastPathComponent
         let destination = destinationFolder.appending(path: fileName)
 
-        // Validate destination is inside the same parent hierarchy (prevent path traversal)
-        guard destination.standardizedFileURL.path()
-                .hasPrefix(destinationFolder.standardizedFileURL.path()) else {
+        // Validate destination is inside the same parent hierarchy (prevent path traversal).
+        // Resolve symlinks to prevent bypass via symbolic link chains.
+        guard destination.resolvingSymlinksInPath().standardizedFileURL.path()
+                .hasPrefix(destinationFolder.resolvingSymlinksInPath().standardizedFileURL.path()) else {
             throw FileSystemError.invalidName(fileName)
         }
 

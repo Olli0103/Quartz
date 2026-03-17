@@ -13,6 +13,8 @@ public struct SidebarView: View {
     @State private var showDeleteConfirmation = false
     @State private var pendingDeleteURL: URL?
     @State private var pendingDeleteIsNote = false
+    @State private var searchQuery: String = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>) {
         self.viewModel = viewModel
@@ -33,7 +35,15 @@ public struct SidebarView: View {
             notesSection
         }
         .listStyle(.sidebar)
-        .searchable(text: $viewModel.searchText, prompt: Text(String(localized: "Search notes…", bundle: .module)))
+        .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes…", bundle: .module)))
+        .onChange(of: searchQuery) { _, newValue in
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                viewModel.searchText = newValue
+            }
+        }
         .overlay {
             if viewModel.isLoading {
                 VStack(spacing: 0) {

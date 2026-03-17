@@ -32,7 +32,7 @@ public actor CloudSyncService {
 
         let query = NSMetadataQuery()
         query.searchScopes = [vaultRoot]
-        query.predicate = NSPredicate(format: "%K LIKE '*.md'", NSMetadataItemPathKey)
+        query.predicate = NSPredicate(format: "%K ENDSWITH '.md'", NSMetadataItemFSNameKey)
         self.metadataQuery = query
 
         return AsyncStream { continuation in
@@ -147,12 +147,27 @@ public actor CloudSyncService {
 
     /// Resolves a conflict by keeping the current local version.
     /// Removes all conflict versions and marks them as resolved.
+    /// Uses file coordination to prevent races with iCloud sync.
     public nonisolated func resolveConflictKeepingCurrent(at url: URL) throws {
-        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
-        for version in conflicts {
-            version.isResolved = true
+        var coordinatorError: NSError?
+        var resolveError: Error?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
+            let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
+            for version in conflicts {
+                version.isResolved = true
+            }
+            do {
+                try NSFileVersion.removeOtherVersionsOfItem(at: actualURL)
+            } catch {
+                resolveError = error
+            }
         }
-        try NSFileVersion.removeOtherVersionsOfItem(at: url)
+
+        if let error = coordinatorError ?? resolveError {
+            throw error
+        }
     }
 
     // MARK: - Ubiquity Container

@@ -5,7 +5,8 @@ import Foundation
 /// Erkennt den `---` Delimiter, extrahiert das YAML und parsed es
 /// zu einem `Frontmatter`-Objekt. Round-trip-fähig: der Body bleibt unverändert.
 public struct FrontmatterParser: FrontmatterParsing, Sendable {
-    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
+    // ISO8601DateFormatter is thread-safe (unlike DateFormatter)
+    private static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
@@ -56,6 +57,10 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
         }
         if let ocrText = frontmatter.ocrText, !ocrText.isEmpty {
             lines.append("ocr_text: \(quoteIfNeeded(ocrText))")
+        }
+        if !frontmatter.linkedNotes.isEmpty {
+            let noteList = frontmatter.linkedNotes.map { quoteIfNeeded($0) }.joined(separator: ", ")
+            lines.append("linked_notes: [\(noteList)]")
         }
         if frontmatter.isEncrypted {
             lines.append("encrypted: true")
@@ -109,6 +114,8 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
                 frontmatter.template = unquote(rawValue)
             case "ocr_text":
                 frontmatter.ocrText = unquote(rawValue)
+            case "linked_notes":
+                frontmatter.linkedNotes = parseInlineArray(rawValue)
             case "encrypted":
                 frontmatter.isEncrypted = rawValue == "true"
             default:
@@ -132,14 +139,19 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
             .filter { !$0.isEmpty }
     }
 
-    /// Entfernt umschließende Anführungszeichen.
+    /// Entfernt umschließende Anführungszeichen und verarbeitet Escape-Sequenzen.
     private func unquote(_ value: String) -> String {
         var v = value
         if (v.hasPrefix("\"") && v.hasSuffix("\"")) || (v.hasPrefix("'") && v.hasSuffix("'")) {
             v.removeFirst()
             v.removeLast()
+            // Process YAML escape sequences (order matters: \\\\ first to avoid double-replacement)
+            v = v.replacingOccurrences(of: "\\\\", with: "\u{0000}") // temp placeholder
             v = v.replacingOccurrences(of: "\\\"", with: "\"")
             v = v.replacingOccurrences(of: "\\'", with: "'")
+            v = v.replacingOccurrences(of: "\\n", with: "\n")
+            v = v.replacingOccurrences(of: "\\t", with: "\t")
+            v = v.replacingOccurrences(of: "\u{0000}", with: "\\") // restore backslash
         }
         return v
     }

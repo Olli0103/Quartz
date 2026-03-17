@@ -119,20 +119,44 @@ public actor DrawingStorageService {
     }
 
     private func saveThumbnail(drawing: PKDrawing, to url: URL, maxSize: CGFloat = 800) throws {
-        guard !drawing.bounds.isEmpty else { return }
+        guard !drawing.bounds.isEmpty,
+              drawing.bounds.width > 0,
+              drawing.bounds.height > 0 else {
+            throw DrawingStorageError.emptyDrawing
+        }
 
         let bounds = drawing.bounds
         let scale = min(maxSize / bounds.width, maxSize / bounds.height, 2.0)
         let image = drawing.image(from: bounds, scale: scale)
 
         #if canImport(UIKit)
-        guard let pngData = image.pngData() else { return }
+        guard let pngData = image.pngData() else {
+            throw DrawingStorageError.thumbnailConversionFailed
+        }
         #elseif canImport(AppKit)
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw DrawingStorageError.thumbnailConversionFailed
+        }
         #endif
         try writer.write(pngData, to: url)
+    }
+}
+
+// MARK: - Errors
+
+public enum DrawingStorageError: LocalizedError, Sendable {
+    case emptyDrawing
+    case thumbnailConversionFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyDrawing:
+            String(localized: "Drawing is empty, cannot generate thumbnail", bundle: .module)
+        case .thumbnailConversionFailed:
+            String(localized: "Failed to convert drawing to PNG thumbnail", bundle: .module)
+        }
     }
 }
 #endif

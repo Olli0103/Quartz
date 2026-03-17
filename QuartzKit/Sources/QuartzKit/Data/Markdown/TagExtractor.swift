@@ -5,8 +5,9 @@ import Foundation
 /// Erkennt Tags im Format `#tagname`, ignoriert Headings (`# `)
 /// und Code-Blöcke. Tags dürfen Buchstaben, Zahlen, `-`, `_` und `/` enthalten.
 public struct TagExtractor: Sendable {
-    /// Pattern: `#` gefolgt von mindestens einem Wort-Zeichen, nicht am Zeilenanfang mit Leerzeichen danach (Heading)
-    private static let tagPattern = /(?:^|\s)#([a-zA-Z\u{00C0}-\u{024F}0-9][a-zA-Z\u{00C0}-\u{024F}0-9_\/\-]*)/
+    /// Pattern: `#` gefolgt von mindestens einem Unicode-Buchstaben oder Ziffer.
+    /// Uses Unicode properties (\p{L}, \p{N}) to support CJK, Arabic, Cyrillic, etc.
+    private static let tagPattern = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_\/\-]*)/
 
     public init() {}
 

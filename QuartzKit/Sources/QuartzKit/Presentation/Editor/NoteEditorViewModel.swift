@@ -62,13 +62,19 @@ public final class NoteEditorViewModel {
         guard var currentNote = note, isDirty, !isSaving else { return }
 
         isSaving = true
-        currentNote.body = content
+        // Snapshot content before async gap to prevent race condition:
+        // user may type while save is in flight.
+        let contentSnapshot = content
+        currentNote.body = contentSnapshot
         currentNote.frontmatter.modifiedAt = .now
 
         do {
             try await vaultProvider.saveNote(currentNote)
             note = currentNote
-            isDirty = false
+            // Only clear dirty flag if content hasn't changed since snapshot
+            if content == contentSnapshot {
+                isDirty = false
+            }
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
