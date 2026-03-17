@@ -46,7 +46,7 @@ public struct VaultConfig: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-/// Vordefinierte Vault-Vorlagen.
+/// Predefined vault templates.
 public enum VaultTemplate: String, Codable, Sendable {
     case para
     case zettelkasten

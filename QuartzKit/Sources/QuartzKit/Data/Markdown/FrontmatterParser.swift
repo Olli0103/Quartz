@@ -1,9 +1,9 @@
 import Foundation
 
-/// Leichtgewichtiger YAML-Frontmatter-Parser.
+/// Lightweight YAML frontmatter parser.
 ///
-/// Erkennt den `---` Delimiter, extrahiert das YAML und parsed es
-/// zu einem `Frontmatter`-Objekt. Round-trip-fähig: der Body bleibt unverändert.
+/// Detects the `---` delimiter, extracts the YAML, and parses it
+/// into a `Frontmatter` object. Round-trip capable: the body remains unchanged.
 public struct FrontmatterParser: FrontmatterParsing, Sendable {
     // ISO8601DateFormatter is thread-safe (unlike DateFormatter)
     private static let isoFormatter: ISO8601DateFormatter = {
@@ -126,7 +126,7 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
         return frontmatter
     }
 
-    /// Parsed eine YAML inline-Array-Syntax: `[tag1, tag2, "tag 3"]`
+    /// Parses a YAML inline array syntax: `[tag1, tag2, "tag 3"]`
     private func parseInlineArray(_ value: String) -> [String] {
         var content = value
         if content.hasPrefix("[") { content.removeFirst() }
@@ -139,7 +139,7 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
             .filter { !$0.isEmpty }
     }
 
-    /// Entfernt umschließende Anführungszeichen und verarbeitet Escape-Sequenzen.
+    /// Removes surrounding quotes and processes escape sequences.
     private func unquote(_ value: String) -> String {
         var v = value
         if (v.hasPrefix("\"") && v.hasSuffix("\"")) || (v.hasPrefix("'") && v.hasSuffix("'")) {
@@ -156,7 +156,7 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
         return v
     }
 
-    /// Setzt Anführungszeichen wenn der Wert Sonderzeichen enthält.
+    /// Adds quotes if the value contains special characters.
     private func quoteIfNeeded(_ value: String) -> String {
         let needsQuoting = value.contains(":") || value.contains("#") ||
             value.contains("[") || value.contains("]") ||

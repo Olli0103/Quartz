@@ -1,8 +1,8 @@
 import Foundation
 
-/// Repräsentiert ein Markdown-Dokument mit optionalem YAML-Frontmatter.
+/// Represents a Markdown document with optional YAML frontmatter.
 ///
-/// Hilfsstruct für das Einlesen und Schreiben von `.md` Dateien.
+/// Helper struct for reading and writing `.md` files.
 public struct MarkdownDocument: Sendable, Equatable {
     public var frontmatter: Frontmatter
     public var body: String
@@ -12,14 +12,14 @@ public struct MarkdownDocument: Sendable, Equatable {
         self.body = body
     }
 
-    /// Erstellt ein `MarkdownDocument` aus rohem Dateiinhalt.
+    /// Creates a `MarkdownDocument` from raw file content.
     public init(rawContent: String, parser: some FrontmatterParsing = FrontmatterParser()) throws {
         let (fm, body) = try parser.parse(from: rawContent)
         self.frontmatter = fm
         self.body = body
     }
 
-    /// Serialisiert das Dokument zurück zu einem rohen Markdown-String.
+    /// Serializes the document back to a raw Markdown string.
     public func toRawContent(serializer: some FrontmatterParsing = FrontmatterParser()) throws -> String {
         let yaml = try serializer.serialize(frontmatter)
         if yaml.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -1,7 +1,7 @@
-/// QuartzKit – Open-Source-Kern der Quartz Notiz-App.
+/// QuartzKit – Open-source core of the Quartz note-taking app.
 ///
-/// Enthält Domain-Modelle, FileSystem-Services, Markdown-Parser und Basis-UI-Komponenten.
-/// Lizenz: MIT / Apache 2.0
+/// Contains domain models, file system services, Markdown parser, and base UI components.
+/// License: MIT / Apache 2.0
 public enum QuartzKit {
     public static let version = "0.1.0"
 }

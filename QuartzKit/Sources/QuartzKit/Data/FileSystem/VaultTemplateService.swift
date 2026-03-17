@@ -19,7 +19,7 @@ public actor VaultTemplateService {
         }
     }
 
-    /// Erstellt eine Daily Note für heute.
+    /// Creates a Daily Note for today.
     public func createDailyNote(in vaultRoot: URL) throws -> URL {
         let dailyFolder = vaultRoot.appending(path: "Daily Notes")
         try writer.createDirectory(at: dailyFolder)
@@ -66,7 +66,7 @@ public actor VaultTemplateService {
         return fileURL
     }
 
-    /// Erstellt eine Notiz aus einer Vorlage.
+    /// Creates a note from a template.
     public func createFromTemplate(
         _ templateType: NoteTemplate,
         named name: String,
@@ -98,7 +98,7 @@ public actor VaultTemplateService {
             try writer.createDirectory(at: root.appending(path: folder))
         }
 
-        // README erstellen
+        // Create README
         let readme = """
         ---
         title: Welcome to your Vault
@@ -162,7 +162,7 @@ public actor VaultTemplateService {
 
 // MARK: - Note Templates
 
-/// Vordefinierte Notiz-Vorlagen.
+/// Predefined note templates.
 public enum NoteTemplate: String, CaseIterable, Sendable {
     case blank
     case daily

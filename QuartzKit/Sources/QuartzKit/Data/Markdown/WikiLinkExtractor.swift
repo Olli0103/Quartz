@@ -11,7 +11,7 @@ public struct WikiLinkExtractor: Sendable {
 
     public init() {}
 
-    /// Extrahiert alle Wiki-Links aus einem Markdown-String.
+    /// Extracts all wiki links from a Markdown string.
     /// Skips links inside fenced code blocks and inline code.
     public func extractLinks(from markdown: String) -> [WikiLink] {
         let codeRanges = codeBlockRanges(in: markdown)
@@ -30,7 +30,7 @@ public struct WikiLinkExtractor: Sendable {
         return links
     }
 
-    /// Gibt die Ranges aller Wiki-Links im Text zurück.
+    /// Returns the ranges of all wiki links in the text.
     public func linkRanges(in text: String) -> [(range: Range<String.Index>, link: WikiLink)] {
         let codeRanges = codeBlockRanges(in: text)
         var results: [(Range<String.Index>, WikiLink)] = []
@@ -68,26 +68,26 @@ public struct WikiLinkExtractor: Sendable {
     }
 }
 
-/// Repräsentiert einen geparsten Wiki-Link.
+/// Represents a parsed wiki link.
 public struct WikiLink: Sendable, Hashable, Identifiable {
-    /// Der vollständige Rohinhalt innerhalb der `[[ ]]`.
+    /// The complete raw content inside the `[[ ]]`.
     public let raw: String
 
-    /// Der Ziel-Notizenname (ohne Alias und Anker).
+    /// The target note name (without alias and anchor).
     public var target: String {
         var name = raw
-        // Alias entfernen
+        // Remove alias
         if let pipeIndex = name.firstIndex(of: "|") {
             name = String(name[name.startIndex..<pipeIndex])
         }
-        // Anker entfernen
+        // Remove anchor
         if let hashIndex = name.firstIndex(of: "#") {
             name = String(name[name.startIndex..<hashIndex])
         }
         return name.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Der Anzeigetext (Alias oder Zielname).
+    /// The display text (alias or target name).
     public var displayText: String {
         if let pipeIndex = raw.firstIndex(of: "|") {
             return String(raw[raw.index(after: pipeIndex)...]).trimmingCharacters(in: .whitespaces)
@@ -95,11 +95,11 @@ public struct WikiLink: Sendable, Hashable, Identifiable {
         return target
     }
 
-    /// Optionaler Heading-Anker.
+    /// Optional heading anchor.
     public var heading: String? {
         guard let hashIndex = raw.firstIndex(of: "#") else { return nil }
         var anchor = String(raw[raw.index(after: hashIndex)...])
-        // Alias nach dem Anker entfernen
+        // Remove alias after the anchor
         if let pipeIndex = anchor.firstIndex(of: "|") {
             anchor = String(anchor[anchor.startIndex..<pipeIndex])
         }

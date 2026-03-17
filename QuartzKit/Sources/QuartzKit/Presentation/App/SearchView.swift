@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Spotlight-ähnliche Volltextsuche über den gesamten Vault.
-/// Glasmorphismus-Design mit Live-Ergebnissen.
+/// Spotlight-like full-text search across the entire vault.
+/// Glassmorphism design with live results.
 public struct SearchView: View {
     @State private var query: String = ""
     @State private var results: [SearchResult] = []

@@ -1,14 +1,14 @@
 import Foundation
 
-/// Protocol für das Feature-Flag-System.
+/// Protocol for the feature flag system.
 ///
-/// Bestimmt ob ein Feature verfügbar ist (basierend auf Tier + Kaufstatus).
-/// Wird per `@Environment(\.featureGate)` in Views injiziert.
+/// Determines whether a feature is available (based on tier + purchase status).
+/// Injected via `@Environment(\.featureGate)` in views.
 public protocol FeatureGating: Sendable {
-    /// Prüft ob ein Feature für den aktuellen Nutzer aktiviert ist.
+    /// Checks whether a feature is enabled for the current user.
     func isEnabled(_ feature: Feature) -> Bool
 
-    /// Gibt den Tier (Free/Pro) eines Features zurück.
+    /// Returns the tier (Free/Pro) of a feature.
     func tier(for feature: Feature) -> FeatureTier
 }
 

@@ -1,19 +1,19 @@
 import Foundation
 
-/// Extrahiert `#tag` Syntax aus Markdown-Text.
+/// Extracts `#tag` syntax from Markdown text.
 ///
-/// Erkennt Tags im Format `#tagname`, ignoriert Headings (`# `)
-/// und Code-Blöcke. Tags dürfen Buchstaben, Zahlen, `-`, `_` und `/` enthalten.
+/// Recognizes tags in the format `#tagname`, ignores headings (`# `)
+/// and code blocks. Tags may contain letters, digits, `-`, `_` and `/`.
 public struct TagExtractor: Sendable {
-    /// Pattern: `#` gefolgt von mindestens einem Unicode-Buchstaben oder Ziffer.
+    /// Pattern: `#` followed by at least one Unicode letter or digit.
     /// Uses Unicode properties (\p{L}, \p{N}) to support CJK, Arabic, Cyrillic, etc.
     private static let tagPattern = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_\/\-]*)/
 
     public init() {}
 
-    /// Extrahiert alle eindeutigen Tags aus einem Markdown-String.
+    /// Extracts all unique tags from a Markdown string.
     public func extractTags(from markdown: String) -> [String] {
-        // Code-Blöcke entfernen bevor Tags extrahiert werden
+        // Remove code blocks before extracting tags
         let cleaned = removeCodeBlocks(from: markdown)
 
         var tags: [String] = []
@@ -30,7 +30,7 @@ public struct TagExtractor: Sendable {
         return tags
     }
 
-    /// Gibt die Ranges aller Tags im Text zurück (für Syntax-Highlighting).
+    /// Returns the ranges of all tags in the text (for syntax highlighting).
     /// Strips code blocks first to avoid highlighting tags inside code.
     public func tagRanges(in text: String) -> [(range: Range<String.Index>, tag: String)] {
         // Build a set of code block ranges to skip
@@ -70,11 +70,11 @@ public struct TagExtractor: Sendable {
     }
 
     private func removeCodeBlocks(from text: String) -> String {
-        // Entferne fenced code blocks (```...```)
+        // Remove fenced code blocks (```...```)
         let fencedPattern = /```[\s\S]*?```/
         var cleaned = text.replacing(fencedPattern, with: "")
 
-        // Entferne inline code (`...`)
+        // Remove inline code (`...`)
         let inlinePattern = /`[^`]+`/
         cleaned = cleaned.replacing(inlinePattern, with: "")
 

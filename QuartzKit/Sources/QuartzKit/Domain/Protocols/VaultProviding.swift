@@ -1,27 +1,27 @@
 import Foundation
 
-/// Service-Protocol für Vault-Operationen auf dem Dateisystem.
+/// Service protocol for vault operations on the file system.
 ///
-/// Implementierungen sind als Actor isoliert, um thread-sichere File-I/O zu gewährleisten.
+/// Implementations are actor-isolated to ensure thread-safe file I/O.
 public protocol VaultProviding: Actor {
-    /// Lädt den kompletten Dateibaum des Vaults.
+    /// Loads the complete file tree of the vault.
     func loadFileTree(at root: URL) async throws -> [FileNode]
 
-    /// Liest eine Notiz vom Dateisystem.
+    /// Reads a note from the file system.
     func readNote(at url: URL) async throws -> NoteDocument
 
-    /// Speichert eine Notiz auf das Dateisystem.
+    /// Saves a note to the file system.
     func saveNote(_ note: NoteDocument) async throws
 
-    /// Erstellt eine neue Notiz mit Default-Frontmatter.
+    /// Creates a new note with default frontmatter.
     func createNote(named name: String, in folder: URL) async throws -> NoteDocument
 
-    /// Löscht eine Notiz (verschiebt in den Papierkorb).
+    /// Deletes a note (moves to trash).
     func deleteNote(at url: URL) async throws
 
-    /// Benennt eine Datei oder einen Ordner um.
+    /// Renames a file or folder.
     func rename(at url: URL, to newName: String) async throws -> URL
 
-    /// Erstellt einen neuen Ordner.
+    /// Creates a new folder.
     func createFolder(named name: String, in parent: URL) async throws -> URL
 }

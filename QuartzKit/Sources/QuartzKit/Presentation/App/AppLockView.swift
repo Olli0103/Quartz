@@ -3,11 +3,11 @@ import SwiftUI
 import LocalAuthentication
 #endif
 
-/// App-Lock Screen: Zeigt Biometrie-Prompt beim App-Start.
+/// App lock screen: Shows a biometric prompt at app launch.
 ///
-/// Wird als Overlay über die gesamte App gelegt wenn
-/// App-Lock aktiviert ist. Verschwindet nach erfolgreicher
-/// Authentifizierung.
+/// Displayed as an overlay over the entire app when
+/// app lock is enabled. Disappears after successful
+/// authentication.
 public struct AppLockView<Content: View>: View {
     @State private var isUnlocked: Bool = false
     @State private var isAuthenticating: Bool = false

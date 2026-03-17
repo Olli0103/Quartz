@@ -39,11 +39,11 @@ public enum QuartzAnimation {
     /// response: 0.4, dampingFraction: 0.82
     public static let stagger: Animation = .spring(response: 0.4, dampingFraction: 0.82)
 
-    /// Scale-In für Buttons/Icons.
+    /// Scale-In for Buttons/Icons.
     /// response: 0.45, dampingFraction: 0.7
     public static let scaleIn: Animation = .spring(response: 0.45, dampingFraction: 0.7)
 
-    /// SlideUp-Einblendung.
+    /// SlideUp appear animation.
     /// response: 0.5, dampingFraction: 0.8
     public static let slideUp: Animation = .spring(response: 0.5, dampingFraction: 0.8)
 
@@ -65,32 +65,32 @@ public enum QuartzAnimation {
     /// response: 0.25, dampingFraction: 0.7
     public static let buttonPress: Animation = .spring(response: 0.25, dampingFraction: 0.7)
 
-    /// Card-Button press (subtiler).
+    /// Card-Button press (more subtle).
     /// response: 0.2, dampingFraction: 0.75
     public static let cardPress: Animation = .spring(response: 0.2, dampingFraction: 0.75)
 
     // MARK: - Looping
 
-    /// Pulsieren (z.B. Save-Indikator).
+    /// Pulsing (e.g. save indicator).
     /// response: 0.8, dampingFraction: 0.5
     public static let pulse: Animation = .spring(response: 0.8, dampingFraction: 0.5)
 
-    /// Save-Indikator Puls.
+    /// Save indicator pulse.
     /// response: 0.6, dampingFraction: 0.5
     public static let savePulse: Animation = .spring(response: 0.6, dampingFraction: 0.5)
 
-    /// Shimmer-Effekt.
+    /// Shimmer effect.
     public static let shimmer: Animation = .linear(duration: 1.5)
 
     // MARK: - Font Scaling
 
-    /// Editor-Font-Size Änderung.
+    /// Editor font size change.
     /// response: 0.3
     public static let fontScale: Animation = .spring(response: 0.3)
 
     // MARK: - Error/Status
 
-    /// Fehler-/Status-Meldungen.
+    /// Error/status messages.
     /// response: 0.4, dampingFraction: 0.8
     public static let status: Animation = .spring(response: 0.4, dampingFraction: 0.8)
 }

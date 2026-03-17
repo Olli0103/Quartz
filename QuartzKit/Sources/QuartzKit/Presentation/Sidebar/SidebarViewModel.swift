@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// ViewModel für die Sidebar: lädt den Dateibaum, filtert und sortiert.
+/// ViewModel for the sidebar: loads the file tree, filters, and sorts.
 @Observable
 @MainActor
 public final class SidebarViewModel {
@@ -22,14 +22,14 @@ public final class SidebarViewModel {
     private var cachedFilteredTree: [FileNode]?
     private var cachedFlatNotes: [FileNode]?
 
-    /// Öffentlicher Zugriff auf die Vault-Root-URL.
+    /// Public access to the vault root URL.
     public var vaultRootURL: URL? { vaultRoot }
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
     }
 
-    /// Lädt den Dateibaum für die gegebene Vault-Root-URL.
+    /// Loads the file tree for the given vault root URL.
     public func loadTree(at root: URL) async {
         vaultRoot = root
         isLoading = true
@@ -44,7 +44,7 @@ public final class SidebarViewModel {
         isLoading = false
     }
 
-    /// Lädt den Dateibaum neu.
+    /// Reloads the file tree.
     public func refresh() async {
         guard let root = vaultRoot else { return }
         await loadTree(at: root)
@@ -52,7 +52,7 @@ public final class SidebarViewModel {
 
     // MARK: - Folder Management
 
-    /// Erstellt einen neuen Ordner.
+    /// Creates a new folder.
     public func createFolder(named name: String, in parent: URL) async {
         do {
             _ = try await vaultProvider.createFolder(named: name, in: parent)

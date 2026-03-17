@@ -1,10 +1,10 @@
 import Foundation
 
-/// Protocol für das Parsen und Serialisieren von YAML-Frontmatter.
+/// Protocol for parsing and serializing YAML frontmatter.
 public protocol FrontmatterParsing: Sendable {
-    /// Extrahiert Frontmatter und Body aus einem rohen Markdown-String.
+    /// Extracts frontmatter and body from a raw Markdown string.
     func parse(from rawContent: String) throws -> (frontmatter: Frontmatter, body: String)
 
-    /// Serialisiert Frontmatter zurück zu einem YAML-String.
+    /// Serializes frontmatter back to a YAML string.
     func serialize(_ frontmatter: Frontmatter) throws -> String
 }

@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Adaptives Multi-Column Layout für iPad, Mac und iPhone.
+/// Adaptive multi-column layout for iPad, Mac, and iPhone.
 ///
-/// - iPhone: Single-Column Navigation
-/// - iPad Portrait: Two-Column (Sidebar + Editor)
-/// - iPad Landscape / Stage Manager: Three-Column (Sidebar + List + Editor)
-/// - Mac: Three-Column mit resizable Sidebar
+/// - iPhone: Single-column navigation
+/// - iPad Portrait: Two-column (Sidebar + Editor)
+/// - iPad Landscape / Stage Manager: Three-column (Sidebar + List + Editor)
+/// - Mac: Three-column with resizable sidebar
 public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Binding var columnVisibility: NavigationSplitViewVisibility
@@ -50,14 +50,14 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
 
 // MARK: - iPad Keyboard Shortcuts
 
-/// Keyboard Shortcuts für iPad und Mac.
+/// Keyboard shortcuts for iPad and Mac.
 ///
-/// Registriert produktivitätsrelevante Tastenkombinationen:
-/// - ⌘N: Neue Notiz
-/// - ⌘⇧N: Neuer Ordner
-/// - ⌘F: Suche
-/// - ⌘⇧F: Vault-weite Suche
-/// - ⌘/: Toggle Sidebar
+/// Registers productivity-related key combinations:
+/// - ⌘N: New note
+/// - ⌘⇧N: New folder
+/// - ⌘F: Search
+/// - ⌘⇧F: Vault-wide search
+/// - ⌘/: Toggle sidebar
 public struct KeyboardShortcutCommands: Commands {
     let onNewNote: () -> Void
     let onNewFolder: () -> Void
@@ -113,7 +113,7 @@ public struct KeyboardShortcutCommands: Commands {
 
 // MARK: - Stage Manager Support
 
-/// Modifier für Stage Manager und Fenstergröße auf iPad.
+/// Modifier for Stage Manager and window size on iPad.
 public struct StageManagerModifier: ViewModifier {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     var appState: AppState
@@ -129,7 +129,7 @@ public struct StageManagerModifier: ViewModifier {
         guard url.scheme == "quartz" else { return }
         switch url.host() {
         case "note":
-            // quartz://note/<filename> → Notiz öffnen
+            // quartz://note/<filename> → open note
             let path = url.pathComponents.dropFirst().joined(separator: "/")
             guard !path.isEmpty,
                   let vaultRoot = appState.currentVault?.rootURL else { return }
@@ -155,7 +155,7 @@ public struct StageManagerModifier: ViewModifier {
 }
 
 extension View {
-    /// Aktiviert Stage Manager Support.
+    /// Enables Stage Manager support.
     public func stageManagerSupport(appState: AppState) -> some View {
         modifier(StageManagerModifier(appState: appState))
     }

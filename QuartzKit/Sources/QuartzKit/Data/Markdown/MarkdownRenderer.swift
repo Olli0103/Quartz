@@ -6,14 +6,14 @@ import UIKit
 import AppKit
 #endif
 
-/// Wandelt einen Markdown-String via `swift-markdown` AST in einen `AttributedString` um.
+/// Converts a Markdown string via the `swift-markdown` AST into an `AttributedString`.
 ///
 /// Pipeline: `String` → `Document` (AST) → `AttributedString`
-/// Unterstützt Headlines, Bold, Italic, Code, Links, Listen, Checkboxen.
+/// Supports headlines, bold, italic, code, links, lists, checkboxes.
 public struct MarkdownRenderer: Sendable {
     public init() {}
 
-    /// Konvertiert Markdown-Text zu einem AttributedString für die Darstellung im Editor.
+    /// Converts Markdown text to an AttributedString for display in the editor.
     public func render(_ markdown: String) -> AttributedString {
         let document = Document(parsing: markdown, options: [.parseBlockDirectives, .parseSymbolLinks])
         var visitor = AttributedStringVisitor()
@@ -23,7 +23,7 @@ public struct MarkdownRenderer: Sendable {
 
 // MARK: - AST Visitor
 
-/// Traversiert den `swift-markdown` AST und baut einen `AttributedString` auf.
+/// Traverses the `swift-markdown` AST and builds an `AttributedString`.
 private struct AttributedStringVisitor: MarkupVisitor {
     typealias Result = AttributedString
 
@@ -58,7 +58,7 @@ private struct AttributedStringVisitor: MarkupVisitor {
         }
         currentHeadingLevel = 0
 
-        // Heading-Stil: Dynamic Type via preferred text styles
+        // Heading style: Dynamic Type via preferred text styles
         result.markdownHeadingLevel = heading.level
         #if canImport(UIKit)
         let textStyle: UIFont.TextStyle = switch heading.level {
@@ -196,7 +196,7 @@ private struct AttributedStringVisitor: MarkupVisitor {
     mutating func visitListItem(_ item: ListItem) -> AttributedString {
         var result = AttributedString()
 
-        // Checkbox-Erkennung
+        // Checkbox detection
         if let checkbox = item.checkbox {
             let symbol = checkbox == .checked ? "☑ " : "☐ "
             var check = AttributedString(symbol)
@@ -234,8 +234,8 @@ private struct AttributedStringVisitor: MarkupVisitor {
 
 // MARK: - Custom AttributedString Keys
 
-/// Custom Attribute-Keys für Markdown-Semantik im AttributedString.
-/// Werden vom TextKit 2 Renderer genutzt um das Layout zu steuern.
+/// Custom attribute keys for Markdown semantics in AttributedString.
+/// Used by the TextKit 2 renderer to control the layout.
 public enum MarkdownHeadingLevelKey: AttributedStringKey {
     public typealias Value = Int
     public static let name = "markdownHeadingLevel"

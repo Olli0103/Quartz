@@ -21,8 +21,8 @@ public final class ServiceContainer {
 
     // MARK: - Bulk Registration
 
-    /// Registriert alle Services auf einmal. Sollte beim App-Start
-    /// aufgerufen werden, bevor Services aufgelöst werden.
+    /// Registers all services at once. Should be called at app launch
+    /// before services are resolved.
     public func bootstrap(
         vaultProvider: (any VaultProviding)? = nil,
         frontmatterParser: (any FrontmatterParsing)? = nil,

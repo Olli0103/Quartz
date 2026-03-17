@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Verwaltet das Erscheinungsbild der App (Theme, Schriftgröße).
+/// Manages the app's appearance (theme, font size).
 ///
-/// Wird per `@Environment` in Views injiziert und persistiert
-/// Einstellungen in `UserDefaults`.
+/// Injected into views via `@Environment` and persists
+/// settings in `UserDefaults`.
 @Observable
 @MainActor
 public final class AppearanceManager {
@@ -31,12 +31,12 @@ public final class AppearanceManager {
         }
     }
 
-    /// Aktuelles Theme.
+    /// Current theme.
     public var theme: Theme {
         didSet { save() }
     }
 
-    /// Editor-Schriftgröße (Skalierungsfaktor relativ zu Dynamic Type).
+    /// Editor font size (scale factor relative to Dynamic Type).
     public var editorFontScale: Double {
         didSet { save() }
     }
