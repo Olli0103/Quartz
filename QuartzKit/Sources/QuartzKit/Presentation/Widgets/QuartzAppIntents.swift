@@ -108,6 +108,6 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
 
 private func defaultVaultURL() -> URL? {
     // In der echten App: Aus UserDefaults (AppGroup) lesen
-    UserDefaults(suiteName: "group.app.quartz")?.url(forKey: "defaultVaultRoot")
+    UserDefaults(suiteName: "group.app.quartz.shared")?.url(forKey: "defaultVaultRoot")
 }
 #endif

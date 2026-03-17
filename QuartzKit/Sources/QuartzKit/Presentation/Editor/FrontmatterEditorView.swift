@@ -175,15 +175,20 @@ public struct FrontmatterEditorView: View {
     }
 
     private func addTag() {
-        let tag = newTag.trimmingCharacters(in: .whitespaces)
-        guard !tag.isEmpty, !frontmatter.tags.contains(tag) else { return }
+        let tag = newTag
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        guard !tag.isEmpty, tag.count <= 50, !frontmatter.tags.contains(tag) else { return }
         frontmatter.tags.append(tag)
         newTag = ""
     }
 
     private func addCustomField() {
-        let key = newCustomKey.trimmingCharacters(in: .whitespaces)
-        guard !key.isEmpty else { return }
+        let key = newCustomKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ":", with: "")
+        guard !key.isEmpty, key.count <= 50 else { return }
         frontmatter.customFields[key] = newCustomValue
         newCustomKey = ""
         newCustomValue = ""

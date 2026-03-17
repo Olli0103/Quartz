@@ -30,30 +30,24 @@ public struct FolderManagementUseCase: Sendable {
         }
 
         // Use file coordination for iCloud-safe moves
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var coordinatorError: NSError?
-                var moveError: Error?
+        var coordinatorError: NSError?
+        var moveError: Error?
 
-                let coordinator = NSFileCoordinator()
-                coordinator.coordinate(
-                    writingItemAt: sourceURL, options: .forMoving,
-                    writingItemAt: destination, options: .forReplacing,
-                    error: &coordinatorError
-                ) { actualSource, actualDest in
-                    do {
-                        try FileManager.default.moveItem(at: actualSource, to: actualDest)
-                    } catch {
-                        moveError = error
-                    }
-                }
-
-                if let error = coordinatorError ?? moveError {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(
+            writingItemAt: sourceURL, options: .forMoving,
+            writingItemAt: destination, options: .forReplacing,
+            error: &coordinatorError
+        ) { actualSource, actualDest in
+            do {
+                try FileManager.default.moveItem(at: actualSource, to: actualDest)
+            } catch {
+                moveError = error
             }
+        }
+
+        if let error = coordinatorError ?? moveError {
+            throw error
         }
 
         return destination

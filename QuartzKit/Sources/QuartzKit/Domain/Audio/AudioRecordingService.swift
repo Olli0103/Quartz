@@ -227,7 +227,7 @@ public final class AudioRecordingService: NSObject {
         peakLevel = normalizeLevel(peakPower)
 
         if levelHistory.count >= maxLevelHistory {
-            levelHistory.replaceSubrange(0..<1, with: [])
+            levelHistory.removeFirst()
         }
         levelHistory.append(currentLevel)
     }

@@ -350,12 +350,17 @@ public struct OnboardingView: View {
             do {
                 try await templateService.applyTemplate(selectedTemplate, to: url)
             } catch {
+                url.stopAccessingSecurityScopedResource()
                 await MainActor.run {
                     errorMessage = String(localized: "Could not create vault. Please check folder permissions and try again.", bundle: .module)
                     currentStep = .chooseTemplate
                 }
                 return
             }
+
+            // Release the security scope now that vault creation is complete.
+            // The app will use bookmarks for future access.
+            url.stopAccessingSecurityScopedResource()
 
             let vault = VaultConfig(
                 name: url.lastPathComponent,

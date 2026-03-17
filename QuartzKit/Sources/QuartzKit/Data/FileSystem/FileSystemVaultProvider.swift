@@ -110,8 +110,10 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func createFolder(named name: String, in parent: URL) async throws -> URL {
+        // Allow alphanumerics, whitespace, hyphens, underscores, AND Unicode letters (umlauts, accents, CJK, etc.)
+        let allowedCharacters = CharacterSet.letters.union(.decimalDigits).union(.whitespaces).union(CharacterSet(charactersIn: "-_"))
         let sanitized = name
-            .components(separatedBy: CharacterSet.alphanumerics.union(.whitespaces).union(CharacterSet(charactersIn: "-_")).inverted)
+            .components(separatedBy: allowedCharacters.inverted)
             .joined()
         guard !sanitized.isEmpty, !sanitized.hasPrefix(".") else {
             throw FileSystemError.invalidName(name)

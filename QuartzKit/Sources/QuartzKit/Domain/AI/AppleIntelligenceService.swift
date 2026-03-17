@@ -59,11 +59,13 @@ public actor AppleIntelligenceService {
         case notAvailable
         case processingFailed(String)
         case emptyInput
+        case featureUnavailable(String)
 
         public var errorDescription: String? {
             switch self {
             case .notAvailable: String(localized: "Apple Intelligence is not available on this device.", bundle: .module)
             case .processingFailed(let msg): String(localized: "AI processing failed: \(msg)", bundle: .module)
+            case .featureUnavailable(let msg): msg
             case .emptyInput: String(localized: "No text provided for AI processing.", bundle: .module)
             }
         }
@@ -163,9 +165,9 @@ public actor AppleIntelligenceService {
         case .makeConcise:
             return makeConciseText(text)
         case .makeDetailed:
-            return makeDetailedText(text)
+            return try makeDetailedText(text)
         case .rewrite:
-            return rewriteText(text, tone: tone ?? .professional)
+            return try rewriteText(text, tone: tone ?? .professional)
         }
     }
 
@@ -276,13 +278,18 @@ public actor AppleIntelligenceService {
         return (filtered.isEmpty ? sentences : filtered).joined(separator: " ")
     }
 
-    private func makeDetailedText(_ text: String) -> String {
-        // Ohne KI-Modell kann Text nicht sinnvoll erweitert werden
-        return text
+    private func makeDetailedText(_ text: String) throws -> String {
+        // On-device text expansion without AI model is not possible.
+        // Throw so the UI can inform the user that an AI provider is needed.
+        throw AIError.featureUnavailable(
+            String(localized: "Text expansion requires an AI provider. Please configure one in Settings.", bundle: .module)
+        )
     }
 
-    private func rewriteText(_ text: String, tone: Tone) -> String {
-        // Ohne KI-Modell kann Ton nicht sinnvoll geändert werden
-        return text
+    private func rewriteText(_ text: String, tone: Tone) throws -> String {
+        // Tone rewriting without AI model is not possible.
+        throw AIError.featureUnavailable(
+            String(localized: "Tone rewriting requires an AI provider. Please configure one in Settings.", bundle: .module)
+        )
     }
 }

@@ -5,6 +5,12 @@ import Foundation
 /// Erkennt den `---` Delimiter, extrahiert das YAML und parsed es
 /// zu einem `Frontmatter`-Objekt. Round-trip-fähig: der Body bleibt unverändert.
 public struct FrontmatterParser: FrontmatterParsing, Sendable {
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     public init() {}
 
     // MARK: - FrontmatterParsing
@@ -42,10 +48,8 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
             lines.append("aliases: [\(aliasList)]")
         }
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        lines.append("created: \(formatter.string(from: frontmatter.createdAt))")
-        lines.append("modified: \(formatter.string(from: frontmatter.modifiedAt))")
+        lines.append("created: \(Self.isoFormatter.string(from: frontmatter.createdAt))")
+        lines.append("modified: \(Self.isoFormatter.string(from: frontmatter.modifiedAt))")
 
         if let template = frontmatter.template {
             lines.append("template: \(quoteIfNeeded(template))")
@@ -68,8 +72,6 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
 
     private func parseYAML(_ yaml: String) throws -> Frontmatter {
         var frontmatter = Frontmatter()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
 
         for line in yaml.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -96,11 +98,11 @@ public struct FrontmatterParser: FrontmatterParsing, Sendable {
             case "aliases":
                 frontmatter.aliases = parseInlineArray(rawValue)
             case "created":
-                if let date = formatter.date(from: rawValue) {
+                if let date = Self.isoFormatter.date(from: rawValue) {
                     frontmatter.createdAt = date
                 }
             case "modified":
-                if let date = formatter.date(from: rawValue) {
+                if let date = Self.isoFormatter.date(from: rawValue) {
                     frontmatter.modifiedAt = date
                 }
             case "template":
