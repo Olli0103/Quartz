@@ -51,7 +51,10 @@ public actor VectorEmbeddingService {
 
     // MARK: - Index Management
 
-    /// Lädt den Embedding-Index von Disk.
+    // Binary format version for forward compatibility.
+    private static let formatVersion: UInt32 = 1
+
+    /// Lädt den Embedding-Index von Disk (binäres Format).
     public func loadIndex() throws {
         guard FileManager.default.fileExists(atPath: indexURL.path()) else {
             index = []
@@ -59,16 +62,130 @@ public actor VectorEmbeddingService {
         }
 
         let data = try Data(contentsOf: indexURL)
-        index = try JSONDecoder().decode([EmbeddingEntry].self, from: data)
+        index = try Self.decodeBinary(data)
     }
 
-    /// Speichert den Embedding-Index auf Disk.
+    /// Speichert den Embedding-Index auf Disk (binäres Format).
     public func saveIndex() throws {
         let dir = indexURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let data = try JSONEncoder().encode(index)
+        let data = Self.encodeBinary(index)
         try data.write(to: indexURL, options: .atomic)
+    }
+
+    // MARK: - Binary Serialization
+
+    /// Encodes entries into a compact binary representation.
+    ///
+    /// Format per entry:
+    /// - 16 bytes: UUID
+    /// - 8 bytes: chunkIndex (Int, little-endian)
+    /// - 8 bytes: lastUpdated (TimeInterval, little-endian)
+    /// - 4 bytes: embeddingCount (UInt32, little-endian)
+    /// - N×4 bytes: embedding floats (little-endian)
+    /// - 4 bytes: chunkText byte length (UInt32, little-endian)
+    /// - M bytes: chunkText UTF-8
+    private static func encodeBinary(_ entries: [EmbeddingEntry]) -> Data {
+        var data = Data()
+        // Header: version + entry count
+        var version = formatVersion.littleEndian
+        data.append(Data(bytes: &version, count: 4))
+        var count = UInt32(entries.count).littleEndian
+        data.append(Data(bytes: &count, count: 4))
+
+        for entry in entries {
+            // UUID (16 bytes)
+            let uuid = entry.noteID.uuid
+            withUnsafeBytes(of: uuid) { data.append(contentsOf: $0) }
+
+            // chunkIndex (8 bytes)
+            var chunkIndex = Int64(entry.chunkIndex).littleEndian
+            data.append(Data(bytes: &chunkIndex, count: 8))
+
+            // lastUpdated as TimeInterval (8 bytes)
+            var timestamp = entry.lastUpdated.timeIntervalSinceReferenceDate.bitPattern.littleEndian
+            data.append(Data(bytes: &timestamp, count: 8))
+
+            // embedding count + floats
+            var embCount = UInt32(entry.embedding.count).littleEndian
+            data.append(Data(bytes: &embCount, count: 4))
+            for var f in entry.embedding {
+                var bits = f.bitPattern.littleEndian
+                data.append(Data(bytes: &bits, count: 4))
+            }
+
+            // chunkText as UTF-8
+            let textData = Data(entry.chunkText.utf8)
+            var textLen = UInt32(textData.count).littleEndian
+            data.append(Data(bytes: &textLen, count: 4))
+            data.append(textData)
+        }
+
+        return data
+    }
+
+    private static func decodeBinary(_ data: Data) throws -> [EmbeddingEntry] {
+        var offset = 0
+
+        func read<T>(_ type: T.Type) throws -> T {
+            let size = MemoryLayout<T>.size
+            guard offset + size <= data.count else {
+                throw EmbeddingIndexError.corruptedIndex
+            }
+            let value = data[offset..<offset+size].withUnsafeBytes { $0.loadUnaligned(as: T.self) }
+            offset += size
+            return value
+        }
+
+        let version = UInt32(littleEndian: try read(UInt32.self))
+        guard version == formatVersion else {
+            throw EmbeddingIndexError.unsupportedVersion(version)
+        }
+
+        let count = Int(UInt32(littleEndian: try read(UInt32.self)))
+        var entries: [EmbeddingEntry] = []
+        entries.reserveCapacity(count)
+
+        for _ in 0..<count {
+            // UUID
+            let uuidTuple: uuid_t = try read(uuid_t.self)
+            let noteID = UUID(uuid: uuidTuple)
+
+            // chunkIndex
+            let chunkIndex = Int(Int64(littleEndian: try read(Int64.self)))
+
+            // lastUpdated
+            let timestampBits = UInt64(littleEndian: try read(UInt64.self))
+            let lastUpdated = Date(timeIntervalSinceReferenceDate: Double(bitPattern: timestampBits))
+
+            // embedding
+            let embCount = Int(UInt32(littleEndian: try read(UInt32.self)))
+            var embedding: [Float] = []
+            embedding.reserveCapacity(embCount)
+            for _ in 0..<embCount {
+                let bits = UInt32(littleEndian: try read(UInt32.self))
+                embedding.append(Float(bitPattern: bits))
+            }
+
+            // chunkText
+            let textLen = Int(UInt32(littleEndian: try read(UInt32.self)))
+            guard offset + textLen <= data.count else {
+                throw EmbeddingIndexError.corruptedIndex
+            }
+            let chunkText = String(decoding: data[offset..<offset+textLen], as: UTF8.self)
+            offset += textLen
+
+            entries.append(EmbeddingEntry(
+                noteID: noteID,
+                chunkIndex: chunkIndex,
+                chunkText: chunkText,
+                embedding: embedding,
+                lastUpdated: lastUpdated
+            ))
+        }
+
+        return entries
     }
 
     /// Indexiert eine Notiz: Text chunken → Embeddings erzeugen → speichern.
@@ -215,5 +332,21 @@ public actor VectorEmbeddingService {
         guard denominator > 0 else { return 0 }
 
         return dotProduct / denominator
+    }
+}
+
+// MARK: - Errors
+
+public enum EmbeddingIndexError: LocalizedError, Sendable {
+    case corruptedIndex
+    case unsupportedVersion(UInt32)
+
+    public var errorDescription: String? {
+        switch self {
+        case .corruptedIndex:
+            String(localized: "The embedding index file is corrupted.", bundle: .module)
+        case .unsupportedVersion(let v):
+            String(localized: "Unsupported embedding index version: \(v)", bundle: .module)
+        }
     }
 }

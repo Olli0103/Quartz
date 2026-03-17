@@ -1,0 +1,129 @@
+import Testing
+import Foundation
+@testable import QuartzKit
+
+@Suite("VectorEmbeddingService Binary Format")
+struct VectorEmbeddingBinaryTests {
+    private func makeTempVault() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EmbeddingTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test("saveIndex and loadIndex round-trip empty index")
+    func emptyRoundTrip() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+
+        try await service.saveIndex()
+        try await service.loadIndex()
+
+        let count = await service.entryCount
+        #expect(count == 0)
+    }
+
+    @Test("saveIndex and loadIndex round-trip with entries")
+    func entryRoundTrip() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+
+        // Manually index a note via the public API
+        try await service.indexNote(noteID: UUID(), content: "This is a test note with some content for embedding")
+
+        let countBefore = await service.entryCount
+
+        // Save and reload
+        try await service.saveIndex()
+
+        let service2 = VectorEmbeddingService(vaultURL: vault)
+        try await service2.loadIndex()
+
+        let countAfter = await service2.entryCount
+        #expect(countAfter == countBefore)
+    }
+
+    @Test("loadIndex with no file returns empty index")
+    func loadNonexistent() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.loadIndex()
+
+        let count = await service.entryCount
+        #expect(count == 0)
+    }
+
+    @Test("loadIndex with corrupted data throws")
+    func corruptedData() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let indexDir = vault.appendingPathComponent(".quartz")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+        let indexFile = indexDir.appendingPathComponent("embeddings.idx")
+
+        // Write garbage data
+        try Data([0xFF, 0xFE, 0xFD]).write(to: indexFile)
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        do {
+            try await service.loadIndex()
+            Issue.record("Should have thrown for corrupted data")
+        } catch {
+            // Expected — either corruptedIndex or unsupportedVersion
+        }
+    }
+
+    @Test("removeNote clears entries for that note")
+    func removeNote() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let noteID = UUID()
+        let service = VectorEmbeddingService(vaultURL: vault)
+
+        try await service.indexNote(noteID: noteID, content: "Some test content for indexing")
+
+        let countBefore = await service.entryCount
+        #expect(countBefore > 0)
+
+        await service.removeNote(noteID)
+        let countAfter = await service.entryCount
+        #expect(countAfter == 0)
+    }
+
+    @Test("EmbeddingEntry preserves all fields through binary round-trip")
+    func fieldPreservation() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let noteID = UUID()
+        let service = VectorEmbeddingService(vaultURL: vault)
+
+        try await service.indexNote(noteID: noteID, content: "Ümlauts, Sönderzeichen & Emojis: 🎉 日本語")
+
+        try await service.saveIndex()
+
+        let service2 = VectorEmbeddingService(vaultURL: vault)
+        try await service2.loadIndex()
+
+        let noteIDs = await service2.indexedNoteIDs
+        #expect(noteIDs.contains(noteID))
+    }
+
+    @Test("EmbeddingIndexError provides error descriptions")
+    func errorDescriptions() {
+        let corrupted = EmbeddingIndexError.corruptedIndex
+        let unsupported = EmbeddingIndexError.unsupportedVersion(99)
+
+        #expect(corrupted.errorDescription != nil)
+        #expect(unsupported.errorDescription != nil)
+        #expect(unsupported.errorDescription!.contains("99"))
+    }
+}

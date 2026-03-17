@@ -17,7 +17,7 @@ public struct FrontmatterEditorView: View {
         VStack(spacing: 0) {
             // Toggle Header
             Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(QuartzAnimation.standard) {
                     isExpanded.toggle()
                 }
             } label: {

@@ -143,7 +143,7 @@ public struct SidebarView: View {
                 HStack(spacing: 8) {
                     ForEach(Array(viewModel.tagInfos.prefix(12).enumerated()), id: \.element.id) { index, tag in
                         Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            withAnimation(QuartzAnimation.standard) {
                                 if viewModel.selectedTag == tag.name {
                                     viewModel.selectedTag = nil
                                 } else {

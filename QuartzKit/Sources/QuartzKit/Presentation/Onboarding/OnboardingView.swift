@@ -45,7 +45,7 @@ public struct OnboardingView: View {
                 removal: .move(edge: .leading).combined(with: .opacity)
             ))
         }
-        .animation(reduceMotion ? .default : .spring(response: 0.5, dampingFraction: 0.85), value: currentStep)
+        .animation(reduceMotion ? .default : QuartzAnimation.onboarding, value: currentStep)
     }
 
     // MARK: - Background
@@ -286,7 +286,7 @@ public struct OnboardingView: View {
         let isSelected = selectedTemplate == template
 
         return Button {
-            withAnimation(reduceMotion ? .default : .spring(response: 0.35, dampingFraction: 0.7)) {
+            withAnimation(reduceMotion ? .default : QuartzAnimation.content) {
                 selectedTemplate = template
             }
         } label: {

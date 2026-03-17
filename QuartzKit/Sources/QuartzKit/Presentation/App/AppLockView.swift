@@ -39,7 +39,7 @@ public struct AppLockView<Content: View>: View {
                     .accessibilityAddTraits(.isModal)
             }
         }
-        .animation(reduceMotion ? .default : .spring(response: 0.35, dampingFraction: 0.85), value: isUnlocked)
+        .animation(reduceMotion ? .default : QuartzAnimation.smooth, value: isUnlocked)
         .task {
             resolveBiometryIcon()
             await authenticate()

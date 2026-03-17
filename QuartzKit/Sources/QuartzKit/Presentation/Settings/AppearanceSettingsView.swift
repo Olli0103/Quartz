@@ -19,7 +19,7 @@ public struct AppearanceSettingsView: View {
                             theme: theme,
                             isSelected: appearance.theme == theme
                         ) {
-                            withAnimation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.8)) {
+                            withAnimation(reduceMotion ? .default : QuartzAnimation.standard) {
                                 appearance.theme = theme
                             }
                         }
@@ -70,7 +70,7 @@ public struct AppearanceSettingsView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(.fill.quaternary)
                         )
-                        .animation(reduceMotion ? .default : .spring(response: 0.3), value: appearance.editorFontScale)
+                        .animation(reduceMotion ? .default : QuartzAnimation.fontScale, value: appearance.editorFontScale)
                 }
             } header: {
                 QuartzSectionHeader(String(localized: "Editor", bundle: .module), icon: "textformat.size")
@@ -118,7 +118,7 @@ private struct ThemeCard: View {
             }
             .frame(maxWidth: .infinity)
             .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+            .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isSelected)
         }
         .buttonStyle(QuartzCardButtonStyle())
         .accessibilityLabel(String(localized: "\(theme.displayName) theme", bundle: .module))

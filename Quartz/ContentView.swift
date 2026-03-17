@@ -25,7 +25,7 @@ struct ContentView: View {
         } detail: {
             detailColumn
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: editorViewModel?.note?.fileURL)
+        .animation(QuartzAnimation.smooth, value: editorViewModel?.note?.fileURL)
         .onChange(of: selectedNoteURL) { _, newURL in
             openNote(at: newURL)
         }
@@ -241,7 +241,7 @@ struct ContentView: View {
 
             Spacer()
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: appState.errorMessage)
+        .animation(QuartzAnimation.status, value: appState.errorMessage)
     }
 
     // MARK: - Actions

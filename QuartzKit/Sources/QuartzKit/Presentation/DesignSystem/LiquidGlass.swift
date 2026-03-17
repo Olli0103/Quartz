@@ -181,7 +181,7 @@ public struct FloatingButtonStyle: ButtonStyle {
                     .shadow(color: color.opacity(0.4), radius: 12, y: 6)
             )
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : QuartzAnimation.soft, value: configuration.isPressed)
     }
 }
 
@@ -262,7 +262,7 @@ private struct FadeInModifier: ViewModifier {
                 if reduceMotion {
                     opacity = 1
                 } else {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85).delay(delay)) {
+                    withAnimation(QuartzAnimation.appear.delay(delay)) {
                         opacity = 1
                     }
                 }
@@ -285,7 +285,7 @@ private struct SlideUpModifier: ViewModifier {
                     offset = 0
                     opacity = 1
                 } else {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.8).delay(delay)) {
+                    withAnimation(QuartzAnimation.slideUp.delay(delay)) {
                         offset = 0
                         opacity = 1
                     }
@@ -311,7 +311,7 @@ private struct StaggeredAppearModifier: ViewModifier {
                     isVisible = true
                 } else {
                     let delay = baseDelay + Double(index) * 0.04
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82).delay(delay)) {
+                    withAnimation(QuartzAnimation.stagger.delay(delay)) {
                         isVisible = true
                     }
                 }
@@ -335,7 +335,7 @@ private struct ScaleInModifier: ViewModifier {
                     scale = 1
                     opacity = 1
                 } else {
-                    withAnimation(.spring(response: 0.45, dampingFraction: 0.7).delay(delay)) {
+                    withAnimation(QuartzAnimation.scaleIn.delay(delay)) {
                         scale = 1
                         opacity = 1
                     }
@@ -368,7 +368,7 @@ public struct ShimmerModifier: ViewModifier {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .onAppear {
                             withAnimation(
-                                .linear(duration: 1.5)
+                                QuartzAnimation.shimmer
                                 .repeatForever(autoreverses: false)
                             ) {
                                 phase = 2
@@ -393,7 +393,7 @@ private struct PulseModifier: ViewModifier {
             .onAppear {
                 guard !reduceMotion else { return }
                 withAnimation(
-                    .spring(response: 0.8, dampingFraction: 0.5)
+                    QuartzAnimation.pulse
                     .repeatForever(autoreverses: true)
                 ) {
                     isPulsing = true
@@ -418,7 +418,7 @@ private struct BounceInModifier: ViewModifier {
                     scale = 1
                     opacity = 1
                 } else {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.55).delay(delay)) {
+                    withAnimation(QuartzAnimation.rubberBand.delay(delay)) {
                         scale = 1
                         opacity = 1
                     }
@@ -443,7 +443,7 @@ private struct SpinInModifier: ViewModifier {
                     rotation = 0
                     opacity = 1
                 } else {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.6).delay(delay)) {
+                    withAnimation(QuartzAnimation.spinIn.delay(delay)) {
                         rotation = 0
                         opacity = 1
                     }
@@ -511,7 +511,7 @@ public struct QuartzTagBadge: View {
                 .shadow(color: isSelected ? tagColor.opacity(0.3) : .clear, radius: 4, y: 2)
         }
         .scaleEffect(isSelected ? 1.05 : 1.0)
-        .animation(reduceMotion ? .default : .spring(response: 0.3, dampingFraction: 0.6), value: isSelected)
+        .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isSelected)
     }
 }
 
@@ -590,7 +590,7 @@ public struct QuartzPressButtonStyle: ButtonStyle {
                 radius: configuration.isPressed ? 4 : 12,
                 y: configuration.isPressed ? 2 : 6
             )
-            .animation(reduceMotion ? .default : .spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : QuartzAnimation.buttonPress, value: configuration.isPressed)
     }
 }
 
@@ -604,7 +604,7 @@ public struct QuartzCardButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .opacity(configuration.isPressed ? 0.9 : 1.0)
-            .animation(reduceMotion ? .default : .spring(response: 0.2, dampingFraction: 0.75), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : QuartzAnimation.cardPress, value: configuration.isPressed)
     }
 }
 
@@ -617,7 +617,7 @@ public struct QuartzBounceButtonStyle: ButtonStyle {
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
-            .animation(reduceMotion ? .default : .spring(response: 0.25, dampingFraction: 0.5), value: configuration.isPressed)
+            .animation(reduceMotion ? .default : QuartzAnimation.bounce, value: configuration.isPressed)
     }
 }
 

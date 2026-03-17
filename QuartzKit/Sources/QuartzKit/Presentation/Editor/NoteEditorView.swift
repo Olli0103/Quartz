@@ -92,8 +92,8 @@ public struct NoteEditorView: View {
                     .shadow(color: statusColor.opacity(viewModel.isSaving ? 0.6 : 0), radius: 4)
                     .animation(
                         viewModel.isSaving
-                            ? .spring(response: 0.6, dampingFraction: 0.5).repeatForever(autoreverses: true)
-                            : .spring(response: 0.3, dampingFraction: 0.8),
+                            ? QuartzAnimation.savePulse.repeatForever(autoreverses: true)
+                            : QuartzAnimation.standard,
                         value: viewModel.isSaving
                     )
 
@@ -102,7 +102,7 @@ public struct NoteEditorView: View {
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: statusText)
+            .animation(QuartzAnimation.standard, value: statusText)
 
             Spacer()
 
