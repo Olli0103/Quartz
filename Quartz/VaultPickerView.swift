@@ -2,8 +2,8 @@ import SwiftUI
 import QuartzKit
 import os
 
-/// Vault-Auswahl: Folder-Picker zum Öffnen eines lokalen Ordners als Vault.
-/// Liquid Glass Design mit animiertem Icon.
+/// Vault selection: folder picker for opening a local folder as a vault.
+/// Liquid Glass design with animated icon.
 struct VaultPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showFilePicker = false

@@ -4,7 +4,7 @@ import Foundation
 
 // MARK: - Mock VaultProvider
 
-/// Ein einfacher Mock-VaultProvider für Tests.
+/// A simple mock VaultProvider for tests.
 actor MockVaultProvider: VaultProviding {
     var notes: [URL: NoteDocument] = [:]
     var folders: [URL] = []

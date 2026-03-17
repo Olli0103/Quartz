@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Sidebar mit rekursivem Dateibaum, Tags, Suche und Kontextmenüs.
-/// Apple-Notes-inspiriertes Design mit Liquid Glass Akzenten.
+/// Sidebar with recursive file tree, tags, search and context menus.
+/// Apple Notes-inspired design with Liquid Glass accents.
 public struct SidebarView: View {
     @Bindable var viewModel: SidebarViewModel
     @Binding var selectedNoteURL: URL?

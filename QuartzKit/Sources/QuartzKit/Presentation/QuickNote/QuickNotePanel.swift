@@ -2,11 +2,11 @@
 import AppKit
 import SwiftUI
 
-/// Floating NSPanel für schnelle Notiz-Erfassung auf dem Mac.
+/// Floating NSPanel for quick note capture on Mac.
 ///
-/// Wird über einen globalen Hotkey (z.B. ⌥⌘N) aktiviert.
-/// Das Panel schwebt über allen Fenstern und verschwindet
-/// nach dem Speichern automatisch.
+/// Activated via a global hotkey (e.g. ⌥⌘N).
+/// The panel floats above all windows and disappears
+/// automatically after saving.
 public final class QuickNotePanel: NSPanel {
     private var hostingView: NSHostingView<QuickNoteView>?
 
@@ -27,7 +27,7 @@ public final class QuickNotePanel: NSPanel {
         hidesOnDeactivate = false
         animationBehavior = .utilityWindow
 
-        // Zentriert auf dem Bildschirm
+        // Centered on screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             let x = screenFrame.midX - contentRect.width / 2
@@ -43,7 +43,7 @@ public final class QuickNotePanel: NSPanel {
         hostingView = hosting
     }
 
-    /// Zeigt das Panel und bringt es in den Fokus.
+    /// Shows the panel and brings it into focus.
     public func showPanel() {
         makeKeyAndOrderFront(nil)
         if #available(macOS 14.0, *) {
@@ -54,7 +54,7 @@ public final class QuickNotePanel: NSPanel {
     }
 }
 
-/// Manager für den globalen Hotkey und das Quick Note Panel.
+/// Manager for the global hotkey and the Quick Note panel.
 @MainActor
 public final class QuickNoteManager {
     private var panel: QuickNotePanel?
@@ -66,23 +66,23 @@ public final class QuickNoteManager {
         self.vaultRoot = vaultRoot
     }
 
-    /// Registriert den globalen Hotkey (⌥⌘N).
+    /// Registers the global hotkey (⌥⌘N).
     public func registerHotkey() {
-        // Global Monitor: fängt Events auch wenn App nicht aktiv ist
+        // Global monitor: catches events even when app is not active
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
         }
 
-        // Local Monitor: fängt Events wenn App aktiv ist
+        // Local monitor: catches events when app is active
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if self?.handleKeyEvent(event) == true {
-                return nil // Event konsumiert
+                return nil // Event consumed
             }
             return event
         }
     }
 
-    /// Entfernt den globalen Hotkey.
+    /// Removes the global hotkey.
     public func unregisterHotkey() {
         if let monitor = globalMonitor {
             NSEvent.removeMonitor(monitor)
@@ -94,7 +94,7 @@ public final class QuickNoteManager {
         }
     }
 
-    /// Zeigt das Quick Note Panel.
+    /// Shows the Quick Note panel.
     public func showQuickNote() {
         if panel == nil {
             panel = QuickNotePanel(vaultRoot: vaultRoot)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Use Case für Ordner-Operationen im Vault.
+/// Use case for folder operations in the vault.
 public struct FolderManagementUseCase: Sendable {
     private let vaultProvider: any VaultProviding
 
@@ -8,17 +8,17 @@ public struct FolderManagementUseCase: Sendable {
         self.vaultProvider = vaultProvider
     }
 
-    /// Erstellt einen neuen Ordner.
+    /// Creates a new folder.
     public func createFolder(named name: String, in parent: URL) async throws -> URL {
         try await vaultProvider.createFolder(named: name, in: parent)
     }
 
-    /// Benennt eine Datei oder einen Ordner um.
+    /// Renames a file or folder.
     public func rename(at url: URL, to newName: String) async throws -> URL {
         try await vaultProvider.rename(at: url, to: newName)
     }
 
-    /// Verschiebt eine Datei oder einen Ordner.
+    /// Moves a file or folder.
     public func move(at sourceURL: URL, to destinationFolder: URL) async throws -> URL {
         let fileName = sourceURL.lastPathComponent
         let destination = destinationFolder.appending(path: fileName)
@@ -54,7 +54,7 @@ public struct FolderManagementUseCase: Sendable {
         return destination
     }
 
-    /// Löscht einen Ordner (verschiebt in den Papierkorb auf macOS).
+    /// Deletes a folder (moves to Trash on macOS).
     public func deleteFolder(at url: URL) async throws {
         try await vaultProvider.deleteNote(at: url)
     }

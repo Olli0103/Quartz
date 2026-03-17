@@ -1,8 +1,8 @@
 import Foundation
 
-/// KI-Pipeline: Transkription → Zusammenfassung → Strukturierte Meeting Minutes.
+/// AI pipeline: Transcription → Summarization → Structured Meeting Minutes.
 ///
-/// Generiert automatisch Meeting-Protokolle mit Action Items als Markdown.
+/// Automatically generates meeting minutes with action items as Markdown.
 public actor MeetingMinutesService {
     private let transcriptionService: TranscriptionService
     private let providerRegistry: AIProviderRegistry
@@ -15,15 +15,15 @@ public actor MeetingMinutesService {
         self.providerRegistry = providerRegistry
     }
 
-    /// Generiert Meeting Minutes aus einer Audio-Aufnahme.
+    /// Generates meeting minutes from an audio recording.
     ///
-    /// Pipeline: Audio → Transkription → KI-Zusammenfassung → Markdown
+    /// Pipeline: Audio → Transcription → AI summarization → Markdown
     ///
     /// - Parameters:
-    ///   - audioURL: Pfad zur Audio-Datei
-    ///   - meetingTitle: Optionaler Titel des Meetings
-    ///   - participants: Optionale Teilnehmerliste
-    /// - Returns: MeetingMinutes mit strukturiertem Markdown
+    ///   - audioURL: Path to the audio file
+    ///   - meetingTitle: Optional title of the meeting
+    ///   - participants: Optional list of participants
+    /// - Returns: MeetingMinutes with structured Markdown
     public func generateMinutes(
         from audioURL: URL,
         meetingTitle: String? = nil,
@@ -36,10 +36,10 @@ public actor MeetingMinutesService {
             throw MeetingMinutesError.noProviderConfigured
         }
 
-        // 1. Transkription
+        // 1. Transcription
         let transcription = try await transcriptionService.transcribe(audioURL: audioURL)
 
-        // 2. KI-Zusammenfassung
+        // 2. AI summarization
         let systemPrompt = """
         You are a meeting minutes assistant. Analyze the following transcript and create structured meeting minutes.
 
@@ -76,7 +76,7 @@ public actor MeetingMinutesService {
             temperature: 0.3
         )
 
-        // 3. Meeting Minutes strukturieren
+        // 3. Structure meeting minutes
         let minutes = MeetingMinutes(
             title: meetingTitle ?? generateTitle(from: transcription.text),
             date: Date(),
@@ -97,7 +97,7 @@ public actor MeetingMinutesService {
         return formatter
     }()
 
-    /// Speichert Meeting Minutes als Markdown-Notiz.
+    /// Saves meeting minutes as a Markdown note.
     public func saveAsNote(
         _ minutes: MeetingMinutes,
         vaultURL: URL
@@ -135,7 +135,7 @@ public actor MeetingMinutesService {
 
 // MARK: - Meeting Minutes Model
 
-/// Strukturierte Meeting Minutes.
+/// Structured meeting minutes.
 public struct MeetingMinutes: Sendable {
     public let title: String
     public let date: Date
@@ -170,7 +170,7 @@ public struct MeetingMinutes: Sendable {
         return formatter
     }()
 
-    /// Generiert Markdown-Darstellung der Meeting Minutes.
+    /// Generates the Markdown representation of the meeting minutes.
     public func toMarkdown() -> String {
         let dateStr = Self.dateTimeFormatter.string(from: date)
 

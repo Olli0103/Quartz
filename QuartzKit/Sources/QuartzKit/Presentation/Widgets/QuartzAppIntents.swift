@@ -3,7 +3,7 @@ import AppIntents
 
 // MARK: - Create Note Intent
 
-/// AppIntent: Neue Notiz erstellen via Siri Shortcuts.
+/// AppIntent: Create a new note via Siri Shortcuts.
 @available(iOS 16.0, macOS 13.0, *)
 public struct CreateNoteIntent: AppIntent {
     public static let title: LocalizedStringResource = "Create Note"
@@ -21,7 +21,7 @@ public struct CreateNoteIntent: AppIntent {
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         let useCase = ShareCaptureUseCase()
 
-        // Verwendet den Standard-Vault (in der echten App über UserDefaults/AppGroup)
+        // Uses the default vault (in the real app via UserDefaults/AppGroup)
         guard let vaultRoot = defaultVaultURL() else {
             return .result(dialog: IntentDialog(String(localized: "No vault configured. Please open Quartz first.", bundle: .module)))
         }
@@ -35,7 +35,7 @@ public struct CreateNoteIntent: AppIntent {
 
 // MARK: - Open Note Intent
 
-/// AppIntent: Notiz öffnen via Siri Shortcuts.
+/// AppIntent: Open a note via Siri Shortcuts.
 @available(iOS 16.0, macOS 13.0, *)
 public struct OpenNoteIntent: AppIntent {
     public static let title: LocalizedStringResource = "Open Note"
@@ -48,15 +48,15 @@ public struct OpenNoteIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
-        // Die App öffnet sich automatisch (openAppWhenRun = true)
-        // Deep-Link-Handling erfolgt in der App
+        // The app opens automatically (openAppWhenRun = true)
+        // Deep link handling occurs in the app
         return .result()
     }
 }
 
 // MARK: - Daily Note Intent
 
-/// AppIntent: Daily Note für heute erstellen/öffnen.
+/// AppIntent: Create or open today's daily note.
 @available(iOS 16.0, macOS 13.0, *)
 public struct DailyNoteIntent: AppIntent {
     public static let title: LocalizedStringResource = "Open Daily Note"
@@ -78,7 +78,7 @@ public struct DailyNoteIntent: AppIntent {
 
 // MARK: - App Shortcuts Provider
 
-/// Registriert App Shortcuts für Spotlight und Siri.
+/// Registers App Shortcuts for Spotlight and Siri.
 @available(iOS 16.0, macOS 13.0, *)
 public struct QuartzShortcutsProvider: AppShortcutsProvider {
     public static var appShortcuts: [AppShortcut] {
@@ -107,7 +107,7 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
 // MARK: - Helpers
 
 private func defaultVaultURL() -> URL? {
-    // In der echten App: Aus UserDefaults (AppGroup) lesen
+    // In the real app: Read from UserDefaults (AppGroup)
     UserDefaults(suiteName: "group.app.quartz.shared")?.url(forKey: "defaultVaultRoot")
 }
 #endif

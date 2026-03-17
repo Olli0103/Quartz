@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// ViewModel für den Plaintext-Editor.
+/// ViewModel for the plaintext editor.
 ///
-/// Lädt Notiz-Inhalt, tracked Änderungen und speichert
-/// automatisch nach 2 Sekunden Inaktivität.
+/// Loads note content, tracks changes and saves
+/// automatically after 2 seconds of inactivity.
 @Observable
 @MainActor
 public final class NoteEditorViewModel {
@@ -36,7 +36,7 @@ public final class NoteEditorViewModel {
     private let frontmatterParser: any FrontmatterParsing
     private var autosaveTask: Task<Void, Never>?
 
-    /// Autosave-Verzögerung in Sekunden.
+    /// Autosave delay in seconds.
     private let autosaveDelay: Duration = .seconds(2)
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing) {
@@ -44,7 +44,7 @@ public final class NoteEditorViewModel {
         self.frontmatterParser = frontmatterParser
     }
 
-    /// Lädt eine Notiz vom Dateisystem.
+    /// Loads a note from the file system.
     public func loadNote(at url: URL) async {
         do {
             let loaded = try await vaultProvider.readNote(at: url)
@@ -57,7 +57,7 @@ public final class NoteEditorViewModel {
         }
     }
 
-    /// Speichert die aktuelle Notiz sofort.
+    /// Saves the current note immediately.
     public func save() async {
         guard var currentNote = note, isDirty, !isSaving else { return }
 
@@ -94,7 +94,7 @@ public final class NoteEditorViewModel {
         }
     }
 
-    /// Aktualisiert das Frontmatter und markiert die Notiz als dirty.
+    /// Updates the frontmatter and marks the note as dirty.
     public func updateFrontmatter(_ newFrontmatter: Frontmatter) {
         note?.frontmatter = newFrontmatter
         isDirty = true
@@ -122,7 +122,7 @@ public final class NoteEditorViewModel {
         }
     }
 
-    /// Plant Autosave nach Inaktivität.
+    /// Schedules autosave after inactivity.
     private func scheduleAutosave() {
         autosaveTask?.cancel()
         let delay = autosaveDelay

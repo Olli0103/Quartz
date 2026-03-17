@@ -39,7 +39,7 @@ private func adaptiveColor(light: UInt, dark: UInt) -> Color {
 
 // MARK: - Quartz Color Palette
 
-/// Zentrale Farbpalette für Quartz – inspiriert von Apple Notes + Liquid Glass.
+/// Central color palette for Quartz – inspired by Apple Notes + Liquid Glass.
 public enum QuartzColors {
     // Primary brand gradient (slightly desaturated/brightened in dark mode)
     public static let accentGradient = LinearGradient(
@@ -129,7 +129,7 @@ public extension Color {
 
 // MARK: - Liquid Glass Material
 
-/// Ein Glasmorphismus-Effekt mit anpassbarer Transparenz und Blur.
+/// A glassmorphism effect with adjustable transparency and blur.
 public struct GlassBackground: ViewModifier {
     var cornerRadius: CGFloat
     var opacity: Double
@@ -146,7 +146,7 @@ public struct GlassBackground: ViewModifier {
     }
 }
 
-/// Subtilere Glas-Variante für Karten.
+/// More subtle glass variant for cards.
 public struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat
 
@@ -171,7 +171,7 @@ public struct GlassCard: ViewModifier {
     }
 }
 
-/// Floating Action Button Stil.
+/// Floating action button style.
 public struct FloatingButtonStyle: ButtonStyle {
     var color: Color
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -194,7 +194,7 @@ public struct FloatingButtonStyle: ButtonStyle {
 // MARK: - View Extensions
 
 public extension View {
-    /// Glasmorphismus-Hintergrund.
+    /// Glassmorphism background.
     func glassBackground(
         cornerRadius: CGFloat = 16,
         opacity: Double = 1.0,
@@ -203,37 +203,37 @@ public extension View {
         modifier(GlassBackground(cornerRadius: cornerRadius, opacity: opacity, shadowRadius: shadowRadius))
     }
 
-    /// Glas-Karten-Stil mit Border-Highlight.
+    /// Glass card style with border highlight.
     func glassCard(cornerRadius: CGFloat = 16) -> some View {
         modifier(GlassCard(cornerRadius: cornerRadius))
     }
 
-    /// Sanfter Einblend-Effekt.
+    /// Soft fade-in effect.
     func fadeIn(delay: Double = 0) -> some View {
         modifier(FadeInModifier(delay: delay))
     }
 
-    /// Slide-up-Einblendung.
+    /// Slide-up appearance.
     func slideUp(delay: Double = 0) -> some View {
         modifier(SlideUpModifier(delay: delay))
     }
 
-    /// Staggered-Einblendung für Listen-Elemente.
+    /// Staggered appearance for list elements.
     func staggered(index: Int, baseDelay: Double = 0.05) -> some View {
         modifier(StaggeredAppearModifier(index: index, baseDelay: baseDelay))
     }
 
-    /// Scale-In von der Mitte.
+    /// Scale-in from the center.
     func scaleIn(delay: Double = 0) -> some View {
         modifier(ScaleInModifier(delay: delay))
     }
 
-    /// Shimmer-Loading-Effekt.
+    /// Shimmer loading effect.
     func shimmer() -> some View {
         modifier(ShimmerModifier())
     }
 
-    /// Sanftes Pulsieren.
+    /// Soft pulsing.
     func pulse() -> some View {
         modifier(PulseModifier())
     }
@@ -243,12 +243,12 @@ public extension View {
         modifier(BounceInModifier(delay: delay))
     }
 
-    /// Rotation-Einblendung.
+    /// Rotation appearance.
     func spinIn(delay: Double = 0) -> some View {
         modifier(SpinInModifier(delay: delay))
     }
 
-    /// Parallax-Scroll-Effekt.
+    /// Parallax scroll effect.
     func parallax(strength: CGFloat = 40) -> some View {
         modifier(ParallaxModifier(strength: strength))
     }
@@ -300,7 +300,7 @@ private struct SlideUpModifier: ViewModifier {
     }
 }
 
-/// Staggered-Einblendung für Listen-Elemente (Index-basiert).
+/// Staggered appearance for list elements (index-based).
 private struct StaggeredAppearModifier: ViewModifier {
     let index: Int
     let baseDelay: Double
@@ -325,7 +325,7 @@ private struct StaggeredAppearModifier: ViewModifier {
     }
 }
 
-/// Scale-In von der Mitte – für Buttons, Icons, Badges.
+/// Scale-in from the center – for buttons, icons, badges.
 private struct ScaleInModifier: ViewModifier {
     let delay: Double
     @State private var scale: CGFloat = 0.6
@@ -350,7 +350,7 @@ private struct ScaleInModifier: ViewModifier {
     }
 }
 
-/// Shimmer-Effekt für Skeleton Loading.
+/// Shimmer effect for skeleton loading.
 public struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -387,7 +387,7 @@ public struct ShimmerModifier: ViewModifier {
     }
 }
 
-/// Sanftes Pulsieren – z.B. für den Save-Indikator.
+/// Soft pulsing – e.g. for the save indicator.
 private struct PulseModifier: ViewModifier {
     @State private var isPulsing = false
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -408,7 +408,7 @@ private struct PulseModifier: ViewModifier {
     }
 }
 
-/// Rubber-Band Bounce bei Erscheinen.
+/// Rubber-band bounce on appearance.
 private struct BounceInModifier: ViewModifier {
     let delay: Double
     @State private var scale: CGFloat = 0.3
@@ -433,7 +433,7 @@ private struct BounceInModifier: ViewModifier {
     }
 }
 
-/// Rotation-In – z.B. für Checkmarks, Icons.
+/// Rotation-in – e.g. for checkmarks, icons.
 private struct SpinInModifier: ViewModifier {
     let delay: Double
     @State private var rotation: Double = -90
@@ -458,7 +458,7 @@ private struct SpinInModifier: ViewModifier {
     }
 }
 
-/// Parallax-Effekt basierend auf Scroll-Position.
+/// Parallax effect based on scroll position.
 public struct ParallaxModifier: ViewModifier {
     let strength: CGFloat
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -481,7 +481,7 @@ public struct ParallaxModifier: ViewModifier {
 
 // MARK: - Reusable Components
 
-/// Pill-förmiger Tag-Badge.
+/// Pill-shaped tag badge.
 public struct QuartzTagBadge: View {
     public let text: String
     public var isSelected: Bool = false
@@ -547,7 +547,7 @@ public struct QuartzSectionHeader: View {
     }
 }
 
-/// Prominenter CTA-Button im Quartz-Stil mit Press-Animation.
+/// Prominent CTA button in Quartz style with press animation.
 public struct QuartzButton: View {
     public let title: String
     public let icon: String?
@@ -584,7 +584,7 @@ public struct QuartzButton: View {
     }
 }
 
-/// Press-ButtonStyle: sanftes Eindrücken + Schatten-Reduktion.
+/// Press button style: soft press-in + shadow reduction.
 public struct QuartzPressButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -603,7 +603,7 @@ public struct QuartzPressButtonStyle: ButtonStyle {
     }
 }
 
-/// Subtiler Card-ButtonStyle für interaktive Karten.
+/// Subtle card button style for interactive cards.
 public struct QuartzCardButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -617,7 +617,7 @@ public struct QuartzCardButtonStyle: ButtonStyle {
     }
 }
 
-/// Bounce-ButtonStyle für kleine Buttons/Icons.
+/// Bounce button style for small buttons/icons.
 public struct QuartzBounceButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -663,7 +663,7 @@ public struct SkeletonRow: View {
     }
 }
 
-/// Leere-State Darstellung mit Illustration.
+/// Empty state display with illustration.
 public struct QuartzEmptyState: View {
     public let icon: String
     public let title: String

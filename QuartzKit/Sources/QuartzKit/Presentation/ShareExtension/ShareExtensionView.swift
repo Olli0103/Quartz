@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// SwiftUI View für die Share Extension.
+/// SwiftUI view for the Share Extension.
 ///
-/// Zeigt eine kompakte UI zum Speichern geteilter Inhalte:
-/// - Preview des geteilten Inhalts
-/// - Vault-Auswahl
-/// - Inbox oder neue Notiz
+/// Shows a compact UI for saving shared content:
+/// - Preview of the shared content
+/// - Vault selection
+/// - Inbox or new note
 public struct ShareExtensionView: View {
     @State private var noteTitle: String = ""
     @State private var useInbox: Bool = true

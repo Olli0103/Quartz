@@ -5,10 +5,10 @@ import AppIntents
 
 // MARK: - Control Center Widget (iOS 18+)
 
-/// Control Center Widget für schnelle Notiz-Erstellung.
+/// Control Center widget for quick note creation.
 ///
-/// Zeigt einen Button im Control Center, der beim Tippen
-/// eine neue Quick Note erstellt oder die App öffnet.
+/// Shows a button in Control Center that creates
+/// a new Quick Note or opens the app when tapped.
 @available(iOS 18.0, *)
 public struct QuickNoteControlWidget: ControlWidget {
     public var body: some ControlWidgetConfiguration {
@@ -24,7 +24,7 @@ public struct QuickNoteControlWidget: ControlWidget {
     public init() {}
 }
 
-/// Intent für den Control Center Button.
+/// Intent for the Control Center button.
 @available(iOS 18.0, *)
 public struct QuickNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Quick Note"
@@ -44,7 +44,7 @@ public struct QuickNoteControlIntent: ControlConfigurationIntent {
 
 // MARK: - Daily Note Control Widget
 
-/// Control Center Widget für die tägliche Notiz.
+/// Control Center widget for the daily note.
 @available(iOS 18.0, *)
 public struct DailyNoteControlWidget: ControlWidget {
     public var body: some ControlWidgetConfiguration {
@@ -60,7 +60,7 @@ public struct DailyNoteControlWidget: ControlWidget {
     public init() {}
 }
 
-/// Intent für den Daily Note Control Center Button.
+/// Intent for the Daily Note Control Center button.
 @available(iOS 18.0, *)
 public struct DailyNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Daily Note"

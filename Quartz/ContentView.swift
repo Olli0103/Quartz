@@ -1,8 +1,8 @@
 import SwiftUI
 import QuartzKit
 
-/// Haupt-Layout: 3-Column NavigationSplitView mit Sidebar, Note-Liste und Editor.
-/// Liquid Glass Design mit sanften Übergängen.
+/// Main layout: 3-column NavigationSplitView with sidebar, note list, and editor.
+/// Liquid Glass design with smooth transitions.
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: ContentViewModel?

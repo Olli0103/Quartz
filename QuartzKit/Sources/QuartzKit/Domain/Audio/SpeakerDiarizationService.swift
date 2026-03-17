@@ -25,7 +25,7 @@ public actor SpeakerDiarizationService {
         }
     }
 
-    /// Ein erkannter Sprecher-Abschnitt.
+    /// A detected speaker segment.
     public struct SpeakerSegment: Sendable {
         public let speakerID: String
         public let speakerLabel: String
@@ -44,13 +44,13 @@ public actor SpeakerDiarizationService {
         public var duration: TimeInterval { endTime - startTime }
     }
 
-    /// Ergebnis der Diarisierung.
+    /// Result of the diarization.
     public struct DiarizationResult: Sendable {
-        /// Erkannte Sprecher-Segmente, chronologisch sortiert.
+        /// Detected speaker segments, sorted chronologically.
         public let segments: [SpeakerSegment]
-        /// Anzahl erkannter Sprecher.
+        /// Number of detected speakers.
         public let speakerCount: Int
-        /// Sprecher-IDs mit Labels.
+        /// Speaker IDs with labels.
         public let speakers: [String: String]
 
         public init(segments: [SpeakerSegment], speakerCount: Int, speakers: [String: String]) {
@@ -60,35 +60,35 @@ public actor SpeakerDiarizationService {
         }
     }
 
-    /// Mindest-Segmentlänge in Sekunden.
+    /// Minimum segment length in seconds.
     private let minSegmentDuration: TimeInterval = 1.0
-    /// Fenstergröße für Feature-Extraktion (Sekunden).
+    /// Window size for feature extraction (seconds).
     private let windowSize: TimeInterval = 2.0
 
     public init() {}
 
     // MARK: - Public API
 
-    /// Analysiert eine Audio-Datei auf verschiedene Sprecher.
+    /// Analyzes an audio file for different speakers.
     ///
-    /// - Parameter audioURL: Pfad zur Audio-Datei
-    /// - Returns: DiarizationResult mit Sprecher-Segmenten
+    /// - Parameter audioURL: Path to the audio file
+    /// - Returns: DiarizationResult with speaker segments
     public func analyze(audioURL: URL) async throws -> DiarizationResult {
         guard FileManager.default.fileExists(atPath: audioURL.path()) else {
             throw DiarizationError.fileNotFound
         }
 
-        // 1. Audio laden und Features extrahieren
+        // 1. Load audio and extract features
         let features = try await extractAudioFeatures(from: audioURL)
 
         guard features.count >= 2 else {
             throw DiarizationError.insufficientAudio
         }
 
-        // 2. Clustering der Features um Sprecher zu identifizieren
+        // 2. Cluster features to identify speakers
         let clusterAssignments = clusterFeatures(features)
 
-        // 3. Segmente erstellen
+        // 3. Create segments
         let speakerCount = Set(clusterAssignments).count
         let speakers = generateSpeakerLabels(count: speakerCount)
 
@@ -100,7 +100,7 @@ public actor SpeakerDiarizationService {
             let time = Double(i) * windowSize
 
             if cluster != currentSpeaker {
-                // Segment abschließen
+                // Finalize segment
                 let speakerID = "speaker_\(currentSpeaker)"
                 segments.append(SpeakerSegment(
                     speakerID: speakerID,
@@ -114,7 +114,7 @@ public actor SpeakerDiarizationService {
             }
         }
 
-        // Letztes Segment
+        // Last segment
         let lastTime = Double(clusterAssignments.count) * windowSize
         let speakerID = "speaker_\(currentSpeaker)"
         segments.append(SpeakerSegment(
@@ -125,7 +125,7 @@ public actor SpeakerDiarizationService {
             confidence: 0.8
         ))
 
-        // Zu kurze Segmente mergen
+        // Merge segments that are too short
         let mergedSegments = mergeShortSegments(segments)
 
         return DiarizationResult(
@@ -135,7 +135,7 @@ public actor SpeakerDiarizationService {
         )
     }
 
-    /// Kombiniert Diarisierung mit Transkription.
+    /// Combines diarization with transcription.
     public func combineWithTranscription(
         diarization: DiarizationResult,
         transcription: TranscriptionService.TranscriptionResult
@@ -143,7 +143,7 @@ public actor SpeakerDiarizationService {
         var result = ""
 
         for segment in diarization.segments {
-            // Transkriptions-Segmente finden die in diesen Zeitraum fallen
+            // Find transcription segments that fall within this time range
             let matchingText = transcription.segments
                 .filter { $0.timestamp >= segment.startTime && $0.timestamp < segment.endTime }
                 .map(\.text)
@@ -161,7 +161,7 @@ public actor SpeakerDiarizationService {
 
     // MARK: - Private
 
-    /// Extrahiert Audio-Features (Energy, Zero-Crossing-Rate, Spectral Centroid) pro Fenster.
+    /// Extracts audio features (energy, zero-crossing rate, spectral centroid) per window.
     private func extractAudioFeatures(from url: URL) async throws -> [[Float]] {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
@@ -198,7 +198,7 @@ public actor SpeakerDiarizationService {
             }
             zcr /= Float(window.count)
 
-            // Feature 3: Spectral Centroid (vereinfacht via Frequenzgewichtung)
+            // Feature 3: Spectral Centroid (simplified via frequency weighting)
             var mean: Float = 0
             vDSP_meanv(window, 1, &mean, vDSP_Length(window.count))
             let centroid = abs(mean) * sampleRate
@@ -210,20 +210,20 @@ public actor SpeakerDiarizationService {
         return features
     }
 
-    /// K-Means Clustering der Audio-Features.
+    /// K-Means clustering of audio features.
     private func clusterFeatures(_ features: [[Float]], maxSpeakers: Int = 4) -> [Int] {
         guard !features.isEmpty else { return [] }
 
         let k = min(maxSpeakers, estimateSpeakerCount(features))
 
-        // Initialisierung: Erste k verschiedene Features als Zentroide
+        // Initialization: First k distinct features as centroids
         var centroids: [[Float]] = Array(features.prefix(k))
         var assignments = [Int](repeating: 0, count: features.count)
 
-        // K-Means Iterationen mit Early Stopping bei Konvergenz
+        // K-Means iterations with early stopping on convergence
         let epsilon: Float = 1e-4
         for _ in 0..<20 {
-            // Zuweisen
+            // Assign
             for (i, feature) in features.enumerated() {
                 var minDist: Float = .infinity
                 for (j, centroid) in centroids.enumerated() {
@@ -235,7 +235,7 @@ public actor SpeakerDiarizationService {
                 }
             }
 
-            // Zentroide aktualisieren und Konvergenz prüfen
+            // Update centroids and check convergence
             var maxDelta: Float = 0
             for j in 0..<k {
                 let clusterFeatures = features.enumerated()
@@ -260,18 +260,18 @@ public actor SpeakerDiarizationService {
                 centroids[j] = newCentroid
             }
 
-            // Early stopping wenn Zentroide stabil
+            // Early stopping when centroids are stable
             if maxDelta < epsilon { break }
         }
 
         return assignments
     }
 
-    /// Schätzt die Anzahl der Sprecher basierend auf Feature-Varianz.
+    /// Estimates the number of speakers based on feature variance.
     private func estimateSpeakerCount(_ features: [[Float]]) -> Int {
         guard features.count > 4 else { return 2 }
 
-        // Vereinfachte Heuristik: Varianz der Features bestimmt Anzahl
+        // Simplified heuristic: feature variance determines count
         let energies = features.map { $0[0] }
         var mean: Float = 0
         var variance: Float = 0
@@ -313,7 +313,7 @@ public actor SpeakerDiarizationService {
             let last = merged[merged.count - 1]
 
             if current.speakerID == last.speakerID || current.duration < minSegmentDuration {
-                // Merge mit vorherigem
+                // Merge with previous
                 merged[merged.count - 1] = SpeakerSegment(
                     speakerID: last.speakerID,
                     speakerLabel: last.speakerLabel,

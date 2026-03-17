@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Latest Note Widget
 
-/// Timeline Entry für das "Latest Note" Widget.
+/// Timeline entry for the "Latest Note" widget.
 public struct LatestNoteEntry: TimelineEntry, Sendable {
     public let date: Date
     public let noteTitle: String
@@ -26,7 +26,7 @@ public struct LatestNoteEntry: TimelineEntry, Sendable {
     )
 }
 
-/// Timeline Provider für das Latest Note Widget.
+/// Timeline provider for the Latest Note widget.
 public struct LatestNoteProvider: TimelineProvider {
     public init() {}
 
@@ -52,7 +52,7 @@ public struct LatestNoteProvider: TimelineProvider {
         completion(timeline)
     }
 
-    /// Findet die zuletzt geänderte .md Datei im Vault.
+    /// Finds the most recently modified .md file in the vault.
     private static func findLatestNote(in vaultRoot: URL) -> LatestNoteEntry? {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
@@ -91,7 +91,7 @@ public struct LatestNoteProvider: TimelineProvider {
     }
 }
 
-/// View für das Latest Note Widget (Lockscreen + Home Screen).
+/// View for the Latest Note widget (lock screen + home screen).
 public struct LatestNoteWidgetView: View {
     let entry: LatestNoteEntry
     @Environment(\.widgetFamily) var family
@@ -184,7 +184,7 @@ public struct LatestNoteWidgetView: View {
 
 // MARK: - Quick Capture Widget
 
-/// Timeline Entry für Quick Capture (statisch).
+/// Timeline entry for Quick Capture (static).
 public struct QuickCaptureEntry: TimelineEntry {
     public let date: Date
 
@@ -193,7 +193,7 @@ public struct QuickCaptureEntry: TimelineEntry {
     }
 }
 
-/// Timeline Provider für das Quick Capture Widget.
+/// Timeline provider for the Quick Capture widget.
 public struct QuickCaptureProvider: TimelineProvider {
     public init() {}
 
@@ -212,7 +212,7 @@ public struct QuickCaptureProvider: TimelineProvider {
     }
 }
 
-/// View für das Quick Capture Widget.
+/// View for the Quick Capture widget.
 public struct QuickCaptureWidgetView: View {
     @Environment(\.widgetFamily) var family
 
@@ -251,7 +251,7 @@ public struct QuickCaptureWidgetView: View {
 
 // MARK: - Pinned Notes Widget
 
-/// Timeline Entry für Pinned Notes.
+/// Timeline entry for Pinned Notes.
 public struct PinnedNotesEntry: TimelineEntry, Sendable {
     public let date: Date
     public let notes: [PinnedNote]
@@ -271,7 +271,7 @@ public struct PinnedNotesEntry: TimelineEntry, Sendable {
     )
 }
 
-/// Eine gepinnte Notiz im Widget.
+/// A pinned note in the widget.
 public struct PinnedNote: Identifiable, Sendable {
     public let id = UUID()
     public let title: String
@@ -283,7 +283,7 @@ public struct PinnedNote: Identifiable, Sendable {
     }
 }
 
-/// View für das Pinned Notes Widget (Medium/Large).
+/// View for the Pinned Notes widget (medium/large).
 public struct PinnedNotesWidgetView: View {
     let entry: PinnedNotesEntry
 

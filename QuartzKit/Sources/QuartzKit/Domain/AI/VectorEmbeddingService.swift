@@ -235,13 +235,13 @@ public actor VectorEmbeddingService {
 
     // MARK: - Semantic Search
 
-    /// Sucht semantisch ähnliche Chunks.
+    /// Searches for semantically similar chunks.
     ///
     /// - Parameters:
-    ///   - query: Die Suchanfrage
-    ///   - limit: Maximale Anzahl Ergebnisse
-    ///   - threshold: Minimale Cosine Similarity (0.0-1.0)
-    /// - Returns: Sortierte Ergebnisse (höchste Similarity zuerst)
+    ///   - query: The search query
+    ///   - limit: Maximum number of results
+    ///   - threshold: Minimum cosine similarity (0.0-1.0)
+    /// - Returns: Sorted results (highest similarity first)
     public func search(
         query: String,
         limit: Int = 10,
@@ -269,10 +269,10 @@ public actor VectorEmbeddingService {
             .map { $0 }
     }
 
-    /// Anzahl der indexierten Chunks.
+    /// Number of indexed chunks.
     public var entryCount: Int { index.count }
 
-    /// Alle indexierten Notiz-IDs.
+    /// All indexed note IDs.
     public var indexedNoteIDs: Set<UUID> {
         Set(index.map(\.noteID))
     }
@@ -291,7 +291,7 @@ public actor VectorEmbeddingService {
 
     // MARK: - Private
 
-    /// Teilt Text in Chunks von ca. `chunkSize` Zeichen auf.
+    /// Splits text into chunks of approximately `chunkSize` characters.
     private func chunkText(_ text: String) -> [String] {
         let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         var chunks: [String] = []
@@ -301,7 +301,7 @@ public actor VectorEmbeddingService {
         for word in words {
             if currentLength + word.count + 1 > chunkSize && !currentChunk.isEmpty {
                 chunks.append(currentChunk.joined(separator: " "))
-                // Overlap: letzte 20% behalten
+                // Overlap: keep last 20%
                 let overlapCount = max(1, currentChunk.count / 5)
                 currentChunk = Array(currentChunk.suffix(overlapCount))
                 currentLength = currentChunk.joined(separator: " ").count
@@ -317,7 +317,7 @@ public actor VectorEmbeddingService {
         return chunks
     }
 
-    /// Erzeugt ein Embedding mit NLEmbedding.
+    /// Generates an embedding using NLEmbedding.
     /// Uses per-language caching to support automatic language detection.
     private var embeddingCache: [NLLanguage: NLEmbedding] = [:]
 
@@ -342,7 +342,7 @@ public actor VectorEmbeddingService {
         return vector.map { Float($0) }
     }
 
-    /// Berechnet Cosine Similarity via Accelerate Framework.
+    /// Computes cosine similarity via the Accelerate framework.
     private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
 
