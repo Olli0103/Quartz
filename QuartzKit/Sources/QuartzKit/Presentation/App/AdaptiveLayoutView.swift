@@ -114,27 +114,43 @@ public struct KeyboardShortcutCommands: Commands {
 /// Modifier für Stage Manager und Fenstergröße auf iPad.
 public struct StageManagerModifier: ViewModifier {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    var appState: AppState
 
     public func body(content: Content) -> some View {
         content
-            #if os(iOS)
             .onOpenURL { url in
-                // Deep-Link Handling für Stage Manager Fenster
                 handleDeepLink(url)
             }
-            #endif
     }
 
     private func handleDeepLink(_ url: URL) {
-        // quartz://note/<path> → Notiz öffnen
-        // quartz://new → Neue Notiz
-        // quartz://daily → Daily Note
+        guard url.scheme == "quartz" else { return }
+        switch url.host() {
+        case "note":
+            // quartz://note/<filename> → Notiz öffnen
+            let path = url.pathComponents.dropFirst().joined(separator: "/")
+            guard !path.isEmpty,
+                  let vaultRoot = appState.currentVault?.rootURL else { return }
+            let noteURL = vaultRoot.appending(path: path)
+            Task { @MainActor in
+                let provider = FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
+                if let note = try? await provider.readNote(at: noteURL) {
+                    appState.selectedNote = note
+                }
+            }
+        case "new":
+            appState.pendingCommand = .newNote
+        case "daily":
+            appState.pendingCommand = .dailyNote
+        default:
+            break
+        }
     }
 }
 
 extension View {
     /// Aktiviert Stage Manager Support.
-    public func stageManagerSupport() -> some View {
-        modifier(StageManagerModifier())
+    public func stageManagerSupport(appState: AppState) -> some View {
+        modifier(StageManagerModifier(appState: appState))
     }
 }

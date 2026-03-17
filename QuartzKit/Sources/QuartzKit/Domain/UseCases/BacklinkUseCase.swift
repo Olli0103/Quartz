@@ -6,10 +6,11 @@ import Foundation
 /// die auf die gegebene Notiz verweisen.
 public struct BacklinkUseCase: Sendable {
     private let vaultProvider: any VaultProviding
-    private let linkExtractor = WikiLinkExtractor()
+    private let linkExtractor: WikiLinkExtractor
 
-    public init(vaultProvider: any VaultProviding) {
+    public init(vaultProvider: any VaultProviding, linkExtractor: WikiLinkExtractor = WikiLinkExtractor()) {
         self.vaultProvider = vaultProvider
+        self.linkExtractor = linkExtractor
     }
 
     /// Findet alle Notizen die auf die gegebene Notiz verlinken.

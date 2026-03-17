@@ -71,7 +71,9 @@ public actor DrawingStorageService {
     }
 
     /// Listet alle Zeichnungs-IDs für eine Notiz auf.
-    public func listDrawings(for noteURL: URL) -> [String] {
+    ///
+    /// - Throws: Propagiert Dateisystem-Fehler (außer wenn der assets-Ordner nicht existiert).
+    public func listDrawings(for noteURL: URL) throws -> [String] {
         let assetsFolder = assetsURL(for: noteURL)
 
         let contents: [URL]
@@ -80,8 +82,8 @@ public actor DrawingStorageService {
                 at: assetsFolder,
                 includingPropertiesForKeys: nil
             )
-        } catch {
-            logger.debug("No drawings found at \(assetsFolder.lastPathComponent): \(error.localizedDescription)")
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            // Assets-Ordner existiert nicht → keine Zeichnungen vorhanden
             return []
         }
 

@@ -25,7 +25,7 @@ public struct QuickNoteControlWidget: ControlWidget {
 }
 
 /// Intent für den Control Center Button.
-@available(iOS 18.0, macOS 15.0, *)
+@available(iOS 18.0, *)
 public struct QuickNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Quick Note"
     public static var description = IntentDescription(String(localized: "Opens Quartz for a quick note.", bundle: .module))
@@ -61,7 +61,7 @@ public struct DailyNoteControlWidget: ControlWidget {
 }
 
 /// Intent für den Daily Note Control Center Button.
-@available(iOS 18.0, macOS 15.0, *)
+@available(iOS 18.0, *)
 public struct DailyNoteControlIntent: ControlConfigurationIntent {
     public static var title: LocalizedStringResource = "Daily Note"
     public static var description = IntentDescription(String(localized: "Opens today's daily note.", bundle: .module))

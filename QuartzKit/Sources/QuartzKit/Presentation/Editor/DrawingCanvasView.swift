@@ -163,9 +163,10 @@ public struct DrawingBlockView: View {
 
 // MARK: - Drawing Thumbnail
 
-/// Rendert eine PKDrawing als statisches Bild.
+/// Rendert eine PKDrawing als statisches Bild (async, off-main-thread).
 struct DrawingThumbnailView: View {
     let drawing: PKDrawing
+    @State private var renderedImage: UIImage?
 
     var body: some View {
         GeometryReader { geometry in
@@ -186,19 +187,25 @@ struct DrawingThumbnailView: View {
                     }
                     Spacer()
                 }
-            } else {
-                let scale: CGFloat = 2.0 // Default retina scale
-                let image = drawing.image(
-                    from: drawing.bounds,
-                    scale: scale
-                )
-                Image(uiImage: image)
+            } else if let renderedImage {
+                Image(uiImage: renderedImage)
                     .resizable()
                     .scaledToFit()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+            } else {
+                ProgressView()
                     .frame(width: geometry.size.width, height: geometry.size.height)
             }
         }
         .background(.background)
+        .task(id: drawing.bounds) {
+            guard !drawing.bounds.isEmpty else { return }
+            let drawingCopy = drawing
+            let img = await Task.detached(priority: .userInitiated) {
+                drawingCopy.image(from: drawingCopy.bounds, scale: 2.0)
+            }.value
+            renderedImage = img
+        }
     }
 }
 #else

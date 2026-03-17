@@ -220,7 +220,8 @@ public actor SpeakerDiarizationService {
         var centroids: [[Float]] = Array(features.prefix(k))
         var assignments = [Int](repeating: 0, count: features.count)
 
-        // K-Means Iterationen
+        // K-Means Iterationen mit Early Stopping bei Konvergenz
+        let epsilon: Float = 1e-4
         for _ in 0..<20 {
             // Zuweisen
             for (i, feature) in features.enumerated() {
@@ -234,7 +235,8 @@ public actor SpeakerDiarizationService {
                 }
             }
 
-            // Zentroide aktualisieren
+            // Zentroide aktualisieren und Konvergenz prüfen
+            var maxDelta: Float = 0
             for j in 0..<k {
                 let clusterFeatures = features.enumerated()
                     .filter { assignments[$0.offset] == j }
@@ -252,8 +254,14 @@ public actor SpeakerDiarizationService {
                 for d in 0..<dim {
                     newCentroid[d] /= Float(clusterFeatures.count)
                 }
+
+                let delta = euclideanDistance(centroids[j], newCentroid)
+                maxDelta = max(maxDelta, delta)
                 centroids[j] = newCentroid
             }
+
+            // Early stopping wenn Zentroide stabil
+            if maxDelta < epsilon { break }
         }
 
         return assignments

@@ -10,8 +10,11 @@ public actor VaultSearchIndex {
     private struct IndexEntry: Sendable {
         let url: URL
         let title: String
+        let titleLower: String
         let tags: [String]
+        let tagsLower: [String]
         let body: String
+        let bodyLower: String
         let modifiedAt: Date
     }
 
@@ -33,11 +36,17 @@ public actor VaultSearchIndex {
     public func updateEntry(for url: URL) async {
         do {
             let note = try await vaultProvider.readNote(at: url)
+            let title = note.displayName
+            let tags = note.frontmatter.tags
+            let body = note.body
             entries[url] = IndexEntry(
                 url: url,
-                title: note.displayName,
-                tags: note.frontmatter.tags,
-                body: note.body,
+                title: title,
+                titleLower: title.lowercased(),
+                tags: tags,
+                tagsLower: tags.map { $0.lowercased() },
+                body: body,
+                bodyLower: body.lowercased(),
                 modifiedAt: note.frontmatter.modifiedAt
             )
         } catch {
@@ -63,24 +72,23 @@ public actor VaultSearchIndex {
             var score = 0
             var matchContext: String?
 
-            // Titel-Match (höchste Priorität)
-            if entry.title.lowercased().contains(queryLower) {
+            // Titel-Match (höchste Priorität) – pre-computed lowercase
+            if entry.titleLower.contains(queryLower) {
                 score += 10
-                if entry.title.lowercased() == queryLower {
+                if entry.titleLower == queryLower {
                     score += 5 // Exakter Match
                 }
             }
 
-            // Tag-Match
-            for tag in entry.tags {
-                if tag.lowercased().contains(queryLower) {
+            // Tag-Match – pre-computed lowercase
+            for tagLower in entry.tagsLower {
+                if tagLower.contains(queryLower) {
                     score += 5
                 }
             }
 
-            // Body-Match
-            let bodyLower = entry.body.lowercased()
-            if bodyLower.contains(queryLower) {
+            // Body-Match – pre-computed lowercase
+            if entry.bodyLower.contains(queryLower) {
                 score += 3
                 matchContext = extractSearchContext(query: queryLower, in: entry.body)
             }
@@ -88,9 +96,9 @@ public actor VaultSearchIndex {
             // Alle Suchbegriffe müssen vorkommen (AND-Logik)
             if queryTerms.count > 1 {
                 let allTermsFound = queryTerms.allSatisfy { term in
-                    entry.title.lowercased().contains(term) ||
-                    entry.tags.contains { $0.lowercased().contains(term) } ||
-                    bodyLower.contains(term)
+                    entry.titleLower.contains(term) ||
+                    entry.tagsLower.contains { $0.contains(term) } ||
+                    entry.bodyLower.contains(term)
                 }
                 if !allTermsFound {
                     score = 0
@@ -103,7 +111,9 @@ public actor VaultSearchIndex {
                     title: entry.title,
                     score: score,
                     context: matchContext,
-                    matchedTags: entry.tags.filter { $0.lowercased().contains(queryLower) }
+                    matchedTags: zip(entry.tags, entry.tagsLower)
+                        .filter { $0.1.contains(queryLower) }
+                        .map(\.0)
                 ))
             }
         }
@@ -115,12 +125,21 @@ public actor VaultSearchIndex {
 
     private func indexNodes(_ nodes: [FileNode]) async {
         let noteURLs = collectNoteURLs(from: nodes)
+        let maxConcurrency = 16
+
         await withTaskGroup(of: Void.self) { group in
+            var pending = 0
             for url in noteURLs {
+                if pending >= maxConcurrency {
+                    await group.next()
+                    pending -= 1
+                }
                 group.addTask {
                     await self.updateEntry(for: url)
                 }
+                pending += 1
             }
+            await group.waitForAll()
         }
     }
 

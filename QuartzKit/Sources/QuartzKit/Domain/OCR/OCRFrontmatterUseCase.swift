@@ -14,11 +14,13 @@ public actor OCRFrontmatterUseCase {
 
     public init(
         vaultProvider: any VaultProviding,
+        ocrService: HandwritingOCRService? = nil,
+        drawingStorage: DrawingStorageService? = nil,
         languages: [String] = ["de-DE", "en-US"]
     ) {
-        self.ocrService = HandwritingOCRService(languages: languages)
+        self.ocrService = ocrService ?? HandwritingOCRService(languages: languages)
         self.vaultProvider = vaultProvider
-        self.drawingStorage = DrawingStorageService()
+        self.drawingStorage = drawingStorage ?? DrawingStorageService()
     }
 
     /// Führt OCR auf einer Zeichnung durch und aktualisiert die Frontmatter.
@@ -81,7 +83,7 @@ public actor OCRFrontmatterUseCase {
     /// - Returns: BatchResult mit Erfolgs-/Fehlerzählung.
     @discardableResult
     public func processAllDrawings(for noteURL: URL) async throws -> BatchResult {
-        let drawingIDs = await drawingStorage.listDrawings(for: noteURL)
+        let drawingIDs = try await drawingStorage.listDrawings(for: noteURL)
         var succeeded = 0
         var failures: [(drawingID: String, error: String)] = []
 

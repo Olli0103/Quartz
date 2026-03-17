@@ -264,9 +264,9 @@ public struct PinnedNotesEntry: TimelineEntry {
     public static let placeholder = PinnedNotesEntry(
         date: .now,
         notes: [
-            PinnedNote(title: "Meeting Notes", icon: "doc.text"),
-            PinnedNote(title: "Shopping List", icon: "checklist"),
-            PinnedNote(title: "Project Ideas", icon: "lightbulb"),
+            PinnedNote(title: String(localized: "Meeting Notes", bundle: .module), icon: "doc.text"),
+            PinnedNote(title: String(localized: "Shopping List", bundle: .module), icon: "checklist"),
+            PinnedNote(title: String(localized: "Project Ideas", bundle: .module), icon: "lightbulb"),
         ]
     )
 }

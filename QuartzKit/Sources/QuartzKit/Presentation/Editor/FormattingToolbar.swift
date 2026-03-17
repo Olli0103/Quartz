@@ -104,6 +104,7 @@ public struct FormattingToolbar: View {
                     .contentShape(Rectangle())
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(action.label)
+                    .accessibilityHint(String(localized: "Double tap to apply \(action.label) formatting", bundle: .module))
                 }
 
                 Divider()

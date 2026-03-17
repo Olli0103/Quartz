@@ -30,31 +30,31 @@ struct ContentView: View {
             openNote(at: newURL)
         }
         // MARK: - Keyboard Shortcut Handlers
-        .onChange(of: appState.newNoteAction) {
-            if let root = sidebarViewModel?.vaultRootURL {
-                newNoteParent = root
-                showNewNote = true
+        .onChange(of: appState.pendingCommand) { _, command in
+            guard command != .none else { return }
+            defer { appState.pendingCommand = .none }
+            switch command {
+            case .newNote:
+                if let root = sidebarViewModel?.vaultRootURL {
+                    newNoteParent = root
+                    showNewNote = true
+                }
+            case .newFolder:
+                if let root = sidebarViewModel?.vaultRootURL {
+                    newNoteParent = root
+                    showNewFolder = true
+                }
+            case .search, .globalSearch:
+                showSearch = true
+            case .toggleSidebar:
+                withAnimation {
+                    columnVisibility = columnVisibility == .all ? .detailOnly : .all
+                }
+            case .dailyNote:
+                createDailyNote()
+            case .none:
+                break
             }
-        }
-        .onChange(of: appState.newFolderAction) {
-            if let root = sidebarViewModel?.vaultRootURL {
-                newNoteParent = root
-                showNewFolder = true
-            }
-        }
-        .onChange(of: appState.searchAction) {
-            showSearch = true
-        }
-        .onChange(of: appState.globalSearchAction) {
-            showSearch = true
-        }
-        .onChange(of: appState.toggleSidebarAction) {
-            withAnimation {
-                columnVisibility = columnVisibility == .all ? .detailOnly : .all
-            }
-        }
-        .onChange(of: appState.dailyNoteAction) {
-            createDailyNote()
         }
         .sheet(isPresented: $showVaultPicker) {
             VaultPickerView { vault in

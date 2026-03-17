@@ -51,7 +51,7 @@ public actor BiometricAuthService {
     ///
     /// - Parameter reason: Der Grund der Authentifizierung (wird dem User angezeigt)
     /// - Returns: AuthResult mit Erfolg oder Fehler
-    public func authenticate(reason: String = "Unlock Quartz") async -> AuthResult {
+    public func authenticate(reason: String = String(localized: "Unlock Quartz", bundle: .module)) async -> AuthResult {
         let context = LAContext()
         context.localizedCancelTitle = String(localized: "Cancel", bundle: .module)
         context.localizedFallbackTitle = String(localized: "Use Passcode", bundle: .module)

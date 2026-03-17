@@ -58,7 +58,7 @@ public actor VaultChatService {
 
         // 3. Kontext aufbauen
         let contextString = searchResults.enumerated().map { i, result in
-            let title = noteResolver(result.entry.noteID) ?? "Unknown Note"
+            let title = noteResolver(result.entry.noteID) ?? String(localized: "Unknown Note", bundle: .module)
             return """
             [Source \(i + 1): \(title)]
             \(result.entry.chunkText)
@@ -117,7 +117,7 @@ public actor VaultChatService {
 
             sources.append(VaultSource(
                 noteID: noteID,
-                noteTitle: noteResolver(noteID) ?? "Unknown",
+                noteTitle: noteResolver(noteID) ?? String(localized: "Unknown", bundle: .module),
                 relevance: result.similarity,
                 excerpt: String(result.entry.chunkText.prefix(200))
             ))

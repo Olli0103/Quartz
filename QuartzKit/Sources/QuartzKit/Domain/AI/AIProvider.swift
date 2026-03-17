@@ -68,8 +68,7 @@ public final class OpenAIProvider: AIProvider, Sendable {
     public let displayName = "OpenAI"
     private let keychain: KeychainHelper
 
-    // nonisolated(unsafe) is fine – these are truly immutable constants.
-    nonisolated(unsafe) private static let chatURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private var chatURL: URL { URL(string: "https://api.openai.com/v1/chat/completions")! }
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -94,13 +93,13 @@ public final class OpenAIProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: Self.chatURL)
+        var request = URLRequest(url: chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await Self.session.data(for: request)
         let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 
@@ -111,13 +110,25 @@ public final class OpenAIProvider: AIProvider, Sendable {
     }
 }
 
+/// Shared URLSession with reasonable timeouts for AI requests.
+private let aiURLSession: URLSession = {
+    let config = URLSessionConfiguration.default
+    config.timeoutIntervalForRequest = 30
+    config.timeoutIntervalForResource = 120
+    return URLSession(configuration: config)
+}()
+
+private extension AIProvider {
+    static var session: URLSession { aiURLSession }
+}
+
 /// Anthropic Provider (Claude)
 public final class AnthropicProvider: AIProvider, Sendable {
     public let id = "anthropic"
     public let displayName = "Anthropic"
     private let keychain: KeychainHelper
 
-    nonisolated(unsafe) private static let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
+    private var messagesURL: URL { URL(string: "https://api.anthropic.com/v1/messages")! }
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -150,14 +161,14 @@ public final class AnthropicProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: Self.messagesURL)
+        var request = URLRequest(url: messagesURL)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await Self.session.data(for: request)
         let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(AnthropicChatResponse.self, from: data)
 
@@ -174,7 +185,7 @@ public final class OllamaProvider: AIProvider, Sendable {
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
-    nonisolated(unsafe) private static let defaultBaseURL = URL(string: "http://localhost:11434")!
+    private static var defaultBaseURL: URL { URL(string: "http://localhost:11434")! }
 
     public var isConfigured: Bool { true } // Kein API-Key nötig
 
@@ -205,7 +216,7 @@ public final class OllamaProvider: AIProvider, Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await Self.session.data(for: request)
         let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
 
@@ -261,7 +272,7 @@ public final class GeminiProvider: AIProvider, Sendable {
         request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await Self.session.data(for: request)
         let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(GeminiChatResponse.self, from: data)
 
@@ -278,7 +289,7 @@ public final class OpenRouterProvider: AIProvider, Sendable {
     public let displayName = "OpenRouter"
     private let keychain: KeychainHelper
 
-    nonisolated(unsafe) private static let chatURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+    private var chatURL: URL { URL(string: "https://openrouter.ai/api/v1/chat/completions")! }
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -308,14 +319,14 @@ public final class OpenRouterProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: Self.chatURL)
+        var request = URLRequest(url: chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await URLSession.shared.data(for: request)
+        let (rawData, httpResponse) = try await Self.session.data(for: request)
         let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
         let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 

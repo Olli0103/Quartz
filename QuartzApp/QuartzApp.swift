@@ -25,12 +25,12 @@ struct QuartzApp: App {
         }
         .commands {
             KeyboardShortcutCommands(
-                onNewNote: { appState.newNoteAction.toggle() },
-                onNewFolder: { appState.newFolderAction.toggle() },
-                onSearch: { appState.searchAction.toggle() },
-                onGlobalSearch: { appState.globalSearchAction.toggle() },
-                onToggleSidebar: { appState.toggleSidebarAction.toggle() },
-                onDailyNote: { appState.dailyNoteAction.toggle() }
+                onNewNote: { appState.pendingCommand = .newNote },
+                onNewFolder: { appState.pendingCommand = .newFolder },
+                onSearch: { appState.pendingCommand = .search },
+                onGlobalSearch: { appState.pendingCommand = .globalSearch },
+                onToggleSidebar: { appState.pendingCommand = .toggleSidebar },
+                onDailyNote: { appState.pendingCommand = .dailyNote }
             )
         }
         #if os(macOS)

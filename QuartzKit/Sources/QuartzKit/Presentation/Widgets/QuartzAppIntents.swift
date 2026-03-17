@@ -88,7 +88,7 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
                 "Create a note in \(.applicationName)",
                 "New note in \(.applicationName)",
             ],
-            shortTitle: "New Note",
+            shortTitle: LocalizedStringResource("New Note", bundle: .atURL(Bundle.module.bundleURL)),
             systemImageName: "square.and.pencil"
         )
 
@@ -98,7 +98,7 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
                 "Open daily note in \(.applicationName)",
                 "Today's note in \(.applicationName)",
             ],
-            shortTitle: "Daily Note",
+            shortTitle: LocalizedStringResource("Daily Note", bundle: .atURL(Bundle.module.bundleURL)),
             systemImageName: "calendar"
         )
     }

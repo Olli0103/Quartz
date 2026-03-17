@@ -368,7 +368,7 @@ public struct ShimmerModifier: ViewModifier {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .onAppear {
                             withAnimation(
-                                .easeInOut(duration: 1.5)
+                                .linear(duration: 1.5)
                                 .repeatForever(autoreverses: false)
                             ) {
                                 phase = 2

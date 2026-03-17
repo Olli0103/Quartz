@@ -88,9 +88,12 @@ public final class NoteEditorViewModel {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
             let text = self.content
-            let count = text.components(separatedBy: .whitespacesAndNewlines)
-                .filter { !$0.isEmpty }
-                .count
+            // Berechnung off-main-thread um 120Hz-Scrolling nicht zu beeinträchtigen
+            let count = await Task.detached(priority: .utility) {
+                text.components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                    .count
+            }.value
             guard !Task.isCancelled else { return }
             self.wordCount = count
         }

@@ -49,16 +49,20 @@ public struct ShareCaptureUseCase: Sendable {
     }
 
     /// Writes image data to the assets folder and returns an updated SharedItem with the correct path.
+    private static let assetDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+
     private func writeImageAssetIfNeeded(_ item: SharedItem, vaultRoot: URL) throws -> SharedItem {
         guard case .image(let imageData, let caption) = item else { return item }
 
         let assetsFolder = vaultRoot.appending(path: "assets")
         try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let fileName = "capture-\(formatter.string(from: Date())).png"
+        let fileName = "capture-\(Self.assetDateFormatter.string(from: Date())).png"
         let imageURL = assetsFolder.appending(path: fileName)
 
         try imageData.write(to: imageURL, options: .atomic)
@@ -68,15 +72,20 @@ public struct ShareCaptureUseCase: Sendable {
 
     // MARK: - Private
 
+    private static let iso8601Formatter = ISO8601DateFormatter()
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = .autoupdatingCurrent
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f
+    }()
+
     private func appendToInbox(_ item: SharedItem, vaultRoot: URL) throws -> URL {
         let inboxURL = vaultRoot.appending(path: "Inbox.md")
-        let now = ISO8601DateFormatter().string(from: Date())
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = .autoupdatingCurrent
-        timeFormatter.dateStyle = .none
-        timeFormatter.timeStyle = .short
+        let now = Self.iso8601Formatter.string(from: Date())
 
-        let entry = "\n\n---\n_Captured \(timeFormatter.string(from: Date()))_\n\n\(item.markdownContent)"
+        let entry = "\n\n---\n_Captured \(Self.timeFormatter.string(from: Date()))_\n\n\(item.markdownContent)"
 
         if fileManager.fileExists(atPath: inboxURL.path(percentEncoded: false)) {
             var existing = try String(contentsOf: inboxURL, encoding: .utf8)
@@ -110,7 +119,7 @@ public struct ShareCaptureUseCase: Sendable {
             .replacingOccurrences(of: "\n", with: " ")
         let fileName = safeTitle.hasSuffix(".md") ? safeTitle : "\(safeTitle).md"
         let fileURL = vaultRoot.appending(path: fileName)
-        let now = ISO8601DateFormatter().string(from: Date())
+        let now = Self.iso8601Formatter.string(from: Date())
 
         // Quote title if it contains YAML special characters
         let yamlTitle = safeTitle.contains(":") || safeTitle.contains("#") || safeTitle.contains("[")
