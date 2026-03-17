@@ -15,7 +15,7 @@ public final class NoteChatSession {
     public init(
         noteContent: String,
         noteTitle: String,
-        chatService: NoteChatService = NoteChatService()
+        chatService: NoteChatService = NoteChatService(providerRegistry: .shared)
     ) {
         self.noteContent = noteContent
         self.noteTitle = noteTitle

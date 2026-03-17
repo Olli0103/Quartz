@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - Latest Note Widget
 
 /// Timeline Entry für das "Latest Note" Widget.
-public struct LatestNoteEntry: TimelineEntry {
+public struct LatestNoteEntry: TimelineEntry, Sendable {
     public let date: Date
     public let noteTitle: String
     public let notePreview: String
@@ -18,7 +18,7 @@ public struct LatestNoteEntry: TimelineEntry {
         self.noteURL = noteURL
     }
 
-    public static let placeholder = LatestNoteEntry(
+    nonisolated(unsafe) public static let placeholder = LatestNoteEntry(
         date: .now,
         noteTitle: String(localized: "My Note", bundle: .module),
         notePreview: String(localized: "Start writing to see your latest note here…", bundle: .module),
@@ -252,7 +252,7 @@ public struct QuickCaptureWidgetView: View {
 // MARK: - Pinned Notes Widget
 
 /// Timeline Entry für Pinned Notes.
-public struct PinnedNotesEntry: TimelineEntry {
+public struct PinnedNotesEntry: TimelineEntry, Sendable {
     public let date: Date
     public let notes: [PinnedNote]
 
@@ -261,7 +261,7 @@ public struct PinnedNotesEntry: TimelineEntry {
         self.notes = notes
     }
 
-    public static let placeholder = PinnedNotesEntry(
+    nonisolated(unsafe) public static let placeholder = PinnedNotesEntry(
         date: .now,
         notes: [
             PinnedNote(title: String(localized: "Meeting Notes", bundle: .module), icon: "doc.text"),

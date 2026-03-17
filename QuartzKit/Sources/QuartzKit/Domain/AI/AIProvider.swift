@@ -185,7 +185,7 @@ public final class OllamaProvider: AIProvider, Sendable {
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
-    private static var defaultBaseURL: URL { URL(string: "http://localhost:11434")! }
+    static var defaultBaseURL: URL { URL(string: "http://localhost:11434")! }
 
     public var isConfigured: Bool { true } // Kein API-Key nötig
 

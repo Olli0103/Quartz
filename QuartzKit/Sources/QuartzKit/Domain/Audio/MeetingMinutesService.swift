@@ -9,7 +9,7 @@ public actor MeetingMinutesService {
 
     public init(
         transcriptionService: TranscriptionService = TranscriptionService(),
-        providerRegistry: AIProviderRegistry = .shared
+        providerRegistry: AIProviderRegistry
     ) {
         self.transcriptionService = transcriptionService
         self.providerRegistry = providerRegistry
@@ -163,7 +163,7 @@ public struct MeetingMinutes: Sendable {
         self.audioURL = audioURL
     }
 
-    private static let dateTimeFormatter: DateFormatter = {
+    nonisolated(unsafe) private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm"

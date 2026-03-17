@@ -5,7 +5,7 @@ import Foundation
 /// Erkennt den `---` Delimiter, extrahiert das YAML und parsed es
 /// zu einem `Frontmatter`-Objekt. Round-trip-fähig: der Body bleibt unverändert.
 public struct FrontmatterParser: FrontmatterParsing, Sendable {
-    private static let isoFormatter: ISO8601DateFormatter = {
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f

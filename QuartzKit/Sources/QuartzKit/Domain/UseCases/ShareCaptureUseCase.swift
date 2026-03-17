@@ -5,7 +5,7 @@ import Foundation
 /// Unterstützt Text, URLs und Bilder. Speichert entweder in einer
 /// "Inbox"-Notiz oder erstellt eine neue Notiz.
 public struct ShareCaptureUseCase: Sendable {
-    private let fileManager = FileManager.default
+    private var fileManager: FileManager { FileManager.default }
 
     public init() {}
 
@@ -49,7 +49,7 @@ public struct ShareCaptureUseCase: Sendable {
     }
 
     /// Writes image data to the assets folder and returns an updated SharedItem with the correct path.
-    private static let assetDateFormatter: DateFormatter = {
+    nonisolated(unsafe) private static let assetDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyyMMdd-HHmmss"
@@ -72,8 +72,8 @@ public struct ShareCaptureUseCase: Sendable {
 
     // MARK: - Private
 
-    private static let iso8601Formatter = ISO8601DateFormatter()
-    private static let timeFormatter: DateFormatter = {
+    nonisolated(unsafe) private static let iso8601Formatter = ISO8601DateFormatter()
+    nonisolated(unsafe) private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = .autoupdatingCurrent
         f.dateStyle = .none

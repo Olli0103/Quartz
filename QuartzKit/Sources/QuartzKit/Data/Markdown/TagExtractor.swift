@@ -6,7 +6,7 @@ import Foundation
 /// und Code-Blöcke. Tags dürfen Buchstaben, Zahlen, `-`, `_` und `/` enthalten.
 public struct TagExtractor: Sendable {
     /// Pattern: `#` gefolgt von mindestens einem Wort-Zeichen, nicht am Zeilenanfang mit Leerzeichen danach (Heading)
-    private static let tagPattern = /(?:^|(?<=\s))#([a-zA-Z\u{00C0}-\u{024F}0-9][a-zA-Z\u{00C0}-\u{024F}0-9_\/\-]*)/
+    private static let tagPattern = /(?:^|\s)#([a-zA-Z\u{00C0}-\u{024F}0-9][a-zA-Z\u{00C0}-\u{024F}0-9_\/\-]*)/
 
     public init() {}
 

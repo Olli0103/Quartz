@@ -177,7 +177,7 @@ public actor TranscriptionService {
 
     // MARK: - Private
 
-    private static let iso8601Formatter = ISO8601DateFormatter()
+    nonisolated(unsafe) private static let iso8601Formatter = ISO8601DateFormatter()
 
     private func formatAsMarkdown(_ result: TranscriptionResult, audioFileName: String) -> String {
         let durationMinutes = Int(result.duration) / 60

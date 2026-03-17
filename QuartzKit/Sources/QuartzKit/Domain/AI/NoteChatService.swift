@@ -10,7 +10,7 @@ public actor NoteChatService {
     /// Maximale Token-Länge für den Notiz-Kontext.
     private let maxContextLength = 100_000
 
-    public init(providerRegistry: AIProviderRegistry = .shared) {
+    public init(providerRegistry: AIProviderRegistry) {
         self.providerRegistry = providerRegistry
     }
 

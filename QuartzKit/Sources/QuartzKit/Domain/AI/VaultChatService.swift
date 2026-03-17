@@ -12,7 +12,7 @@ public actor VaultChatService {
 
     public init(
         embeddingService: VectorEmbeddingService,
-        providerRegistry: AIProviderRegistry = .shared
+        providerRegistry: AIProviderRegistry
     ) {
         self.embeddingService = embeddingService
         self.providerRegistry = providerRegistry

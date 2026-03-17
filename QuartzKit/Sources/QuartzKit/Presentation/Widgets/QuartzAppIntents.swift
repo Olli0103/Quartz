@@ -6,9 +6,9 @@ import AppIntents
 /// AppIntent: Neue Notiz erstellen via Siri Shortcuts.
 @available(iOS 16.0, macOS 13.0, *)
 public struct CreateNoteIntent: AppIntent {
-    public static var title: LocalizedStringResource = "Create Note"
-    public static var description = IntentDescription(String(localized: "Creates a new note in your Quartz vault.", bundle: .module))
-    public static var openAppWhenRun: Bool = false
+    public static let title: LocalizedStringResource = "Create Note"
+    public static let description: IntentDescription = "Creates a new note in your Quartz vault."
+    public static let openAppWhenRun: Bool = false
 
     @Parameter(title: "Title")
     public var noteTitle: String
@@ -38,9 +38,9 @@ public struct CreateNoteIntent: AppIntent {
 /// AppIntent: Notiz öffnen via Siri Shortcuts.
 @available(iOS 16.0, macOS 13.0, *)
 public struct OpenNoteIntent: AppIntent {
-    public static var title: LocalizedStringResource = "Open Note"
-    public static var description = IntentDescription(String(localized: "Opens a note in Quartz.", bundle: .module))
-    public static var openAppWhenRun: Bool = true
+    public static let title: LocalizedStringResource = "Open Note"
+    public static let description: IntentDescription = "Opens a note in Quartz."
+    public static let openAppWhenRun: Bool = true
 
     @Parameter(title: "Note Name")
     public var noteName: String
@@ -59,9 +59,9 @@ public struct OpenNoteIntent: AppIntent {
 /// AppIntent: Daily Note für heute erstellen/öffnen.
 @available(iOS 16.0, macOS 13.0, *)
 public struct DailyNoteIntent: AppIntent {
-    public static var title: LocalizedStringResource = "Open Daily Note"
-    public static var description = IntentDescription(String(localized: "Creates or opens today's daily note.", bundle: .module))
-    public static var openAppWhenRun: Bool = true
+    public static let title: LocalizedStringResource = "Open Daily Note"
+    public static let description: IntentDescription = "Creates or opens today's daily note."
+    public static let openAppWhenRun: Bool = true
 
     public init() {}
 
