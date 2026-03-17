@@ -87,12 +87,12 @@ public actor VaultTemplateService {
 
     private func createPARAStructure(in root: URL) throws {
         let folders = [
-            "1 Projects",
-            "2 Areas",
-            "3 Resources",
-            "4 Archive",
-            "Daily Notes",
-            "Templates",
+            String(localized: "1 Projects", bundle: .module),
+            String(localized: "2 Areas", bundle: .module),
+            String(localized: "3 Resources", bundle: .module),
+            String(localized: "4 Archive", bundle: .module),
+            String(localized: "Daily Notes", bundle: .module),
+            String(localized: "Templates", bundle: .module),
         ]
         for folder in folders {
             try writer.createDirectory(at: root.appending(path: folder))
@@ -126,11 +126,11 @@ public actor VaultTemplateService {
 
     private func createZettelkastenStructure(in root: URL) throws {
         let folders = [
-            "Fleeting Notes",
-            "Literature Notes",
-            "Permanent Notes",
-            "Projects",
-            "Daily Notes",
+            String(localized: "Fleeting Notes", bundle: .module),
+            String(localized: "Literature Notes", bundle: .module),
+            String(localized: "Permanent Notes", bundle: .module),
+            String(localized: "Projects", bundle: .module),
+            String(localized: "Daily Notes", bundle: .module),
         ]
         for folder in folders {
             try writer.createDirectory(at: root.appending(path: folder))

@@ -59,6 +59,15 @@ public actor VaultEncryptionService {
         return SymmetricKey(data: keyData)
     }
 
+    /// Executes an operation with a scoped encryption key.
+    ///
+    /// The key is loaded from the Keychain and only available within the closure scope,
+    /// ensuring it is released as soon as the operation completes.
+    public func withKey<T: Sendable>(ref: String, operation: @Sendable (SymmetricKey) throws -> T) throws -> T {
+        let key = try loadKey(ref: ref)
+        return try operation(key)
+    }
+
     /// Löscht den Schlüssel für einen Vault aus dem Keychain.
     public func deleteKey(ref: String) throws {
         let query: [String: Any] = [

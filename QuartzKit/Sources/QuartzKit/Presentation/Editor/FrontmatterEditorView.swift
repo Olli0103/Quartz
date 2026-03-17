@@ -8,6 +8,11 @@ public struct FrontmatterEditorView: View {
     @State private var newTag: String = ""
     @State private var newCustomKey: String = ""
     @State private var newCustomValue: String = ""
+    @FocusState private var focusedField: FrontmatterField?
+
+    enum FrontmatterField: Hashable {
+        case title, newTag, customKey, customValue
+    }
 
     public init(frontmatter: Binding<Frontmatter>) {
         self._frontmatter = frontmatter
@@ -60,6 +65,8 @@ public struct FrontmatterEditorView: View {
                             get: { frontmatter.title ?? "" },
                             set: { frontmatter.title = $0.isEmpty ? nil : $0 }
                         ))
+                        .focused($focusedField, equals: .title)
+                        .onSubmit { focusedField = .newTag }
                         .textFieldStyle(.roundedBorder)
                     }
 
@@ -85,6 +92,7 @@ public struct FrontmatterEditorView: View {
 
                             HStack(spacing: 4) {
                                 TextField(String(localized: "Add tag", bundle: .module), text: $newTag)
+                                    .focused($focusedField, equals: .newTag)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(minWidth: 100)
                                     .onSubmit { addTag() }
@@ -139,9 +147,13 @@ public struct FrontmatterEditorView: View {
                     // Add Custom Field
                     HStack(spacing: 8) {
                         TextField(String(localized: "Key", bundle: .module), text: $newCustomKey)
+                            .focused($focusedField, equals: .customKey)
+                            .onSubmit { focusedField = .customValue }
                             .textFieldStyle(.roundedBorder)
                             .frame(maxWidth: 100)
                         TextField(String(localized: "Value", bundle: .module), text: $newCustomValue)
+                            .focused($focusedField, equals: .customValue)
+                            .onSubmit { addCustomField(); focusedField = .customKey }
                             .textFieldStyle(.roundedBorder)
                         Button { addCustomField() } label: {
                             Image(systemName: "plus.circle.fill")

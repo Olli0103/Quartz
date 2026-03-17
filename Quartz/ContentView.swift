@@ -1,7 +1,7 @@
 import SwiftUI
 import QuartzKit
 
-/// Haupt-Layout: NavigationSplitView mit Sidebar und Editor.
+/// Haupt-Layout: 3-Column NavigationSplitView mit Sidebar, Note-Liste und Editor.
 /// Liquid Glass Design mit sanften Übergängen.
 struct ContentView: View {
     @Environment(AppState.self) private var appState
@@ -16,10 +16,13 @@ struct ContentView: View {
     @State private var newNoteParent: URL?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
+    @Namespace private var noteTransition
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        AdaptiveLayoutView {
             sidebarColumn
+        } content: {
+            noteListColumn
         } detail: {
             detailColumn
         }
@@ -134,6 +137,62 @@ struct ContentView: View {
         } else {
             welcomeView
         }
+    }
+
+    // MARK: - Note List Column
+
+    @ViewBuilder
+    private var noteListColumn: some View {
+        if let sidebarVM = viewModel?.sidebarViewModel {
+            let notes = collectNotes(from: sidebarVM.filteredTree)
+            List(notes, id: \.url, selection: $selectedNoteURL) { node in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(node.name.replacingOccurrences(of: ".md", with: ""))
+                            .font(.body)
+                            .lineLimit(1)
+                            .matchedGeometryEffect(id: node.url, in: noteTransition)
+                        Text(node.url.deletingLastPathComponent().lastPathComponent)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .tag(node.url)
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle(String(localized: "Notes"))
+            .overlay {
+                if notes.isEmpty {
+                    QuartzEmptyState(
+                        icon: "doc.text",
+                        title: String(localized: "No Notes"),
+                        subtitle: String(localized: "Create a note to get started.")
+                    )
+                }
+            }
+        } else {
+            QuartzEmptyState(
+                icon: "folder",
+                title: String(localized: "No Vault"),
+                subtitle: String(localized: "Open a vault to browse notes.")
+            )
+        }
+    }
+
+    /// Flattens the file tree to extract only note files.
+    private func collectNotes(from nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for node in nodes {
+            if node.isNote {
+                result.append(node)
+            }
+            if let children = node.children {
+                result.append(contentsOf: collectNotes(from: children))
+            }
+        }
+        return result
     }
 
     // MARK: - Detail Column

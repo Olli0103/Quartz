@@ -387,7 +387,6 @@ private enum OnboardingStep: Equatable {
 // MARK: - Mesh Gradient Background
 
 private struct MeshGradientBackground: View {
-    @State private var phase: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     var body: some View {
@@ -403,39 +402,21 @@ private struct MeshGradientBackground: View {
             )
             .background(.background)
         } else {
-            TimelineView(.animation(minimumInterval: 1.0 / 10.0)) { timeline in
-                Canvas { context, size in
-                    let w = size.width
-                    let h = size.height
-                    let t = timeline.date.timeIntervalSinceReferenceDate
-
-                    let colors: [Color] = [
-                        QuartzColors.folderYellow.opacity(0.15),
-                        QuartzColors.noteBlue.opacity(0.1),
-                        QuartzColors.canvasPurple.opacity(0.12),
-                    ]
-
-                    for (i, color) in colors.enumerated() {
-                        let offset = Double(i) * 2.1
-                        let x = w * (0.3 + 0.4 * sin(t * 0.3 + offset))
-                        let y = h * (0.3 + 0.4 * cos(t * 0.2 + offset))
-                        let radius = min(w, h) * 0.4
-
-                        let rect = CGRect(
-                            x: x - radius,
-                            y: y - radius,
-                            width: radius * 2,
-                            height: radius * 2
-                        )
-
-                        context.fill(
-                            Path(ellipseIn: rect),
-                            with: .color(color)
-                        )
-                    }
-                }
-            }
-            .blur(radius: 60)
+            MeshGradient(width: 3, height: 3, points: [
+                [0, 0], [0.5, 0], [1, 0],
+                [0, 0.5], [0.5, 0.5], [1, 0.5],
+                [0, 1], [0.5, 1], [1, 1]
+            ], colors: [
+                .clear,
+                QuartzColors.folderYellow.opacity(0.15),
+                .clear,
+                QuartzColors.noteBlue.opacity(0.1),
+                QuartzColors.canvasPurple.opacity(0.12),
+                QuartzColors.noteBlue.opacity(0.1),
+                .clear,
+                QuartzColors.folderYellow.opacity(0.15),
+                .clear
+            ])
             .background(.background)
         }
     }
