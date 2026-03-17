@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Koordiniert Vault-Loading, Note-Opening und Command-Routing.
+/// Coordinates vault loading, note opening, and command routing.
 ///
-/// Extrahiert die Business-Logik aus `ContentView`, damit die View
-/// nur noch für Layout und Presentation zuständig ist.
+/// Extracts the business logic from `ContentView` so that the view
+/// is only responsible for layout and presentation.
 @Observable
 @MainActor
 public final class ContentViewModel {

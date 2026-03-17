@@ -5,18 +5,18 @@ import os
 
 // MARK: - AI Provider Protocol
 
-/// Adapter-Pattern: Jeder KI-Provider implementiert dieses Protokoll.
+/// Adapter pattern: each AI provider implements this protocol.
 public protocol AIProvider: Sendable {
-    /// Eindeutiger Identifier des Providers.
+    /// Unique identifier for the provider.
     var id: String { get }
-    /// Anzeigename.
+    /// Display name.
     var displayName: String { get }
-    /// Ob ein API-Key konfiguriert ist.
+    /// Whether an API key is configured.
     var isConfigured: Bool { get }
-    /// Unterstützte Modelle.
+    /// Available models.
     var availableModels: [AIModel] { get }
 
-    /// Chat-Completion mit Kontext.
+    /// Chat completion with context.
     func chat(
         messages: [AIMessage],
         model: String?,
@@ -24,7 +24,7 @@ public protocol AIProvider: Sendable {
     ) async throws -> AIMessage
 }
 
-/// Ein KI-Modell.
+/// An AI model.
 public struct AIModel: Identifiable, Sendable, Codable, Hashable {
     public let id: String
     public let name: String
@@ -39,7 +39,7 @@ public struct AIModel: Identifiable, Sendable, Codable, Hashable {
     }
 }
 
-/// Eine Chat-Nachricht.
+/// A chat message.
 public struct AIMessage: Identifiable, Sendable, Codable {
     public let id: UUID
     public let role: Role
@@ -68,7 +68,8 @@ public final class OpenAIProvider: AIProvider, Sendable {
     public let displayName = "OpenAI"
     private let keychain: KeychainHelper
 
-    private var chatURL: URL { URL(string: "https://api.openai.com/v1/chat/completions")! }
+    // swiftlint:disable:next force_unwrapping - Static well-known URL, guaranteed valid
+    private static let chatURL = URL(string: "https://api.openai.com/v1/chat/completions")!
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -93,7 +94,7 @@ public final class OpenAIProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: chatURL)
+        var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -128,7 +129,7 @@ public final class AnthropicProvider: AIProvider, Sendable {
     public let displayName = "Anthropic"
     private let keychain: KeychainHelper
 
-    private var messagesURL: URL { URL(string: "https://api.anthropic.com/v1/messages")! }
+    private static let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -161,7 +162,7 @@ public final class AnthropicProvider: AIProvider, Sendable {
             temperature: temperature
         )
 
-        var request = URLRequest(url: messagesURL)
+        var request = URLRequest(url: Self.messagesURL)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
@@ -179,15 +180,15 @@ public final class AnthropicProvider: AIProvider, Sendable {
     }
 }
 
-/// Ollama Provider (lokale Modelle)
+/// Ollama Provider (local models)
 public final class OllamaProvider: AIProvider, Sendable {
     public let id = "ollama"
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
-    static var defaultBaseURL: URL { URL(string: "http://localhost:11434")! }
+    static let defaultBaseURL = URL(string: "http://localhost:11434")!
 
-    public var isConfigured: Bool { true } // Kein API-Key nötig
+    public var isConfigured: Bool { true } // No API key required
 
     public var availableModels: [AIModel] {
         [
@@ -283,13 +284,13 @@ public final class GeminiProvider: AIProvider, Sendable {
     }
 }
 
-/// OpenRouter Provider – Zugang zu hunderten Modellen über eine API.
+/// OpenRouter Provider – access to hundreds of models via a single API.
 public final class OpenRouterProvider: AIProvider, Sendable {
     public let id = "openrouter"
     public let displayName = "OpenRouter"
     private let keychain: KeychainHelper
 
-    private var chatURL: URL { URL(string: "https://openrouter.ai/api/v1/chat/completions")! }
+    private static let chatURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -312,14 +313,14 @@ public final class OpenRouterProvider: AIProvider, Sendable {
         let apiKey = try keychain.getKey(for: id)
         let modelID = model ?? "anthropic/claude-sonnet-4"
 
-        // OpenRouter nutzt das OpenAI-kompatible Format
+        // OpenRouter uses the OpenAI-compatible format
         let body = OpenAIChatBody(
             model: modelID,
             messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
             temperature: temperature
         )
 
-        var request = URLRequest(url: chatURL)
+        var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -339,7 +340,7 @@ public final class OpenRouterProvider: AIProvider, Sendable {
 
 // MARK: - Provider Registry
 
-/// Registry für alle verfügbaren KI-Provider.
+/// Registry of all available AI providers.
 @Observable
 @MainActor
 public final class AIProviderRegistry {
@@ -372,14 +373,14 @@ public final class AIProviderRegistry {
         providers.filter(\.isConfigured)
     }
 
-    /// Alle Modelle eines Providers: Built-in + benutzerdefinierte.
+    /// All models for a provider: built-in + user-defined.
     public func allModels(for providerID: String) async -> [AIModel] {
         let builtIn = providers.first { $0.id == providerID }?.availableModels ?? []
         let custom = await customModelStore.customModels(for: providerID)
         return builtIn + custom
     }
 
-    /// Benutzerdefiniertes Modell hinzufügen.
+    /// Add a custom model.
     public func addCustomModel(id modelID: String, name: String? = nil, contextWindow: Int = 128_000, forProvider providerID: String) async {
         let model = AIModel(
             id: modelID,
@@ -390,12 +391,12 @@ public final class AIProviderRegistry {
         await customModelStore.add(model, for: providerID)
     }
 
-    /// Benutzerdefiniertes Modell entfernen.
+    /// Remove a custom model.
     public func removeCustomModel(id modelID: String, forProvider providerID: String) async {
         await customModelStore.remove(modelID: modelID, for: providerID)
     }
 
-    /// Alle benutzerdefinierten Modelle eines Providers.
+    /// All user-defined models for a provider.
     public func customModels(for providerID: String) async -> [AIModel] {
         await customModelStore.customModels(for: providerID)
     }
@@ -403,8 +404,8 @@ public final class AIProviderRegistry {
 
 // MARK: - Custom Model Store
 
-/// Persistiert benutzerdefinierte Modelle in UserDefaults.
-/// Actor-Isolation garantiert atomare Lese-/Schreibzugriffe.
+/// Persists user-defined models in UserDefaults.
+/// Actor isolation guarantees atomic read/write access.
 public actor CustomModelStore {
     private let defaults = UserDefaults.standard
     private let storageKey = "com.quartz.customModels"
@@ -419,7 +420,7 @@ public actor CustomModelStore {
     public func add(_ model: AIModel, for providerID: String) {
         var all = loadAll()
         var models = all[providerID] ?? []
-        // Duplikat vermeiden
+        // Avoid duplicates
         models.removeAll { $0.id == model.id }
         models.append(model)
         all[providerID] = models
@@ -456,7 +457,7 @@ public actor CustomModelStore {
 
 // MARK: - Keychain Helper
 
-/// Sichere Speicherung von API-Keys in der Keychain.
+/// Secure storage of API keys in the Keychain.
 public actor KeychainHelper {
     public static let shared = KeychainHelper()
 

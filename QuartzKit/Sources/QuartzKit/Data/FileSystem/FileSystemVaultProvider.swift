@@ -1,9 +1,9 @@
 import Foundation
 
-/// Actor-basierter Vault-Service für lokale Dateisystem-Operationen.
+/// Actor-based vault service for local file system operations.
 ///
-/// Nutzt `FileManager` für alle I/O-Operationen. Thread-Sicherheit
-/// ist durch Actor-Isolation gewährleistet.
+/// Uses `FileManager` for all I/O operations. Thread safety
+/// is guaranteed through actor isolation.
 public actor FileSystemVaultProvider: VaultProviding {
     private let fileManager = FileManager.default
     private let frontmatterParser: any FrontmatterParsing
@@ -87,13 +87,20 @@ public actor FileSystemVaultProvider: VaultProviding {
         #if os(macOS)
         try fileManager.trashItem(at: url, resultingItemURL: nil)
         #else
-        // Use cached vault root; fall back to parent directory if not yet set
+        // Use cached vault root; fall back to parent directory if not yet set.
+        // Single coordinated move for atomicity — avoids multi-step race with iCloud sync.
         let root = vaultRoot ?? url.deletingLastPathComponent()
         let trashFolder = root.appending(path: ".trash")
         try fileManager.createDirectory(at: trashFolder, withIntermediateDirectories: true)
-        let dest = trashFolder.appending(path: url.lastPathComponent)
-        if fileManager.fileExists(atPath: dest.path(percentEncoded: false)) {
-            try fileManager.removeItem(at: dest)
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var dest = trashFolder.appending(path: url.lastPathComponent)
+        // Unique destination to avoid overwriting previously trashed items
+        var counter = 1
+        while fileManager.fileExists(atPath: dest.path(percentEncoded: false)) {
+            let uniqueName = ext.isEmpty ? "\(baseName)-\(counter)" : "\(baseName)-\(counter).\(ext)"
+            dest = trashFolder.appending(path: uniqueName)
+            counter += 1
         }
         try fileManager.moveItem(at: url, to: dest)
         #endif
@@ -120,13 +127,19 @@ public actor FileSystemVaultProvider: VaultProviding {
         // Allow alphanumerics, whitespace, hyphens, underscores, AND Unicode letters (umlauts, accents, CJK, etc.)
         let allowedCharacters = CharacterSet.letters.union(.decimalDigits).union(.whitespaces).union(CharacterSet(charactersIn: "-_"))
         let sanitized = name
+            .precomposedStringWithCanonicalMapping // Normalize Unicode to prevent NFC/NFD bypass
             .components(separatedBy: allowedCharacters.inverted)
             .joined()
-        guard !sanitized.isEmpty, !sanitized.hasPrefix(".") else {
+        guard !sanitized.isEmpty,
+              !sanitized.hasPrefix("."),
+              sanitized != "..",
+              !sanitized.contains("..") else {
             throw FileSystemError.invalidName(name)
         }
         let folderURL = parent.appending(path: sanitized)
-        guard folderURL.standardizedFileURL.path().hasPrefix(parent.standardizedFileURL.path()) else {
+        // Resolve symlinks to prevent bypass via symbolic link chains
+        guard folderURL.resolvingSymlinksInPath().standardizedFileURL.path()
+                .hasPrefix(parent.resolvingSymlinksInPath().standardizedFileURL.path()) else {
             throw FileSystemError.invalidName(name)
         }
         try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: false)

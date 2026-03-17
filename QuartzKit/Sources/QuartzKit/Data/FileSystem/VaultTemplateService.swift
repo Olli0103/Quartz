@@ -1,13 +1,13 @@
 import Foundation
 
-/// Erstellt Vault-Strukturen aus vordefinierten Templates.
+/// Creates vault structures from predefined templates.
 public actor VaultTemplateService {
     private let fileManager = FileManager.default
     private let writer = CoordinatedFileWriter.shared
 
     public init() {}
 
-    /// Erstellt die Ordnerstruktur für ein Template im Vault.
+    /// Creates the folder structure for a template in the vault.
     public func applyTemplate(_ template: VaultTemplate, to vaultRoot: URL) throws {
         switch template {
         case .para:

@@ -177,7 +177,12 @@ public actor TranscriptionService {
 
     // MARK: - Private
 
-    nonisolated(unsafe) private static let iso8601Formatter = ISO8601DateFormatter()
+    /// Thread-safe ISO 8601 formatting. Creates a new formatter per call
+    /// since `ISO8601DateFormatter` is not thread-safe.
+    private static func iso8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        return formatter.string(from: date)
+    }
 
     private func formatAsMarkdown(_ result: TranscriptionResult, audioFileName: String) -> String {
         let durationMinutes = Int(result.duration) / 60
@@ -189,7 +194,7 @@ public actor TranscriptionService {
         audio: \(audioFileName)
         duration: \(String(format: "%02d:%02d", durationMinutes, durationSeconds))
         language: \(result.locale.identifier)
-        date: \(Self.iso8601Formatter.string(from: Date()))
+        date: \(Self.iso8601String(from: Date()))
         ---
 
         # Transcription
@@ -198,7 +203,7 @@ public actor TranscriptionService {
 
         """
 
-        // Segmente mit Zeitstempeln
+        // Segments with timestamps
         if !result.segments.isEmpty {
             md += "\n## Timestamps\n\n"
             for segment in result.segments {

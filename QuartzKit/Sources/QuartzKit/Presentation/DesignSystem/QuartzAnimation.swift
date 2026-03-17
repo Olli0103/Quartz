@@ -1,41 +1,41 @@
 import SwiftUI
 
-/// Zentrale Animation-Konstanten für konsistente Timing-Werte in der gesamten App.
+/// Central animation constants for consistent timing values throughout the app.
 ///
-/// Statt überall eigene `.spring(response:dampingFraction:)` Werte zu verwenden,
-/// nutzen wir diese vordefinierten Animationen.
+/// Instead of using custom `.spring(response:dampingFraction:)` values everywhere,
+/// we use these predefined animations.
 public enum QuartzAnimation {
     // MARK: - Standard Springs
 
-    /// Schnelle, knackige Interaktion (Buttons, Toggles, Selections).
+    /// Fast, snappy interaction (Buttons, Toggles, Selections).
     /// response: 0.3, dampingFraction: 0.8
     public static let standard: Animation = .spring(response: 0.3, dampingFraction: 0.8)
 
-    /// Schnelle Bounce-Animation für kleine Elemente (Icon-Buttons, Badges).
+    /// Fast bounce animation for small elements (Icon-Buttons, Badges).
     /// response: 0.25, dampingFraction: 0.5
     public static let bounce: Animation = .spring(response: 0.25, dampingFraction: 0.5)
 
-    /// Sanfte Interaktion mit etwas mehr Bewegung (Tag-Auswahl, Card-Selection).
+    /// Soft interaction with a bit more motion (Tag selection, Card-Selection).
     /// response: 0.3, dampingFraction: 0.6
     public static let soft: Animation = .spring(response: 0.3, dampingFraction: 0.6)
 
     // MARK: - Content Transitions
 
-    /// Mittelschnelle Animation für Content-Übergänge (Panels, Expand/Collapse).
+    /// Medium-speed animation for content transitions (Panels, Expand/Collapse).
     /// response: 0.35, dampingFraction: 0.8
     public static let content: Animation = .spring(response: 0.35, dampingFraction: 0.8)
 
-    /// Größere Content-Transitions (Onboarding-Steps, Lock-Screen).
+    /// Larger content transitions (Onboarding-Steps, Lock-Screen).
     /// response: 0.35, dampingFraction: 0.85
     public static let smooth: Animation = .spring(response: 0.35, dampingFraction: 0.85)
 
     // MARK: - Appear Animations
 
-    /// Einblendung (FadeIn, SlideUp).
+    /// Appear animation (FadeIn, SlideUp).
     /// response: 0.4, dampingFraction: 0.85
     public static let appear: Animation = .spring(response: 0.4, dampingFraction: 0.85)
 
-    /// Staggered-Einblendung für Listen.
+    /// Staggered appear animation for lists.
     /// response: 0.4, dampingFraction: 0.82
     public static let stagger: Animation = .spring(response: 0.4, dampingFraction: 0.82)
 

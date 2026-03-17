@@ -1,6 +1,6 @@
 import Foundation
 
-/// Metadaten einer Datei im Vault.
+/// Metadata of a file in the vault.
 public struct FileMetadata: Codable, Hashable, Sendable {
     public var createdAt: Date
     public var modifiedAt: Date
@@ -20,7 +20,7 @@ public struct FileMetadata: Codable, Hashable, Sendable {
     }
 }
 
-/// Ein Knoten im Vault-Dateibaum (Ordner oder Datei).
+/// A node in the vault file tree (folder or file).
 public struct FileNode: Identifiable, Hashable, Sendable {
     public let id: UUID
     public var name: String
@@ -48,9 +48,9 @@ public struct FileNode: Identifiable, Hashable, Sendable {
         self.frontmatter = frontmatter
     }
 
-    /// Gibt `true` zurück wenn der Knoten ein Ordner ist.
+    /// Returns `true` if the node is a folder.
     public var isFolder: Bool { nodeType == .folder }
 
-    /// Gibt `true` zurück wenn der Knoten eine Notiz ist.
+    /// Returns `true` if the node is a note.
     public var isNote: Bool { nodeType == .note }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Typ eines Eintrags im Vault-Dateibaum.
+/// Type of an entry in the vault file tree.
 public enum NodeType: String, Codable, Sendable {
     case folder
     case note

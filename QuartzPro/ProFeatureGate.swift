@@ -1,12 +1,12 @@
 import QuartzKit
 import StoreKit
 
-/// Pro-Feature-Gate: Prüft via StoreKit ob der Nutzer Pro gekauft hat
-/// und schaltet entsprechende Features frei.
+/// Pro feature gate: checks via StoreKit whether the user has purchased Pro
+/// and unlocks the corresponding features.
 ///
-/// Wird in `QuartzApp` registriert und überschreibt den `DefaultFeatureGate`.
+/// Registered in `QuartzApp` and overrides the `DefaultFeatureGate`.
 ///
-/// Nutzung:
+/// Usage:
 /// ```swift
 /// let gate = ProFeatureGate()
 /// await gate.checkPurchaseStatus()
@@ -14,11 +14,12 @@ import StoreKit
 /// ```
 final class ProFeatureGate: FeatureGating, @unchecked Sendable {
 
-    /// StoreKit Product-ID für das Pro-Upgrade.
+    /// StoreKit Product ID for the Pro upgrade.
     static let proProductID = "olli.Quartz.pro"
 
     private let lock = NSLock()
     private var _hasPurchasedPro: Bool = false
+    private var transactionTask: Task<Void, Never>?
 
     private var hasPurchasedPro: Bool {
         get { lock.withLock { _hasPurchasedPro } }
@@ -29,6 +30,10 @@ final class ProFeatureGate: FeatureGating, @unchecked Sendable {
     private let base = DefaultFeatureGate()
 
     init() {}
+
+    deinit {
+        transactionTask?.cancel()
+    }
 
     // MARK: - FeatureGating
 
@@ -47,7 +52,7 @@ final class ProFeatureGate: FeatureGating, @unchecked Sendable {
 
     // MARK: - StoreKit
 
-    /// Prüft den aktuellen Kaufstatus über StoreKit 2.
+    /// Checks the current purchase status via StoreKit 2.
     func checkPurchaseStatus() async {
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
@@ -59,10 +64,10 @@ final class ProFeatureGate: FeatureGating, @unchecked Sendable {
         hasPurchasedPro = false
     }
 
-    /// Beobachtet Transaktions-Updates (Käufe, Erstattungen).
-    /// Sollte beim App-Start gestartet werden.
-    func observeTransactionUpdates() -> Task<Void, Never> {
-        Task.detached { [weak self] in
+    /// Observes transaction updates (purchases, refunds).
+    /// Should be started at app launch. Stores the task for cleanup on deinit.
+    func observeTransactionUpdates() {
+        transactionTask = Task.detached { [weak self] in
             for await result in Transaction.updates {
                 guard let self else { return }
                 if case .verified(let transaction) = result {

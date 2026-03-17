@@ -1,9 +1,9 @@
 import Foundation
 
-/// Alle schaltbaren Features der App.
+/// All toggleable features of the app.
 ///
-/// Jedes Feature kann flexibel zwischen Free und Pro verschoben werden.
-/// Die Zuordnung erfolgt zentral im `DefaultFeatureGate`.
+/// Each feature can be flexibly moved between Free and Pro.
+/// The assignment is managed centrally in `DefaultFeatureGate`.
 public enum Feature: String, CaseIterable, Codable, Sendable {
     // MARK: - Editor
     case markdownEditor
@@ -27,10 +27,10 @@ public enum Feature: String, CaseIterable, Codable, Sendable {
     case speakerDiarization
 }
 
-/// Zugehörigkeits-Tier eines Features.
+/// Membership tier of a feature.
 public enum FeatureTier: String, Codable, Sendable {
-    /// Immer verfügbar, ohne Kauf.
+    /// Always available, without purchase.
     case free
-    /// Nur mit Pro-Einmalkauf verfügbar.
+    /// Only available with a one-time Pro purchase.
     case pro
 }

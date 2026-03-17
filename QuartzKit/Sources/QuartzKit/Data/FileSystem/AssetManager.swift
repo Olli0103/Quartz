@@ -5,26 +5,26 @@ import UIKit
 import AppKit
 #endif
 
-/// Verwaltet Assets (Bilder, Dateien) innerhalb eines Vaults.
+/// Manages assets (images, files) within a vault.
 ///
-/// Bilder werden in einen `assets/` Unterordner kopiert und
-/// relative Markdown-Links werden automatisch generiert.
+/// Images are copied into an `assets/` subfolder and
+/// relative Markdown links are generated automatically.
 public actor AssetManager {
     private let fileManager = FileManager.default
     private let writer = CoordinatedFileWriter.shared
 
-    /// Name des Asset-Ordners innerhalb des Vaults.
+    /// Name of the asset folder within the vault.
     private let assetFolderName = "assets"
 
     public init() {}
 
-    /// Importiert eine Bilddatei in den Vault und gibt den relativen Markdown-Link zurück.
+    /// Imports an image file into the vault and returns the relative Markdown link.
     ///
     /// - Parameters:
-    ///   - sourceURL: Quell-URL des Bildes
-    ///   - vaultRoot: Root-URL des Vaults
-    ///   - noteURL: URL der Notiz (für relative Pfadberechnung)
-    /// - Returns: Relativer Markdown-Image-Link, z.B. `![image](assets/photo-2026.png)`
+    ///   - sourceURL: Source URL of the image
+    ///   - vaultRoot: Root URL of the vault
+    ///   - noteURL: URL of the note (for relative path calculation)
+    /// - Returns: Relative Markdown image link, e.g. `![image](assets/photo-2026.png)`
     public func importImage(
         from sourceURL: URL,
         vaultRoot: URL,
@@ -54,7 +54,7 @@ public actor AssetManager {
     }
 
     #if canImport(UIKit)
-    /// Importiert ein UIImage (z.B. aus Paste/Drag) in den Vault.
+    /// Imports a UIImage (e.g. from paste/drag) into the vault.
     public func importImage(
         _ image: UIImage,
         named name: String? = nil,
@@ -80,7 +80,7 @@ public actor AssetManager {
     #endif
 
     #if canImport(AppKit)
-    /// Importiert ein NSImage (z.B. aus Paste/Drag) in den Vault.
+    /// Imports an NSImage (e.g. from paste/drag) into the vault.
     public func importImage(
         _ image: NSImage,
         named name: String? = nil,
@@ -107,12 +107,12 @@ public actor AssetManager {
     }
     #endif
 
-    /// Löscht ein Asset und entfernt den zugehörigen Link aus dem Markdown.
+    /// Deletes an asset and removes the associated link from the Markdown.
     public func deleteAsset(at url: URL) throws {
         try writer.removeItem(at: url)
     }
 
-    /// Gibt alle Assets im Vault zurück.
+    /// Returns all assets in the vault.
     public func listAssets(in vaultRoot: URL) throws -> [URL] {
         let assetsFolder = vaultRoot.appending(path: assetFolderName)
         guard fileManager.fileExists(atPath: assetsFolder.path(percentEncoded: false)) else {
@@ -155,13 +155,13 @@ public actor AssetManager {
         let basePath = base.path(percentEncoded: false)
         let targetPath = target.path(percentEncoded: false)
 
-        // Einfacher Fall: Target ist unter Base
+        // Simple case: Target is under Base
         if targetPath.hasPrefix(basePath) {
             return String(targetPath.dropFirst(basePath.count))
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
 
-        // Fallback: Nur Dateiname
+        // Fallback: Only file name
         return "\(assetFolderName)/\(target.lastPathComponent)"
     }
 

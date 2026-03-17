@@ -69,7 +69,7 @@ public actor VectorEmbeddingService {
             return
         }
 
-        let data = try Data(contentsOf: indexURL)
+        let data = try Data(contentsOf: indexURL, options: .mappedIfSafe)
         index = try Self.decodeBinary(data)
     }
 
@@ -196,13 +196,23 @@ public actor VectorEmbeddingService {
         return entries
     }
 
-    /// Indexiert eine Notiz: Text chunken → Embeddings erzeugen → speichern.
+    /// Maximum content size for indexing (500 KB). Larger documents are truncated.
+    private static let maxIndexableContentSize = 500_000
+
+    /// Indexes a note: chunk text → generate embeddings → store in index.
     public func indexNote(noteID: UUID, content: String) throws {
-        // Alte Einträge entfernen
+        // Remove old entries
         index.removeAll { $0.noteID == noteID }
 
-        // Text in Chunks aufteilen
-        let chunks = chunkText(content)
+        guard !content.isEmpty else { return }
+
+        // Truncate very large documents to prevent excessive memory usage
+        let truncated = content.count > Self.maxIndexableContentSize
+            ? String(content.prefix(Self.maxIndexableContentSize))
+            : content
+
+        // Split text into chunks
+        let chunks = chunkText(truncated)
 
         // Embeddings erzeugen
         for (i, chunk) in chunks.enumerated() {

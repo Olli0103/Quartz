@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Einzelne Command-Action, ausgelöst durch Keyboard Shortcuts oder Menüs.
-/// Ein einzelner enum statt 6 Bool-Toggles vermeidet doppelte SwiftUI-View-Updates.
+/// Single command action, triggered by keyboard shortcuts or menus.
+/// A single enum instead of 6 Bool toggles avoids duplicate SwiftUI view updates.
 public enum CommandAction: Equatable, Sendable {
     case none
     case newNote
@@ -12,11 +12,11 @@ public enum CommandAction: Equatable, Sendable {
     case dailyNote
 }
 
-/// Globaler App-State, per Environment in alle Views injiziert.
+/// Global app state, injected into all views via Environment.
 @Observable
 @MainActor
 public final class AppState {
-    /// Aktuell geöffneter Vault.
+    /// Currently opened vault.
     /// Use `switchVault(to:)` to properly release security-scoped resources.
     public var currentVault: VaultConfig?
 
@@ -29,10 +29,10 @@ public final class AppState {
         currentVault = newVault
     }
 
-    /// Aktuell ausgewählte Notiz im Editor (set via deep linking).
+    /// Currently selected note in the editor (set via deep linking).
     public var selectedNote: NoteDocument?
 
-    /// Fehlermeldung für den Nutzer (zeigt den ersten Eintrag der Queue).
+    /// Error message for the user (shows the first entry in the queue).
     public var errorMessage: String? {
         get { errorQueue.first }
         set {

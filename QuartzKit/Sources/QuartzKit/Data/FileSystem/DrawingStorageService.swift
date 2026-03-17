@@ -6,11 +6,11 @@ import os
 import AppKit
 #endif
 
-/// Service für das Speichern und Laden von PencilKit-Zeichnungen.
+/// Service for saving and loading PencilKit drawings.
 ///
-/// Zeichnungen werden als `.drawing` Dateien im `assets/` Ordner
-/// neben der zugehörigen Notiz gespeichert. Im Markdown werden sie
-/// als `![[drawing-id.drawing]]` eingebettet.
+/// Drawings are stored as `.drawing` files in the `assets/` folder
+/// next to the associated note. In Markdown they are embedded
+/// as `![[drawing-id.drawing]]`.
 public actor DrawingStorageService {
     private let fileManager = FileManager.default
     private let writer = CoordinatedFileWriter.shared
@@ -18,13 +18,13 @@ public actor DrawingStorageService {
 
     public init() {}
 
-    /// Speichert eine Zeichnung als `.drawing` Datei.
+    /// Saves a drawing as a `.drawing` file.
     ///
     /// - Parameters:
-    ///   - drawing: Die PencilKit-Zeichnung
-    ///   - drawingID: Eindeutige ID der Zeichnung
-    ///   - noteURL: URL der zugehörigen Notiz
-    /// - Returns: Relativer Pfad zur Zeichnungsdatei (für Markdown-Embed)
+    ///   - drawing: The PencilKit drawing
+    ///   - drawingID: Unique ID of the drawing
+    ///   - noteURL: URL of the associated note
+    /// - Returns: Relative path to the drawing file (for Markdown embed)
     public func save(
         drawing: PKDrawing,
         drawingID: String,
@@ -39,14 +39,14 @@ public actor DrawingStorageService {
         let data = drawing.dataRepresentation()
         try writer.write(data, to: fileURL)
 
-        // Thumbnail als PNG speichern
+        // Save thumbnail as PNG
         let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
         try saveThumbnail(drawing: drawing, to: thumbnailURL)
 
         return "assets/\(fileName)"
     }
 
-    /// Lädt eine Zeichnung aus einer `.drawing` Datei.
+    /// Loads a drawing from a `.drawing` file.
     public func load(drawingID: String, noteURL: URL) throws -> PKDrawing {
         let assetsFolder = assetsURL(for: noteURL)
         let fileURL = assetsFolder.appending(path: "\(drawingID).drawing")
@@ -55,7 +55,7 @@ public actor DrawingStorageService {
         return try PKDrawing(data: data)
     }
 
-    /// Löscht eine Zeichnung und ihren Thumbnail.
+    /// Deletes a drawing and its thumbnail.
     public func delete(drawingID: String, noteURL: URL) throws {
         let assetsFolder = assetsURL(for: noteURL)
 
@@ -71,9 +71,9 @@ public actor DrawingStorageService {
         }
     }
 
-    /// Listet alle Zeichnungs-IDs für eine Notiz auf.
+    /// Lists all drawing IDs for a note.
     ///
-    /// - Throws: Propagiert Dateisystem-Fehler (außer wenn der assets-Ordner nicht existiert).
+    /// - Throws: Propagates file system errors (except when the assets folder does not exist).
     public func listDrawings(for noteURL: URL) throws -> [String] {
         let assetsFolder = assetsURL(for: noteURL)
 
@@ -84,7 +84,7 @@ public actor DrawingStorageService {
                 includingPropertiesForKeys: nil
             )
         } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
-            // Assets-Ordner existiert nicht → keine Zeichnungen vorhanden
+            // Assets folder does not exist → no drawings present
             return []
         }
 
@@ -93,7 +93,7 @@ public actor DrawingStorageService {
             .map { $0.deletingPathExtension().lastPathComponent }
     }
 
-    /// Generiert den Markdown-Embed-String für eine Zeichnung.
+    /// Generates the Markdown embed string for a drawing.
     public func markdownEmbed(for drawingID: String) -> String {
         "![[assets/\(drawingID).drawing]]"
     }
@@ -105,7 +105,7 @@ public actor DrawingStorageService {
         return formatter
     }()
 
-    /// Generiert eine neue eindeutige Drawing-ID.
+    /// Generates a new unique drawing ID.
     public func generateDrawingID() -> String {
         let timestamp = Self.drawingIDFormatter.string(from: Date())
         let suffix = String(UUID().uuidString.prefix(4)).lowercased()

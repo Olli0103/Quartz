@@ -110,8 +110,19 @@ public actor VaultEncryptionService {
         }
     }
 
-    /// Verschlüsselt eine Datei in-place.
+    /// Maximum file size for in-memory encryption (50 MB).
+    /// Files larger than this should use a streaming approach.
+    private static let maxInMemoryFileSize: Int = 50_000_000
+
+    /// Encrypts a file in-place using file coordination.
+    ///
+    /// - Throws: `EncryptionError.encryptionFailed` if the file exceeds
+    ///   the safe in-memory size limit (50 MB).
     public func encryptFile(at url: URL, with key: SymmetricKey) throws {
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
+        if let size = attrs[.size] as? Int, size > Self.maxInMemoryFileSize {
+            throw EncryptionError.encryptionFailed("File too large for in-memory encryption (\(size) bytes). Maximum: \(Self.maxInMemoryFileSize) bytes.")
+        }
         var coordinatorError: NSError?
         var opError: Error?
         let coordinator = NSFileCoordinator()

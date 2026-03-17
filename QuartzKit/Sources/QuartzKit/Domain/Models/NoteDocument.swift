@@ -1,6 +1,6 @@
 import Foundation
 
-/// Repräsentiert eine einzelne Notiz im Vault.
+/// Represents a single note in the vault.
 public struct NoteDocument: Identifiable, Sendable {
     public let id: UUID
     public var fileURL: URL
@@ -28,7 +28,7 @@ public struct NoteDocument: Identifiable, Sendable {
         self.lastSyncedAt = lastSyncedAt
     }
 
-    /// Dateiname ohne Erweiterung, als Anzeigename.
+    /// File name without extension, used as display name.
     public var displayName: String {
         frontmatter.title ?? fileURL.deletingPathExtension().lastPathComponent
     }

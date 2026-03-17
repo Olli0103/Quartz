@@ -1,21 +1,21 @@
 #if canImport(UIKit) || canImport(AppKit)
 import Foundation
 
-/// Sync-Status einer Datei in iCloud Drive.
+/// Sync status of a file in iCloud Drive.
 public enum CloudSyncStatus: String, Sendable {
-    case current        // Lokal und in der Cloud synchron
-    case uploading      // Wird hochgeladen
-    case downloading    // Wird heruntergeladen
-    case notDownloaded  // Nur in der Cloud, nicht lokal
-    case conflict       // Ungelöster Sync-Konflikt
-    case error          // Sync-Fehler
-    case notApplicable  // Kein iCloud-Vault
+    case current        // Local and cloud are in sync
+    case uploading      // Currently uploading
+    case downloading    // Currently downloading
+    case notDownloaded  // Only in the cloud, not local
+    case conflict       // Unresolved sync conflict
+    case error          // Sync error
+    case notApplicable  // Not an iCloud vault
 }
 
-/// Service für iCloud Drive Sync-Monitoring und koordiniertes Schreiben.
+/// Service for iCloud Drive sync monitoring and coordinated writing.
 ///
-/// Nutzt `NSMetadataQuery` für Sync-Status und `NSFileCoordinator`
-/// für konfliktfreies Lesen/Schreiben.
+/// Uses `NSMetadataQuery` for sync status and `NSFileCoordinator`
+/// for conflict-free reading/writing.
 public actor CloudSyncService {
     private var metadataQuery: NSMetadataQuery?
 
@@ -23,7 +23,7 @@ public actor CloudSyncService {
 
     // MARK: - Sync Status Monitoring
 
-    /// Startet das Monitoring des Sync-Status für einen Vault.
+    /// Starts monitoring the sync status for a vault.
     /// Returns an empty stream if iCloud is not available.
     public func startMonitoring(vaultRoot: URL) -> AsyncStream<(URL, CloudSyncStatus)> {
         guard Self.isAvailable else {
@@ -71,7 +71,7 @@ public actor CloudSyncService {
         }
     }
 
-    /// Stoppt das Sync-Monitoring.
+    /// Stops sync monitoring.
     public func stopMonitoring() {
         metadataQuery?.stop()
         metadataQuery = nil
@@ -79,7 +79,7 @@ public actor CloudSyncService {
 
     // MARK: - Coordinated File Access
 
-    /// Liest eine Datei koordiniert (sicher bei iCloud-Sync).
+    /// Reads a file using coordination (safe during iCloud sync).
     public func coordinatedRead(at url: URL) throws -> Data {
         var readError: NSError?
         var data: Data?
@@ -108,7 +108,7 @@ public actor CloudSyncService {
         return result
     }
 
-    /// Schreibt eine Datei koordiniert (konfliktfrei bei iCloud-Sync).
+    /// Writes a file using coordination (conflict-free during iCloud sync).
     public func coordinatedWrite(data: Data, to url: URL) throws {
         var writeError: NSError?
         var coordinatorError: NSError?
@@ -133,7 +133,7 @@ public actor CloudSyncService {
 
     // MARK: - Download on Demand
 
-    /// Fordert den Download einer Cloud-only Datei an.
+    /// Requests the download of a cloud-only file.
     public func startDownloading(at url: URL) throws {
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
     }
@@ -172,13 +172,13 @@ public actor CloudSyncService {
 
     // MARK: - Ubiquity Container
 
-    /// Gibt die iCloud Drive URL für die App zurück (falls verfügbar).
+    /// Returns the iCloud Drive URL for the app (if available).
     public static func ubiquityContainerURL() -> URL? {
         FileManager.default.url(forUbiquityContainerIdentifier: nil)?
             .appending(path: "Documents")
     }
 
-    /// Prüft ob iCloud Drive verfügbar ist.
+    /// Checks whether iCloud Drive is available.
     public static var isAvailable: Bool {
         FileManager.default.ubiquityIdentityToken != nil
     }

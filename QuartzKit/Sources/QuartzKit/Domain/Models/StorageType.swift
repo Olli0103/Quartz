@@ -1,6 +1,6 @@
 import Foundation
 
-/// Speicherort-Typ eines Vaults.
+/// Storage location type of a vault.
 public enum StorageType: String, Codable, Sendable {
     case local
     case iCloudDrive

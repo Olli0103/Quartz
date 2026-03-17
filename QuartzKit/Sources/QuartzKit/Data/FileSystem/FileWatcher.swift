@@ -1,9 +1,9 @@
 import Foundation
 
-/// Beobachtet einen Vault-Ordner auf Dateiänderungen.
+/// Watches a vault folder for file changes.
 ///
-/// Nutzt `DispatchSource` für Dateisystem-Events und
-/// liefert Änderungen als `AsyncStream<FileChangeEvent>`.
+/// Uses `DispatchSource` for file system events and
+/// delivers changes as an `AsyncStream<FileChangeEvent>`.
 public actor FileWatcher {
     private var source: (any DispatchSourceFileSystemObject)?
     private var fileDescriptor: Int32 = -1
@@ -17,7 +17,7 @@ public actor FileWatcher {
         source?.cancel()
     }
 
-    /// Startet die Beobachtung und gibt einen Stream von Änderungen zurück.
+    /// Starts watching and returns a stream of changes.
     public func startWatching() -> AsyncStream<FileChangeEvent> {
         let fd = open(url.path(percentEncoded: false), O_EVTONLY)
         guard fd >= 0 else {
@@ -45,8 +45,8 @@ public actor FileWatcher {
                     return
                 }
                 if event.contains(.rename) {
-                    // Ordner wurde umbenannt oder verschoben – Stream beenden,
-                    // damit der Aufrufer einen neuen Watcher erstellen kann.
+                    // Folder was renamed or moved – end the stream,
+                    // so the caller can create a new watcher.
                     continuation.yield(.deleted(watchedURL))
                     continuation.finish()
                     return
@@ -68,7 +68,7 @@ public actor FileWatcher {
         }
     }
 
-    /// Stoppt die Beobachtung.
+    /// Stops watching.
     public func stopWatching() {
         source?.cancel()
         source = nil
@@ -76,23 +76,19 @@ public actor FileWatcher {
 }
 
 /// Thread-safe guard to ensure a file descriptor is closed exactly once.
+/// Uses `OSAllocatedUnfairLock` for safe, lock-based synchronization
+/// instead of raw `UnsafeMutablePointer`.
 private final class ClosedFlag: Sendable {
-    private let lock = NSLock()
-    private let _closed = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-
-    init() {
-        _closed.initialize(to: false)
-    }
-
-    deinit {
-        _closed.deallocate()
-    }
+    private let state = OSAllocatedUnfairLock(initialState: false)
 
     func closeOnce(_ fd: Int32) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !_closed.pointee else { return }
-        _closed.pointee = true
-        close(fd)
+        let shouldClose = state.withLock { closed -> Bool in
+            guard !closed else { return false }
+            closed = true
+            return true
+        }
+        if shouldClose {
+            close(fd)
+        }
     }
 }

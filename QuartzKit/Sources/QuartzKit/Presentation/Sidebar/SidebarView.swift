@@ -177,6 +177,8 @@ public struct SidebarView: View {
                 }
                 .padding(.vertical, 2)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(String(localized: "Tags", bundle: .module))
         } header: {
             HStack {
                 QuartzSectionHeader(String(localized: "Tags", bundle: .module), icon: "tag")
@@ -225,6 +227,15 @@ public struct SidebarView: View {
         } else if node.isNote {
             FileNodeRow(node: node)
                 .tag(node.url)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        pendingDeleteURL = node.url
+                        pendingDeleteIsNote = true
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
+                    }
+                }
                 .contextMenu { noteContextMenu(for: node) }
         } else {
             FileNodeRow(node: node)

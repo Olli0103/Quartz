@@ -1,13 +1,13 @@
 import Foundation
 
-/// Leichtgewichtiger Service-Container für Dependency Injection.
+/// Lightweight service container for dependency injection.
 ///
-/// Registriert und liefert Service-Instanzen. Singleton-Pattern.
-/// Kein Third-Party-DI-Framework – reines Swift.
+/// Registers and provides service instances. Singleton pattern.
+/// No third-party DI framework – pure Swift.
 ///
-/// Alle Registrierungen sollten vor der ersten Resolution erfolgen.
-/// Da der Container `@MainActor` ist, ist Thread-Safety durch
-/// Actor-Isolation garantiert.
+/// All registrations should occur before the first resolution.
+/// Since the container is `@MainActor`, thread safety is guaranteed
+/// through actor isolation.
 @MainActor
 public final class ServiceContainer {
     public static let shared = ServiceContainer()

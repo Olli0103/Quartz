@@ -1,15 +1,15 @@
 import Foundation
 
-/// Zentrale Feature-Flag-Konfiguration.
+/// Central feature flag configuration.
 ///
-/// Definiert welche Features Free vs. Pro sind.
-/// Zum Verschieben eines Features: eine Zeile in `tierMap` ändern.
-/// Thread-safe durch NSLock-geschützte Properties.
+/// Defines which features are Free vs. Pro.
+/// To move a feature: change one line in `tierMap`.
+/// Thread-safe via NSLock-protected properties.
 public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
     private let lock = NSLock()
 
-    /// Zentrale Zuordnung: Feature → Tier.
-    /// Hier ändern um Features zwischen Free und Pro zu verschieben.
+    /// Central mapping: Feature → Tier.
+    /// Change here to move features between Free and Pro.
     private var _tierMap: [Feature: FeatureTier] = [
         // Editor – Free
         .markdownEditor:      .free,
@@ -33,7 +33,7 @@ public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
         .speakerDiarization:  .pro,
     ]
 
-    /// Ob der Nutzer Pro gekauft hat. Wird von `ProFeatureGate` gesetzt.
+    /// Whether the user has purchased Pro. Set by `ProFeatureGate`.
     private var _isProUnlocked: Bool = false
 
     public var isProUnlocked: Bool {
@@ -56,7 +56,7 @@ public final class DefaultFeatureGate: FeatureGating, @unchecked Sendable {
         lock.withLock { _tierMap[feature] ?? .free }
     }
 
-    /// Überschreibt den Tier eines Features zur Laufzeit.
+    /// Overrides the tier of a feature at runtime.
     public func setTier(_ tier: FeatureTier, for feature: Feature) {
         lock.withLock { _tierMap[feature] = tier }
     }

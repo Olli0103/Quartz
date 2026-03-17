@@ -1,6 +1,6 @@
 import Foundation
 
-/// Sync-Konfiguration für einen Vault.
+/// Sync configuration for a vault.
 public struct SyncConfig: Codable, Sendable, Equatable {
     public var webdavURL: URL?
     public var syncInterval: TimeInterval
@@ -11,7 +11,7 @@ public struct SyncConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Konfiguration eines Vaults.
+/// Configuration of a vault.
 public struct VaultConfig: Codable, Identifiable, Sendable, Equatable {
     public let id: UUID
     public var name: String

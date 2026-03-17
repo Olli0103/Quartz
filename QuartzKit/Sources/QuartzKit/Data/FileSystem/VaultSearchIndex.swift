@@ -1,12 +1,12 @@
 import Foundation
 import os
 
-/// In-Memory Suchindex für den gesamten Vault.
+/// In-memory search index for the entire vault.
 ///
-/// Wird beim Öffnen des Vaults aufgebaut und bei Änderungen
-/// inkrementell aktualisiert. Durchsucht Frontmatter + Body.
+/// Built when opening the vault and incrementally updated
+/// on changes. Searches frontmatter + body.
 public actor VaultSearchIndex {
-    /// Indizierter Eintrag für eine Notiz.
+    /// Indexed entry for a note.
     private struct IndexEntry: Sendable {
         let url: URL
         let title: String
@@ -26,18 +26,18 @@ public actor VaultSearchIndex {
         self.vaultProvider = vaultProvider
     }
 
-    /// Baut den kompletten Index für einen Vault auf.
+    /// Builds the complete index for a vault.
     public func buildIndex(at root: URL) async throws {
         let tree = try await vaultProvider.loadFileTree(at: root)
         await indexNodes(tree)
     }
 
-    /// Indexiert Notizen aus einem bereits geladenen Dateibaum (vermeidet doppeltes I/O).
+    /// Indexes notes from an already loaded file tree (avoids duplicate I/O).
     public func indexFromPreloadedTree(_ nodes: [FileNode]) async {
         await indexNodes(nodes)
     }
 
-    /// Aktualisiert den Index für eine einzelne Notiz.
+    /// Updates the index for a single note.
     public func updateEntry(for url: URL) async {
         do {
             let note = try await vaultProvider.readNote(at: url)
@@ -60,13 +60,17 @@ public actor VaultSearchIndex {
         }
     }
 
-    /// Entfernt eine Notiz aus dem Index.
+    /// Removes a note from the index.
     public func removeEntry(for url: URL) {
         entries.removeValue(forKey: url)
     }
 
-    /// Durchsucht den Index und gibt Ergebnisse zurück, sortiert nach Relevanz.
-    public func search(query: String) -> [SearchResult] {
+    /// Searches the index and returns results sorted by relevance.
+    ///
+    /// - Parameters:
+    ///   - query: The search query string.
+    ///   - limit: Maximum number of results to return (default 50).
+    public func search(query: String, limit: Int = 50) -> [SearchResult] {
         guard !query.isEmpty else { return [] }
 
         let queryLower = query.lowercased()
@@ -77,11 +81,11 @@ public actor VaultSearchIndex {
             var score = 0
             var matchContext: String?
 
-            // Titel-Match (höchste Priorität) – pre-computed lowercase
+            // Title match (highest priority) – pre-computed lowercase
             if entry.titleLower.contains(queryLower) {
                 score += 10
                 if entry.titleLower == queryLower {
-                    score += 5 // Exakter Match
+                    score += 5 // Exact match
                 }
             }
 
@@ -98,7 +102,7 @@ public actor VaultSearchIndex {
                 matchContext = extractSearchContext(query: queryLower, in: entry.body)
             }
 
-            // Alle Suchbegriffe müssen vorkommen (AND-Logik)
+            // All search terms must be present (AND logic)
             if queryTerms.count > 1 {
                 let allTermsFound = queryTerms.allSatisfy { term in
                     entry.titleLower.contains(term) ||
@@ -123,7 +127,7 @@ public actor VaultSearchIndex {
             }
         }
 
-        return results.sorted { $0.score > $1.score }
+        return Array(results.sorted { $0.score > $1.score }.prefix(limit))
     }
 
     // MARK: - Private
@@ -161,7 +165,7 @@ public actor VaultSearchIndex {
         return urls
     }
 
-    /// Extrahiert den Kontext um den ersten Treffer im Body.
+    /// Extracts the context around the first match in the body.
     private func extractSearchContext(query: String, in body: String) -> String {
         // Use case-insensitive search directly on body to avoid string index incompatibility
         guard let range = body.range(of: query, options: .caseInsensitive) else { return "" }
@@ -175,7 +179,7 @@ public actor VaultSearchIndex {
     }
 }
 
-/// Ein Suchergebnis mit Relevanz-Score.
+/// A search result with relevance score.
 public struct SearchResult: Identifiable, Sendable {
     public let noteURL: URL
     public let title: String

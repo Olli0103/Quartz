@@ -1,16 +1,16 @@
 import Foundation
 
-/// Zentralisierter, iCloud-sicherer Datei-Schreiber.
+/// Centralized, iCloud-safe file writer.
 ///
-/// Wraps `NSFileCoordinator` für konfliktfreies Schreiben in iCloud Drive Vaults.
-/// Alle Services die Dateien im Vault schreiben MÜSSEN diesen Writer verwenden,
-/// um Datenverlust durch Sync-Konflikte zu verhindern.
+/// Wraps `NSFileCoordinator` for conflict-free writing to iCloud Drive Vaults.
+/// All services that write files to the vault MUST use this writer
+/// to prevent data loss from sync conflicts.
 public struct CoordinatedFileWriter: Sendable {
     public static let shared = CoordinatedFileWriter()
 
     public init() {}
 
-    /// Liest Daten koordiniert von einer URL.
+    /// Reads data from a URL in a coordinated manner.
     public func read(from url: URL) throws -> Data {
         var coordinatorError: NSError?
         var readError: NSError?
@@ -39,10 +39,10 @@ public struct CoordinatedFileWriter: Sendable {
         return data
     }
 
-    /// Schreibt Daten koordiniert an eine URL.
+    /// Writes data to a URL in a coordinated manner.
     ///
-    /// Nutzt `NSFileCoordinator` um sicherzustellen, dass iCloud Drive
-    /// den Schreibvorgang nicht unterbricht oder überschreibt.
+    /// Uses `NSFileCoordinator` to ensure that iCloud Drive
+    /// does not interrupt or overwrite the write operation.
     public func write(_ data: Data, to url: URL) throws {
         var coordinatorError: NSError?
         var writeError: NSError?
@@ -65,7 +65,7 @@ public struct CoordinatedFileWriter: Sendable {
         }
     }
 
-    /// Erstellt ein Verzeichnis koordiniert.
+    /// Creates a directory in a coordinated manner.
     public func createDirectory(at url: URL) throws {
         var coordinatorError: NSError?
         var writeError: NSError?
@@ -91,7 +91,7 @@ public struct CoordinatedFileWriter: Sendable {
         }
     }
 
-    /// Kopiert eine Datei koordiniert.
+    /// Copies a file in a coordinated manner.
     public func copyItem(from sourceURL: URL, to destinationURL: URL) throws {
         var coordinatorError: NSError?
         var copyError: NSError?
@@ -116,7 +116,7 @@ public struct CoordinatedFileWriter: Sendable {
         }
     }
 
-    /// Löscht eine Datei koordiniert.
+    /// Deletes a file in a coordinated manner.
     public func removeItem(at url: URL) throws {
         var coordinatorError: NSError?
         var removeError: NSError?

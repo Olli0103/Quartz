@@ -101,8 +101,14 @@ public enum QuartzColors {
         adaptiveColor(light: 0x6C5CE7, dark: 0x8577F0),
     ]
 
+    /// Returns a deterministic color for a tag name.
+    /// Uses a stable hash (DJB2) instead of `hashValue` which varies across launches.
     public static func tagColor(for tag: String) -> Color {
-        let index = abs(tag.hashValue) % tagPalette.count
+        var hash: UInt64 = 5381
+        for byte in tag.utf8 {
+            hash = ((hash &<< 5) &+ hash) &+ UInt64(byte)
+        }
+        let index = Int(hash % UInt64(tagPalette.count))
         return tagPalette[index]
     }
 }

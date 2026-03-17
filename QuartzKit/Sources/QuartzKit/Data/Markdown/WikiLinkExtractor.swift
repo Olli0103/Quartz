@@ -1,13 +1,13 @@
 import Foundation
 
-/// Extrahiert `[[wiki-links]]` aus Markdown-Text.
+/// Extracts `[[wiki-links]]` from Markdown text.
 ///
-/// Unterstützt:
-/// - `[[Note Name]]` – einfacher Link
-/// - `[[Note Name|Display Text]]` – Link mit Alias
-/// - `[[Note Name#Heading]]` – Link mit Anker
+/// Supports:
+/// - `[[Note Name]]` – simple link
+/// - `[[Note Name|Display Text]]` – link with alias
+/// - `[[Note Name#Heading]]` – link with anchor
 public struct WikiLinkExtractor: Sendable {
-    nonisolated(unsafe) private static let pattern = /\[\[([^\]]+)\]\]/
+    private static let pattern: Regex<(Substring, Substring)> = /\[\[([^\]]+)\]\]/
 
     public init() {}
 
