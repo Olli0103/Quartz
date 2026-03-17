@@ -214,7 +214,7 @@ public actor VectorEmbeddingService {
         // Split text into chunks
         let chunks = chunkText(truncated)
 
-        // Embeddings erzeugen
+        // Generate embeddings
         for (i, chunk) in chunks.enumerated() {
             if let embedding = generateEmbedding(for: chunk) {
                 let entry = EmbeddingEntry(
@@ -228,7 +228,7 @@ public actor VectorEmbeddingService {
         }
     }
 
-    /// Entfernt alle Embeddings einer Notiz.
+    /// Removes all embeddings for a note.
     public func removeNote(_ noteID: UUID) {
         index.removeAll { $0.noteID == noteID }
     }

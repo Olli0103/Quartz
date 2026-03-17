@@ -34,7 +34,7 @@ public final class NoteChatSession {
                 message,
                 noteContent: noteContent,
                 noteTitle: noteTitle,
-                chatHistory: messages.dropLast() // Ohne die gerade gesendete
+                chatHistory: messages.dropLast() // Without the just-sent message
                     .map { $0 }
             )
             messages.append(response)
@@ -47,7 +47,7 @@ public final class NoteChatSession {
         isLoading = false
     }
 
-    /// Löscht den Chat-Verlauf.
+    /// Clears the chat history.
     public func clear() {
         messages.removeAll()
         error = nil

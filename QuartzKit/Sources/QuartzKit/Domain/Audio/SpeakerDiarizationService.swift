@@ -3,11 +3,11 @@ import AVFoundation
 import SoundAnalysis
 import Accelerate
 
-/// Service für Sprechererkennung in Audio-Aufnahmen.
+/// Service for speaker recognition in audio recordings.
 ///
-/// Nutzt `SoundAnalysis` und Audio-Feature-Extraktion um
-/// verschiedene Sprecher in einer Aufnahme zu identifizieren.
-/// Ergebnis: "Sprecher A sagte..." in der Transkription.
+/// Uses `SoundAnalysis` and audio feature extraction to
+/// identify different speakers in a recording.
+/// Result: "Speaker A said..." in the transcription.
 public actor SpeakerDiarizationService {
     public enum DiarizationError: LocalizedError, Sendable {
         case fileNotFound

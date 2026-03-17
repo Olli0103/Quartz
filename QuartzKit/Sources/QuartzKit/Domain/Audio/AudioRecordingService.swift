@@ -181,7 +181,7 @@ public final class AudioRecordingService: NSObject {
         return url
     }
 
-    /// Verwirft die aktuelle Aufnahme.
+    /// Discards the current recording.
     public func discardRecording() {
         recorder?.stop()
         recorder?.deleteRecording()
@@ -192,7 +192,7 @@ public final class AudioRecordingService: NSObject {
         lastRecordingURL = nil
     }
 
-    /// Formatierte Dauer als String (MM:SS), locale-aware.
+    /// Formatted duration as string (MM:SS), locale-aware.
     private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
@@ -227,7 +227,7 @@ public final class AudioRecordingService: NSObject {
         let avgPower = recorder?.averagePower(forChannel: 0) ?? -160
         let peakPower = recorder?.peakPower(forChannel: 0) ?? -160
 
-        // Normalisieren: -160..0 dB → 0..1
+        // Normalize: -160..0 dB → 0..1
         currentLevel = normalizeLevel(avgPower)
         peakLevel = normalizeLevel(peakPower)
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Observable Chat-Session für Vault-weite KI-Suche.
+/// Observable chat session for vault-wide AI search.
 @Observable
 @MainActor
 public final class VaultChatSession {

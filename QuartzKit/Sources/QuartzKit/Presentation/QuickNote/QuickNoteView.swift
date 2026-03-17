@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// SwiftUI View für das Quick Note Panel.
+/// SwiftUI view for the Quick Note panel.
 ///
-/// Kompakter Editor mit Titel, Body und Speichern-Button.
-/// Unterstützt ⌘+Return zum schnellen Speichern.
+/// Compact editor with title, body, and save button.
+/// Supports ⌘+Return for quick saving.
 public struct QuickNoteView: View {
     @State private var noteTitle: String = ""
     @State private var noteBody: String = ""
