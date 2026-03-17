@@ -25,29 +25,8 @@ final class ProFeatureGate: FeatureGating, @unchecked Sendable {
         set { lock.withLock { _hasPurchasedPro = newValue } }
     }
 
-    /// Zentrale Tier-Zuordnung – spiegelt DefaultFeatureGate.
-    private let tierMap: [Feature: FeatureTier] = [
-        // Editor – Free
-        .markdownEditor:      .free,
-        .focusMode:           .free,
-        .typewriterMode:      .free,
-
-        // Organisation – Free
-        .biDirectionalLinks:  .free,
-        .tagSystem:           .free,
-        .fullTextSearch:      .free,
-
-        // AI – Pro
-        .aiChat:              .pro,
-        .aiSummarize:         .pro,
-        .vaultSearch:         .pro,
-
-        // Audio – Mixed
-        .audioRecording:      .free,
-        .transcription:       .free,
-        .meetingMinutes:      .pro,
-        .speakerDiarization:  .pro,
-    ]
+    /// Single source of truth: delegates tier lookup to DefaultFeatureGate.
+    private let base = DefaultFeatureGate()
 
     init() {}
 
@@ -63,7 +42,7 @@ final class ProFeatureGate: FeatureGating, @unchecked Sendable {
     }
 
     func tier(for feature: Feature) -> FeatureTier {
-        tierMap[feature] ?? .free
+        base.tier(for: feature)
     }
 
     // MARK: - StoreKit

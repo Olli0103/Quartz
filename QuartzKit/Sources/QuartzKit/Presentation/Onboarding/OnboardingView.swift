@@ -358,9 +358,9 @@ public struct OnboardingView: View {
                 return
             }
 
-            // Release the security scope now that vault creation is complete.
-            // The app will use bookmarks for future access.
-            url.stopAccessingSecurityScopedResource()
+            // Do NOT call stopAccessingSecurityScopedResource() here.
+            // The caller (ContentView.loadVault) needs the security-scoped
+            // access to remain active for the vault session.
 
             let vault = VaultConfig(
                 name: url.lastPathComponent,

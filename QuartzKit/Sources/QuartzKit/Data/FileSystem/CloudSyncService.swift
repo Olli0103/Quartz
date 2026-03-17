@@ -58,7 +58,10 @@ public actor CloudSyncService {
                 query.stop()
             }
 
-            query.start()
+            // NSMetadataQuery must be started on the main thread
+            Task { @MainActor in
+                query.start()
+            }
         }
     }
 

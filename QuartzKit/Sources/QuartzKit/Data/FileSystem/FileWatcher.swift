@@ -13,6 +13,10 @@ public actor FileWatcher {
         self.url = url
     }
 
+    deinit {
+        source?.cancel()
+    }
+
     /// Startet die Beobachtung und gibt einen Stream von Änderungen zurück.
     public func startWatching() -> AsyncStream<FileChangeEvent> {
         let fd = open(url.path(percentEncoded: false), O_EVTONLY)

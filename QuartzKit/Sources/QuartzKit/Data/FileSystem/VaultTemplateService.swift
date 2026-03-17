@@ -172,11 +172,11 @@ public enum NoteTemplate: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .blank: "Blank Note"
-        case .daily: "Daily Note"
-        case .meeting: "Meeting Notes"
-        case .zettel: "Zettelkasten Note"
-        case .project: "Project Brief"
+        case .blank: String(localized: "Blank Note", bundle: .module)
+        case .daily: String(localized: "Daily Note", bundle: .module)
+        case .meeting: String(localized: "Meeting Notes", bundle: .module)
+        case .zettel: String(localized: "Zettelkasten Note", bundle: .module)
+        case .project: String(localized: "Project Brief", bundle: .module)
         }
     }
 

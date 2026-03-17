@@ -1,5 +1,6 @@
 import SwiftUI
 import QuartzKit
+import os
 
 /// Vault-Auswahl: Folder-Picker zum Öffnen eines lokalen Ordners als Vault.
 /// Liquid Glass Design mit animiertem Icon.
@@ -94,7 +95,8 @@ struct VaultPickerView: View {
                 #endif
                 UserDefaults.standard.set(bookmarkData, forKey: "quartz.vault.bookmark.\(url.lastPathComponent)")
             } catch {
-                // Bookmark persistence is best-effort; vault still works for this session
+                Logger(subsystem: "com.quartz", category: "VaultPicker")
+                    .error("Failed to persist vault bookmark: \(error.localizedDescription)")
             }
 
             let vault = VaultConfig(

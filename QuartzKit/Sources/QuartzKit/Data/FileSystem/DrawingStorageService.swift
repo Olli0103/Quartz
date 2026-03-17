@@ -13,6 +13,7 @@ import AppKit
 /// als `![[drawing-id.drawing]]` eingebettet.
 public actor DrawingStorageService {
     private let fileManager = FileManager.default
+    private let writer = CoordinatedFileWriter.shared
     private let logger = Logger(subsystem: "com.quartz", category: "DrawingStorage")
 
     public init() {}
@@ -30,13 +31,13 @@ public actor DrawingStorageService {
         noteURL: URL
     ) throws -> String {
         let assetsFolder = assetsURL(for: noteURL)
-        try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
+        try writer.createDirectory(at: assetsFolder)
 
         let fileName = "\(drawingID).drawing"
         let fileURL = assetsFolder.appending(path: fileName)
 
         let data = drawing.dataRepresentation()
-        try data.write(to: fileURL, options: .atomic)
+        try writer.write(data, to: fileURL)
 
         // Thumbnail als PNG speichern
         let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
@@ -50,7 +51,7 @@ public actor DrawingStorageService {
         let assetsFolder = assetsURL(for: noteURL)
         let fileURL = assetsFolder.appending(path: "\(drawingID).drawing")
 
-        let data = try Data(contentsOf: fileURL)
+        let data = try writer.read(from: fileURL)
         return try PKDrawing(data: data)
     }
 
@@ -61,10 +62,10 @@ public actor DrawingStorageService {
         let drawingURL = assetsFolder.appending(path: "\(drawingID).drawing")
         let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
 
-        try fileManager.removeItem(at: drawingURL)
+        try writer.removeItem(at: drawingURL)
         // Thumbnail deletion is best-effort since the drawing file is primary
         do {
-            try fileManager.removeItem(at: thumbnailURL)
+            try writer.removeItem(at: thumbnailURL)
         } catch {
             logger.debug("Thumbnail cleanup skipped for \(drawingID): \(error.localizedDescription)")
         }
@@ -131,7 +132,7 @@ public actor DrawingStorageService {
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
         #endif
-        try pngData.write(to: url, options: .atomic)
+        try writer.write(pngData, to: url)
     }
 }
 #endif

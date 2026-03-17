@@ -10,6 +10,35 @@ public struct CoordinatedFileWriter: Sendable {
 
     public init() {}
 
+    /// Liest Daten koordiniert von einer URL.
+    public func read(from url: URL) throws -> Data {
+        var coordinatorError: NSError?
+        var readError: NSError?
+        var result: Data?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(
+            readingItemAt: url,
+            options: [],
+            error: &coordinatorError
+        ) { actualURL in
+            do {
+                result = try Data(contentsOf: actualURL)
+            } catch {
+                readError = error as NSError
+            }
+        }
+
+        if let error = coordinatorError ?? readError {
+            throw error
+        }
+
+        guard let data = result else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return data
+    }
+
     /// Schreibt Daten koordiniert an eine URL.
     ///
     /// Nutzt `NSFileCoordinator` um sicherzustellen, dass iCloud Drive

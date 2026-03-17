@@ -95,8 +95,11 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
 
     public func updateUIView(_ uiView: MarkdownUITextView, context: Context) {
         let baseSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-        uiView.font = .systemFont(ofSize: baseSize * editorFontScale)
-        if uiView.rawMarkdown != text {
+        let newFont = UIFont.systemFont(ofSize: baseSize * editorFontScale)
+        if uiView.font != newFont {
+            uiView.font = newFont
+        }
+        if uiView.rawMarkdown != text && !uiView.isFirstResponder {
             uiView.setMarkdown(text)
         }
     }
@@ -135,7 +138,8 @@ public class MarkdownNSTextView: NSTextView {
         textContainerInset = NSSize(width: 12, height: 16)
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
-        isRichText = false
+        isRichText = true
+        usesFontPanel = false
         allowsUndo = true
         delegate = self
     }
@@ -210,8 +214,11 @@ public struct MarkdownTextViewRepresentable: NSViewRepresentable {
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? MarkdownNSTextView else { return }
         let baseSize = NSFont.preferredFont(forTextStyle: .body).pointSize
-        textView.font = .systemFont(ofSize: baseSize * editorFontScale)
-        if textView.rawMarkdown != text {
+        let newFont = NSFont.systemFont(ofSize: baseSize * editorFontScale)
+        if textView.font != newFont {
+            textView.font = newFont
+        }
+        if textView.rawMarkdown != text && textView.window?.firstResponder !== textView {
             textView.setMarkdown(text)
         }
     }

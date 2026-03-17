@@ -38,28 +38,39 @@ public struct BacklinkUseCase: Sendable {
         in nodes: [FileNode],
         targetName: String
     ) async throws -> [Backlink] {
-        var backlinks: [Backlink] = []
+        let noteNodes = collectNotes(from: nodes)
 
-        for node in nodes {
-            if node.isNote {
-                let note = try await vaultProvider.readNote(at: node.url)
-                let links = linkExtractor.extractLinks(from: note.body)
-
-                for link in links where link.target.caseInsensitiveCompare(targetName) == .orderedSame {
-                    let context = extractContext(for: link, in: note.body)
-                    backlinks.append(Backlink(
-                        sourceNoteURL: node.url,
-                        sourceNoteName: node.name.replacingOccurrences(of: ".md", with: ""),
-                        context: context
-                    ))
+        return try await withThrowingTaskGroup(of: [Backlink].self) { group in
+            for node in noteNodes {
+                group.addTask {
+                    let note = try await self.vaultProvider.readNote(at: node.url)
+                    let links = self.linkExtractor.extractLinks(from: note.body)
+                    return links
+                        .filter { $0.target.caseInsensitiveCompare(targetName) == .orderedSame }
+                        .map { link in
+                            Backlink(
+                                sourceNoteURL: node.url,
+                                sourceNoteName: node.name.replacingOccurrences(of: ".md", with: ""),
+                                context: self.extractContext(for: link, in: note.body)
+                            )
+                        }
                 }
             }
+            var all: [Backlink] = []
+            for try await batch in group { all.append(contentsOf: batch) }
+            return all
+        }
+    }
+
+    private func collectNotes(from nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for node in nodes {
+            if node.isNote { result.append(node) }
             if let children = node.children {
-                backlinks += try await scanForBacklinks(in: children, targetName: targetName)
+                result.append(contentsOf: collectNotes(from: children))
             }
         }
-
-        return backlinks
+        return result
     }
 
     /// Extrahiert den umgebenden Text um einen Link herum.

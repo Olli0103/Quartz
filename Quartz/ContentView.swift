@@ -62,9 +62,11 @@ struct ContentView: View {
                 loadVault(vault)
             }
         }
+        #if os(iOS)
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        #endif
         .sheet(isPresented: $showSearch) {
             if let searchIndex {
                 SearchView(searchIndex: searchIndex) { url in
@@ -92,9 +94,13 @@ struct ContentView: View {
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
-        .overlay {
+        .overlay(alignment: .top) {
             if let error = appState.errorMessage {
                 errorBanner(message: error)
+                    .task {
+                        try? await Task.sleep(for: .seconds(5))
+                        withAnimation { appState.errorMessage = nil }
+                    }
             }
         }
         .tint(Color(hex: 0xF2994A))
@@ -267,6 +273,7 @@ struct ContentView: View {
     private func createDailyNote() {
         guard let root = sidebarViewModel?.vaultRootURL else { return }
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let name = formatter.string(from: Date())
         Task {
