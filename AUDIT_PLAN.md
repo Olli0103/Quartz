@@ -1,29 +1,32 @@
-# Quartz Code Review Audit Plan v2.0
+# Quartz Code Review Audit Plan v3.0
 ## Staff iOS/macOS Engineer × Apple Design Award Judge
 
 **Datum:** 17. März 2026
-**Scope:** 97 Swift-Dateien, ~14.085 LOC (QuartzKit Framework + App)
+**Scope:** ~95 Swift-Dateien (QuartzKit Framework + App Target)
 **Swift Tools Version:** 6.0 | Plattformen: iOS 18+, macOS 15+
-**Auditor-Perspektive:** Kompromisslos. Nur Code, der auf einem Apple Design Award-Level performt, passiert dieses Review.
+**Auditor-Perspektive:** Kompromisslos. Nur Code auf Apple Design Award-Level passiert.
 
 ---
 
 ## Executive Summary
 
-Die Codebase hat seit dem letzten Audit (v1.0) signifikante Verbesserungen erfahren. Viele kritische Befunde wurden adressiert:
-- ✅ `CoordinatedFileWriter` extrahiert und konsistent genutzt
-- ✅ `CommandAction`-Enum statt Bool-Toggles in AppState
-- ✅ Pre-computed lowercase im VaultSearchIndex
-- ✅ Task-Parallelität begrenzt (maxConcurrency: 16)
-- ✅ Deep Link Handler vollständig implementiert
-- ✅ macOS-Fallback für DrawingBlockView vorhanden
-- ✅ Accessibility Hints in FormattingToolbar
-- ✅ Word Count off-main-thread
-- ✅ URLSession Timeouts für AI Provider
-- ✅ BacklinkUseCase mit Constructor Injection
-- ✅ `@SceneStorage` für Column Visibility
-- ✅ SearchView Loading-Indikator
-- ✅ SidebarViewModel Filter-Caching
+Die Codebase hat seit v2.0 weitere signifikante Verbesserungen erfahren. Viele frühere Befunde wurden korrekt adressiert:
+
+- ✅ `isRichText = true` auf macOS (MarkdownNSTextView.swift:139)
+- ✅ `AdaptiveLayoutView` wird korrekt als 3-Column Layout in ContentView verwendet
+- ✅ `@FocusState` in FrontmatterEditorView implementiert (4 Felder: title, newTag, customKey, customValue)
+- ✅ NSMetadataQuery wird auf Main Thread gestartet (`Task { @MainActor in query.start() }`)
+- ✅ `matchedGeometryEffect` auf Note-Titel in ContentView.noteListColumn
+- ✅ MeshGradient-API statt Canvas im Onboarding-Background
+- ✅ Error-Banner Auto-Dismiss nach 5 Sekunden
+- ✅ Error-Queue im AppState statt einzelner String
+- ✅ Settings-Sheet nur auf iOS (`#if os(iOS)`)
+- ✅ `DateFormatter` mit `en_US_POSIX` Locale in ContentViewModel.createDailyNote
+- ✅ Word Count mit `^[\(count) word](inflect: true)` Pluralisierung
+- ✅ `[weak self]` in autosaveTask und wordCountTask
+- ✅ DrawingBlockView macOS-Fallback mit informativer Platzhalter-View
+- ✅ VaultSearchIndex pre-computed lowercase Strings
+- ✅ VaultSearchIndex Task-Parallelität begrenzt (maxConcurrency: 16)
 
 **Verbleibende und neue Befunde folgen.**
 
@@ -31,606 +34,474 @@ Die Codebase hat seit dem letzten Audit (v1.0) signifikante Verbesserungen erfah
 
 ## Säule 1: Cross-Platform & Compiler-Kompatibilität (iOS, iPadOS, macOS)
 
-### 🚨 [Cross-Platform] MarkdownTextView: macOS NSTextView `isRichText = false` bricht AttributedString-Rendering
+### 🚨 [Cross-Platform] `listStyle(.insetGrouped)` kompiliert nicht auf macOS
 - **Schweregrad:** Kritisch
-- **Das Problem:** `MarkdownTextView.swift:138` — `isRichText = false` wird im macOS Setup gesetzt. Aber `setMarkdown()` auf Zeile 151 setzt `textStorage?.setAttributedString(nsAttributed)` mit einem formatierten AttributedString. Bei `isRichText = false` wird NSTextView die Formatierung ignorieren oder unvorhersagbar darstellen. Der Markdown-Renderer rendert Headings mit fetten Fonts, Code-Blöcke mit Monospace — all das wird bei `isRichText = false` verworfen.
-- **Der Fix:**
+- **Das Problem:** `ContentView.swift:164` — `.listStyle(.insetGrouped)` existiert nur auf iOS/iPadOS. Der macOS-Compiler wird einen Fehler werfen. Show-Stopper für das macOS-Target.
+- **Der Fix (Code):**
 ```swift
-private func setup() {
-    font = .preferredFont(forTextStyle: .body)
-    textContainerInset = NSSize(width: 12, height: 16)
-    isAutomaticQuoteSubstitutionEnabled = false
-    isAutomaticDashSubstitutionEnabled = false
-    isRichText = true  // MUSS true sein für AttributedString-Rendering
-    usesFontPanel = false  // Font-Panel verbergen, da wir Markdown steuern
-    allowsUndo = true
-    delegate = self
+// ContentView.swift – noteListColumn
+List(notes, id: \.url, selection: $selectedNoteURL) { node in
+    // ...
 }
-```
-
-### 🚨 [Cross-Platform] ContentView nutzt 2-Column NavigationSplitView statt 3-Column auf iPad
-- **Schweregrad:** Hoch
-- **Das Problem:** `ContentView.swift:23-27` — `NavigationSplitView` hat nur `sidebar` und `detail`, kein `content` Column. Auf iPad im Landscape/Stage Manager fehlt die mittlere Column für eine Note-Liste. `AdaptiveLayoutView` existiert als 3-Column-Variante (Zeile 9-47), wird aber nirgendwo benutzt. ContentView implementiert sein eigenes 2-Column Layout.
-- **Der Fix:** `AdaptiveLayoutView` in `ContentView` integrieren:
-```swift
-var body: some View {
-    AdaptiveLayoutView {
-        sidebarColumn
-    } content: {
-        // Note list für den ausgewählten Ordner
-        noteListColumn
-    } detail: {
-        detailColumn
-    }
-}
-```
-
-### 🚨 [Cross-Platform] CloudSyncService: NSMetadataQuery auf Main Thread
-- **Schweregrad:** Hoch
-- **Das Problem:** `CloudSyncService.swift:27-63` — `NSMetadataQuery.start()` muss auf dem Main Thread aufgerufen werden, aber `CloudSyncService` ist ein `actor` ohne `@MainActor`-Isolation. `query.start()` auf Zeile 61 wird auf einem beliebigen Thread ausgeführt, was zu undefiniertem Verhalten führt.
-- **Der Fix:**
-```swift
-public func startMonitoring(vaultRoot: URL) -> AsyncStream<(URL, CloudSyncStatus)> {
-    let query = NSMetadataQuery()
-    query.searchScopes = [vaultRoot]
-    query.predicate = NSPredicate(format: "%K LIKE '*.md'", NSMetadataItemPathKey)
-    self.metadataQuery = query
-
-    return AsyncStream { continuation in
-        // ... observer setup ...
-
-        // NSMetadataQuery MUSS auf Main Thread gestartet werden
-        Task { @MainActor in
-            query.start()
-        }
-    }
-}
-```
-
-### 🚨 [Cross-Platform] SettingsView wird auf macOS als Sheet statt native Settings gezeigt
-- **Schweregrad:** Mittel
-- **Das Problem:** `ContentView.swift:65-67` — `SettingsView` wird als `.sheet` auf iOS UND macOS gezeigt. Aber `QuartzApp.swift:39-42` definiert bereits eine native macOS `Settings` Scene. Die Sheet-Variante in ContentView kollidiert — auf macOS öffnet sich sowohl die native Settings-Scene (⌘,) als auch ein redundantes Sheet.
-- **Der Fix:** Settings-Button in ContentView nur auf iOS anzeigen:
-```swift
 #if os(iOS)
-.sheet(isPresented: $showSettings) {
-    SettingsView()
-}
+.listStyle(.insetGrouped)
+#else
+.listStyle(.sidebar)
 #endif
 ```
 
-### 🚨 [Cross-Platform] `.hoverEffect(.highlight)` nur auf iOS, keine macOS Hover-States
-- **Schweregrad:** Mittel
-- **Das Problem:** `FileNodeRow.swift:42`, `OnboardingView.swift:333`, `FrontmatterEditorView.swift:100,154` — `.hoverEffect(.highlight)` ist iOS-only (iPad Pointer). macOS bekommt keinerlei Hover-Feedback für interaktive Elemente. Das verletzt die HIG für macOS-Apps.
-- **Der Fix:** macOS bekommt Hover-States automatisch über `List` und `Button`. Für Custom Views:
+### 🚨 [Cross-Platform] MarkdownNSTextView: TextKit 2 nicht korrekt initialisiert
+- **Schweregrad:** Hoch
+- **Das Problem:** `MarkdownTextView.swift:198-207` — `MarkdownNSTextView()` wird mit dem parameterlosen Init erstellt, der TextKit 1 verwendet. Für echtes TextKit 2 muss `NSTextContentStorage` + `NSTextLayoutManager` aufgesetzt werden. `setMarkdown()` funktioniert, fällt aber auf TextKit 1 zurück.
+- **Der Fix (Code):**
 ```swift
-#if os(iOS)
-.hoverEffect(.highlight)
-#endif
-// macOS: SwiftUI handles hover via List/Button styles natively
+public func makeNSView(context: Context) -> NSScrollView {
+    let scrollView = NSScrollView()
+    scrollView.hasVerticalScroller = true
+    scrollView.autohidesScrollers = true
+    scrollView.drawsBackground = false
+
+    let contentStorage = NSTextContentStorage()
+    let layoutManager = NSTextLayoutManager()
+    contentStorage.addTextLayoutManager(layoutManager)
+    let container = NSTextContainer(size: NSSize(
+        width: scrollView.contentSize.width,
+        height: .greatestFiniteMagnitude
+    ))
+    container.widthTracksTextView = true
+    layoutManager.textContainer = container
+
+    let textView = MarkdownNSTextView(frame: .zero, textContainer: container)
+    textView.autoresizingMask = [.width, .height]
+    textView.onTextChange = { [_text] newText in
+        _text.wrappedValue = newText
+    }
+    scrollView.documentView = textView
+    return scrollView
+}
 ```
-Status: Bereits korrekt implementiert mit `#if os(iOS)`. Kein Fix nötig, aber macOS Custom-Buttons (BacklinksPanel, FrontmatterEditor) sollten `.onHover` mit Cursor-Änderung bekommen.
+
+### 🚨 [Cross-Platform] `columnVisibility` State-Duplikation zwischen ContentView und AdaptiveLayoutView
+- **Schweregrad:** Hoch
+- **Das Problem:** `ContentView.swift:17` deklariert `@State private var columnVisibility`, aber `AdaptiveLayoutView.swift:11` hat eine eigene `@State private var columnVisibility`. Der `toggleSidebar`-Command in `handleCommand()` ändert die Variable in ContentView, aber AdaptiveLayoutView verwaltet seine eigene – die zwei Zustände sind nie verbunden. **Der Sidebar-Toggle-Shortcut (⌘/) funktioniert nicht.**
+- **Der Fix (Code):**
+```swift
+// AdaptiveLayoutView.swift – columnVisibility als Binding akzeptieren
+public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: View {
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
+
+    public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
+        @ViewBuilder sidebar: @escaping () -> Sidebar,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder detail: @escaping () -> Detail
+    ) {
+        self._columnVisibility = columnVisibility
+        self.sidebar = sidebar
+        self.content = content
+        self.detail = detail
+    }
+    // ...
+}
+
+// ContentView.swift – Binding durchreichen
+AdaptiveLayoutView(columnVisibility: $columnVisibility) {
+    sidebarColumn
+} content: {
+    noteListColumn
+} detail: {
+    detailColumn
+}
+```
+
+### 🚨 [Cross-Platform] `DrawingCanvasView` vorhanden aber nicht in den Editor-Flow integriert
+- **Schweregrad:** Mittel
+- **Das Problem:** `DrawingCanvasView.swift` hat einen sauberen `#if canImport(PencilKit)` Guard mit macOS-Fallback. Jedoch wird `DrawingBlockView` nirgends im `NoteEditorView` eingebettet oder dynamisch aktiviert. Das Feature existiert als View, ist aber nicht verdrahtet.
+- **Der Fix:** Integration in v1.1 – DrawingBlockView als inline-Block zwischen Markdown-Paragraphen einbetten.
 
 ---
 
 ## Säule 2: Architektur, Verdrahtung & Memory Management
 
-### 🚨 [Architektur] ServiceContainer.shared ist ein Anti-Pattern in SwiftUI
+### 🚨 [Architektur] ServiceContainer – VaultProvider wird nicht beim App-Start registriert
 - **Schweregrad:** Hoch
-- **Das Problem:** `ServiceContainer.swift` — `@MainActor` Singleton mit `static let shared`. Wird in `ContentView.swift:250,283-286` direkt aufgerufen. Probleme:
-  1. Nicht testbar ohne Mocking-Framework
-  2. Versteckte Abhängigkeiten — Views deklarieren ihre Dependencies nicht
-  3. `bootstrap()` kann vergessen werden
-  4. Circular: `resolveVaultProvider()` ruft `resolveFrontmatterParser()` auf
-- **Der Fix:** Services als `@Environment` injizieren, Container nur als Composition Root:
+- **Das Problem:** `QuartzApp.swift:21` registriert nur `featureGate` im Container. `vaultProvider` und `frontmatterParser` werden erst lazy bei `resolveVaultProvider()` erstellt. Wenn `ContentViewModel.openNote()` und `ContentViewModel.loadVault()` jeweils `resolveVaultProvider()` aufrufen, können sie verschiedene Instanzen erhalten (beim ersten Aufruf wird eine neue erstellt und cached, danach die gecachte zurückgegeben). Das ist korrekt, aber fragil – die Reihenfolge der Aufrufe bestimmt, ob alle denselben Provider verwenden.
+- **Der Fix (Code):**
 ```swift
-// In QuartzApp.swift — einmalig erstellen
-@State private var vaultProvider = FileSystemVaultProvider(
-    frontmatterParser: FrontmatterParser()
-)
-
-// Per Environment weiterreichen
-ContentView()
-    .environment(\.vaultProvider, vaultProvider)
+// QuartzApp.swift – Explizit alle Services beim Start bootstrappen
+.task {
+    ServiceContainer.shared.bootstrap(
+        vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+        frontmatterParser: FrontmatterParser(),
+        featureGate: proFeatureGate
+    )
+    await proFeatureGate.checkPurchaseStatus()
+    _ = proFeatureGate.observeTransactionUpdates()
+}
 ```
 
-### 🚨 [Architektur] Doppelte Tier-Map in ProFeatureGate und DefaultFeatureGate
+### 🚨 [Memory] ContentViewModel wird in `.task` erstellt – potenziell doppelte Erstellung
 - **Schweregrad:** Hoch
-- **Das Problem:** `ProFeatureGate.swift:29-50` dupliziert die komplette `tierMap` von `DefaultFeatureGate.swift:13-34`. Wenn ein Feature seinen Tier ändert, muss man an zwei Stellen updaten. Single Source of Truth verletzt.
-- **Der Fix:** `ProFeatureGate` soll `DefaultFeatureGate` erben oder die Tier-Map aus einer shared Quelle lesen:
+- **Das Problem:** `ContentView.swift:30` — `.task { viewModel = ContentViewModel(appState: appState) }`. Wenn die View bei Orientation-Change oder Window-Resize re-evaluated wird, kann `.task` erneut feuern und einen neuen ViewModel erstellen. Der alte ViewModel mit laufendem editorViewModel (und dessen autosaveTask) wird verworfen, ohne dass `cancelAllTasks()` aufgerufen wird.
+- **Der Fix (Code):**
 ```swift
-final class ProFeatureGate: FeatureGating, @unchecked Sendable {
-    private let base = DefaultFeatureGate()
-    private let lock = NSLock()
-    private var _hasPurchasedPro = false
-
-    func isEnabled(_ feature: Feature) -> Bool {
-        switch base.tier(for: feature) {
-        case .free: true
-        case .pro: lock.withLock { _hasPurchasedPro }
-        }
-    }
-
-    func tier(for feature: Feature) -> FeatureTier {
-        base.tier(for: feature)
+// ContentView.swift
+.task {
+    if viewModel == nil {
+        viewModel = ContentViewModel(appState: appState)
     }
 }
 ```
 
-### 🚨 [Architektur] NoteEditorViewModel erstellt kein Debounce für Content-Änderungen
-- **Schweregrad:** Mittel
-- **Das Problem:** `NoteEditorViewModel.swift:10-17` — Der `didSet`-Observer auf `content` feuert bei JEDEM Zeichen. Das löst aus:
-  1. `isDirty = true`
-  2. `scheduleWordCountUpdate()` — erstellt und cancelt Task
-  3. `scheduleAutosave()` — erstellt und cancelt Task
-
-  Bei schnellem Tippen werden hunderte Tasks pro Sekunde erstellt und gecancelt. Die Autosave/WordCount-Tasks haben zwar `Task.sleep` als Debounce, aber die Task-Erstellung selbst ist overhead.
-- **Der Fix:** Acceptable overhead für Swift Structured Concurrency. Die Tasks werden sofort gecancelt, der Overhead ist minimal. Kein Code-Fix nötig, aber ein `@TaskLocal` oder Debounce-Utility wäre eleganter.
-
-### 🚨 [Memory] OnboardingView erstellt VaultTemplateService innerhalb einer Closure
-- **Schweregrad:** Mittel
-- **Das Problem:** `OnboardingView.swift:349` — `VaultTemplateService()` wird in `createVault()` als lokaler Actor erstellt. Korrekt, da der Actor nur für diese Operation gebraucht wird. Aber: `OnboardingView.swift:363` ruft `url.stopAccessingSecurityScopedResource()` auf, BEVOR der `onComplete`-Callback feuert (Zeile 371). Wenn der Caller den Vault sofort öffnet, hat er keinen Security-Scoped Access mehr.
-- **Der Fix:**
-```swift
-// Security Scope NUR freigeben wenn Vault-Erstellung fehlschlägt.
-// Beim Erfolg: Caller ist verantwortlich für den Lifecycle.
-let vault = VaultConfig(
-    name: url.lastPathComponent,
-    rootURL: url,
-    templateStructure: selectedTemplate
-)
-// NICHT url.stopAccessingSecurityScopedResource() aufrufen
-// Der Caller (ContentView.loadVault) benötigt den Zugriff weiter
-await MainActor.run {
-    onComplete(vault)
-}
-```
-
-### 🚨 [Memory] AIProviderRegistry.shared als @MainActor Singleton
-- **Schweregrad:** Mittel
-- **Das Problem:** `AIProvider.swift:350` — `AIProviderRegistry` ist `@Observable @MainActor` mit `static let shared`. Lebt für die gesamte App-Laufzeit, hält Referenzen auf alle Provider-Instanzen. Nicht problematisch per se, aber das Singleton-Pattern erschwert Testing und verhindert Multi-Window-Szenarien (Stage Manager).
-- **Der Fix:** Registry per Environment injizieren statt Singleton.
-
-### 🚨 [Memory] FileWatcher: File Descriptor Leak bei Actor-Deallokation
+### 🚨 [Memory] NoteEditorViewModel Tasks nicht gecancelled bei Vault-Wechsel
 - **Schweregrad:** Hoch
-- **Das Problem:** `FileWatcher.swift:8-9` — `fileDescriptor` wird via `open()` geöffnet. `close(fd)` passiert nur im `DispatchSource.setCancelHandler` (Zeile 53). Wenn der `FileWatcher`-Actor deallokiert wird OHNE dass der Stream terminiert wurde, leakt der File Descriptor. Der Actor hat `stopWatching()` (Zeile 65), aber keinen `deinit`.
-- **Der Fix:**
+- **Das Problem:** `ContentViewModel.loadVault()` ersetzt `sidebarViewModel`, aber ruft **nicht** `editorViewModel?.cancelAllTasks()` auf. Der alte EditorViewModel hat möglicherweise noch einen laufenden `autosaveTask`, der nach dem Vault-Wechsel versucht, in den alten Vault zu schreiben.
+- **Der Fix (Code):**
 ```swift
-deinit {
-    source?.cancel()
-    // source cancel handler schließt den FD
+// ContentViewModel.swift
+public func loadVault(_ vault: VaultConfig) {
+    // Cancel previous editor tasks before replacing
+    editorViewModel?.cancelAllTasks()
+    editorViewModel = nil
+
+    let provider = ServiceContainer.shared.resolveVaultProvider()
+    let viewModel = SidebarViewModel(vaultProvider: provider)
+    sidebarViewModel = viewModel
+    // ... rest
 }
 ```
-Hinweis: `deinit` auf Actors hat Einschränkungen, aber der `DispatchSource.cancel()` ist thread-safe.
+
+### 🚨 [Architektur] `collectNotes(from:)` in ContentView – O(n) Rekursion bei jedem Render
+- **Schweregrad:** Mittel
+- **Das Problem:** `ContentView.swift:185-196` traversiert rekursiv den gesamten Dateibaum bei jedem Render der `noteListColumn`. Bei großen Vaults (1000+ Notizen) unnötige CPU-Last auf dem Main Thread.
+- **Der Fix (Code):**
+```swift
+// SidebarViewModel.swift – Flache Notes-Liste als cached property
+public var flatNotes: [FileNode] {
+    if let cached = cachedFlatNotes { return cached }
+    let result = collectNotesFromTree(filteredTree)
+    cachedFlatNotes = result
+    return result
+}
+private var cachedFlatNotes: [FileNode]?
+
+private func invalidateFilterCache() {
+    cachedFilteredTree = nil
+    cachedFlatNotes = nil
+}
+```
+
+### 🚨 [Architektur] `nonisolated(unsafe)` EnvironmentKey Default Values
+- **Schweregrad:** Mittel
+- **Das Problem:** `AppearanceManager.swift:78` und `FocusModeManager.swift:40` verwenden `nonisolated(unsafe) static let defaultValue`. Das ist ein bekannter Swift 6 Workaround für `@MainActor`-isolierte EnvironmentKey-Defaults. Korrekt, aber sollte dokumentiert werden.
+- **Der Fix (Code):**
+```swift
+private struct AppearanceManagerKey: EnvironmentKey {
+    // SAFETY: Default only accessed from main actor in SwiftUI's
+    // environment resolution. Swift 6 EnvironmentKey workaround.
+    nonisolated(unsafe) static let defaultValue = AppearanceManager()
+}
+```
 
 ---
 
 ## Säule 3: Exception Handling & Edge Cases
 
-### 🚨 [Error Handling] DrawingStorageService schreibt ohne File Coordination
-- **Schweregrad:** Kritisch
-- **Das Problem:** `DrawingStorageService.swift:38-39` — `drawing.dataRepresentation()` und `data.write(to:options:.atomic)` ohne `NSFileCoordinator`. Die Zeichnungsdateien liegen im selben Vault wie die Markdown-Dateien. Bei iCloud-Sync können Zeichnungen verloren gehen oder korrumpiert werden.
-
-  Ebenfalls betroffen:
-  - Zeile 53: `Data(contentsOf: fileURL)` — Read ohne Coordination
-  - Zeile 62-70: `removeItem` ohne Coordination
-  - Zeile 134: `pngData.write(to:)` — Thumbnail-Write ohne Coordination
-- **Der Fix:** `CoordinatedFileWriter.shared` nutzen:
-```swift
-public func save(drawing: PKDrawing, drawingID: String, noteURL: URL) throws -> String {
-    let assetsFolder = assetsURL(for: noteURL)
-    try CoordinatedFileWriter.shared.createDirectory(at: assetsFolder)
-
-    let fileName = "\(drawingID).drawing"
-    let fileURL = assetsFolder.appending(path: fileName)
-    let data = drawing.dataRepresentation()
-    try CoordinatedFileWriter.shared.write(data, to: fileURL)
-
-    // Thumbnail
-    let thumbnailURL = assetsFolder.appending(path: "\(drawingID).png")
-    try saveThumbnail(drawing: drawing, to: thumbnailURL)
-    return "assets/\(fileName)"
-}
-```
-
-### 🚨 [Error Handling] VaultPickerView: Bookmark-Fehler wird verschluckt
+### 🚨 [Exception] CloudSyncService – kein iCloud-Verfügbarkeitsprüfung vor Monitoring-Start
 - **Schweregrad:** Hoch
-- **Das Problem:** `VaultPickerView.swift:96-98` — Bookmark-Erstellung kann fehlschlagen, der `catch`-Block ist leer mit nur einem Kommentar. Wenn die Bookmark-Persistierung fehlschlägt, kann der Vault nach App-Neustart nicht wieder geöffnet werden. Der Nutzer bemerkt das erst beim nächsten Start.
-- **Der Fix:**
+- **Das Problem:** `CloudSyncService.swift:27` – `startMonitoring(vaultRoot:)` erstellt eine NSMetadataQuery und startet sie, ohne zu prüfen, ob iCloud verfügbar ist. Wenn kein iCloud-Account eingerichtet ist, gibt der Stream keine Ergebnisse und der Consumer bekommt keine Fehlermeldung.
+- **Der Fix (Code):**
 ```swift
-} catch {
-    // Log the error, but don't block vault opening
-    // The vault works for this session; bookmark will be retried on next open
-    os_log(.error, "Failed to persist vault bookmark: %{public}@", error.localizedDescription)
-}
-```
-Besser noch: Dem Nutzer einen dezenten Hinweis geben, dass die Vault-Auswahl nicht persistiert werden konnte.
-
-### 🚨 [Error Handling] ContentView.createDailyNote hat keinen Fehler-Feedback
-- **Schweregrad:** Mittel
-- **Das Problem:** `ContentView.swift:267-275` — `createDailyNote()` erstellt einen `DateFormatter` mit `dateFormat: "yyyy-MM-dd"` ohne `Locale(identifier: "en_US_POSIX")`. In manchen Locales kann `dateFormat` andere Kalender-Systeme nutzen (z.B. buddhistische Zeitrechnung in Thai-Locale). Außerdem fehlt jegliches Error-Handling wenn `createNote` fehlschlägt.
-- **Der Fix:**
-```swift
-private func createDailyNote() {
-    guard let root = sidebarViewModel?.vaultRootURL else { return }
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.dateFormat = "yyyy-MM-dd"
-    let name = formatter.string(from: Date())
-    Task {
-        do {
-            try await sidebarViewModel?.createNote(named: name, in: root)
-        } catch {
-            // SidebarViewModel.createNote already handles errors internally
-            // but if vaultProvider throws, user should know
-        }
+public func startMonitoring(vaultRoot: URL) -> AsyncStream<(URL, CloudSyncStatus)> {
+    guard Self.isAvailable else {
+        return AsyncStream { $0.finish() }
     }
+    // ... existing code
 }
 ```
 
-### 🚨 [Error Handling] FrontmatterParser: Multiline YAML Values nicht unterstützt
-- **Schweregrad:** Mittel
-- **Das Problem:** `FrontmatterParser.swift:76-117` — Parsed YAML zeilenbasiert. Multiline-Werte (Block Scalars `|` und `>`, oder Strings mit `\n`) werden nicht korrekt geparst. Ein Frontmatter-Block wie:
-```yaml
-title: My Note
-description: |
-  This is a long
-  description
-tags: [tag1]
-```
-würde `description` nur als leer parsen und die folgenden Zeilen als separate Keys interpretieren.
-- **Der Fix:** Kurzfristig: Dokumentieren, dass nur single-line Values unterstützt werden. Langfristig: Einen echten YAML-Parser (z.B. `Yams` SPM package) verwenden, oder zumindest Block-Scalar-Erkennung implementieren.
-
-### 🚨 [Error Handling] VaultEncryptionService: Key im Memory nach Verwendung
+### 🚨 [Exception] FileSystemVaultProvider.buildTree – keine Tiefenbegrenzung
 - **Schweregrad:** Hoch
-- **Das Problem:** `VaultEncryptionService.swift:57-59` — `loadKey()` gibt einen `SymmetricKey` zurück, der im Caller-Memory verbleibt. Kein Zeroing nach Verwendung. In Swift ist Memory-Zeroing schwierig, aber der Key sollte zumindest nicht länger als nötig gehalten werden.
-- **Der Fix:** Keys nur innerhalb von Closures verfügbar machen:
+- **Das Problem:** `FileSystemVaultProvider.swift:187` – `buildTree()` rekursiert ohne Tiefenlimit. APFS Firmlinks oder pathologisch tiefe Ordnerstrukturen können zu Stack Overflow führen. Symlinks werden korrekt gefiltert (Zeile 202), aber Hard Links nicht.
+- **Der Fix (Code):**
 ```swift
-public func withKey<T>(ref: String, operation: (SymmetricKey) throws -> T) throws -> T {
-    let key = try loadKey(ref: ref)
-    defer { /* SymmetricKey wird nach Scope freigegeben */ }
-    return try operation(key)
+private func buildTree(at url: URL, relativeTo root: URL, depth: Int = 0) throws -> [FileNode] {
+    guard depth < 50 else { return [] }
+    // ... existing code, passing depth + 1 in recursive call
 }
 ```
+
+### 🚨 [Exception] OnboardingView – Security-Scoped Resource Leak bei Ordnerwechsel
+- **Schweregrad:** Hoch
+- **Das Problem:** `OnboardingView.swift:143` ruft `url.startAccessingSecurityScopedResource()` auf. Wenn der User im Template-Schritt auf "Back" klickt und einen anderen Ordner wählt, wird die erste URL nie mit `stopAccessingSecurityScopedResource()` balanciert.
+- **Der Fix (Code):**
+```swift
+// OnboardingView.swift – fileImporter result handler
+if case .success(let urls) = result, let url = urls.first {
+    // Release previous security scope before acquiring new one
+    if let previous = vaultURL, previous != url {
+        previous.stopAccessingSecurityScopedResource()
+    }
+    guard url.startAccessingSecurityScopedResource() else { return }
+    vaultURL = url
+    currentStep = .chooseTemplate
+}
+```
+
+### 🚨 [Exception] VaultPickerView – Bookmark-Key kollidiert bei gleichnamigen Vaults
+- **Schweregrad:** Mittel
+- **Das Problem:** `VaultPickerView.swift:97` speichert Bookmarks unter `"quartz.vault.bookmark.\(url.lastPathComponent)"`. Zwei Vaults namens "Notes" überschreiben sich gegenseitig.
+- **Der Fix (Code):**
+```swift
+// UUID-basierten Key verwenden
+let bookmarkKey = "quartz.vault.bookmark.\(vault.id.uuidString)"
+UserDefaults.standard.set(bookmarkData, forKey: bookmarkKey)
+```
+
+### 🚨 [Exception] NoteEditorViewModel.save() – keine Re-Entry-Protection
+- **Schweregrad:** Mittel
+- **Das Problem:** `NoteEditorViewModel.swift:61-80` – `save()` prüft `isDirty` aber nicht `isSaving`. Wenn der User schnell ⌘S drückt während ein Autosave läuft, können zwei Saves gleichzeitig starten.
+- **Der Fix (Code):**
+```swift
+public func save() async {
+    guard var currentNote = note, isDirty, !isSaving else { return }
+    isSaving = true
+    // ... rest
+}
+```
+
+### 🚨 [Exception] VectorEmbeddingService – binäres Index-Format ohne Migrations-Strategie
+- **Schweregrad:** Mittel
+- **Das Problem:** `VectorEmbeddingService.swift:55` definiert `formatVersion: UInt32 = 1`. Wenn sich das Format ändert, wirft `decodeBinary` `.unsupportedVersion`. Es gibt keinen Migrations-Pfad – der alte Index wird einfach unlesbar. Bei 10.000 indizierten Notizen müsste der gesamte Index neu gebaut werden.
+- **Der Fix:** Akzeptabel für v1.0. Für v2.0: Migration-Handler der Version 1 → 2 konvertiert.
 
 ---
 
 ## Säule 4: Apple Design Awards Level UI/UX & HIG
 
-### 🚨 [HIG] Kein matchedGeometryEffect für Note-Übergänge
-- **Schweregrad:** Hoch
-- **Das Problem:** `ContentView.swift:154-159` — Beim Wechsel zwischen Notizen wird eine `.transition(.asymmetric(...))` verwendet. Das erzeugt einen Opacity+Scale-Übergang. Apple Notes verwendet Hero-Transitions mit `matchedGeometryEffect`, wobei der Notiz-Titel von der Sidebar in den Editor-Header "fliegt". Quartz springt hart.
-- **Der Fix:**
-```swift
-@Namespace private var noteTransition
+### 🚨 [HIG] Alle Animationen respektieren `accessibilityReduceMotion` – EXZELLENT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. Alle 12 Animation-Modifier in `LiquidGlass.swift` prüfen `@Environment(\.accessibilityReduceMotion)`. `FloatingButtonStyle`, `QuartzPressButtonStyle`, `QuartzCardButtonStyle`, `QuartzBounceButtonStyle` – alle haben den Check. `QuartzTagBadge` hat ihn ebenfalls. **Volle Punktzahl.**
 
-// In SidebarView — auf dem selektierten Titel:
-Text(node.name)
-    .matchedGeometryEffect(id: node.url, in: noteTransition)
+### 🚨 [HIG] Spring Animations – konsistentes, zentralisiertes System – EXZELLENT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `QuartzAnimation.swift` definiert 17 vordefinierte Spring-Animationen mit dokumentierten response/dampingFraction-Werten. Keine einzige View nutzt hardcodierte Animation-Werte. Einzige Ausnahme: `shimmer` nutzt korrekterweise `.linear`. **Apple Design Award-Level.**
 
-// In NoteEditorView — auf dem Navigationstitel oder Header:
-Text(viewModel.note?.displayName ?? "")
-    .matchedGeometryEffect(id: viewModel.note?.fileURL, in: noteTransition)
-```
-Hinweis: `@Namespace` muss von einem gemeinsamen Parent gehalten und als Parameter durchgereicht werden.
+### 🚨 [HIG] Touch Targets 44x44pt – konsequent eingehalten – EXZELLENT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `FormattingToolbar.swift:101` – `frame(minWidth: 44, minHeight: 44)`. `FrontmatterEditorView.swift:85,103,163` – `frame(minWidth: 44, minHeight: 44)`. Alle interaktiven Elemente haben korrekte Touch-Target-Größen.
 
-### 🚨 [HIG] Onboarding MeshGradientBackground: Canvas-basiert statt MeshGradient API
-- **Schweregrad:** Mittel
-- **Das Problem:** `OnboardingView.swift:389-441` — Der Hintergrund wird manuell über `Canvas` + `TimelineView` mit Ellipsen gerendert. Ab iOS 18 / macOS 15 gibt es die native `MeshGradient`-API, die GPU-optimiert ist und weniger CPU verbraucht. Der Canvas-Ansatz rendert bei 10fps (Zeile 406: `minimumInterval: 1.0 / 10.0`), was auf ProMotion-Displays ruckelig aussieht.
-- **Der Fix:**
-```swift
-MeshGradient(width: 3, height: 3, points: [
-    [0, 0], [0.5, 0], [1, 0],
-    [0, 0.5], [0.5, 0.5], [1, 0.5],
-    [0, 1], [0.5, 1], [1, 1]
-], colors: [
-    .clear,
-    QuartzColors.folderYellow.opacity(0.15),
-    .clear,
-    QuartzColors.noteBlue.opacity(0.1),
-    QuartzColors.canvasPurple.opacity(0.12),
-    QuartzColors.noteBlue.opacity(0.1),
-    .clear,
-    QuartzColors.folderYellow.opacity(0.15),
-    .clear
-])
-```
-
-### 🚨 [HIG] Kein Haptics auf macOS (UIImpactFeedbackGenerator)
-- **Schweregrad:** Mittel
-- **Das Problem:** `NoteEditorView.swift:43-44` — `.sensoryFeedback(.success, ...)` und `.sensoryFeedback(.impact, ...)` sind korrekt cross-platform (SwiftUI ignoriert Haptics auf macOS). Aber: macOS hat Haptic-Support via Force Touch Trackpad (`NSHapticFeedbackManager`). Für einen Apple Design Award sollte man macOS-native Haptics berücksichtigen.
-- **Der Fix:** Acceptable as-is. `.sensoryFeedback` auf macOS mit Force Touch Trackpad funktioniert seit macOS 14. Kein Fix nötig.
-
-### 🚨 [HIG] Error-Banner in ContentView blockiert keine Interaktion
+### 🚨 [HIG] `FileNodeRow` Padding zu gering
 - **Schweregrad:** UI-Polish
-- **Das Problem:** `ContentView.swift:95-99` — Error-Banner wird als `.overlay` gezeigt, aber die darunterliegende UI bleibt interaktiv. Das Banner kann durch Scroll-Gesten verdeckt werden. Kein Auto-Dismiss.
-- **Der Fix:**
+- **Das Problem:** `FileNodeRow.swift:39` – `.padding(.vertical, 1)`. Visuell zu eng. Apple Notes hat mindestens 6-8pt.
+- **Der Fix (Code):**
 ```swift
-.overlay(alignment: .top) {
-    if let error = appState.errorMessage {
-        errorBanner(message: error)
-            .task {
-                try? await Task.sleep(for: .seconds(5))
-                withAnimation { appState.errorMessage = nil }
-            }
-    }
-}
+.padding(.vertical, 4)
 ```
 
-### 🚨 [HIG] QuartzButton Foreground ist hardcoded `.white`
-- **Schweregrad:** Mittel
-- **Das Problem:** `LiquidGlass.swift:572` — `.foregroundStyle(.white)` auf dem Button-Text. Bei hellem Accent Color (z.B. Gelb auf Weiß) wird der Text unleserlich. Apple empfiehlt, den Foreground-Kontrast dynamisch zu berechnen.
-- **Der Fix:** Entweder den Accent Color dunkel genug halten (aktuell 0xF2994A = Orange, OK) oder dynamischen Kontrast nutzen:
-```swift
-.foregroundStyle(Color.accentColor.contrastingForeground)
-```
-Aktuell akzeptabel mit dem Orange-Accent, aber bei Custom-Themes riskant.
-
-### 🚨 [HIG] Kein `@FocusState` für Keyboard-Navigation auf macOS
+### 🚨 [HIG] macOS Focus States – nur FileNodeRow hat `.focusable()`
 - **Schweregrad:** Hoch
-- **Das Problem:** Keine einzige View in der Codebase nutzt `@FocusState`. macOS-Keyboard-Navigation (Tab-Reihenfolge, Focus-Ring) funktioniert nur über SwiftUI-Default-Verhalten. Custom Views wie der `FrontmatterEditorView` mit TextFields haben keine explizite Focus-Verwaltung. Tab drücken springt nicht intuitiv zwischen Title → Tags → Custom Fields.
-- **Der Fix:**
+- **Das Problem:** `FileNodeRow.swift:43` hat `#elseif os(macOS) .focusable()`. Aber `QuartzButton`, Template-Cards im Onboarding, Tag-Badges haben keine Focus-State-Unterstützung. Die App ist per Tab-Taste nicht vollständig navigierbar auf macOS.
+- **Der Fix (Code):**
 ```swift
-@FocusState private var focusedField: FrontmatterField?
-
-enum FrontmatterField: Hashable {
-    case title, newTag, customKey, customValue
-}
-
-TextField("Title", text: ...)
-    .focused($focusedField, equals: .title)
-    .onSubmit { focusedField = .newTag }
+// QuartzButton.swift
+Button(action: action) { /* ... */ }
+    .buttonStyle(QuartzPressButtonStyle())
+    #if os(macOS)
+    .focusable()
+    #endif
 ```
+
+### 🚨 [HIG] `QuartzEmptyState` – Missing Accessibility-Zusammenfassung
+- **Schweregrad:** UI-Polish
+- **Das Problem:** `LiquidGlass.swift:659-689` – VoiceOver liest Icon, Titel und Subtitle als drei separate Elemente.
+- **Der Fix (Code):**
+```swift
+public var body: some View {
+    VStack(spacing: 16) { /* ... */ }
+    .padding(40)
+    .accessibilityElement(children: .combine)
+}
+```
+
+### 🚨 [HIG] Haptics – subtil und HIG-konform – EXZELLENT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `.sensoryFeedback(.success)` bei manuellem Speichern, `.sensoryFeedback(.impact)` bei Focus-Mode-Toggle, `.sensoryFeedback(.selection)` bei Tag-Auswahl, `.sensoryFeedback(.warning)` bei Deletion. Autosave triggert bewusst KEINE Haptic. **Perfekt.**
 
 ---
 
 ## Säule 5: Lokalisation (L10n) & Internationalisierung (I18n)
 
-### 🚨 [L10n] NoteTemplate.displayName nicht lokalisiert
-- **Schweregrad:** Hoch
-- **Das Problem:** `VaultTemplateService.swift:173-180` — `NoteTemplate.displayName` gibt hardcodierte englische Strings zurück:
+### 🚨 [L10n] `VectorEmbeddingService` – Hardcoded `.german` Language Default
+- **Schweregrad:** Kritisch
+- **Das Problem:** `VectorEmbeddingService.swift:48` – `language: NLLanguage = .german`. Alle User bekommen standardmäßig deutsche Sentence-Embeddings. Für englische, französische, japanische User liefert die semantische Suche signifikant schlechtere Ergebnisse.
+- **Der Fix (Code):**
 ```swift
-case .blank: "Blank Note"
-case .daily: "Daily Note"
-case .meeting: "Meeting Notes"
-```
-Diese Strings werden in der UI angezeigt (z.B. Template-Auswahl im Onboarding), sind aber nicht über `String(localized:)` lokalisiert.
-- **Der Fix:**
-```swift
-public var displayName: String {
-    switch self {
-    case .blank: String(localized: "Blank Note", bundle: .module)
-    case .daily: String(localized: "Daily Note", bundle: .module)
-    case .meeting: String(localized: "Meeting Notes", bundle: .module)
-    case .zettel: String(localized: "Zettelkasten Note", bundle: .module)
-    case .project: String(localized: "Project Brief", bundle: .module)
-    }
-}
-```
-
-### 🚨 [L10n] VaultTemplateService Template-Content hardcodiert Englisch
-- **Schweregrad:** Hoch
-- **Das Problem:** `VaultTemplateService.swift:88-160` — Die gesamte Template-Struktur (PARA-Ordnernamen "1 Projects", "2 Areas", etc., Zettelkasten "Fleeting Notes", "Literature Notes", etc.) und die Welcome.md-Inhalte sind auf Englisch hardcodiert. Deutsche, französische etc. Nutzer bekommen englische Ordnerstrukturen.
-- **Der Fix:** Ordnernamen über `String(localized:)` lokalisieren:
-```swift
-private func createPARAStructure(in root: URL) throws {
-    let folders = [
-        String(localized: "1 Projects", bundle: .module),
-        String(localized: "2 Areas", bundle: .module),
-        String(localized: "3 Resources", bundle: .module),
-        String(localized: "4 Archive", bundle: .module),
-        String(localized: "Daily Notes", bundle: .module),
-        String(localized: "Templates", bundle: .module),
-    ]
+public init(
+    vaultURL: URL,
+    chunkSize: Int = 512,
+    language: NLLanguage = .english // Internationaler Default
+) {
     // ...
 }
-```
-**Achtung:** Ordnernamen lokalisieren ist kontrovers — Obsidian z.B. nutzt immer Englisch. Design-Entscheidung, aber muss bewusst getroffen werden.
 
-### 🚨 [L10n] NoteTemplate.content() generiert englische Markdown-Inhalte
-- **Schweregrad:** Mittel
-- **Das Problem:** `VaultTemplateService.swift:193-311` — Template-Inhalte enthalten englische Headings ("## Tasks", "## Notes", "## Attendees", "## Action Items", etc.). Diese werden direkt in Markdown-Dateien geschrieben.
-- **Der Fix:** Headings in Templates lokalisieren, oder bewusst als universelle Englisch-Templates belassen (wie Notion/Obsidian). Design-Entscheidung dokumentieren.
-
-### 🚨 [L10n] Word Count String braucht Plural-Varianten
-- **Schweregrad:** Mittel
-- **Das Problem:** `NoteEditorView.swift:109` — `"\(viewModel.wordCount) word(s)"` hat einen Kommentar "Uses plural rules", aber String Catalogs benötigen explizite Plural-Definitionen für jede Sprache. Deutsch: "1 Wort" vs "5 Wörter". Japanisch: Kein Plural. Arabisch: 6 Plural-Formen.
-- **Der Fix:** In den `.xcstrings` Dateien die `stringsdict`-äquivalenten Plural-Varianten definieren:
-```
-// In Localizable.xcstrings:
-"%lld word(s)" → Variations → Plural
-    one: "%lld word"
-    other: "%lld words"
+// Idealerweise: automatische Spracherkennung pro Chunk
+private func detectLanguage(for text: String) -> NLLanguage {
+    let recognizer = NLLanguageRecognizer()
+    recognizer.processString(text)
+    return recognizer.dominantLanguage ?? .english
+}
 ```
 
-### 🚨 [L10n] DateFormatter ohne POSIX Locale an 2 Stellen
+### 🚨 [L10n] `AudioRecordingService.formattedDuration` – hardcodiertes Zeitformat
 - **Schweregrad:** Mittel
-- **Das Problem:**
-  1. `ContentView.swift:269` — `DateFormatter()` mit `dateFormat: "yyyy-MM-dd"` ohne `locale = Locale(identifier: "en_US_POSIX")`. In manchen Locales (z.B. Saudi-Arabien) wird der islamische Kalender verwendet, `yyyy` gibt dann Jahr 1447 zurück.
-  2. `VaultTemplateService.swift:210-212` — `DateFormatter()` mit `dateStyle = .full` ohne POSIX für ISO-Formatter auf Zeile 194.
-- **Der Fix:**
+- **Das Problem:** `AudioRecordingService.swift:199` – `String(format: "%02d:%02d", ...)` nutzt westliche Ziffern. Locales mit arabischen Ziffern (z.B. `ar_SA`) zeigen keine nativen Ziffern.
+- **Der Fix (Code):**
 ```swift
-// ContentView.swift:269
-let formatter = DateFormatter()
-formatter.locale = Locale(identifier: "en_US_POSIX")
-formatter.dateFormat = "yyyy-MM-dd"
+public var formattedDuration: String {
+    let formatter = DateComponentsFormatter()
+    formatter.allowedUnits = [.minute, .second]
+    formatter.zeroFormattingBehavior = .pad
+    return formatter.string(from: duration) ?? "00:00"
+}
 ```
 
-### 🚨 [L10n] Kein RTL-Test-Strategie
-- **Schweregrad:** Mittel
-- **Das Problem:** Die Codebase unterstützt grundsätzlich RTL (SwiftUI flippt automatisch). Aber manuell gesetzte Elemente könnten brechen:
-  - `LiquidGlass.swift:46-52` — Gradient `startPoint: .topLeading, endPoint: .bottomTrailing` — OK, SwiftUI flippt
-  - `MarkdownTextView.swift:30` — `textContainerInset` mit festen Werten — Wird NICHT geflippt
-  - `QuartzAnimation.swift` — Alle Offsets (`offset(y:)`) sind vertikal → OK
+### 🚨 [L10n] Datums/Zeit-Formate in FrontmatterEditorView – korrekt locale-aware
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `FrontmatterEditorView.swift:119,125` nutzt `Text(date, style: .date)` und `Text(date, style: .relative)` – automatisch locale-aware. `ContentViewModel.createDailyNote()` nutzt `en_US_POSIX` für ISO-Dateinamen. **Perfekt.**
 
-  Kein systematischer RTL-Test vorhanden.
-- **Der Fix:** RTL-Pseudo-Language im Xcode-Schema aktivieren und alle Views durchgehen. `textContainerInset` auf NSTextView/UITextView sollte `.writingDirectionLeftToRight` / `.writingDirectionRightToLeft` berücksichtigen oder symmetrische Insets verwenden (aktuell: `left: 12, right: 12` → symmetrisch, OK).
+### 🚨 [L10n] Pluralisierung korrekt via `inflect: true`
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `NoteEditorView.swift:133` und `FrontmatterEditorView.swift:185` nutzen `^[\(count) word](inflect: true)` / `^[\(count) tag](inflect: true)`. Automatische Grammatik-Anpassung für alle unterstützten Sprachen.
+
+### 🚨 [L10n] RTL-Layout architektonisch vorbereitet, aber nicht getestet
+- **Schweregrad:** Mittel
+- **Das Problem:** SwiftUI handhabt RTL automatisch. `MarkdownTextView` hat symmetrische Insets (left: 12, right: 12 auf iOS; width: 12 auf macOS). Kein systematischer RTL-Test vorhanden. Arabisch und Hebräisch sind nicht in den 7 Basis-Sprachen enthalten.
+- **Der Fix:** RTL-Pseudo-Language im Xcode-Schema für visuelles Testing aktivieren.
 
 ---
 
 ## Säule 6: Performance & Device Capabilities
 
-### 🚨 [Performance] MarkdownTextView vollständiges Re-Rendering bei jedem Update
-- **Schweregrad:** Kritisch
-- **Das Problem:** `MarkdownTextView.swift:96-102` (iOS), `210-217` (macOS) — `updateUIView`/`updateNSView` prüft `rawMarkdown != text` und ruft dann `setMarkdown()` auf, das den KOMPLETTEN Text neu parsed und als AttributedString rendert. Bei einem 10.000-Wort-Dokument bedeutet jeder SwiftUI-State-Change (z.B. Font-Scale-Änderung via Slider) ein vollständiges Re-Rendering aller Markdown-Attributes.
-
-  Das Hauptproblem: Wenn der Nutzer tippt, triggert `textViewDidChange` → `onTextChange` → `text = newText` (State-Change) → `updateUIView` wird aufgerufen → `rawMarkdown != text` ist `true` weil der text gerade erst gesetzt wurde → `setMarkdown()` wird aufgerufen → Cursor-Position geht potenziell verloren.
-- **Der Fix:** Differentielles Rendering nur für geänderte Paragraphen:
-```swift
-public func updateUIView(_ uiView: MarkdownUITextView, context: Context) {
-    let baseSize = UIFont.preferredFont(forTextStyle: .body).pointSize
-    let newFont = UIFont.systemFont(ofSize: baseSize * editorFontScale)
-    if uiView.font != newFont {
-        uiView.font = newFont
-    }
-    // Nur updaten wenn sich der Source-Text tatsächlich geändert hat
-    // UND die Änderung nicht vom UITextView selbst kam
-    if uiView.rawMarkdown != text && !uiView.isFirstResponder {
-        uiView.setMarkdown(text)
-    }
-}
-```
-Langfristig: TextKit 2 `NSTextContentManager` mit `NSTextLayoutFragment`-basiertem inkrementellen Rendering.
-
-### 🚨 [Performance] BacklinkUseCase liest jede Notiz im Vault sequentiell
+### 🚨 [Performance] `FileSystemVaultProvider.buildTree` – synchrones I/O blockiert Actor
 - **Schweregrad:** Hoch
-- **Das Problem:** `BacklinkUseCase.swift:43-59` — `scanForBacklinks` iteriert sequentiell über alle Nodes und ruft für jede Notiz `vaultProvider.readNote(at:)` auf. Kein `TaskGroup`, keine Parallelität. Bei 1000 Notizen = 1000 sequentielle File-Reads.
-- **Der Fix:**
+- **Das Problem:** `FileSystemVaultProvider.swift:187-236` – `buildTree()` ist synchron und rekursiv. Da `FileSystemVaultProvider` ein Actor ist, serialisiert er alle Calls. Bei 5000 Dateien blockiert `buildTree` den Actor für Sekunden, während derer kein `readNote`, `saveNote` etc. ausgeführt werden kann. Das betrifft nicht den Main Thread direkt, aber blockiert alle File-Operationen.
+- **Der Fix (Code):**
 ```swift
-private func scanForBacklinks(
-    in nodes: [FileNode],
-    targetName: String
-) async throws -> [Backlink] {
-    let noteNodes = collectNotes(from: nodes)
+public func loadFileTree(at root: URL) async throws -> [FileNode] {
+    vaultRoot = root
+    return try await Task.detached(priority: .userInitiated) {
+        [fileManager, frontmatterParser] in
+        try Self.buildTreeStatic(at: root, relativeTo: root,
+                                  fileManager: fileManager)
+    }.value
+}
+```
 
-    return try await withThrowingTaskGroup(of: [Backlink].self) { group in
-        for node in noteNodes {
-            group.addTask {
-                let note = try await vaultProvider.readNote(at: node.url)
-                let links = linkExtractor.extractLinks(from: note.body)
-                return links
-                    .filter { $0.target.caseInsensitiveCompare(targetName) == .orderedSame }
-                    .map { link in
-                        Backlink(
-                            sourceNoteURL: node.url,
-                            sourceNoteName: node.name.replacingOccurrences(of: ".md", with: ""),
-                            context: extractContext(for: link, in: note.body)
-                        )
-                    }
-            }
-        }
-        var all: [Backlink] = []
-        for try await batch in group { all.append(contentsOf: batch) }
-        return all
+### 🚨 [Performance] VaultSearchIndex – doppelter `loadFileTree` Call
+- **Schweregrad:** Hoch
+- **Das Problem:** `VaultSearchIndex.swift:31` – `buildIndex()` ruft `vaultProvider.loadFileTree(at: root)` auf. `ContentViewModel.loadVault()` hat bereits `loadTree(at: vault.rootURL)` in Zeile 32 aufgerufen. Der Dateibaum wird also **zweimal** vollständig gelesen – einmal für die Sidebar, einmal für den Suchindex.
+- **Der Fix (Code):**
+```swift
+// ContentViewModel.swift – Dateibaum nur einmal laden und teilen
+public func loadVault(_ vault: VaultConfig) {
+    let provider = ServiceContainer.shared.resolveVaultProvider()
+    let sidebarVM = SidebarViewModel(vaultProvider: provider)
+    sidebarViewModel = sidebarVM
+
+    let index = VaultSearchIndex(vaultProvider: provider)
+    searchIndex = index
+
+    Task {
+        await sidebarVM.loadTree(at: vault.rootURL)
+        // Nutze den bereits geladenen Baum für den Suchindex
+        await index.indexNodes(sidebarVM.fileTree)
     }
 }
 ```
 
-### 🚨 [Performance] SidebarView erstellt Array-Kopien bei jedem Render
-- **Schweregrad:** Mittel
-- **Das Problem:** `SidebarView.swift:189` — `Array(viewModel.filteredTree.enumerated())` erstellt bei jedem View-Body-Aufruf ein neues Array. `SidebarView.swift:144` — `Array(viewModel.tagInfos.prefix(12).enumerated())` ebenfalls.
-- **Der Fix:** Die Arrays vor dem `body` cachen oder `LazyVStack` statt `List` für große Bäume verwenden. Minimal-Impact da SwiftUI's diffing effizient ist, aber bei >500 Nodes messbar.
+### 🚨 [Performance] `MarkdownTextView` – Re-Rendering nur bei Nicht-First-Responder – KORREKT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `MarkdownTextView.swift:100` (iOS) prüft `!uiView.isFirstResponder` und `MarkdownTextView.swift:217` (macOS) prüft `textView.window?.firstResponder !== textView`. Das verhindert Re-Rendering während der User tippt. **Gut gelöst.**
 
-### 🚨 [Performance] VaultSearchIndex: `search()` ist synchron auf dem Actor
+### 🚨 [Performance] `AudioRecordingService` Timer auf @MainActor – 12Hz UI-Updates
 - **Schweregrad:** Mittel
-- **Das Problem:** `VaultSearchIndex.swift:64` — `search(query:)` ist nicht `async`, blockiert den Actor für die gesamte Suchdauer. Wenn parallel ein `updateEntry` läuft, blockiert dieser bis die Suche fertig ist. Bei 10.000 Entries und komplexer Query kann das spürbar sein.
-- **Der Fix:** Akzeptabel für In-Memory-Suche. Ein Trie oder Inverted Index würde O(1)-Lookups ermöglichen statt O(n)-Scan.
+- **Das Problem:** `AudioRecordingService.swift:205` – Metering-Timer feuert alle 83ms. Da die Klasse `@Observable` ist, triggert jede Property-Änderung (`currentLevel`, `peakLevel`, `levelHistory`) SwiftUI-Updates. Das sind 12 Re-Renders pro Sekunde nur für die Wellenform.
+- **Der Fix:** Akzeptabel für die Aufnahme-View. Optional: `levelHistory` in einer separaten, nicht-`@Observable` Property speichern und nur bei sichtbarer Wellenform-View Readings propagieren.
 
-### 🚨 [Performance] Onboarding Canvas-Animation läuft bei 10fps
-- **Schweregrad:** UI-Polish
-- **Das Problem:** `OnboardingView.swift:406` — `TimelineView(.animation(minimumInterval: 1.0 / 10.0))` rendert bei nur 10fps. Auf ProMotion-Displays (120Hz) ist die Animation sichtbar ruckelig. Canvas-Rendering mit 3 Ellipsen und Blur ist nicht CPU-intensiv genug, um 10fps zu rechtfertigen.
-- **Der Fix:** `minimumInterval: nil` (System-Default, typisch 60fps) oder besser: Native `MeshGradient` nutzen (siehe Säule 4).
+### 🚨 [Performance] Sensory Feedback korrekt eingesetzt – EXZELLENT
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. Haptics werden sparsam und nur bei expliziten User-Aktionen eingesetzt. Kein Haptic bei Autosave. Kein Haptic bei Scroll. Kein Haptic bei Hover. **HIG-konform.**
 
 ---
 
 ## Zusätzliche Befunde
 
-### 🚨 [Security] VaultPickerView: Security-Scoped Resource Lifecycle
+### 🚨 [Security] Deep Link Path Traversal – korrekt abgesichert
+- **Schweregrad:** UI-Polish (Positiv!)
+- **Das Problem:** Kein Problem. `AdaptiveLayoutView.swift:136-137` prüft korrekt `noteURL.standardizedFileURL.path().hasPrefix(vaultRoot.standardizedFileURL.path())`. Auch `FileSystemVaultProvider.rename()` (Zeile 105) und `createFolder()` (Zeile 125) haben die gleiche Prüfung. **Path Traversal ist verhindert.**
+
+### 🚨 [Security] VaultEncryptionService – Feature-Gap
 - **Schweregrad:** Hoch
-- **Das Problem:** `VaultPickerView.swift:75-110` — `url.startAccessingSecurityScopedResource()` wird aufgerufen, aber `stopAccessingSecurityScopedResource()` wird NIEMALS aufgerufen (bewusst per Kommentar Zeile 106-109). Das Bookmark wird gespeichert, aber beim nächsten App-Start wird das Bookmark resolved, was einen neuen Security-Scoped Access startet — ohne den alten zu beenden. Über mehrere Vault-Öffnungen akkumulieren sich die Security-Scoped Resource Accesses.
-- **Der Fix:** Beim Wechsel des Vaults den alten Security-Scope beenden:
+- **Das Problem:** `Frontmatter.isEncrypted` und `VaultConfig.encryptionEnabled` existieren als Properties, aber `VaultEncryptionService` wurde im Audit nicht als vollständige Implementierung gefunden. User könnten erwarten, dass Encryption funktioniert.
+- **Der Fix:** Feature hinter Feature-Flag verstecken bis Implementierung abgeschlossen. Toggle im UI als "Coming Soon" markieren.
+
+### 🚨 [Security] VaultPickerView – Security-Scoped Resources akkumulieren
+- **Schweregrad:** Hoch
+- **Das Problem:** `VaultPickerView.swift:108-111` – `stopAccessingSecurityScopedResource()` wird bewusst nicht aufgerufen (Kommentar erklärt warum). Aber bei Vault-Wechseln akkumulieren sich die Resources. Apple empfiehlt streng balanciertes Start/Stop.
+- **Der Fix (Code):**
 ```swift
-// In ContentView oder AppState
-func switchVault(to newVault: VaultConfig) {
-    currentVault?.rootURL.stopAccessingSecurityScopedResource()
+// In AppState oder ContentView beim Vault-Wechsel
+func switchVault(from oldVault: VaultConfig?, to newVault: VaultConfig) {
+    oldVault?.rootURL.stopAccessingSecurityScopedResource()
     currentVault = newVault
-    loadVault(newVault)
 }
 ```
-
-### 🚨 [Architecture] Widgets sind non-functional
-- **Schweregrad:** Kritisch
-- **Das Problem:** Die Widget-Dateien (`QuartzWidgets.swift`, `QuartzControlWidget.swift`, `QuartzAppIntents.swift`) existieren, aber der Timeline Provider gibt nur Placeholder-Daten zurück. Widgets zeigen keine echten Notiz-Daten an. Für einen App Store Release müssen Widgets entweder funktionieren oder entfernt werden — Apple reviewt non-functional Widgets.
-- **Der Fix:** App Group für shared UserDefaults einrichten, letzte Notizen darin cachen, Timeline Provider daraus lesen. Oder: Widgets erst in v2 ausliefern und aus dem Target entfernen.
-
-### 🚨 [Architecture] Keine Unit Tests für Presentation Layer
-- **Schweregrad:** Hoch
-- **Das Problem:** 14 Test-Files existieren, aber alle testen Data/Domain Layer (FrontmatterParser, MarkdownRenderer, CloudSync, etc.). Kein einziger Test für ViewModels (`NoteEditorViewModel`, `SidebarViewModel`). Die ViewModels enthalten Business-Logik (Autosave, Filtering, Word Count) die testbar und testWÜRDIG ist.
-- **Der Fix:** ViewModel-Tests hinzufügen:
-```swift
-@Test func autosaveTriggerOnContentChange() async {
-    let mockProvider = MockVaultProvider()
-    let vm = NoteEditorViewModel(vaultProvider: mockProvider, frontmatterParser: FrontmatterParser())
-    await vm.loadNote(at: testNoteURL)
-    vm.content = "Updated content"
-    // Wait for autosave delay
-    try await Task.sleep(for: .seconds(3))
-    #expect(mockProvider.savedNotes.count == 1)
-}
-```
-
-### 🚨 [Architecture] Kein Error Logging / Crash Reporting Infrastructure
-- **Schweregrad:** Mittel
-- **Das Problem:** Die App nutzt `os.Logger` in einigen Services (`VaultSearchIndex`, `DrawingStorageService`, `MarkdownTextView`), aber es gibt keine zentrale Logging-Strategie. Errors in ViewModels werden als `errorMessage: String?` gespeichert und dem User angezeigt, aber nicht geloggt. Kein Crash-Reporting-Hook.
-- **Der Fix:** Einen zentralen `QuartzLogger` erstellen und konsistent nutzen.
-
-### 🚨 [Security] API Keys in CustomModelStore via UserDefaults
-- **Schweregrad:** Mittel
-- **Das Problem:** `AIProvider.swift:409-454` — `CustomModelStore` persistiert benutzerdefinierte Modelle in `UserDefaults`. Das ist OK für Modell-Metadaten. Aber die Keychain-basierte Key-Speicherung (`KeychainHelper`) nutzt `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` — perfekt. Allerdings: `hasKey()` auf Zeile 511 ist `nonisolated` und ruft `SecItemCopyMatching` ohne Actor-Isolation auf. Das ist thread-safe (Keychain ist thread-safe), aber der `nonisolated`-Marker umgeht die Actor-Isolation bewusst.
-- **Der Fix:** Akzeptabel. `SecItemCopyMatching` ist dokumentiert als thread-safe. Der `nonisolated`-Marker ist korrekt.
 
 ---
 
 ## Gesamtnote
 
-### 📊 B+ (Gut mit gezieltem Optimierungsbedarf)
+### 📊 A- (90/100)
 
-**Deutliche Verbesserung gegenüber v1.0 (C+).**
+**Signifikante Verbesserung gegenüber v2.0 (B+).**
 
 **Herausragend:**
-- Saubere 3-Layer-Architektur (Data/Domain/Presentation) mit klarer Trennung
-- Modernes Swift 6: `@Observable`, `actor`, `Sendable`, Structured Concurrency durchgängig
-- Exzellentes Design-System: LiquidGlass-Komponenten, QuartzAnimation-Constants, Spring-basierte Animationen
-- Vorbildliche `#if canImport()` Guards für cross-platform (UIKit/AppKit, PencilKit)
-- Konsistente L10n mit `String(localized:bundle:.module)` — 245+ Strings
-- 7 Sprachen architektonisch vorbereitet (EN, DE, FR, ES, IT, ZH, JA)
-- Gutes Accessibility-Fundament (`accessibilityReduceMotion`, `.accessibilityLabel`, `.accessibilityHint`, `.sensoryFeedback`)
+- Saubere 3-Layer-Architektur (Data/Domain/Presentation) mit klarer Protocol-basierter Trennung
+- Modernes Swift 6: `@Observable`, `actor`, `Sendable`, Structured Concurrency durchgängig korrekt
+- Exzellentes Design-System: LiquidGlass-Komponenten, 17 zentrale Spring-Animations, Material-Effekte
+- Vorbildliche Accessibility: `accessibilityReduceMotion` in ALLEN 12+ Modifiers, VoiceOver Labels/Hints, Dynamic Type via `@ScaledMetric`
+- Konsistente Lokalisierung: 7 Sprachen, String Catalogs, `inflect: true` Pluralisierung
+- Subtile, HIG-konforme Haptics (nur bei expliziten User-Aktionen)
 - `CoordinatedFileWriter` für iCloud-sichere File-Ops
-- Feature-Gating mit Clean FeatureGating Protocol
-- Keychain-basierte API-Key-Speicherung
+- NSFileCoordinator im VaultProvider für koordiniertes Lesen/Schreiben
+- Path Traversal Prevention in Deep Links und File Operations
+- Touch Targets konsequent 44x44pt
 
-**Muss gefixt werden für Apple Design Award:**
-- MarkdownTextView macOS `isRichText = false` (Kritisch — rendert nicht korrekt)
-- DrawingStorageService ohne File Coordination (Kritisch — iCloud-Datenverlust)
-- MarkdownTextView vollständiges Re-Rendering bei jedem Keystroke (Kritisch — Performance)
-- Widget-Implementation ist non-functional (Kritisch — App Store Rejection)
-- ContentView nutzt AdaptiveLayoutView nicht (Hoch — iPad-Experience)
-- Keine ViewModel-Tests (Hoch — Regressions-Risiko)
-- Kein `@FocusState` für macOS Keyboard-Navigation (Hoch — HIG-Verletzung)
+**Was den Apple Design Award verhindert:**
+1. `listStyle(.insetGrouped)` – macOS Compilation Failure (Kritisch)
+2. `VectorEmbeddingService` hardcoded `.german` (Kritisch – internationale User betroffen)
+3. `columnVisibility` Duplikation – Sidebar-Toggle broken (Hoch)
+4. Doppelter `loadFileTree` Call – Performance-Verschwendung (Hoch)
+5. Security-Scoped Resource Leaks bei Vault-Wechsel (Hoch)
 
 ---
 
 ## Top 3 Architektur-Prioritäten
 
-### 1. 🔴 MarkdownTextView: isRichText + Inkrementelles Rendering
-`isRichText = false` auf macOS fixen. Langfristig inkrementelles Rendering implementieren (nur geänderte Paragraphen neu rendern). **Ohne Fix: macOS-Editor ist visuell gebrochen. Mit Fix: Grundlage für flüssiges 120Hz-Editing.**
+### 1. 🔴 Cross-Platform Fix: `listStyle(.insetGrouped)` + `columnVisibility` Binding
+**Impact:** App kompiliert nicht auf macOS + Sidebar-Toggle-Shortcut ist broken.
+**Aufwand:** 30 Minuten. Einfachster Fix mit dem größten Impact.
 
-### 2. 🔴 File Coordination für DrawingStorageService
-Alle File-Ops in `DrawingStorageService` über `CoordinatedFileWriter` leiten. Dasselbe Pattern wie bereits in `AssetManager` und `VaultTemplateService` implementiert. **Ohne Fix: Zeichnungen können bei iCloud-Sync korrumpiert oder verloren gehen.**
+### 2. 🔴 L10n Fix: `VectorEmbeddingService` Language Detection statt hardcoded `.german`
+**Impact:** Semantische Suche funktioniert nur gut für deutsche Texte. Alle anderen Sprachen leiden.
+**Aufwand:** 1 Stunde. `NLLanguageRecognizer` für automatische Detection pro Chunk.
 
-### 3. 🟡 iPad 3-Column Layout + macOS Focus States
-`AdaptiveLayoutView` in `ContentView` integrieren für die volle iPad/Mac-Experience. `@FocusState` in FrontmatterEditor und Search implementieren. **Ohne Fix: Die App fühlt sich auf iPad und Mac wie eine vergrößerte iPhone-App an — das Gegenteil eines Apple Design Award.**
+### 3. 🟡 Performance: Doppeltes `loadFileTree` eliminieren + `buildTree` vom Actor auslagern
+**Impact:** Vault-Öffnung dauert doppelt so lang wie nötig. Actor-Blockade bei großen Vaults.
+**Aufwand:** 2 Stunden. Shared Tree zwischen Sidebar und SearchIndex, `Task.detached` für I/O.
 
 ---
 
-*Audit durchgeführt am 17. März 2026. Nächstes Review empfohlen nach Behebung der Kritisch/Hoch-Befunde.*
+*Audit v3.0 durchgeführt am 17. März 2026. Die Codebase ist nah an Apple-Design-Award-Level. Die Top-3 Fixes bringen sie in die "Submission-Ready" Kategorie.*
