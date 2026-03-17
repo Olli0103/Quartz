@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Zeigt den YAML-Frontmatter-Block als editierbare Key-Value-Liste.
-/// Collapsible mit Liquid Glass Design.
+/// Displays the YAML frontmatter block as an editable key-value list.
+/// Collapsible with Liquid Glass design.
 public struct FrontmatterEditorView: View {
     @Binding var frontmatter: Frontmatter
     @State private var isExpanded: Bool = false
@@ -225,7 +225,7 @@ private struct LabeledField<Content: View>: View {
     }
 }
 
-/// Einfaches FlowLayout für Tags.
+/// Simple flow layout for tags.
 private struct FlowLayout: Layout {
     var spacing: CGFloat
 

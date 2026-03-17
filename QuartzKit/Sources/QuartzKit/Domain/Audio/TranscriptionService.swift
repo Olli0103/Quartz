@@ -3,10 +3,10 @@ import Speech
 import AVFoundation
 import os
 
-/// On-Device Transkription via `SFSpeechRecognizer`.
+/// On-device transcription via `SFSpeechRecognizer`.
 ///
-/// Transkribiert Audio-Aufnahmen (.m4a) in Text.
-/// Unterstützt 60+ Sprachen mit On-Device-Erkennung.
+/// Transcribes audio recordings (.m4a) to text.
+/// Supports 60+ languages with on-device recognition.
 public actor TranscriptionService {
     public enum TranscriptionError: LocalizedError, Sendable {
         case permissionDenied
@@ -24,15 +24,15 @@ public actor TranscriptionService {
         }
     }
 
-    /// Ergebnis einer Transkription.
+    /// Result of a transcription.
     public struct TranscriptionResult: Sendable {
-        /// Der vollständige transkribierte Text.
+        /// The complete transcribed text.
         public let text: String
-        /// Einzelne Segmente mit Zeitstempeln.
+        /// Individual segments with timestamps.
         public let segments: [TranscriptionSegment]
-        /// Erkannte Sprache.
+        /// Recognized language.
         public let locale: Locale
-        /// Dauer der Audio-Datei.
+        /// Duration of the audio file.
         public let duration: TimeInterval
 
         public init(text: String, segments: [TranscriptionSegment], locale: Locale, duration: TimeInterval) {
@@ -43,7 +43,7 @@ public actor TranscriptionService {
         }
     }
 
-    /// Ein transkribiertes Segment mit Zeitstempel.
+    /// A transcribed segment with timestamp.
     public struct TranscriptionSegment: Sendable {
         public let text: String
         public let timestamp: TimeInterval
@@ -58,7 +58,7 @@ public actor TranscriptionService {
         }
     }
 
-    /// Bevorzugte Sprache für die Erkennung.
+    /// Preferred language for recognition.
     private let locale: Locale
 
     public init(locale: Locale = .current) {
@@ -67,7 +67,7 @@ public actor TranscriptionService {
 
     // MARK: - Permissions
 
-    /// Prüft und fordert Transkriptions-Berechtigung an.
+    /// Checks and requests transcription permission.
     public func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
@@ -76,7 +76,7 @@ public actor TranscriptionService {
         }
     }
 
-    /// Prüft ob die Erkennung verfügbar ist.
+    /// Checks whether recognition is available.
     public var isAvailable: Bool {
         guard let recognizer = SFSpeechRecognizer(locale: locale) else { return false }
         return recognizer.isAvailable
@@ -84,10 +84,10 @@ public actor TranscriptionService {
 
     // MARK: - Transcription
 
-    /// Transkribiert eine Audio-Datei.
+    /// Transcribes an audio file.
     ///
-    /// - Parameter audioURL: Pfad zur Audio-Datei (.m4a, .wav, etc.)
-    /// - Returns: TranscriptionResult mit Text und Segmenten
+    /// - Parameter audioURL: Path to the audio file (.m4a, .wav, etc.)
+    /// - Returns: TranscriptionResult with text and segments
     public func transcribe(audioURL: URL) async throws -> TranscriptionResult {
         guard FileManager.default.fileExists(atPath: audioURL.path()) else {
             throw TranscriptionError.fileNotFound
@@ -98,7 +98,7 @@ public actor TranscriptionService {
             throw TranscriptionError.recognizerUnavailable
         }
 
-        // Audio-Dauer ermitteln
+        // Determine audio duration
         let asset = AVURLAsset(url: audioURL)
         let duration = try await asset.load(.duration).seconds
 
@@ -152,11 +152,11 @@ public actor TranscriptionService {
         }
     }
 
-    /// Transkribiert und speichert das Ergebnis als Markdown neben der Audio-Datei.
+    /// Transcribes and saves the result as Markdown next to the audio file.
     public func transcribeAndSave(audioURL: URL) async throws -> TranscriptionResult {
         let result = try await transcribe(audioURL: audioURL)
 
-        // Markdown-Datei erstellen
+        // Create Markdown file
         let markdownURL = audioURL.deletingPathExtension().appendingPathExtension("md")
         let markdown = formatAsMarkdown(result, audioFileName: audioURL.lastPathComponent)
 

@@ -1,9 +1,9 @@
 import Foundation
 
-/// Use Case: Findet alle Backlinks zu einer Notiz.
+/// Use case: Finds all backlinks to a note.
 ///
-/// Scannt alle Notizen im Vault nach `[[Note-Name]]` Links
-/// die auf die gegebene Notiz verweisen.
+/// Scans all notes in the vault for `[[Note-Name]]` links
+/// that point to the given note.
 public struct BacklinkUseCase: Sendable {
     private let vaultProvider: any VaultProviding
     private let linkExtractor: WikiLinkExtractor
@@ -13,12 +13,12 @@ public struct BacklinkUseCase: Sendable {
         self.linkExtractor = linkExtractor
     }
 
-    /// Findet alle Notizen die auf die gegebene Notiz verlinken.
+    /// Finds all notes that link to the given note.
     ///
     /// - Parameters:
-    ///   - noteURL: URL der Ziel-Notiz
-    ///   - vaultRoot: Root-URL des Vaults
-    /// - Returns: Liste von Backlinks mit Quell-Notiz und Kontext
+    ///   - noteURL: URL of the target note
+    ///   - vaultRoot: Root URL of the vault
+    /// - Returns: List of backlinks with source note and context
     public func findBacklinks(
         to noteURL: URL,
         in vaultRoot: URL
@@ -74,7 +74,7 @@ public struct BacklinkUseCase: Sendable {
         return result
     }
 
-    /// Extrahiert den umgebenden Text um einen Link herum.
+    /// Extracts the surrounding text around a link.
     private func extractContext(for link: WikiLink, in body: String) -> String {
         let searchTerm = "[[\(link.raw)]]"
         guard let range = body.range(of: searchTerm) else { return "" }
@@ -84,7 +84,7 @@ public struct BacklinkUseCase: Sendable {
     }
 }
 
-/// Ein Backlink: Welche Notiz verlinkt hierher, mit Kontext.
+/// A backlink: which note links here, with context.
 public struct Backlink: Identifiable, Sendable {
     public let sourceNoteURL: URL
     public let sourceNoteName: String

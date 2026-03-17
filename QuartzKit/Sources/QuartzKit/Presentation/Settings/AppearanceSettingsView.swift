@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Einstellungen für Erscheinungsbild: Theme, Schriftgröße.
-/// Cleanes Apple-Design mit visuellen Theme-Karten.
+/// Appearance settings: theme, font size.
+/// Clean Apple design with visual theme cards.
 public struct AppearanceSettingsView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

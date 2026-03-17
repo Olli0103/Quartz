@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// First-Start Onboarding – Liquid Glass Design.
+/// First-start onboarding – Liquid Glass design.
 ///
-/// "Second brain in 30 seconds" – minimaler Flow:
-/// 1. Welcome Screen mit Gradient-Animation
-/// 2. Vault-Ordner wählen
-/// 3. Struktur wählen (PARA / Zettelkasten / Leer)
-/// 4. Fertig
+/// "Second brain in 30 seconds" – minimal flow:
+/// 1. Welcome screen with gradient animation
+/// 2. Choose vault folder
+/// 3. Choose structure (PARA / Zettelkasten / Empty)
+/// 4. Done
 public struct OnboardingView: View {
     @State private var currentStep: OnboardingStep = .welcome
     @State private var selectedTemplate: VaultTemplate = .para

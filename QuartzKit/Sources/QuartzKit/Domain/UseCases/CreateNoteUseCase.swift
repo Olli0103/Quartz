@@ -1,6 +1,6 @@
 import Foundation
 
-/// Use Case: Erstellt eine neue Notiz im Vault.
+/// Use case: Creates a new note in the vault.
 public struct CreateNoteUseCase: Sendable {
     private let vaultProvider: any VaultProviding
 
@@ -8,7 +8,7 @@ public struct CreateNoteUseCase: Sendable {
         self.vaultProvider = vaultProvider
     }
 
-    /// Erstellt eine neue Notiz mit dem gegebenen Namen im angegebenen Ordner.
+    /// Creates a new note with the given name in the specified folder.
     public func execute(name: String, in folder: URL) async throws -> NoteDocument {
         try await vaultProvider.createNote(named: name, in: folder)
     }

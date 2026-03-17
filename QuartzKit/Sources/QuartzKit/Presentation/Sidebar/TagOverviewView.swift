@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Übersicht aller Tags im Vault – Pill-Style mit Farbpalette.
+/// Overview of all tags in the vault – pill style with color palette.
 public struct TagOverviewView: View {
     let tags: [TagInfo]
     @Binding var selectedTag: String?
@@ -89,7 +89,7 @@ public struct TagOverviewView: View {
     }
 }
 
-/// Info über einen Tag: Name und Anzahl der Notizen.
+/// Info about a tag: name and number of notes.
 public struct TagInfo: Identifiable, Sendable {
     public let name: String
     public let count: Int

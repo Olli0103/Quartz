@@ -62,7 +62,7 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Erstellt eine neue Notiz.
+    /// Creates a new note.
     public func createNote(named name: String, in folder: URL) async {
         do {
             _ = try await vaultProvider.createNote(named: name, in: folder)
@@ -72,7 +72,7 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Benennt ein Element um.
+    /// Renames an item.
     public func rename(at url: URL, to newName: String) async {
         do {
             _ = try await vaultProvider.rename(at: url, to: newName)
@@ -82,7 +82,7 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Löscht ein Element.
+    /// Deletes an item.
     public func delete(at url: URL) async {
         do {
             try await vaultProvider.deleteNote(at: url)
@@ -92,7 +92,7 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Sammelt Tags aus dem Dateibaum.
+    /// Collects tags from the file tree.
     public func collectTags() {
         var tagCounts: [String: Int] = [:]
         collectTagsFromNodes(fileTree, into: &tagCounts)
@@ -114,8 +114,8 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Gefilterte Nodes basierend auf Suchtext und ausgewähltem Tag.
-    /// Ergebnis wird gecacht, bis sich fileTree, searchText oder selectedTag ändern.
+    /// Filtered nodes based on search text and selected tag.
+    /// Result is cached until fileTree, searchText, or selectedTag change.
     public var filteredTree: [FileNode] {
         if let cached = cachedFilteredTree {
             return cached

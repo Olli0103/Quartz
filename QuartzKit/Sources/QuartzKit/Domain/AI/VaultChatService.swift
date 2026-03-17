@@ -1,13 +1,13 @@
 import Foundation
 
-/// "Chat mit dem Vault": Semantische Suche + KI-Antwort mit Quellenangabe.
+/// "Chat with the Vault": Semantic search + AI response with source citations.
 ///
-/// Flow: Frage → relevante Chunks via Vektor-Suche → Kontext an KI → Antwort mit Quellen.
+/// Flow: Question → relevant chunks via vector search → context to AI → response with sources.
 public actor VaultChatService {
     private let embeddingService: VectorEmbeddingService
     private let providerRegistry: AIProviderRegistry
 
-    /// Maximale Anzahl Chunks als Kontext.
+    /// Maximum number of chunks as context.
     private let maxContextChunks = 8
 
     public init(
@@ -18,13 +18,13 @@ public actor VaultChatService {
         self.providerRegistry = providerRegistry
     }
 
-    /// Stellt eine Frage an den gesamten Vault.
+    /// Asks a question to the entire vault.
     ///
     /// - Parameters:
-    ///   - question: Die Benutzerfrage
-    ///   - chatHistory: Bisherige Chat-Nachrichten
-    ///   - noteResolver: Closure die noteID → Titel auflöst
-    /// - Returns: VaultAnswer mit Antwort und Quellen
+    ///   - question: The user's question
+    ///   - chatHistory: Previous chat messages
+    ///   - noteResolver: Closure that resolves noteID → title
+    /// - Returns: VaultAnswer with response and sources
     public func ask(
         _ question: String,
         chatHistory: [AIMessage] = [],
@@ -37,7 +37,7 @@ public actor VaultChatService {
             throw VaultChatError.noProviderConfigured
         }
 
-        // 1. Semantische Suche
+        // 1. Semantic search
         let indexedCount = await embeddingService.entryCount
         guard indexedCount > 0 else {
             throw VaultChatError.indexEmpty
@@ -53,10 +53,10 @@ public actor VaultChatService {
             throw VaultChatError.noRelevantContent
         }
 
-        // 2. Quellen sammeln
+        // 2. Collect sources
         let sources = buildSources(from: searchResults, noteResolver: noteResolver)
 
-        // 3. Kontext aufbauen
+        // 3. Build context
         let contextString = searchResults.enumerated().map { i, result in
             let title = noteResolver(result.entry.noteID) ?? String(localized: "Unknown Note", bundle: .module)
             return """
@@ -81,7 +81,7 @@ public actor VaultChatService {
         - Keep responses concise and well-structured.
         """
 
-        // 4. KI-Antwort generieren
+        // 4. Generate AI response
         var messages: [AIMessage] = [
             AIMessage(role: .system, content: systemPrompt)
         ]
@@ -129,13 +129,13 @@ public actor VaultChatService {
 
 // MARK: - Models
 
-/// Antwort auf eine Vault-Frage.
+/// Response to a vault question.
 public struct VaultAnswer: Sendable {
-    /// Die KI-generierte Antwort.
+    /// The AI-generated response.
     public let answer: String
-    /// Quellenangaben (referenzierte Notizen).
+    /// Source citations (referenced notes).
     public let sources: [VaultSource]
-    /// Die zugrundeliegenden Suchergebnisse.
+    /// The underlying search results.
     public let searchResults: [VectorEmbeddingService.SearchResult]
 
     public init(
@@ -149,7 +149,7 @@ public struct VaultAnswer: Sendable {
     }
 }
 
-/// Eine Quelle in einer Vault-Antwort.
+/// A source in a vault response.
 public struct VaultSource: Identifiable, Sendable {
     public let id = UUID()
     public let noteID: UUID
@@ -165,7 +165,7 @@ public struct VaultSource: Identifiable, Sendable {
     }
 }
 
-/// Eine Nachricht im Vault-Chat.
+/// A message in the vault chat.
 public struct VaultChatMessage: Identifiable, Sendable {
     public let id = UUID()
     public let role: Role

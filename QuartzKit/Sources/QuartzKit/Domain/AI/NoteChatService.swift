@@ -1,28 +1,28 @@
 import Foundation
 
-/// Service für den KI-Chat mit einer einzelnen Notiz.
+/// Service for AI chat with a single note.
 ///
-/// Kontext = aktueller Notiz-Inhalt. Der User kann Fragen zur Notiz stellen
-/// wie "Erkläre mir diese Notiz" oder "Fasse die Hauptpunkte zusammen".
+/// Context = current note content. The user can ask questions about the note
+/// such as "Explain this note to me" or "Summarize the main points".
 public actor NoteChatService {
     private let providerRegistry: AIProviderRegistry
 
-    /// Maximale Token-Länge für den Notiz-Kontext.
+    /// Maximum token length for the note context.
     private let maxContextLength = 100_000
 
     public init(providerRegistry: AIProviderRegistry) {
         self.providerRegistry = providerRegistry
     }
 
-    /// Sendet eine Nachricht im Kontext einer Notiz.
+    /// Sends a message in the context of a note.
     ///
     /// - Parameters:
-    ///   - userMessage: Die Benutzernachricht
-    ///   - noteContent: Der Markdown-Inhalt der aktuellen Notiz
-    ///   - noteTitle: Titel der Notiz
-    ///   - chatHistory: Bisherige Chat-Nachrichten
-    ///   - temperature: Kreativitäts-Parameter (0.0-1.0)
-    /// - Returns: Die Antwort des KI-Providers
+    ///   - userMessage: The user message
+    ///   - noteContent: The Markdown content of the current note
+    ///   - noteTitle: Title of the note
+    ///   - chatHistory: Previous chat messages
+    ///   - temperature: Creativity parameter (0.0-1.0)
+    /// - Returns: The AI provider's response
     public func sendMessage(
         _ userMessage: String,
         noteContent: String,

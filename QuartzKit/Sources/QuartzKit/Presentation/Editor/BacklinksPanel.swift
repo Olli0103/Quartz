@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Panel das Backlinks zur aktuellen Notiz anzeigt – Liquid Glass Stil.
+/// Panel that displays backlinks to the current note – Liquid Glass style.
 public struct BacklinksPanel: View {
     let backlinks: [Backlink]
     let onNavigate: (URL) -> Void

@@ -1,13 +1,13 @@
 import Foundation
 import CryptoKit
 
-/// Service für dateibasierte AES-256-GCM Verschlüsselung.
+/// Service for file-based AES-256-GCM encryption.
 ///
-/// Verschlüsselt/entschlüsselt einzelne Dateien im Vault.
-/// Der symmetrische Schlüssel wird im Keychain gespeichert
-/// und optional durch den Secure Enclave geschützt.
+/// Encrypts/decrypts individual files in the vault.
+/// The symmetric key is stored in the Keychain
+/// and optionally protected by the Secure Enclave.
 public actor VaultEncryptionService {
-    /// Fehler bei Verschlüsselungs-Operationen.
+    /// Errors during encryption operations.
     public enum EncryptionError: LocalizedError, Sendable {
         case keyNotFound
         case encryptionFailed(String)
@@ -40,10 +40,10 @@ public actor VaultEncryptionService {
 
     // MARK: - Key Management
 
-    /// Generiert einen neuen AES-256 Schlüssel und speichert ihn im Keychain.
+    /// Generates a new AES-256 key and stores it in the Keychain.
     ///
-    /// - Parameter vaultID: Eindeutige ID des Vaults
-    /// - Returns: Referenz auf den Keychain-Eintrag
+    /// - Parameter vaultID: Unique ID of the vault
+    /// - Returns: Reference to the Keychain entry
     public func generateKey(for vaultID: String) throws -> String {
         let key = SymmetricKey(size: .bits256)
         let keyData = key.withUnsafeBytes { Data($0) }
@@ -53,7 +53,7 @@ public actor VaultEncryptionService {
         return keyRef
     }
 
-    /// Lädt den Schlüssel für einen Vault aus dem Keychain.
+    /// Loads the key for a vault from the Keychain.
     public func loadKey(ref: String) throws -> SymmetricKey {
         let keyData = try loadFromKeychain(account: ref)
         return SymmetricKey(data: keyData)
@@ -68,7 +68,7 @@ public actor VaultEncryptionService {
         return try operation(key)
     }
 
-    /// Löscht den Schlüssel für einen Vault aus dem Keychain.
+    /// Deletes the key for a vault from the Keychain.
     public func deleteKey(ref: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -83,7 +83,7 @@ public actor VaultEncryptionService {
 
     // MARK: - File Encryption
 
-    /// Verschlüsselt Dateidaten mit AES-256-GCM.
+    /// Encrypts file data with AES-256-GCM.
     ///
     /// Format: nonce (12 bytes) + ciphertext + tag (16 bytes)
     public nonisolated func encrypt(data: Data, with key: SymmetricKey) throws -> Data {
@@ -100,7 +100,7 @@ public actor VaultEncryptionService {
         }
     }
 
-    /// Entschlüsselt AES-256-GCM verschlüsselte Daten.
+    /// Decrypts AES-256-GCM encrypted data.
     public nonisolated func decrypt(data: Data, with key: SymmetricKey) throws -> Data {
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
@@ -138,7 +138,7 @@ public actor VaultEncryptionService {
         if let error = coordinatorError ?? opError { throw error }
     }
 
-    /// Entschlüsselt eine Datei und gibt den Plaintext zurück.
+    /// Decrypts a file and returns the plaintext.
     public func decryptFile(at url: URL, with key: SymmetricKey) throws -> Data {
         var coordinatorError: NSError?
         var opError: Error?

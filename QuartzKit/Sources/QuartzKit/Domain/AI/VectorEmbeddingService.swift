@@ -4,7 +4,7 @@ import NaturalLanguage
 
 // MARK: - Embedding Entry
 
-/// Ein Eintrag im Vektor-Index.
+/// An entry in the vector index.
 public struct EmbeddingEntry: Codable, Sendable {
     public let noteID: UUID
     public let chunkIndex: Int
@@ -23,18 +23,18 @@ public struct EmbeddingEntry: Codable, Sendable {
 
 // MARK: - Vector Embedding Service
 
-/// Service für lokale Vektor-Embeddings und semantische Suche.
+/// Service for local vector embeddings and semantic search.
 ///
-/// Nutzt `NLEmbedding` für On-Device-Embeddings und
-/// `Accelerate` für effiziente Cosine Similarity.
-/// Speicherung als binärer Index in `.quartz/embeddings.idx`.
+/// Uses `NLEmbedding` for on-device embeddings and
+/// `Accelerate` for efficient cosine similarity.
+/// Stored as a binary index in `.quartz/embeddings.idx`.
 public actor VectorEmbeddingService {
     private var index: [EmbeddingEntry] = []
     private let indexURL: URL
     private let chunkSize: Int
     private let language: NLLanguage
 
-    /// Dimension der Embedding-Vektoren.
+    /// Dimension of the embedding vectors.
     public var embeddingDimension: Int { 512 }
 
     public init(
@@ -62,7 +62,7 @@ public actor VectorEmbeddingService {
     // Binary format version for forward compatibility.
     private static let formatVersion: UInt32 = 1
 
-    /// Lädt den Embedding-Index von Disk (binäres Format).
+    /// Loads the embedding index from disk (binary format).
     public func loadIndex() throws {
         guard FileManager.default.fileExists(atPath: indexURL.path()) else {
             index = []
@@ -73,7 +73,7 @@ public actor VectorEmbeddingService {
         index = try Self.decodeBinary(data)
     }
 
-    /// Speichert den Embedding-Index auf Disk (binäres Format).
+    /// Saves the embedding index to disk (binary format).
     public func saveIndex() throws {
         let dir = indexURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

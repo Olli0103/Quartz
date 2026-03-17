@@ -1,14 +1,14 @@
 import Foundation
 import LocalAuthentication
 
-/// Service für biometrische Authentifizierung (FaceID/TouchID).
+/// Service for biometric authentication (FaceID/TouchID).
 ///
-/// Unterstützt:
-/// - App-Start-Lock
-/// - Ordner-Lock für sensible Bereiche
-/// - Fallback auf Geräte-Passcode
+/// Supports:
+/// - App launch lock
+/// - Folder lock for sensitive areas
+/// - Fallback to device passcode
 public actor BiometricAuthService {
-    /// Verfügbare Biometrie-Typen.
+    /// Available biometry types.
     public enum BiometryType: Sendable {
         case faceID
         case touchID
@@ -17,7 +17,7 @@ public actor BiometricAuthService {
         case none
     }
 
-    /// Ergebnis einer Authentifizierung.
+    /// Result of an authentication.
     public enum AuthResult: Sendable {
         case success
         case cancelled
@@ -26,13 +26,13 @@ public actor BiometricAuthService {
 
     public init() {}
 
-    /// Prüft welcher Biometrie-Typ verfügbar ist.
+    /// Checks which biometry type is available.
     public func availableBiometry() -> BiometryType {
         let context = LAContext()
         var error: NSError?
 
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            // Prüfe ob zumindest Passcode möglich ist
+            // Check if at least passcode is available
             if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) {
                 return .passcodeOnly
             }
@@ -47,10 +47,10 @@ public actor BiometricAuthService {
         }
     }
 
-    /// Führt biometrische Authentifizierung durch.
+    /// Performs biometric authentication.
     ///
-    /// - Parameter reason: Der Grund der Authentifizierung (wird dem User angezeigt)
-    /// - Returns: AuthResult mit Erfolg oder Fehler
+    /// - Parameter reason: The reason for authentication (shown to the user)
+    /// - Returns: AuthResult with success or failure
     public func authenticate(reason: String? = nil) async -> AuthResult {
         let localizedReason = reason ?? String(localized: "Unlock Quartz", bundle: .module)
         let context = LAContext()
@@ -59,7 +59,7 @@ public actor BiometricAuthService {
 
         do {
             let success = try await context.evaluatePolicy(
-                .deviceOwnerAuthentication, // Biometrie + Passcode-Fallback
+                .deviceOwnerAuthentication, // Biometry + passcode fallback
                 localizedReason: localizedReason
             )
 
@@ -82,7 +82,7 @@ public actor BiometricAuthService {
         }
     }
 
-    /// Prüft ob Biometrie verfügbar und eingerichtet ist.
+    /// Checks whether biometry is available and set up.
     public func isBiometryAvailable() -> Bool {
         let context = LAContext()
         return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)

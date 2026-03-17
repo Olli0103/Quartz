@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Markdown-Formatierungsaktionen.
+/// Markdown formatting actions.
 public enum FormattingAction: String, CaseIterable, Sendable {
     case bold
     case italic
@@ -63,7 +63,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
     }
 }
 
-/// Beschreibt wie Markdown-Syntax auf Text angewandt wird.
+/// Describes how Markdown syntax is applied to text.
 public enum MarkdownSyntax: Sendable {
     case wrap(String)
     case linePrefix(String)
@@ -73,7 +73,7 @@ public enum MarkdownSyntax: Sendable {
 
 // MARK: - Formatting Toolbar View
 
-/// Toolbar für Markdown-Formatierung – Liquid Glass Stil.
+/// Toolbar for Markdown formatting – Liquid Glass style.
 public struct FormattingToolbar: View {
     let onAction: (FormattingAction) -> Void
 

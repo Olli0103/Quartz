@@ -8,8 +8,8 @@ import AppKit
 
 /// On-Device AI Service via Apple Intelligence APIs.
 ///
-/// Bietet Zusammenfassen, Umschreiben und Tonfall-Änderung
-/// direkt auf dem Gerät – ohne Internet.
+/// Provides summarization, rewriting, and tone adjustment
+/// directly on-device – no internet required.
 public actor AppleIntelligenceService {
     public enum AIAction: String, CaseIterable, Sendable {
         case summarize = "summarize"
@@ -71,7 +71,7 @@ public actor AppleIntelligenceService {
         }
     }
 
-    /// Ergebnis einer AI-Verarbeitung.
+    /// Result of an AI processing operation.
     public struct AIResult: Sendable {
         public let originalText: String
         public let processedText: String
@@ -88,23 +88,23 @@ public actor AppleIntelligenceService {
 
     public init() {}
 
-    /// Prüft ob Apple Intelligence verfügbar ist.
+    /// Checks whether Apple Intelligence is available.
     public var isAvailable: Bool {
-        // Apple Intelligence ist ab iOS 18.1 / macOS 15.1 verfügbar
-        // und nur auf unterstützten Geräten (A17 Pro+, M1+)
+        // Apple Intelligence is available from iOS 18.1 / macOS 15.1
+        // and only on supported devices (A17 Pro+, M1+)
         if #available(iOS 18.1, macOS 15.1, *) {
             return true
         }
         return false
     }
 
-    /// Führt eine AI-Aktion auf dem gegebenen Text aus.
+    /// Performs an AI action on the given text.
     ///
     /// - Parameters:
-    ///   - action: Die gewünschte AI-Aktion
-    ///   - text: Der zu verarbeitende Text
-    ///   - tone: Optionaler Tonfall (nur für .rewrite)
-    /// - Returns: AIResult mit Original und verarbeitetem Text
+    ///   - action: The desired AI action
+    ///   - text: The text to process
+    ///   - tone: Optional tone (only for .rewrite)
+    /// - Returns: AIResult with original and processed text
     public func process(
         action: AIAction,
         text: String,
@@ -118,7 +118,7 @@ public actor AppleIntelligenceService {
             throw AIError.notAvailable
         }
 
-        // Apple Intelligence WritingTools API aufrufen
+        // Call Apple Intelligence WritingTools API
         let processedText = try await performAppleIntelligence(
             action: action,
             text: text,
@@ -133,17 +133,17 @@ public actor AppleIntelligenceService {
         )
     }
 
-    /// Zusammenfassung eines langen Textes in Stichpunkte.
+    /// Summarizes a long text into bullet points.
     public func summarize(_ text: String) async throws -> AIResult {
         try await process(action: .summarize, text: text)
     }
 
-    /// Text umschreiben mit optionalem Tonfall.
+    /// Rewrites text with an optional tone.
     public func rewrite(_ text: String, tone: Tone = .professional) async throws -> AIResult {
         try await process(action: .rewrite, text: text, tone: tone)
     }
 
-    /// Text Korrekturlesen.
+    /// Proofreads text.
     public func proofread(_ text: String) async throws -> AIResult {
         try await process(action: .proofread, text: text)
     }
@@ -155,8 +155,8 @@ public actor AppleIntelligenceService {
         text: String,
         tone: Tone?
     ) async throws -> String {
-        // Nutzt NaturalLanguage-Framework als On-Device Fallback.
-        // Wenn WritingTools verfügbar wird, kann hier direkt integriert werden.
+        // Uses the NaturalLanguage framework as an on-device fallback.
+        // When WritingTools becomes available, it can be integrated directly here.
         switch action {
         case .summarize:
             return summarizeText(text)
@@ -182,7 +182,7 @@ public actor AppleIntelligenceService {
             return true
         }
 
-        // Behalte die ersten ~30% der Sätze als Zusammenfassung
+        // Keep the first ~30% of sentences as a summary
         let keepCount = max(1, sentences.count * 3 / 10)
         let summary = sentences.prefix(keepCount).joined(separator: " ")
         let header = String(localized: "Summary", bundle: .module)
@@ -216,7 +216,7 @@ public actor AppleIntelligenceService {
             offset = NSMaxRange(misspelled)
         }
 
-        // Korrekturen von hinten nach vorne anwenden
+        // Apply corrections from back to front
         for (corrRange, correction) in corrections.reversed() {
             if let swiftRange = Range(corrRange, in: mutableText) {
                 mutableText.replaceSubrange(swiftRange, with: correction)
@@ -273,7 +273,7 @@ public actor AppleIntelligenceService {
             return true
         }
 
-        // Entferne kurze Füllsätze und behalte die längeren, informativeren
+        // Remove short filler sentences and keep the longer, more informative ones
         let filtered = sentences.filter { $0.count > 15 }
         return (filtered.isEmpty ? sentences : filtered).joined(separator: " ")
     }

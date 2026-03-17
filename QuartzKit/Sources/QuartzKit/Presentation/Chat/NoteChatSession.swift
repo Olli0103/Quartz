@@ -1,6 +1,6 @@
 import Foundation
 
-/// Eine Chat-Session mit einer Notiz.
+/// A chat session with a note.
 @Observable
 @MainActor
 public final class NoteChatSession {
@@ -22,7 +22,7 @@ public final class NoteChatSession {
         self.chatService = chatService
     }
 
-    /// Sendet eine Nachricht und wartet auf Antwort.
+    /// Sends a message and waits for a response.
     public func send(_ message: String) async {
         let userMessage = AIMessage(role: .user, content: message)
         messages.append(userMessage)

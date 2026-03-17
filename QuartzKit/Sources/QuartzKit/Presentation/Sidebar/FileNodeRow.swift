@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Einzelne Zeile in der Sidebar für einen FileNode.
-/// Cleanes Design mit subtilen Farben und Typografie.
+/// Single row in the sidebar for a FileNode.
+/// Clean design with subtle colors and typography.
 public struct FileNodeRow: View {
     public let node: FileNode
 

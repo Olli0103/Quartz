@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Navigations-Hub für alle Einstellungen – Liquid Glass Karten-Design.
+/// Navigation hub for all settings – Liquid Glass card design.
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 

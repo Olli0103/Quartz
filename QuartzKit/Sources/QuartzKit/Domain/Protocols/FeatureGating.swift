@@ -28,7 +28,7 @@ extension EnvironmentValues {
     }
 }
 
-/// Stub-Implementierung: Alle Features aktiviert (für Previews und Tests).
+/// Stub implementation: All features enabled (for previews and tests).
 private struct DefaultFeatureGateStub: FeatureGating {
     func isEnabled(_ feature: Feature) -> Bool { true }
     func tier(for feature: Feature) -> FeatureTier { .free }

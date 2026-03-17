@@ -2,10 +2,10 @@
 import SwiftUI
 import PencilKit
 
-/// SwiftUI Wrapper für `PKCanvasView` – eingebettet als Block im Markdown-Editor.
+/// SwiftUI wrapper for `PKCanvasView` – embedded as a block in the Markdown editor.
 ///
-/// Unterstützt Apple Pencil und Finger-Zeichnen.
-/// Die Zeichnung wird als `PKDrawing` zurückgegeben.
+/// Supports Apple Pencil and finger drawing.
+/// The drawing is returned as a `PKDrawing`.
 public struct DrawingCanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var isToolPickerVisible: Bool
@@ -78,7 +78,7 @@ public struct DrawingCanvasView: UIViewRepresentable {
 
 // MARK: - Drawing Block View
 
-/// Ein Zeichnungs-Block der inline zwischen Text-Paragraphen im Editor erscheint.
+/// A drawing block that appears inline between text paragraphs in the editor.
 public struct DrawingBlockView: View {
     @State private var drawing: PKDrawing
     @State private var isEditing: Bool = false
@@ -163,7 +163,7 @@ public struct DrawingBlockView: View {
 
 // MARK: - Drawing Thumbnail
 
-/// Rendert eine PKDrawing als statisches Bild (async, off-main-thread).
+/// Renders a PKDrawing as a static image (async, off-main-thread).
 struct DrawingThumbnailView: View {
     let drawing: PKDrawing
     @State private var renderedImage: UIImage?
@@ -212,10 +212,10 @@ struct DrawingThumbnailView: View {
 
 import SwiftUI
 
-/// Fallback-View für Plattformen ohne PencilKit (macOS).
+/// Fallback view for platforms without PencilKit (macOS).
 ///
-/// Zeigt einen informativen Platzhalter, der erklärt, dass Zeichnen
-/// nur auf iPad mit Apple Pencil verfügbar ist.
+/// Shows an informative placeholder explaining that drawing
+/// is only available on iPad with Apple Pencil.
 public struct DrawingBlockView: View {
     let drawingID: String
     let height: CGFloat

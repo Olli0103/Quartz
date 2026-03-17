@@ -8,10 +8,10 @@ import os
 import AppKit
 #endif
 
-/// Service für Handschrift-Erkennung auf PencilKit-Zeichnungen.
+/// Service for handwriting recognition on PencilKit drawings.
 ///
-/// Nutzt `VNRecognizeTextRequest` im Hintergrund um
-/// handschriftlichen Text aus Zeichnungen zu extrahieren.
+/// Uses `VNRecognizeTextRequest` in the background to
+/// extract handwritten text from drawings.
 public actor HandwritingOCRService {
     public enum OCRError: LocalizedError, Sendable {
         case renderingFailed
@@ -27,11 +27,11 @@ public actor HandwritingOCRService {
         }
     }
 
-    /// Ergebnis einer OCR-Erkennung.
+    /// Result of an OCR recognition.
     public struct OCRResult: Sendable {
-        /// Der erkannte Text (alle Zeilen zusammengefügt).
+        /// The recognized text (all lines joined together).
         public let fullText: String
-        /// Einzelne erkannte Textblöcke mit Konfidenz.
+        /// Individual recognized text blocks with confidence.
         public let observations: [TextObservation]
 
         public init(fullText: String, observations: [TextObservation]) {
@@ -40,7 +40,7 @@ public actor HandwritingOCRService {
         }
     }
 
-    /// Ein einzelner erkannter Textblock.
+    /// A single recognized text block.
     public struct TextObservation: Sendable {
         public let text: String
         public let confidence: Float
@@ -51,23 +51,23 @@ public actor HandwritingOCRService {
         }
     }
 
-    /// Unterstützte Sprachen für die Erkennung.
+    /// Supported languages for recognition.
     public let supportedLanguages: [String]
 
     public init(languages: [String] = ["de-DE", "en-US"]) {
         self.supportedLanguages = languages
     }
 
-    /// Erkennt Text in einer PencilKit-Zeichnung.
+    /// Recognizes text in a PencilKit drawing.
     ///
-    /// - Parameter drawing: Die zu analysierende Zeichnung
-    /// - Returns: OCRResult mit erkanntem Text
+    /// - Parameter drawing: The drawing to analyze
+    /// - Returns: OCRResult with recognized text
     public func recognizeText(in drawing: PKDrawing) async throws -> OCRResult {
         guard !drawing.bounds.isEmpty else {
             throw OCRError.noTextFound
         }
 
-        // Zeichnung als Bild rendern
+        // Render drawing as image
         let image = drawing.image(from: drawing.bounds, scale: 2.0)
         #if canImport(UIKit)
         guard let cgImage = image.cgImage else {
@@ -82,7 +82,7 @@ public actor HandwritingOCRService {
         return try await performOCR(on: cgImage)
     }
 
-    /// Erkennt Text in einem Bild (z.B. gescanntes Dokument).
+    /// Recognizes text in an image (e.g. scanned document).
     public func recognizeText(in cgImage: CGImage) async throws -> OCRResult {
         try await performOCR(on: cgImage)
     }

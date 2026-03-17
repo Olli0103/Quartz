@@ -3,10 +3,10 @@ import UIKit
 import SwiftUI
 import os
 
-/// TextKit 2 basierte WYSIWYG Markdown-View für iOS/iPadOS.
+/// TextKit 2 based WYSIWYG Markdown view for iOS/iPadOS.
 ///
-/// Rendert Markdown live: Headlines groß, Bold fett, Code monospace,
-/// Syntax-Zeichen (`**`, `#`) werden ausgeblendet.
+/// Renders Markdown live: headlines large, bold text bold, code monospace,
+/// syntax characters (`**`, `#`) are hidden.
 public class MarkdownUITextView: UITextView {
     private let markdownRenderer = MarkdownRenderer()
     private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
@@ -34,7 +34,7 @@ public class MarkdownUITextView: UITextView {
         delegate = self
     }
 
-    /// Setzt den Markdown-Inhalt und rendert ihn.
+    /// Sets the Markdown content and renders it.
     public func setMarkdown(_ markdown: String) {
         guard !isUpdating else { return }
         isUpdating = true
@@ -43,10 +43,10 @@ public class MarkdownUITextView: UITextView {
         let attributed = markdownRenderer.render(markdown)
         do {
             let nsAttributed = try NSAttributedString(attributed, including: MarkdownAttributes.self)
-            // Cursor-Position merken
+            // Save cursor position
             let selectedRange = self.selectedRange
             self.attributedText = nsAttributed
-            // Cursor wiederherstellen (falls noch gültig)
+            // Restore cursor (if still valid)
             if selectedRange.location + selectedRange.length <= nsAttributed.length {
                 self.selectedRange = selectedRange
             }
@@ -56,7 +56,7 @@ public class MarkdownUITextView: UITextView {
         }
     }
 
-    /// Gibt den rohen Markdown-Text zurück (ohne Formatierung).
+    /// Returns the raw Markdown text (without formatting).
     public var rawMarkdown: String {
         text ?? ""
     }
@@ -73,7 +73,7 @@ extension MarkdownUITextView: UITextViewDelegate {
 
 // MARK: - SwiftUI Wrapper
 
-/// SwiftUI-Wrapper für die TextKit 2 basierte MarkdownTextView.
+/// SwiftUI wrapper for the TextKit 2 based MarkdownTextView.
 public struct MarkdownTextViewRepresentable: UIViewRepresentable {
     @Binding var text: String
     var editorFontScale: CGFloat
@@ -108,7 +108,7 @@ import AppKit
 import SwiftUI
 import os
 
-/// TextKit 2 basierte WYSIWYG Markdown-View für macOS.
+/// TextKit 2 based WYSIWYG Markdown view for macOS.
 public class MarkdownNSTextView: NSTextView {
     private let markdownRenderer = MarkdownRenderer()
     private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
@@ -142,7 +142,7 @@ public class MarkdownNSTextView: NSTextView {
         delegate = self
     }
 
-    /// Setzt den Markdown-Inhalt und rendert ihn.
+    /// Sets the Markdown content and renders it.
     public func setMarkdown(_ markdown: String) {
         guard !isUpdating else { return }
         isUpdating = true
@@ -168,7 +168,7 @@ public class MarkdownNSTextView: NSTextView {
         }
     }
 
-    /// Gibt den rohen Markdown-Text zurück.
+    /// Returns the raw Markdown text.
     public var rawMarkdown: String {
         string
     }
@@ -185,7 +185,7 @@ extension MarkdownNSTextView: NSTextViewDelegate {
 
 // MARK: - SwiftUI Wrapper
 
-/// SwiftUI-Wrapper für die TextKit 2 basierte MarkdownTextView (macOS).
+/// SwiftUI wrapper for the TextKit 2 based MarkdownTextView (macOS).
 public struct MarkdownTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     var editorFontScale: CGFloat

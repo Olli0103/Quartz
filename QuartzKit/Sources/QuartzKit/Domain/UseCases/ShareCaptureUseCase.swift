@@ -1,9 +1,9 @@
 import Foundation
 
-/// Use Case für Share Extension: Empfängt geteilte Inhalte und speichert sie im Vault.
+/// Use case for Share Extension: Receives shared content and saves it to the vault.
 ///
-/// Unterstützt Text, URLs und Bilder. Speichert entweder in einer
-/// "Inbox"-Notiz oder erstellt eine neue Notiz.
+/// Supports text, URLs, and images. Saves either to an
+/// "Inbox" note or creates a new note.
 public struct ShareCaptureUseCase: Sendable {
     private var fileManager: FileManager { FileManager.default }
 
@@ -25,13 +25,13 @@ public struct ShareCaptureUseCase: Sendable {
         }
     }
 
-    /// Verarbeitet geteilten Inhalt und speichert ihn im Vault.
+    /// Processes shared content and saves it to the vault.
     ///
     /// - Parameters:
-    ///   - item: Der geteilte Inhalt
-    ///   - vaultRoot: Root-URL des Vaults
-    ///   - mode: Inbox-Modus oder neue Notiz
-    /// - Returns: URL der erstellten/aktualisierten Notiz
+    ///   - item: The shared content
+    ///   - vaultRoot: Root URL of the vault
+    ///   - mode: Inbox mode or new note
+    /// - Returns: URL of the created/updated note
     public func capture(
         _ item: SharedItem,
         in vaultRoot: URL,
@@ -164,14 +164,14 @@ public struct ShareCaptureUseCase: Sendable {
 
 // MARK: - Supporting Types
 
-/// Ein geteilter Inhalt aus der Share Extension.
+/// A shared content item from the Share Extension.
 public enum SharedItem: Sendable {
     case text(String)
     case url(URL, title: String?)
     case image(Data, caption: String?, assetPath: String? = nil)
     case mixed(text: String, url: URL?)
 
-    /// Markdown-Darstellung des geteilten Inhalts.
+    /// Markdown representation of the shared content.
     public var markdownContent: String {
         switch self {
         case .text(let text):
@@ -197,7 +197,7 @@ public enum SharedItem: Sendable {
     }
 }
 
-/// Modus für die Capture-Funktion.
+/// Mode for the capture function.
 public enum CaptureMode: Sendable {
     case inbox
     case newNote(title: String)

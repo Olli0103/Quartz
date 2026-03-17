@@ -1,32 +1,32 @@
 import SwiftUI
 
-/// Verwaltet den Focus- und Typewriter-Modus.
+/// Manages focus mode and typewriter mode.
 ///
-/// - **Focus Mode:** Alle UI-Elemente (Sidebar, Toolbar, Status Bar) werden ausgeblendet.
-/// - **Typewriter Mode:** Die aktive Zeile bleibt vertikal zentriert,
-///   umgebende Zeilen werden abgedunkelt.
+/// - **Focus Mode:** All UI elements (sidebar, toolbar, status bar) are hidden.
+/// - **Typewriter Mode:** The active line stays vertically centered,
+///   surrounding lines are dimmed.
 @Observable
 @MainActor
 public final class FocusModeManager {
-    /// Focus Mode: Blendet alle UI-Elemente aus.
+    /// Focus Mode: Hides all UI elements.
     public var isFocusModeActive: Bool = false
 
-    /// Typewriter Mode: Aktive Zeile bleibt zentriert.
+    /// Typewriter Mode: Active line stays centered.
     public var isTypewriterModeActive: Bool = false
 
-    /// Opacity für nicht-aktive Zeilen im Typewriter Mode.
+    /// Opacity for inactive lines in typewriter mode.
     public var dimmedLineOpacity: Double = 0.3
 
     public init() {}
 
-    /// Toggled Focus Mode.
+    /// Toggles focus mode.
     public func toggleFocusMode() {
         withAnimation(QuartzAnimation.content) {
             isFocusModeActive.toggle()
         }
     }
 
-    /// Toggled Typewriter Mode.
+    /// Toggles typewriter mode.
     public func toggleTypewriterMode() {
         withAnimation(QuartzAnimation.content) {
             isTypewriterModeActive.toggle()
@@ -51,7 +51,7 @@ extension EnvironmentValues {
 
 // MARK: - Focus Mode Modifier
 
-/// ViewModifier der UI-Elemente im Focus Mode ein/ausblendet.
+/// ViewModifier that shows/hides UI elements in focus mode.
 public struct FocusModeModifier: ViewModifier {
     @Environment(\.focusModeManager) private var focusMode
 
@@ -64,7 +64,7 @@ public struct FocusModeModifier: ViewModifier {
 }
 
 public extension View {
-    /// Blendet diese View im Focus Mode aus.
+    /// Hides this view in focus mode.
     func hidesInFocusMode() -> some View {
         modifier(FocusModeModifier())
     }

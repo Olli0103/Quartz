@@ -2,11 +2,11 @@
 import Foundation
 import PencilKit
 
-/// Use Case: OCR-Text aus Zeichnungen in Frontmatter speichern.
+/// Use case: Store OCR text from drawings in frontmatter.
 ///
-/// Führt automatisch nach dem Zeichnen OCR durch und speichert
-/// den erkannten Text im `ocr_text` Feld der Frontmatter.
-/// Der Text ist unsichtbar für den User, aber durchsuchbar.
+/// Automatically performs OCR after drawing and stores
+/// the recognized text in the `ocr_text` field of the frontmatter.
+/// The text is invisible to the user but searchable.
 public actor OCRFrontmatterUseCase {
     private let ocrService: HandwritingOCRService
     private let vaultProvider: any VaultProviding
@@ -23,38 +23,38 @@ public actor OCRFrontmatterUseCase {
         self.drawingStorage = drawingStorage ?? DrawingStorageService()
     }
 
-    /// Führt OCR auf einer Zeichnung durch und aktualisiert die Frontmatter.
+    /// Performs OCR on a drawing and updates the frontmatter.
     ///
     /// - Parameters:
-    ///   - drawing: Die PencilKit-Zeichnung
-    ///   - drawingID: ID der Zeichnung
-    ///   - noteURL: URL der zugehörigen Notiz
+    ///   - drawing: The PencilKit drawing
+    ///   - drawingID: ID of the drawing
+    ///   - noteURL: URL of the associated note
     public func processDrawing(
         _ drawing: PKDrawing,
         drawingID: String,
         noteURL: URL
     ) async throws {
-        // 1. OCR durchführen
+        // 1. Perform OCR
         let result = try await ocrService.recognizeText(in: drawing)
 
-        // 2. Notiz lesen
+        // 2. Read note
         var note = try await vaultProvider.readNote(at: noteURL)
 
-        // 3. OCR-Text in Frontmatter speichern
+        // 3. Store OCR text in frontmatter
         let existingOCR = note.frontmatter.ocrText ?? ""
         let drawingMarker = "[\(drawingID)]"
 
-        // Bestehenden OCR-Text für diese Zeichnung ersetzen oder anhängen
+        // Replace existing OCR text for this drawing or append
         let updatedOCR: String
         if existingOCR.contains(drawingMarker) {
-            // Ersetze bestehenden Block
+            // Replace existing block
             updatedOCR = replaceOCRBlock(
                 in: existingOCR,
                 marker: drawingMarker,
                 newText: result.fullText
             )
         } else {
-            // Neuen Block anhängen
+            // Append new block
             if existingOCR.isEmpty {
                 updatedOCR = "\(drawingMarker) \(result.fullText)"
             } else {
@@ -64,23 +64,23 @@ public actor OCRFrontmatterUseCase {
 
         note.frontmatter.ocrText = updatedOCR
 
-        // 4. Notiz zurückschreiben
+        // 4. Write note back
         try await vaultProvider.saveNote(note)
     }
 
-    /// Ergebnis einer Batch-OCR-Verarbeitung.
+    /// Result of a batch OCR processing.
     public struct BatchResult: Sendable {
-        /// Anzahl erfolgreich verarbeiteter Zeichnungen.
+        /// Number of successfully processed drawings.
         public let succeeded: Int
-        /// Fehler pro Zeichnungs-ID, falls aufgetreten.
+        /// Errors per drawing ID, if any occurred.
         public let failures: [(drawingID: String, error: String)]
 
         public var hasFailures: Bool { !failures.isEmpty }
     }
 
-    /// Führt OCR auf allen Zeichnungen einer Notiz durch.
+    /// Performs OCR on all drawings of a note.
     ///
-    /// - Returns: BatchResult mit Erfolgs-/Fehlerzählung.
+    /// - Returns: BatchResult with success/failure counts.
     @discardableResult
     public func processAllDrawings(for noteURL: URL) async throws -> BatchResult {
         let drawingIDs = try await drawingStorage.listDrawings(for: noteURL)
@@ -100,7 +100,7 @@ public actor OCRFrontmatterUseCase {
         return BatchResult(succeeded: succeeded, failures: failures)
     }
 
-    /// Entfernt OCR-Text für eine gelöschte Zeichnung.
+    /// Removes OCR text for a deleted drawing.
     public func removeOCR(drawingID: String, noteURL: URL) async throws {
         var note = try await vaultProvider.readNote(at: noteURL)
 

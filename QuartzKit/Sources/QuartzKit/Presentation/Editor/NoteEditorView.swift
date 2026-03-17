@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// WYSIWYG Markdown-Editor – clean, minimal, Apple-Notes-inspiriert.
-/// Liquid Glass Statusbar + Formatting Toolbar.
+/// WYSIWYG Markdown editor – clean, minimal, Apple Notes-inspired.
+/// Liquid Glass status bar + formatting toolbar.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     @Environment(\.appearanceManager) private var appearance

@@ -1,10 +1,10 @@
 import Foundation
 import AVFoundation
 
-/// Service für In-App Audio-Aufnahmen.
+/// Service for in-app audio recordings.
 ///
-/// Nimmt Audio via `AVAudioRecorder` auf und speichert als `.m4a` im Vault.
-/// Bietet eine Wellenform-Visualisierung via Metering.
+/// Records audio via `AVAudioRecorder` and saves as `.m4a` in the vault.
+/// Provides waveform visualization via metering.
 @Observable
 @MainActor
 public final class AudioRecordingService: NSObject {
@@ -28,7 +28,7 @@ public final class AudioRecordingService: NSObject {
     public private(set) var peakLevel: Float = 0
     public private(set) var levelHistory: [Float] = []
 
-    /// URL der letzten Aufnahme.
+    /// URL of the last recording.
     public private(set) var lastRecordingURL: URL?
 
     public enum RecordingError: LocalizedError, Sendable {
@@ -67,7 +67,7 @@ public final class AudioRecordingService: NSObject {
 
     // MARK: - Public API
 
-    /// Prüft und fordert Mikrofon-Berechtigung an.
+    /// Checks and requests microphone permission.
     public func requestPermission() async -> Bool {
         #if os(iOS)
         await withCheckedContinuation { continuation in
@@ -86,13 +86,13 @@ public final class AudioRecordingService: NSObject {
         #endif
     }
 
-    /// Startet eine neue Aufnahme.
+    /// Starts a new recording.
     ///
-    /// - Parameter vaultURL: Basis-URL des Vaults für die Speicherung
-    /// - Returns: URL der Aufnahmedatei
+    /// - Parameter vaultURL: Base URL of the vault for storage
+    /// - Returns: URL of the recording file
     @discardableResult
     public func startRecording(vaultURL: URL) throws -> URL {
-        // Audio Session konfigurieren
+        // Configure audio session
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         do {
@@ -103,7 +103,7 @@ public final class AudioRecordingService: NSObject {
         }
         #endif
 
-        // Dateiname generieren
+        // Generate file name
         let fileName = "recording-\(Self.timestampFormatter.string(from: Date())).m4a"
 
         let recordingsDir = vaultURL.appending(path: "assets").appending(path: "recordings")
@@ -111,7 +111,7 @@ public final class AudioRecordingService: NSObject {
 
         let fileURL = recordingsDir.appending(path: fileName)
 
-        // Recorder-Settings
+        // Recorder settings
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: 44100.0,
@@ -139,7 +139,7 @@ public final class AudioRecordingService: NSObject {
         return fileURL
     }
 
-    /// Pausiert die laufende Aufnahme.
+    /// Pauses the current recording.
     public func pause() {
         guard state == .recording else { return }
         recorder?.pause()
@@ -147,7 +147,7 @@ public final class AudioRecordingService: NSObject {
         stopTimers()
     }
 
-    /// Setzt eine pausierte Aufnahme fort.
+    /// Resumes a paused recording.
     public func resume() {
         guard state == .paused else { return }
         recorder?.record()
@@ -155,9 +155,9 @@ public final class AudioRecordingService: NSObject {
         startTimers()
     }
 
-    /// Stoppt die Aufnahme.
+    /// Stops the recording.
     ///
-    /// - Returns: URL der gespeicherten Aufnahmedatei
+    /// - Returns: URL of the saved recording file
     @discardableResult
     public func stopRecording() throws -> URL {
         guard let recorder, state != .idle else {
