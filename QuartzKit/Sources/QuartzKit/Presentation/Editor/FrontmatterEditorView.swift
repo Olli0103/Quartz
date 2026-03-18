@@ -225,7 +225,7 @@ private struct LabeledField<Content: View>: View {
     }
 }
 
-/// Simple flow layout for tags.
+/// Simple flow layout for tags – supports both LTR and RTL layout directions.
 private struct FlowLayout: Layout {
     var spacing: CGFloat
 
@@ -236,16 +236,32 @@ private struct FlowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let result = arrange(proposal: proposal, subviews: subviews)
+        let isRTL = result.isRTL
         for (index, position) in result.positions.enumerated() {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let x: CGFloat
+            if isRTL {
+                // Mirror horizontally: place from trailing edge
+                x = bounds.maxX - position.x - size.width
+            } else {
+                x = bounds.minX + position.x
+            }
             subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                at: CGPoint(x: x, y: bounds.minY + position.y),
                 proposal: .unspecified
             )
         }
     }
 
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+    private struct ArrangeResult {
+        let size: CGSize
+        let positions: [CGPoint]
+        let isRTL: Bool
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> ArrangeResult {
         let maxWidth = proposal.width ?? .infinity
+        let isRTL = subviews.first?.containerProperties.layoutDirection == .rightToLeft
         var positions: [CGPoint] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
@@ -265,6 +281,10 @@ private struct FlowLayout: Layout {
             totalHeight = y + rowHeight
         }
 
-        return (CGSize(width: maxWidth, height: totalHeight), positions)
+        return ArrangeResult(
+            size: CGSize(width: maxWidth, height: totalHeight),
+            positions: positions,
+            isRTL: isRTL
+        )
     }
 }

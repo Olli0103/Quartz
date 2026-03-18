@@ -59,8 +59,11 @@ public final class QuickNotePanel: NSPanel {
 @MainActor
 public final class QuickNoteManager {
     private var panel: QuickNotePanel?
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    /// Stored as nonisolated(unsafe) so deinit (which is nonisolated in Swift 6)
+    /// can safely remove the monitors. Safe because by deinit time no other
+    /// code holds a reference to self, guaranteeing exclusive access.
+    nonisolated(unsafe) private var globalMonitor: Any?
+    nonisolated(unsafe) private var localMonitor: Any?
     private let vaultRoot: URL
 
     public init(vaultRoot: URL) {

@@ -216,16 +216,22 @@ import SwiftUI
 ///
 /// Shows an informative placeholder explaining that drawing
 /// is only available on iPad with Apple Pencil.
+/// Init signature matches the iOS version for cross-platform call-site compatibility.
 public struct DrawingBlockView: View {
     let drawingID: String
     let height: CGFloat
+    // onSave is accepted but unused on macOS – keeps the API surface identical.
+    private let onSave: ((Data) -> Void)?
 
     public init(
         drawingID: String,
-        height: CGFloat = 300
+        initialDrawing: Data? = nil,
+        height: CGFloat = 300,
+        onSave: ((Data) -> Void)? = nil
     ) {
         self.drawingID = drawingID
         self.height = height
+        self.onSave = onSave
     }
 
     public var body: some View {

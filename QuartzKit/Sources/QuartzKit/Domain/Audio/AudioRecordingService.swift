@@ -54,12 +54,12 @@ public final class AudioRecordingService: NSObject {
     private var durationTimer: Timer?
     private let maxLevelHistory = 200
 
-    private static let timestampFormatter: DateFormatter = {
+    private static func formattedTimestamp(from date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        return f
-    }()
+        return f.string(from: date)
+    }
 
     public override init() {
         super.init()
@@ -104,7 +104,7 @@ public final class AudioRecordingService: NSObject {
         #endif
 
         // Generate file name
-        let fileName = "recording-\(Self.timestampFormatter.string(from: Date())).m4a"
+        let fileName = "recording-\(Self.formattedTimestamp(from: Date())).m4a"
 
         let recordingsDir = vaultURL.appending(path: "assets").appending(path: "recordings")
         try FileManager.default.createDirectory(at: recordingsDir, withIntermediateDirectories: true)
