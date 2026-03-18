@@ -62,6 +62,8 @@ public class MarkdownUITextView: UITextView {
         textStorage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             if let imgAttachment = value as? MarkdownImageAttachment {
                 result += imgAttachment.originalMarkdown
+            } else if let tableAttachment = value as? MarkdownTableAttachment {
+                result += tableAttachment.originalMarkdown
             } else {
                 result += self.textStorage.attributedSubstring(from: range).string
             }
@@ -248,6 +250,8 @@ public class MarkdownNSTextView: NSTextView {
         storage.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             if let imgAttachment = value as? MarkdownImageAttachment {
                 result += imgAttachment.originalMarkdown
+            } else if let tableAttachment = value as? MarkdownTableAttachment {
+                result += tableAttachment.originalMarkdown
             } else {
                 result += storage.attributedSubstring(from: range).string
             }
@@ -383,6 +387,11 @@ final class MarkdownImageAttachment: NSTextAttachment {
     var originalMarkdown: String = ""
 }
 
+/// Attachment for rendered Markdown tables. Stores original markdown for round-trip.
+final class MarkdownTableAttachment: NSTextAttachment {
+    var originalMarkdown: String = ""
+}
+
 // MARK: - Syntax Highlighter
 
 struct MarkdownSyntaxHighlighter: Sendable {
@@ -408,7 +417,11 @@ struct MarkdownSyntaxHighlighter: Sendable {
         paragraphStyle.paragraphSpacing = 4
 
         storage.addAttribute(.font, value: baseFont, range: fullRange)
-        storage.addAttribute(.foregroundColor, value: PlatformColor.labelColor, range: fullRange)
+        #if canImport(UIKit)
+        storage.addAttribute(.foregroundColor, value: UIColor.label, range: fullRange)
+        #elseif canImport(AppKit)
+        storage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
+        #endif
         storage.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
         storage.removeAttribute(.backgroundColor, range: fullRange)
 
@@ -421,7 +434,8 @@ struct MarkdownSyntaxHighlighter: Sendable {
 
         applyInlinePatterns(to: storage, text: nsText, fullRange: fullRange, baseFont: baseFont)
 
-        // Image attachments replace text, so they must run last (in reverse order).
+        // Table and image attachments replace text, so they must run last (in reverse order).
+        applyTableAttachments(to: storage, text: nsText, baseFont: baseFont)
         if let noteURL {
             applyImageAttachments(to: storage, text: nsText, noteURL: noteURL)
         }
@@ -630,6 +644,139 @@ struct MarkdownSyntaxHighlighter: Sendable {
             storage.addAttribute(.font, value: baseFont.withTraits(.italic), range: matchRange)
             #endif
         }
+    }
+
+    // MARK: - Table Rendering
+
+    /// Parses Markdown table syntax into rows of cells.
+    private func parseTable(_ tableMarkdown: String) -> [[String]]? {
+        let lines = tableMarkdown.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        guard lines.count >= 2 else { return nil }
+        var rows: [[String]] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("|") && trimmed.hasSuffix("|") else { return nil }
+            let inner = trimmed.dropFirst().dropLast()
+            let cells = inner.split(separator: "|", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+            rows.append(cells)
+        }
+        return rows
+    }
+
+    /// Finds Markdown table blocks and replaces them with rendered table attachments.
+    private func applyTableAttachments(to storage: NSTextStorage, text: NSString, baseFont: PlatformFont) {
+        let fullText = text as String
+        let tablePattern = #"((?:\|[^\n]+\|\n?)+)"#
+        guard let regex = cachedRegex(tablePattern) else { return }
+
+        let matches = regex.matches(in: fullText, range: NSRange(location: 0, length: text.length))
+        for match in matches.reversed() {
+            guard let matchRange = Range(match.range, in: fullText) else { continue }
+            let tableMarkdown = String(fullText[matchRange])
+            guard let rows = parseTable(tableMarkdown), rows.count >= 2,
+                  rows.allSatisfy({ $0.count == rows[0].count }) else { continue }
+
+            let attachment = MarkdownTableAttachment()
+            attachment.originalMarkdown = tableMarkdown
+
+            let image = Self.renderTableToImage(rows: rows, baseFont: baseFont)
+            attachment.image = image
+            let cellHeight: CGFloat = 28
+            let tableHeight = CGFloat(rows.count) * cellHeight
+            attachment.bounds = CGRect(x: 0, y: 0, width: image.size.width, height: tableHeight)
+
+            let attrString = NSAttributedString(attachment: attachment)
+            storage.replaceCharacters(in: match.range, with: attrString)
+        }
+    }
+
+    private static func renderTableToImage(rows: [[String]], baseFont: PlatformFont) -> PlatformImage {
+        let cellPadding: CGFloat = 12
+        let cellHeight: CGFloat = 28
+        var colWidths: [CGFloat] = Array(repeating: 60, count: rows[0].count)
+        for row in rows {
+            for (c, cell) in row.enumerated() where c < colWidths.count {
+                let size = (cell as NSString).size(withAttributes: [.font: baseFont])
+                colWidths[c] = max(colWidths[c], size.width + cellPadding * 2)
+            }
+        }
+        let totalWidth = colWidths.reduce(0, +)
+        let totalHeight = CGFloat(rows.count) * cellHeight
+
+        #if canImport(UIKit)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: totalWidth, height: totalHeight))
+        let image = renderer.image { ctx in
+            let cgContext = ctx.cgContext
+
+            for (r, row) in rows.enumerated() {
+                let isHeader = (r == 0)
+                let isSeparator = (r == 1 && row.allSatisfy { $0.replacingOccurrences(of: "-", with: "").trimmingCharacters(in: .whitespaces).isEmpty })
+                var x: CGFloat = 0
+                for (c, cell) in row.enumerated() where c < colWidths.count {
+                    let rect = CGRect(x: x, y: CGFloat(r) * cellHeight, width: colWidths[c], height: cellHeight)
+                    if isSeparator {
+                        UIColor.tertiaryLabel.withAlphaComponent(0.3).setFill()
+                        cgContext.fill(rect)
+                    } else {
+                        (isHeader ? UIColor.secondarySystemFill : UIColor.systemBackground).setFill()
+                        cgContext.fill(rect)
+                    }
+                    if !isSeparator {
+                        let attr: [NSAttributedString.Key: Any] = [
+                            .font: isHeader ? UIFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold) : baseFont,
+                            .foregroundColor: UIColor.label
+                        ]
+                        let drawRect = rect.insetBy(dx: cellPadding, dy: 4)
+                        (cell as NSString).draw(in: drawRect, withAttributes: attr)
+                    }
+                    UIColor.separator.setStroke()
+                    cgContext.setLineWidth(0.5)
+                    cgContext.stroke(rect)
+                    x += colWidths[c]
+                }
+            }
+        }
+        #elseif canImport(AppKit)
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight))
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        NSGraphicsContext.current?.imageInterpolation = .medium
+
+        NSColor.textBackgroundColor.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: totalWidth, height: totalHeight)).fill()
+
+        for (r, row) in rows.enumerated() {
+            let isHeader = (r == 0)
+            let isSeparator = (r == 1 && row.allSatisfy { $0.replacingOccurrences(of: "-", with: "").trimmingCharacters(in: .whitespaces).isEmpty })
+            var x: CGFloat = 0
+            for (c, cell) in row.enumerated() where c < colWidths.count {
+                let rect = NSRect(x: x, y: totalHeight - CGFloat(r + 1) * cellHeight, width: colWidths[c], height: cellHeight)
+                if isSeparator {
+                    NSColor.tertiaryLabelColor.withAlphaComponent(0.3).setFill()
+                    NSBezierPath(rect: rect).fill()
+                } else {
+                    (isHeader ? NSColor.controlBackgroundColor : NSColor.textBackgroundColor).setFill()
+                    NSBezierPath(rect: rect).fill()
+                }
+                if !isSeparator {
+                    let attr: [NSAttributedString.Key: Any] = [
+                        .font: isHeader ? NSFont.systemFont(ofSize: baseFont.pointSize, weight: .semibold) : baseFont,
+                        .foregroundColor: NSColor.labelColor
+                    ]
+                    let drawRect = rect.insetBy(dx: cellPadding, dy: 4)
+                    (cell as NSString).draw(in: drawRect, withAttributes: attr)
+                }
+                NSColor.separatorColor.setStroke()
+                NSBezierPath.defaultLineWidth = 0.5
+                NSBezierPath(rect: rect).stroke()
+                x += colWidths[c]
+            }
+        }
+        #endif
+
+        return image
     }
 
     // MARK: - Inline Image Rendering
