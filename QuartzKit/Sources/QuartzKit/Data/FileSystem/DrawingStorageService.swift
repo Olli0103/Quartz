@@ -26,7 +26,7 @@ public actor DrawingStorageService {
     ///   - noteURL: URL of the associated note
     /// - Returns: Relative path to the drawing file (for Markdown embed)
     public func save(
-        drawing: PKDrawing,
+        drawing: sending PKDrawing,
         drawingID: String,
         noteURL: URL
     ) throws -> String {
@@ -47,7 +47,7 @@ public actor DrawingStorageService {
     }
 
     /// Loads a drawing from a `.drawing` file.
-    public func load(drawingID: String, noteURL: URL) throws -> PKDrawing {
+    public func load(drawingID: String, noteURL: URL) throws -> sending PKDrawing {
         let assetsFolder = assetsURL(for: noteURL)
         let fileURL = assetsFolder.appending(path: "\(drawingID).drawing")
 

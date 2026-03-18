@@ -117,7 +117,9 @@ public final class OpenAIProvider: AIProvider, Sendable {
 }
 
 /// Shared URLSession with reasonable timeouts for AI requests.
-private let aiURLSession: URLSession = {
+/// nonisolated(unsafe) required for global stored property in Swift 6.
+/// URLSession is thread-safe; the property is never mutated after initialization.
+nonisolated(unsafe) private let aiURLSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 30
     config.timeoutIntervalForResource = 120
@@ -361,9 +363,11 @@ public final class OpenRouterProvider: AIProvider, Sendable {
 // MARK: - Provider Registry
 
 /// Registry of all available AI providers.
+/// @unchecked Sendable: all mutable state is protected by @MainActor isolation.
+/// Safe to share references across actor boundaries (e.g. chat service actors).
 @Observable
 @MainActor
-public final class AIProviderRegistry {
+public final class AIProviderRegistry: @unchecked Sendable {
     public private(set) var providers: [any AIProvider]
     public var selectedProviderID: String
     public var selectedModelID: String?
@@ -595,26 +599,26 @@ private func validateHTTPResponse(_ data: Data, _ response: URLResponse, provide
 
 // MARK: - API DTOs
 
-struct OpenAIChatBody: Codable {
+struct OpenAIChatBody: Codable, Sendable {
     let model: String
     let messages: [OpenAIChatMessage]
     let temperature: Double
 }
 
-struct OpenAIChatMessage: Codable {
+struct OpenAIChatMessage: Codable, Sendable {
     let role: String
     let content: String
 }
 
-struct OpenAIChatResponse: Codable {
+struct OpenAIChatResponse: Codable, Sendable {
     let choices: [OpenAIChoice]
 }
 
-struct OpenAIChoice: Codable {
+struct OpenAIChoice: Codable, Sendable {
     let message: OpenAIChatMessage
 }
 
-struct AnthropicChatBody: Codable {
+struct AnthropicChatBody: Codable, Sendable {
     let model: String
     let max_tokens: Int
     let system: String?
@@ -622,66 +626,66 @@ struct AnthropicChatBody: Codable {
     let temperature: Double
 }
 
-struct AnthropicMessage: Codable {
+struct AnthropicMessage: Codable, Sendable {
     let role: String
     let content: String
 }
 
-struct AnthropicChatResponse: Codable {
+struct AnthropicChatResponse: Codable, Sendable {
     let content: [AnthropicContentBlock]
 }
 
-struct AnthropicContentBlock: Codable {
+struct AnthropicContentBlock: Codable, Sendable {
     let type: String
     let text: String?
 }
 
-struct OllamaChatBody: Codable {
+struct OllamaChatBody: Codable, Sendable {
     let model: String
     let messages: [OllamaChatMessage]
     let stream: Bool
     let options: OllamaOptions
 }
 
-struct OllamaChatMessage: Codable {
+struct OllamaChatMessage: Codable, Sendable {
     let role: String
     let content: String
 }
 
-struct OllamaOptions: Codable {
+struct OllamaOptions: Codable, Sendable {
     let temperature: Double
 }
 
-struct OllamaChatResponse: Codable {
+struct OllamaChatResponse: Codable, Sendable {
     let message: OllamaChatMessage
 }
 
 // Gemini DTOs
 
-struct GeminiChatBody: Codable {
+struct GeminiChatBody: Codable, Sendable {
     let contents: [GeminiContent]
     let systemInstruction: GeminiContent?
     let generationConfig: GeminiGenerationConfig
 }
 
-struct GeminiContent: Codable {
+struct GeminiContent: Codable, Sendable {
     let role: String
     let parts: [GeminiPart]
 }
 
-struct GeminiPart: Codable {
+struct GeminiPart: Codable, Sendable {
     let text: String
 }
 
-struct GeminiGenerationConfig: Codable {
+struct GeminiGenerationConfig: Codable, Sendable {
     let temperature: Double
     let maxOutputTokens: Int
 }
 
-struct GeminiChatResponse: Codable {
+struct GeminiChatResponse: Codable, Sendable {
     let candidates: [GeminiCandidate]?
 }
 
-struct GeminiCandidate: Codable {
+struct GeminiCandidate: Codable, Sendable {
     let content: GeminiContent
 }

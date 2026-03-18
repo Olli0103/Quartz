@@ -193,25 +193,28 @@ public final class AudioRecordingService: NSObject {
     }
 
     /// Formatted duration as string (MM:SS), locale-aware.
-    private static let durationFormatter: DateComponentsFormatter = {
+    /// Created per-call because DateComponentsFormatter is not Sendable.
+    public var formattedDuration: String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
         formatter.zeroFormattingBehavior = .pad
-        return formatter
-    }()
-
-    public var formattedDuration: String {
-        Self.durationFormatter.string(from: duration) ?? "00:00"
+        return formatter.string(from: duration) ?? "00:00"
     }
 
     // MARK: - Private
 
     private func startTimers() {
+        // Timer fires on the main run loop, so MainActor.assumeIsolated is safe.
+        // Required because Timer's block is @Sendable in Swift 6.
         meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.083, repeats: true) { [weak self] _ in
-            self?.updateMetering()
+            MainActor.assumeIsolated {
+                self?.updateMetering()
+            }
         }
         durationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.duration += 1
+            MainActor.assumeIsolated {
+                self?.duration += 1
+            }
         }
     }
 

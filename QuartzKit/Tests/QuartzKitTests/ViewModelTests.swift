@@ -348,10 +348,9 @@ struct AppStateTests {
     func initialState() {
         let state = AppState()
         #expect(state.currentVault == nil)
-        #expect(state.fileTree.isEmpty)
         #expect(state.selectedNote == nil)
-        #expect(!state.isLoading)
         #expect(state.errorMessage == nil)
+        #expect(state.pendingCommand == .none)
     }
 
     @Test("Vault can be set")
@@ -359,7 +358,7 @@ struct AppStateTests {
     func setVault() {
         let state = AppState()
         let vault = VaultConfig(name: "Test", rootURL: URL(fileURLWithPath: "/test"))
-        state.currentVault = vault
+        state.switchVault(to: vault)
         #expect(state.currentVault?.name == "Test")
     }
 }
