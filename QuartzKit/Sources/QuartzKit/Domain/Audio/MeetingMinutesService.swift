@@ -90,13 +90,6 @@ public actor MeetingMinutesService {
         return minutes
     }
 
-    private static let dateOnlyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
     /// Saves meeting minutes as a Markdown note.
     public func saveAsNote(
         _ minutes: MeetingMinutes,
@@ -104,7 +97,10 @@ public actor MeetingMinutesService {
     ) throws -> URL {
         let markdown = minutes.toMarkdown()
 
-        let dateStr = Self.dateOnlyFormatter.string(from: minutes.date)
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = dateFormatter.string(from: minutes.date)
 
         let sanitizedTitle = minutes.title
             .replacingOccurrences(of: "/", with: "-")
@@ -163,16 +159,12 @@ public struct MeetingMinutes: Sendable {
         self.audioURL = audioURL
     }
 
-    private static let dateTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter
-    }()
-
     /// Generates the Markdown representation of the meeting minutes.
     public func toMarkdown() -> String {
-        let dateStr = Self.dateTimeFormatter.string(from: date)
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let dateStr = dateFormatter.string(from: date)
 
         let durationMin = Int(duration) / 60
         let durationSec = Int(duration) % 60

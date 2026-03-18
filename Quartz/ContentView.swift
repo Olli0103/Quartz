@@ -167,10 +167,10 @@ struct ContentView: View {
                 .tag(node.url)
             }
             #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.sidebar)
-        #endif
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.sidebar)
+            #endif
             .navigationTitle(String(localized: "Notes"))
             .overlay {
                 if notes.isEmpty {
