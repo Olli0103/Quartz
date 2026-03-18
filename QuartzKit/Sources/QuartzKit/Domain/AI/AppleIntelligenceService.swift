@@ -161,7 +161,7 @@ public actor AppleIntelligenceService {
         case .summarize:
             return summarizeText(text)
         case .proofread:
-            return proofreadText(text)
+            return await proofreadText(text)
         case .makeConcise:
             return makeConciseText(text)
         case .makeDetailed:
@@ -189,7 +189,7 @@ public actor AppleIntelligenceService {
         return "**\(header):**\n\n\(summary)"
     }
 
-    private func proofreadText(_ text: String) -> String {
+    private func proofreadText(_ text: String) async -> String {
         #if canImport(UIKit)
         let checker = UITextChecker()
         var mutableText = text
@@ -225,37 +225,40 @@ public actor AppleIntelligenceService {
 
         return mutableText
         #elseif canImport(AppKit)
-        let checker = NSSpellChecker.shared
-        var mutableText = text
-        let range = NSRange(mutableText.startIndex..., in: mutableText)
+        // NSSpellChecker.shared is MainActor-isolated; dispatch there.
+        return await MainActor.run {
+            let checker = NSSpellChecker.shared
+            var mutableText = text
+            let range = NSRange(mutableText.startIndex..., in: mutableText)
 
-        var corrections: [(NSRange, String)] = []
-        var searchOffset = range.location
-        while searchOffset < NSMaxRange(range) {
-            let misspelled = checker.checkSpelling(
-                of: mutableText,
-                startingAt: searchOffset
-            )
-            guard misspelled.location != NSNotFound else { break }
+            var corrections: [(NSRange, String)] = []
+            var searchOffset = range.location
+            while searchOffset < NSMaxRange(range) {
+                let misspelled = checker.checkSpelling(
+                    of: mutableText,
+                    startingAt: searchOffset
+                )
+                guard misspelled.location != NSNotFound else { break }
 
-            if let correction = checker.correction(
-                forWordRange: misspelled,
-                in: mutableText,
-                language: checker.language(),
-                inSpellDocumentWithTag: 0
-            ) {
-                corrections.append((misspelled, correction))
+                if let correction = checker.correction(
+                    forWordRange: misspelled,
+                    in: mutableText,
+                    language: checker.language(),
+                    inSpellDocumentWithTag: 0
+                ) {
+                    corrections.append((misspelled, correction))
+                }
+                searchOffset = NSMaxRange(misspelled)
             }
-            searchOffset = NSMaxRange(misspelled)
-        }
 
-        for (corrRange, correction) in corrections.reversed() {
-            if let swiftRange = Range(corrRange, in: mutableText) {
-                mutableText.replaceSubrange(swiftRange, with: correction)
+            for (corrRange, correction) in corrections.reversed() {
+                if let swiftRange = Range(corrRange, in: mutableText) {
+                    mutableText.replaceSubrange(swiftRange, with: correction)
+                }
             }
-        }
 
-        return mutableText
+            return mutableText
+        }
         #else
         return text
         #endif
