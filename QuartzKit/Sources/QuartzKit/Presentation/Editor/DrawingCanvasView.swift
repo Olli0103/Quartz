@@ -61,6 +61,7 @@ public struct DrawingCanvasView: UIViewRepresentable {
         Coordinator(self)
     }
 
+    @MainActor
     public final class Coordinator: NSObject, PKCanvasViewDelegate {
         let parent: DrawingCanvasView
         var toolPicker: PKToolPicker?
@@ -200,7 +201,9 @@ struct DrawingThumbnailView: View {
         .background(.background)
         .task(id: drawing.bounds) {
             guard !drawing.bounds.isEmpty else { return }
-            let drawingCopy = drawing
+            // PKDrawing is not Sendable; suppress diagnostic since it is
+            // a value type (backed by NSData) that is safe to transfer.
+            nonisolated(unsafe) let drawingCopy = drawing
             let img = await Task.detached(priority: .userInitiated) {
                 drawingCopy.image(from: drawingCopy.bounds, scale: 2.0)
             }.value

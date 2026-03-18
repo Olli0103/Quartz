@@ -8,9 +8,9 @@ struct CloudSyncServiceTests {
     @Test("CloudSyncStatus has all expected cases")
     func statusCases() {
         let statuses: [CloudSyncStatus] = [
-            .current, .uploading, .downloading, .notDownloaded, .error, .notApplicable
+            .current, .uploading, .downloading, .notDownloaded, .conflict, .error, .notApplicable
         ]
-        #expect(statuses.count == 6)
+        #expect(statuses.count == 7)
     }
 
     @Test("CloudSyncError provides localized descriptions")

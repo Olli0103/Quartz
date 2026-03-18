@@ -117,7 +117,9 @@ public final class OpenAIProvider: AIProvider, Sendable {
 }
 
 /// Shared URLSession with reasonable timeouts for AI requests.
-private let aiURLSession: URLSession = {
+/// nonisolated(unsafe) required for global stored property in Swift 6.
+/// URLSession is thread-safe; the property is never mutated after initialization.
+nonisolated(unsafe) private let aiURLSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 30
     config.timeoutIntervalForResource = 120
@@ -361,9 +363,11 @@ public final class OpenRouterProvider: AIProvider, Sendable {
 // MARK: - Provider Registry
 
 /// Registry of all available AI providers.
+/// @unchecked Sendable: all mutable state is protected by @MainActor isolation.
+/// Safe to share references across actor boundaries (e.g. chat service actors).
 @Observable
 @MainActor
-public final class AIProviderRegistry {
+public final class AIProviderRegistry: @unchecked Sendable {
     public private(set) var providers: [any AIProvider]
     public var selectedProviderID: String
     public var selectedModelID: String?

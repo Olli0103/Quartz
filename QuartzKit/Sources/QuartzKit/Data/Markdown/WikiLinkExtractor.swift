@@ -7,7 +7,7 @@ import Foundation
 /// - `[[Note Name|Display Text]]` – link with alias
 /// - `[[Note Name#Heading]]` – link with anchor
 public struct WikiLinkExtractor: Sendable {
-    private static let pattern: Regex<(Substring, Substring)> = /\[\[([^\]]+)\]\]/
+    nonisolated(unsafe) private static let pattern: Regex<(Substring, Substring)> = /\[\[([^\]]+)\]\]/
 
     public init() {}
 

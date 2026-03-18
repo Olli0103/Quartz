@@ -114,6 +114,7 @@ public struct KeyboardShortcutCommands: Commands {
 // MARK: - Stage Manager Support
 
 /// Modifier for Stage Manager and window size on iPad.
+@MainActor
 public struct StageManagerModifier: ViewModifier {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     var appState: AppState

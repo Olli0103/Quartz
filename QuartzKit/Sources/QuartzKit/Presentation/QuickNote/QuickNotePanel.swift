@@ -72,17 +72,21 @@ public final class QuickNoteManager {
 
     /// Registers the global hotkey (⌥⌘N).
     public func registerHotkey() {
-        // Global monitor: catches events even when app is not active
+        // Global monitor: catches events even when app is not active.
+        // NSEvent monitor closures are @Sendable; use assumeIsolated since
+        // monitors fire on the main thread.
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyEvent(event)
+            MainActor.assumeIsolated {
+                self?.handleKeyEvent(event)
+            }
         }
 
         // Local monitor: catches events when app is active
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleKeyEvent(event) == true {
-                return nil // Event consumed
+            let consumed = MainActor.assumeIsolated {
+                self?.handleKeyEvent(event) == true
             }
-            return event
+            return consumed ? nil : event
         }
     }
 

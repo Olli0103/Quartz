@@ -18,10 +18,11 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
         vaultRoot = root
-        // Move heavy recursive I/O off the actor to avoid blocking other actor calls
-        let fm = fileManager
+        // Move heavy recursive I/O off the actor to avoid blocking other actor calls.
+        // FileManager.default is used inside the closure instead of capturing the
+        // actor's instance (FileManager is not Sendable in Swift 6).
         return try await Task.detached(priority: .userInitiated) {
-            try FileSystemVaultProvider.buildTreeStatic(at: root, relativeTo: root, fileManager: fm)
+            try FileSystemVaultProvider.buildTreeStatic(at: root, relativeTo: root)
         }.value
     }
 
