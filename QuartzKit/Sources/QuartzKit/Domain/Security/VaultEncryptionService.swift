@@ -116,47 +116,68 @@ public actor VaultEncryptionService {
 
     /// Encrypts a file in-place using file coordination.
     ///
+    /// File coordination is dispatched off the actor to prevent blocking
+    /// other actor-isolated calls (e.g. key management) during I/O.
+    ///
     /// - Throws: `EncryptionError.encryptionFailed` if the file exceeds
     ///   the safe in-memory size limit (50 MB).
-    public func encryptFile(at url: URL, with key: SymmetricKey) throws {
+    public func encryptFile(at url: URL, with key: SymmetricKey) async throws {
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
         if let size = attrs[.size] as? Int, size > Self.maxInMemoryFileSize {
             throw EncryptionError.encryptionFailed("File too large for in-memory encryption (\(size) bytes). Maximum: \(Self.maxInMemoryFileSize) bytes.")
         }
-        var coordinatorError: NSError?
-        var opError: Error?
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
-            do {
-                let plaintext = try Data(contentsOf: actualURL)
-                let encrypted = try encrypt(data: plaintext, with: key)
-                try encrypted.write(to: actualURL, options: .atomic)
-            } catch {
-                opError = error
+        let encryptionService = self
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var coordinatorError: NSError?
+                var opError: Error?
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+                    do {
+                        let plaintext = try Data(contentsOf: actualURL)
+                        let encrypted = try encryptionService.encrypt(data: plaintext, with: key)
+                        try encrypted.write(to: actualURL, options: .atomic)
+                    } catch {
+                        opError = error
+                    }
+                }
+                if let error = coordinatorError ?? opError {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
             }
         }
-        if let error = coordinatorError ?? opError { throw error }
     }
 
     /// Decrypts a file and returns the plaintext.
-    public func decryptFile(at url: URL, with key: SymmetricKey) throws -> Data {
-        var coordinatorError: NSError?
-        var opError: Error?
-        var result: Data?
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
-            do {
-                let encrypted = try Data(contentsOf: actualURL)
-                result = try decrypt(data: encrypted, with: key)
-            } catch {
-                opError = error
+    ///
+    /// File coordination is dispatched off the actor to prevent blocking.
+    public func decryptFile(at url: URL, with key: SymmetricKey) async throws -> Data {
+        let encryptionService = self
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var coordinatorError: NSError?
+                var opError: Error?
+                var result: Data?
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+                    do {
+                        let encrypted = try Data(contentsOf: actualURL)
+                        result = try encryptionService.decrypt(data: encrypted, with: key)
+                    } catch {
+                        opError = error
+                    }
+                }
+                if let error = coordinatorError ?? opError {
+                    continuation.resume(throwing: error)
+                } else if let data = result {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: EncryptionError.decryptionFailed("File coordination completed without producing data"))
+                }
             }
         }
-        if let error = coordinatorError ?? opError { throw error }
-        guard let result else {
-            throw EncryptionError.decryptionFailed("File coordination completed without producing data")
-        }
-        return result
     }
 
     // MARK: - Keychain Helpers

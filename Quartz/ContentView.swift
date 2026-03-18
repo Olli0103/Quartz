@@ -89,9 +89,10 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if let error = appState.errorMessage {
                 errorBanner(message: error)
-                    .id(error) // restart timer for each new error
+                    .id(error) // restart timer for each new error; .id change cancels previous .task
                     .task {
                         try? await Task.sleep(for: .seconds(5))
+                        guard !Task.isCancelled else { return }
                         withAnimation { appState.dismissCurrentError() }
                     }
             }

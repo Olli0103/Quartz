@@ -20,6 +20,7 @@ public struct SettingsView: View {
                             title: String(localized: "Appearance", bundle: .module)
                         )
                     }
+                    .accessibilityLabel(String(localized: "Appearance", bundle: .module))
 
                     NavigationLink {
                         Text(String(localized: "Editor settings – coming soon", bundle: .module))
@@ -30,6 +31,7 @@ public struct SettingsView: View {
                             title: String(localized: "Editor", bundle: .module)
                         )
                     }
+                    .accessibilityLabel(String(localized: "Editor", bundle: .module))
                 } header: {
                     QuartzSectionHeader(String(localized: "General", bundle: .module))
                 }
@@ -45,6 +47,7 @@ public struct SettingsView: View {
                             title: String(localized: "Vault", bundle: .module)
                         )
                     }
+                    .accessibilityLabel(String(localized: "Vault", bundle: .module))
 
                     NavigationLink {
                         Text(String(localized: "iCloud sync – coming soon", bundle: .module))
@@ -55,6 +58,7 @@ public struct SettingsView: View {
                             title: String(localized: "iCloud Sync", bundle: .module)
                         )
                     }
+                    .accessibilityLabel(String(localized: "iCloud Sync", bundle: .module))
                 } header: {
                     QuartzSectionHeader(String(localized: "Data", bundle: .module))
                 }

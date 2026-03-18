@@ -80,54 +80,65 @@ public actor CloudSyncService {
     // MARK: - Coordinated File Access
 
     /// Reads a file using coordination (safe during iCloud sync).
-    public func coordinatedRead(at url: URL) throws -> Data {
-        var readError: NSError?
-        var data: Data?
-        var coordinatorError: NSError?
+    /// Dispatched off-actor to avoid blocking other actor calls during I/O.
+    public func coordinatedRead(at url: URL) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var readError: NSError?
+                var data: Data?
+                var coordinatorError: NSError?
 
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(
-            readingItemAt: url,
-            options: [],
-            error: &coordinatorError
-        ) { actualURL in
-            do {
-                data = try Data(contentsOf: actualURL)
-            } catch {
-                readError = error as NSError
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(
+                    readingItemAt: url,
+                    options: [],
+                    error: &coordinatorError
+                ) { actualURL in
+                    do {
+                        data = try Data(contentsOf: actualURL)
+                    } catch {
+                        readError = error as NSError
+                    }
+                }
+
+                if let error = coordinatorError ?? readError {
+                    continuation.resume(throwing: error)
+                } else if let result = data {
+                    continuation.resume(returning: result)
+                } else {
+                    continuation.resume(throwing: CloudSyncError.readFailed(url))
+                }
             }
         }
-
-        if let error = coordinatorError ?? readError {
-            throw error
-        }
-
-        guard let result = data else {
-            throw CloudSyncError.readFailed(url)
-        }
-        return result
     }
 
     /// Writes a file using coordination (conflict-free during iCloud sync).
-    public func coordinatedWrite(data: Data, to url: URL) throws {
-        var writeError: NSError?
-        var coordinatorError: NSError?
+    /// Dispatched off-actor to avoid blocking other actor calls during I/O.
+    public func coordinatedWrite(data: Data, to url: URL) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var writeError: NSError?
+                var coordinatorError: NSError?
 
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(
-            writingItemAt: url,
-            options: .forReplacing,
-            error: &coordinatorError
-        ) { actualURL in
-            do {
-                try data.write(to: actualURL, options: .atomic)
-            } catch {
-                writeError = error as NSError
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(
+                    writingItemAt: url,
+                    options: .forReplacing,
+                    error: &coordinatorError
+                ) { actualURL in
+                    do {
+                        try data.write(to: actualURL, options: .atomic)
+                    } catch {
+                        writeError = error as NSError
+                    }
+                }
+
+                if let error = coordinatorError ?? writeError {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
             }
-        }
-
-        if let error = coordinatorError ?? writeError {
-            throw error
         }
     }
 

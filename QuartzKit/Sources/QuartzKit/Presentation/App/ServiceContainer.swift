@@ -2,8 +2,8 @@ import Foundation
 
 /// Lightweight service container for dependency injection.
 ///
-/// Registers and provides service instances. Singleton pattern.
-/// No third-party DI framework – pure Swift.
+/// Registers and provides service instances. Supports both
+/// singleton access via `shared` and direct instantiation for testing.
 ///
 /// All registrations should occur before the first resolution.
 /// Since the container is `@MainActor`, thread safety is guaranteed
@@ -17,7 +17,9 @@ public final class ServiceContainer {
     private var featureGate: (any FeatureGating)?
     private var isBootstrapped = false
 
-    private init() {}
+    /// Creates a new container. Use `shared` for production;
+    /// call this directly in tests for isolated instances.
+    public init() {}
 
     // MARK: - Bulk Registration
 
@@ -32,6 +34,14 @@ public final class ServiceContainer {
         if let frontmatterParser { self.frontmatterParser = frontmatterParser }
         if let featureGate { self.featureGate = featureGate }
         isBootstrapped = true
+    }
+
+    /// Resets all registrations. Intended for test teardown only.
+    public func reset() {
+        vaultProvider = nil
+        frontmatterParser = nil
+        featureGate = nil
+        isBootstrapped = false
     }
 
     // MARK: - Registration

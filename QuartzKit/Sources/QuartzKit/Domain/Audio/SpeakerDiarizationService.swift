@@ -295,7 +295,12 @@ public actor SpeakerDiarizationService {
     }
 
     private func generateSpeakerLabels(count: Int) -> [String: String] {
-        let labels = ["Speaker A", "Speaker B", "Speaker C", "Speaker D"]
+        let labels = [
+            String(localized: "Speaker A", bundle: .module),
+            String(localized: "Speaker B", bundle: .module),
+            String(localized: "Speaker C", bundle: .module),
+            String(localized: "Speaker D", bundle: .module),
+        ]
         var result: [String: String] = [:]
         for i in 0..<min(count, labels.count) {
             result["speaker_\(i)"] = labels[i]

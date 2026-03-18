@@ -63,6 +63,7 @@ public struct QuickNoteView: View {
                 Text(String(localized: "⌘↩ to save", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .accessibilityLabel(String(localized: "Command Return to save", bundle: .module))
 
                 Spacer()
 

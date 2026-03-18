@@ -23,10 +23,10 @@ struct VaultPickerView: View {
                         .foregroundStyle(QuartzColors.folderYellow)
                         .symbolEffect(.bounce, options: .nonRepeating)
 
-                    Text(String(localized: "Open a Vault"))
+                    Text(String(localized: "Open a Vault", bundle: .main))
                         .font(.title2.bold())
 
-                    Text(String(localized: "Choose a folder on your device.\nQuartz will use it as your note vault."))
+                    Text(String(localized: "Choose a folder on your device.\nQuartz will use it as your note vault.", bundle: .main))
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -44,17 +44,17 @@ struct VaultPickerView: View {
 
                 Spacer()
 
-                QuartzButton(String(localized: "Choose Folder"), icon: "folder") {
+                QuartzButton(String(localized: "Choose Folder", bundle: .main), icon: "folder") {
                     showFilePicker = true
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 32)
             }
             .padding()
-            .navigationTitle(String(localized: "Vault"))
+            .navigationTitle(String(localized: "Vault", bundle: .main))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Cancel")) {
+                    Button(String(localized: "Cancel", bundle: .main)) {
                         dismiss()
                     }
                 }

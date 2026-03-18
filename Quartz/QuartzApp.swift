@@ -22,7 +22,7 @@ struct QuartzApp: App {
                         featureGate: proFeatureGate
                     )
                     await proFeatureGate.checkPurchaseStatus()
-                    _ = proFeatureGate.observeTransactionUpdates()
+                    proFeatureGate.observeTransactionUpdates()
                 }
         }
         .commands {

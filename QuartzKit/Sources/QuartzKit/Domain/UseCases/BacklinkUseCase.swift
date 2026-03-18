@@ -35,6 +35,9 @@ public struct BacklinkUseCase: Sendable {
         return backlinks.sorted { $0.sourceNoteName < $1.sourceNoteName }
     }
 
+    /// Maximum concurrent file reads to avoid exceeding file descriptor limits.
+    private static let maxConcurrentReads = 20
+
     private func scanForBacklinks(
         in nodes: [FileNode],
         targetName: String
@@ -42,7 +45,17 @@ public struct BacklinkUseCase: Sendable {
         let noteNodes = collectNotes(from: nodes)
 
         return try await withThrowingTaskGroup(of: [Backlink].self) { group in
+            var submitted = 0
+            var all: [Backlink] = []
+
             for node in noteNodes {
+                // Throttle: wait for a result before adding more tasks
+                if submitted >= Self.maxConcurrentReads {
+                    if let batch = try await group.next() {
+                        all.append(contentsOf: batch)
+                    }
+                    submitted -= 1
+                }
                 group.addTask {
                     let note = try await self.vaultProvider.readNote(at: node.url)
                     let links = self.linkExtractor.extractLinks(from: note.body)
@@ -56,8 +69,8 @@ public struct BacklinkUseCase: Sendable {
                             )
                         }
                 }
+                submitted += 1
             }
-            var all: [Backlink] = []
             for try await batch in group { all.append(contentsOf: batch) }
             return all
         }

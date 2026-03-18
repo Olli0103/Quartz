@@ -129,7 +129,7 @@ public actor MeetingMinutesService {
     private func generateTitle(from text: String) -> String {
         let words = text.prefix(200).components(separatedBy: .whitespacesAndNewlines)
         let preview = words.prefix(5).joined(separator: " ")
-        return "Meeting – \(preview)..."
+        return String(localized: "Meeting – \(preview)...", bundle: .module)
     }
 }
 
@@ -163,7 +163,7 @@ public struct MeetingMinutes: Sendable {
         self.audioURL = audioURL
     }
 
-    nonisolated(unsafe) private static let dateTimeFormatter: DateFormatter = {
+    private static let dateTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm"

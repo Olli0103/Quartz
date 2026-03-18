@@ -51,6 +51,7 @@ public final class QuickNotePanel: NSPanel {
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
+        NSAccessibility.post(element: self, notification: .windowCreated)
     }
 }
 
