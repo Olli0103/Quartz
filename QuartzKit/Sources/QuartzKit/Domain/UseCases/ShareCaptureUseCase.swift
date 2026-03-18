@@ -61,7 +61,7 @@ public struct ShareCaptureUseCase: Sendable {
     }
 
     private func writeImageAssetIfNeeded(_ item: SharedItem, vaultRoot: URL) throws -> SharedItem {
-        guard case .image(let imageData, let caption) = item else { return item }
+        guard case .image(let imageData, let caption, _) = item else { return item }
 
         let assetsFolder = vaultRoot.appending(path: "assets")
         try fileManager.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
