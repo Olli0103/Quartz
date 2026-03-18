@@ -10,7 +10,7 @@ struct VaultPickerView: View {
     @State private var errorMessage: String?
     @ScaledMetric(relativeTo: .largeTitle) private var folderIconSize: CGFloat = 56
 
-    let onVaultSelected: (VaultConfig) -> Void
+    let onVaultSelected: @Sendable (VaultConfig) -> Void
 
     var body: some View {
         NavigationStack {

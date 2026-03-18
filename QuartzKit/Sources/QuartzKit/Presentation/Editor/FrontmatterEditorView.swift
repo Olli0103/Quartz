@@ -211,7 +211,7 @@ public struct FrontmatterEditorView: View {
 
 private struct LabeledField<Content: View>: View {
     let label: String
-    @ViewBuilder let content: () -> Content
+    @ViewBuilder let content: @Sendable () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {

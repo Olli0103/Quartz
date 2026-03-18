@@ -9,12 +9,12 @@ import PencilKit
 public struct DrawingCanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var isToolPickerVisible: Bool
-    let onDrawingChanged: ((PKDrawing) -> Void)?
+    let onDrawingChanged: (@Sendable (PKDrawing) -> Void)?
 
     public init(
         drawing: Binding<PKDrawing>,
         isToolPickerVisible: Binding<Bool> = .constant(true),
-        onDrawingChanged: ((PKDrawing) -> Void)? = nil
+        onDrawingChanged: (@Sendable (PKDrawing) -> Void)? = nil
     ) {
         self._drawing = drawing
         self._isToolPickerVisible = isToolPickerVisible
@@ -88,13 +88,13 @@ public struct DrawingBlockView: View {
     let drawingID: String
     let initialDrawing: PKDrawing
     let height: CGFloat
-    let onSave: (PKDrawing) -> Void
+    let onSave: @Sendable (PKDrawing) -> Void
 
     public init(
         drawingID: String,
         initialDrawing: PKDrawing = PKDrawing(),
         height: CGFloat = 300,
-        onSave: @escaping (PKDrawing) -> Void
+        onSave: @escaping @Sendable (PKDrawing) -> Void
     ) {
         self.drawingID = drawingID
         self._drawing = State(initialValue: initialDrawing)
@@ -224,13 +224,13 @@ public struct DrawingBlockView: View {
     let drawingID: String
     let height: CGFloat
     // onSave is accepted but unused on macOS – keeps the API surface identical.
-    private let onSave: ((Data) -> Void)?
+    private let onSave: (@Sendable (Data) -> Void)?
 
     public init(
         drawingID: String,
         initialDrawing: Data? = nil,
         height: CGFloat = 300,
-        onSave: ((Data) -> Void)? = nil
+        onSave: (@Sendable (Data) -> Void)? = nil
     ) {
         self.drawingID = drawingID
         self.height = height
