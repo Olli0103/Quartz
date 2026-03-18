@@ -204,8 +204,8 @@ public final class SidebarViewModel {
 
     private func userFacingMessage(for error: Error) -> String {
         if let fsError = error as? FileSystemError {
-            return fsError.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
+            return fsError.errorDescription ?? error.localizedDescription
         }
-        return String(localized: "An unexpected error occurred. Please try again.", bundle: .module)
+        return error.localizedDescription
     }
 }

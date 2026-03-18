@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// WYSIWYG Markdown editor – clean, minimal, Apple Notes-inspired.
-/// Liquid Glass status bar + formatting toolbar.
+/// Markdown editor with live syntax highlighting, formatting toolbar, and status bar.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     @Environment(\.appearanceManager) private var appearance
@@ -16,11 +15,9 @@ public struct NoteEditorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Formatting Toolbar
             formattingBar
                 .hidesInFocusMode()
 
-            // Frontmatter (collapsible)
             if viewModel.note != nil {
                 FrontmatterEditorView(
                     frontmatter: Binding(
@@ -31,13 +28,12 @@ public struct NoteEditorView: View {
                 .hidesInFocusMode()
             }
 
-            // Editor
             MarkdownTextViewRepresentable(
                 text: $viewModel.content,
+                cursorPosition: $viewModel.cursorPosition,
                 editorFontScale: appearance.editorFontScale
             )
 
-            // Status Bar
             statusBar
                 .hidesInFocusMode()
         }
@@ -91,11 +87,10 @@ public struct NoteEditorView: View {
 
     private var formattingBar: some View {
         FormattingToolbar { action in
-            let cursorPosition = viewModel.cursorPosition
             let (newText, newSelection) = formatter.apply(
                 action,
                 to: viewModel.content,
-                selectedRange: cursorPosition
+                selectedRange: viewModel.cursorPosition
             )
             viewModel.content = newText
             viewModel.cursorPosition = newSelection
@@ -181,5 +176,4 @@ public struct NoteEditorView: View {
             }
         }
     }
-
 }

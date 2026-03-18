@@ -35,13 +35,24 @@ public actor CloudSyncService {
         query.predicate = NSPredicate(format: "%K ENDSWITH '.md'", NSMetadataItemFSNameKey)
         self.metadataQuery = query
 
+        return Self.makeMonitoringStream(query: query, service: self)
+    }
+
+    private struct UncheckedSendableQuery: @unchecked Sendable {
+        let query: NSMetadataQuery
+    }
+
+    private nonisolated static func makeMonitoringStream(
+        query: NSMetadataQuery,
+        service: CloudSyncService
+    ) -> AsyncStream<(URL, CloudSyncStatus)> {
+        let wrapped = UncheckedSendableQuery(query: query)
+
         return AsyncStream { continuation in
             let center = NotificationCenter.default
 
-            // processQueryResults is nonisolated, so we can call it directly
-            let service = self
             let gatherTask = Task {
-                for await notification in center.notifications(named: .NSMetadataQueryDidFinishGathering, object: query) {
+                for await notification in center.notifications(named: .NSMetadataQueryDidFinishGathering, object: wrapped.query) {
                     guard let metaQuery = notification.object as? NSMetadataQuery else { continue }
                     metaQuery.disableUpdates()
                     service.processQueryResults(metaQuery, continuation: continuation)
@@ -50,7 +61,7 @@ public actor CloudSyncService {
             }
 
             let updateTask = Task {
-                for await notification in center.notifications(named: .NSMetadataQueryDidUpdate, object: query) {
+                for await notification in center.notifications(named: .NSMetadataQueryDidUpdate, object: wrapped.query) {
                     guard let metaQuery = notification.object as? NSMetadataQuery else { continue }
                     metaQuery.disableUpdates()
                     service.processQueryResults(metaQuery, continuation: continuation)
@@ -58,21 +69,16 @@ public actor CloudSyncService {
                 }
             }
 
-            // Suppress Sendable diagnostic – NSMetadataQuery is only
-            // accessed on MainActor inside the closure.
-            nonisolated(unsafe) let sendableQuery = query
-
             continuation.onTermination = { @Sendable _ in
                 gatherTask.cancel()
                 updateTask.cancel()
                 Task { @MainActor in
-                    sendableQuery.stop()
+                    wrapped.query.stop()
                 }
             }
 
-            // NSMetadataQuery must be started on the main thread
             Task { @MainActor in
-                sendableQuery.start()
+                wrapped.query.start()
             }
         }
     }

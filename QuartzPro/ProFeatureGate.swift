@@ -1,5 +1,6 @@
 import QuartzKit
 import StoreKit
+import os
 
 /// Pro feature gate: checks via StoreKit whether the user has purchased Pro
 /// and unlocks the corresponding features.
@@ -19,7 +20,7 @@ import StoreKit
 final class ProFeatureGate: FeatureGating, Sendable {
 
     /// StoreKit Product ID for the Pro upgrade.
-    static let proProductID = "olli.Quartz.pro"
+    nonisolated static let proProductID = "olli.Quartz.pro"
 
     private let _hasPurchasedPro = OSAllocatedUnfairLock(initialState: false)
     private let _transactionTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
@@ -35,7 +36,7 @@ final class ProFeatureGate: FeatureGating, Sendable {
 
     // MARK: - FeatureGating
 
-    func isEnabled(_ feature: Feature) -> Bool {
+    nonisolated func isEnabled(_ feature: Feature) -> Bool {
         switch tier(for: feature) {
         case .free:
             return true
@@ -44,7 +45,7 @@ final class ProFeatureGate: FeatureGating, Sendable {
         }
     }
 
-    func tier(for feature: Feature) -> FeatureTier {
+    nonisolated func tier(for feature: Feature) -> FeatureTier {
         base.tier(for: feature)
     }
 
@@ -52,15 +53,16 @@ final class ProFeatureGate: FeatureGating, Sendable {
 
     /// Checks the current purchase status via StoreKit 2.
     func checkPurchaseStatus() async {
-        var found = false
+        var hasPro = false
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
                transaction.productID == Self.proProductID {
-                found = true
+                hasPro = true
                 break
             }
         }
-        _hasPurchasedPro.withLock { $0 = found }
+        let purchased = hasPro
+        _hasPurchasedPro.withLock { $0 = purchased }
     }
 
     /// Observes transaction updates (purchases, refunds).

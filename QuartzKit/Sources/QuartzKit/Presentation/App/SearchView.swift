@@ -9,9 +9,9 @@ public struct SearchView: View {
     @Environment(\.dismiss) private var dismiss
 
     let searchIndex: VaultSearchIndex
-    let onSelect: @Sendable (URL) -> Void
+    let onSelect: (URL) -> Void
 
-    public init(searchIndex: VaultSearchIndex, onSelect: @escaping @Sendable (URL) -> Void) {
+    public init(searchIndex: VaultSearchIndex, onSelect: @escaping (URL) -> Void) {
         self.searchIndex = searchIndex
         self.onSelect = onSelect
     }

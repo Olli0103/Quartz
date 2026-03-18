@@ -24,16 +24,32 @@ public struct SidebarView: View {
 
     public var body: some View {
         List(selection: $selectedNoteURL) {
-            // Quick Actions
             quickActionsSection
 
-            // Tags
             if !viewModel.tagInfos.isEmpty {
                 tagsSection
             }
 
-            // File Tree
             notesSection
+
+            if !viewModel.isLoading && viewModel.fileTree.isEmpty {
+                Section {
+                    VStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .font(.title2)
+                            .foregroundStyle(.quaternary)
+                        Text(String(localized: "No Notes Yet", bundle: .module))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Text(String(localized: "Create your first note to get started.", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                }
+            }
         }
         .listStyle(.sidebar)
         .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes…", bundle: .module)))
@@ -47,24 +63,9 @@ public struct SidebarView: View {
         }
         .overlay {
             if viewModel.isLoading {
-                VStack(spacing: 0) {
-                    ForEach(0..<6, id: \.self) { i in
-                        SkeletonRow()
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 4)
-                            .staggered(index: i, baseDelay: 0.1)
-                    }
-                    Spacer()
-                }
-                .padding(.top, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.ultraThinMaterial)
-            } else if viewModel.fileTree.isEmpty {
-                QuartzEmptyState(
-                    icon: "tray",
-                    title: String(localized: "No Notes Yet", bundle: .module),
-                    subtitle: String(localized: "Create your first note to get started.", bundle: .module)
-                )
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.ultraThinMaterial)
             }
         }
         .alert(String(localized: "New Folder", bundle: .module), isPresented: $showNewFolderDialog) {
@@ -152,7 +153,7 @@ public struct SidebarView: View {
         Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(Array(viewModel.tagInfos.prefix(12).enumerated()), id: \.element.id) { index, tag in
+                    ForEach(viewModel.tagInfos.prefix(12)) { tag in
                         Button {
                             withAnimation(QuartzAnimation.standard) {
                                 if viewModel.selectedTag == tag.name {
@@ -173,7 +174,6 @@ public struct SidebarView: View {
                         .accessibilityHint(viewModel.selectedTag == tag.name
                             ? String(localized: "Double tap to deselect", bundle: .module)
                             : String(localized: "Double tap to filter by this tag", bundle: .module))
-                        .scaleIn(delay: Double(index) * 0.05)
                     }
                 }
                 .padding(.vertical, 2)
@@ -199,9 +199,8 @@ public struct SidebarView: View {
 
     private var notesSection: some View {
         Section {
-            ForEach(Array(viewModel.filteredTree.enumerated()), id: \.element.id) { index, node in
+            ForEach(viewModel.filteredTree) { node in
                 nodeView(for: node)
-                    .staggered(index: index)
             }
         } header: {
             QuartzSectionHeader(String(localized: "Notes", bundle: .module), icon: "doc.text")
@@ -215,7 +214,7 @@ public struct SidebarView: View {
         if node.isFolder, let children = node.children {
             DisclosureGroup {
                 ForEach(children) { child in
-                    nodeView(for: child)
+                    AnyView(nodeView(for: child))
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .opacity

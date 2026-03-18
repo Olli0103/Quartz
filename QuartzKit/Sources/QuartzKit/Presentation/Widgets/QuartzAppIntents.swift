@@ -23,13 +23,13 @@ public struct CreateNoteIntent: AppIntent {
 
         // Uses the default vault (in the real app via UserDefaults/AppGroup)
         guard let vaultRoot = defaultVaultURL() else {
-            return .result(dialog: IntentDialog(String(localized: "No vault configured. Please open Quartz first.", bundle: .module)))
+            return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured. Please open Quartz first.", bundle: .module)))
         }
 
         let item: SharedItem = .text(noteContent)
         _ = try useCase.capture(item, in: vaultRoot, mode: .newNote(title: noteTitle))
 
-        return .result(dialog: IntentDialog(String(localized: "Note '\(noteTitle)' created!", bundle: .module)))
+        return .result(dialog: IntentDialog(stringLiteral: String(localized: "Note '\(noteTitle)' created!", bundle: .module)))
     }
 }
 
@@ -67,12 +67,12 @@ public struct DailyNoteIntent: AppIntent {
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let vaultRoot = defaultVaultURL() else {
-            return .result(dialog: IntentDialog(String(localized: "No vault configured.", bundle: .module)))
+            return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured.", bundle: .module)))
         }
 
         let templateService = VaultTemplateService()
         let url = try await templateService.createDailyNote(in: vaultRoot)
-        return .result(dialog: IntentDialog(String(localized: "Daily note ready: \(url.lastPathComponent)", bundle: .module)))
+        return .result(dialog: IntentDialog(stringLiteral: String(localized: "Daily note ready: \(url.lastPathComponent)", bundle: .module)))
     }
 }
 
@@ -88,7 +88,7 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
                 "Create a note in \(.applicationName)",
                 "New note in \(.applicationName)",
             ],
-            shortTitle: LocalizedStringResource("New Note", bundle: .atURL(Bundle.module.bundleURL)),
+            shortTitle: "New Note",
             systemImageName: "square.and.pencil"
         )
 
@@ -98,7 +98,7 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
                 "Open daily note in \(.applicationName)",
                 "Today's note in \(.applicationName)",
             ],
-            shortTitle: LocalizedStringResource("Daily Note", bundle: .atURL(Bundle.module.bundleURL)),
+            shortTitle: "Daily Note",
             systemImageName: "calendar"
         )
     }

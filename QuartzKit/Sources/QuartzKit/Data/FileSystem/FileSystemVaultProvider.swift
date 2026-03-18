@@ -60,7 +60,17 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func createNote(named name: String, in folder: URL) async throws -> NoteDocument {
-        let fileName = name.hasSuffix(".md") ? name : "\(name).md"
+        let sanitized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sanitized.isEmpty else {
+            throw FileSystemError.invalidName(name)
+        }
+
+        let baseName = sanitized.hasSuffix(".md") ? String(sanitized.dropLast(3)) : sanitized
+        guard !baseName.isEmpty, !baseName.hasPrefix("."), !baseName.contains("/"), !baseName.contains("\\") else {
+            throw FileSystemError.invalidName(name)
+        }
+
+        let fileName = "\(baseName).md"
         let fileURL = folder.appending(path: fileName)
 
         guard !fileManager.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
@@ -68,7 +78,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         }
 
         let frontmatter = Frontmatter(
-            title: name.replacingOccurrences(of: ".md", with: ""),
+            title: baseName,
             createdAt: .now,
             modifiedAt: .now
         )
@@ -150,54 +160,19 @@ public actor FileSystemVaultProvider: VaultProviding {
     // MARK: - File Coordination
 
     private func coordinatedRead(at url: URL) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var coordinatorError: NSError?
-                var readData: Data?
-                var readError: Error?
-
-                let coordinator = NSFileCoordinator()
-                coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
-                    do {
-                        readData = try Data(contentsOf: actualURL)
-                    } catch {
-                        readError = error
-                    }
-                }
-
-                if let error = coordinatorError ?? readError {
-                    continuation.resume(throwing: error)
-                } else if let data = readData {
-                    continuation.resume(returning: data)
-                } else {
-                    continuation.resume(throwing: FileSystemError.fileNotFound(url))
-                }
-            }
+        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
+            throw FileSystemError.fileNotFound(url)
         }
+        return try Data(contentsOf: url)
     }
 
     private func coordinatedWrite(data: Data, to url: URL) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var coordinatorError: NSError?
-                var writeError: Error?
-
-                let coordinator = NSFileCoordinator()
-                coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
-                    do {
-                        try data.write(to: actualURL, options: .atomic)
-                    } catch {
-                        writeError = error
-                    }
-                }
-
-                if let error = coordinatorError ?? writeError {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
+        // Create parent directory if needed (e.g. for new notes in new folders)
+        let parent = url.deletingLastPathComponent()
+        if !fileManager.fileExists(atPath: parent.path(percentEncoded: false)) {
+            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
         }
+        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - Private
@@ -210,7 +185,6 @@ public actor FileSystemVaultProvider: VaultProviding {
         depth: Int = 0,
         fileManager: FileManager = .default
     ) throws -> [FileNode] {
-        // Prevent stack overflow from circular or extremely deep directory structures
         guard depth < 50 else { return [] }
 
         let contents = try fileManager.contentsOfDirectory(
@@ -226,7 +200,6 @@ public actor FileSystemVaultProvider: VaultProviding {
                     .isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey
                 ])
 
-                // Skip symlinks to prevent infinite loops
                 if resourceValues.isSymbolicLink == true { return nil }
 
                 let isDirectory = resourceValues.isDirectory ?? false
@@ -238,6 +211,8 @@ public actor FileSystemVaultProvider: VaultProviding {
 
                 if isDirectory {
                     let children = try buildTreeStatic(at: itemURL, relativeTo: root, depth: depth + 1, fileManager: fileManager)
+                    // Only include folders that contain at least one .md note (directly or nested)
+                    guard !children.isEmpty else { return nil }
                     return FileNode(
                         name: itemURL.lastPathComponent,
                         url: itemURL,
@@ -253,12 +228,8 @@ public actor FileSystemVaultProvider: VaultProviding {
                         metadata: metadata
                     )
                 } else {
-                    return FileNode(
-                        name: itemURL.lastPathComponent,
-                        url: itemURL,
-                        nodeType: .asset,
-                        metadata: metadata
-                    )
+                    // Skip non-markdown files entirely
+                    return nil
                 }
             }
     }

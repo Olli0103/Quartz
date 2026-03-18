@@ -36,10 +36,8 @@ public final class FocusModeManager {
 
 // MARK: - SwiftUI Environment
 
-private struct FocusModeManagerKey: EnvironmentKey {
-    // SAFETY: Default only accessed from main actor in SwiftUI's
-    // environment resolution. Swift 6 EnvironmentKey workaround.
-    nonisolated(unsafe) static let defaultValue = FocusModeManager()
+private struct FocusModeManagerKey: @preconcurrency EnvironmentKey {
+    @MainActor static let defaultValue = FocusModeManager()
 }
 
 extension EnvironmentValues {

@@ -1,29 +1,23 @@
 import SwiftUI
 
-/// Adaptive multi-column layout for iPad, Mac, and iPhone.
+/// Adaptive two-column layout for iPad, Mac, and iPhone.
 ///
 /// - iPhone: Single-column navigation
-/// - iPad Portrait: Two-column (Sidebar + Editor)
-/// - iPad Landscape / Stage Manager: Three-column (Sidebar + List + Editor)
-/// - Mac: Three-column with resizable sidebar
-public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+/// - iPad / Mac: Sidebar + Detail (editor)
+public struct AdaptiveLayoutView<Sidebar: View, Detail: View>: View {
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
 
-    let sidebar: @Sendable () -> Sidebar
-    let content: @Sendable () -> Content
-    let detail: @Sendable () -> Detail
+    let sidebar: () -> Sidebar
+    let detail: () -> Detail
 
     public init(
         columnVisibility: Binding<NavigationSplitViewVisibility>,
-        @ViewBuilder sidebar: @escaping @Sendable () -> Sidebar,
-        @ViewBuilder content: @escaping @Sendable () -> Content,
-        @ViewBuilder detail: @escaping @Sendable () -> Detail
+        @ViewBuilder sidebar: @escaping () -> Sidebar,
+        @ViewBuilder detail: @escaping () -> Detail
     ) {
         self._columnVisibility = columnVisibility
         self.sidebar = sidebar
-        self.content = content
         self.detail = detail
     }
 
@@ -34,17 +28,14 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
         ) {
             sidebar()
                 #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 400)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 420)
                 #else
                 .navigationSplitViewColumnWidth(min: 200, ideal: 280, max: 380)
                 #endif
-        } content: {
-            content()
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 500)
         } detail: {
             detail()
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.prominentDetail)
     }
 }
 
@@ -59,20 +50,20 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
 /// - ⌘⇧F: Vault-wide search
 /// - ⌘/: Toggle sidebar
 public struct KeyboardShortcutCommands: Commands {
-    let onNewNote: @Sendable () -> Void
-    let onNewFolder: @Sendable () -> Void
-    let onSearch: @Sendable () -> Void
-    let onGlobalSearch: @Sendable () -> Void
-    let onToggleSidebar: @Sendable () -> Void
-    let onDailyNote: @Sendable () -> Void
+    let onNewNote: () -> Void
+    let onNewFolder: () -> Void
+    let onSearch: () -> Void
+    let onGlobalSearch: () -> Void
+    let onToggleSidebar: () -> Void
+    let onDailyNote: () -> Void
 
     public init(
-        onNewNote: @escaping @Sendable () -> Void,
-        onNewFolder: @escaping @Sendable () -> Void,
-        onSearch: @escaping @Sendable () -> Void,
-        onGlobalSearch: @escaping @Sendable () -> Void,
-        onToggleSidebar: @escaping @Sendable () -> Void,
-        onDailyNote: @escaping @Sendable () -> Void
+        onNewNote: @escaping () -> Void,
+        onNewFolder: @escaping () -> Void,
+        onSearch: @escaping () -> Void,
+        onGlobalSearch: @escaping () -> Void,
+        onToggleSidebar: @escaping () -> Void,
+        onDailyNote: @escaping () -> Void
     ) {
         self.onNewNote = onNewNote
         self.onNewFolder = onNewFolder

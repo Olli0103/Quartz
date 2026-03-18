@@ -1,15 +1,38 @@
 import SwiftUI
 
-/// Navigation hub for all settings – Liquid Glass card design.
+/// Navigation hub for all settings.
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     public init() {}
 
     public var body: some View {
+        #if os(macOS)
+        TabView {
+            AppearanceSettingsView()
+                .tabItem {
+                    Label(String(localized: "Appearance", bundle: .module), systemImage: "paintbrush.fill")
+                }
+
+            editorPlaceholder
+                .tabItem {
+                    Label(String(localized: "Editor", bundle: .module), systemImage: "textformat")
+                }
+
+            vaultPlaceholder
+                .tabItem {
+                    Label(String(localized: "Vault", bundle: .module), systemImage: "folder.fill")
+                }
+
+            aboutTab
+                .tabItem {
+                    Label(String(localized: "About", bundle: .module), systemImage: "info.circle.fill")
+                }
+        }
+        .frame(minWidth: 480, minHeight: 300)
+        #else
         NavigationStack {
             List {
-                // Appearance
                 Section {
                     NavigationLink {
                         AppearanceSettingsView()
@@ -20,10 +43,9 @@ public struct SettingsView: View {
                             title: String(localized: "Appearance", bundle: .module)
                         )
                     }
-                    .accessibilityLabel(String(localized: "Appearance", bundle: .module))
 
                     NavigationLink {
-                        Text(String(localized: "Editor settings – coming soon", bundle: .module))
+                        editorPlaceholder
                     } label: {
                         SettingsRow(
                             icon: "textformat",
@@ -31,15 +53,13 @@ public struct SettingsView: View {
                             title: String(localized: "Editor", bundle: .module)
                         )
                     }
-                    .accessibilityLabel(String(localized: "Editor", bundle: .module))
                 } header: {
-                    QuartzSectionHeader(String(localized: "General", bundle: .module))
+                    Text(String(localized: "General", bundle: .module))
                 }
 
-                // Vault
                 Section {
                     NavigationLink {
-                        Text(String(localized: "Vault settings – coming soon", bundle: .module))
+                        vaultPlaceholder
                     } label: {
                         SettingsRow(
                             icon: "folder.fill",
@@ -47,23 +67,10 @@ public struct SettingsView: View {
                             title: String(localized: "Vault", bundle: .module)
                         )
                     }
-                    .accessibilityLabel(String(localized: "Vault", bundle: .module))
-
-                    NavigationLink {
-                        Text(String(localized: "iCloud sync – coming soon", bundle: .module))
-                    } label: {
-                        SettingsRow(
-                            icon: "icloud.fill",
-                            iconColor: .blue,
-                            title: String(localized: "iCloud Sync", bundle: .module)
-                        )
-                    }
-                    .accessibilityLabel(String(localized: "iCloud Sync", bundle: .module))
                 } header: {
-                    QuartzSectionHeader(String(localized: "Data", bundle: .module))
+                    Text(String(localized: "Data", bundle: .module))
                 }
 
-                // About
                 Section {
                     HStack {
                         SettingsRow(
@@ -77,11 +84,10 @@ public struct SettingsView: View {
                             .foregroundStyle(.tertiary)
                     }
                 } header: {
-                    QuartzSectionHeader(String(localized: "About", bundle: .module))
+                    Text(String(localized: "About", bundle: .module))
                 }
             }
             .navigationTitle(String(localized: "Settings", bundle: .module))
-            #if os(iOS)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "Done", bundle: .module)) {
@@ -90,12 +96,50 @@ public struct SettingsView: View {
                     .fontWeight(.semibold)
                 }
             }
-            #endif
         }
+        #endif
+    }
+
+    private var editorPlaceholder: some View {
+        VStack {
+            Spacer()
+            Text(String(localized: "Editor settings – coming soon", bundle: .module))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var vaultPlaceholder: some View {
+        VStack {
+            Spacer()
+            Text(String(localized: "Vault settings – coming soon", bundle: .module))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var aboutTab: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 48, weight: .thin))
+                .foregroundStyle(QuartzColors.accentGradient)
+
+            Text("Quartz")
+                .font(.title2.bold())
+
+            Text(String(localized: "Version \(QuartzKit.version)", bundle: .module))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Settings Row
+// MARK: - Settings Row (iOS only)
 
 private struct SettingsRow: View {
     let icon: String

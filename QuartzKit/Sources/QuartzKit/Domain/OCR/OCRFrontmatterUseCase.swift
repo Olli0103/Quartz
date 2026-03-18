@@ -30,7 +30,7 @@ public actor OCRFrontmatterUseCase {
     ///   - drawingID: ID of the drawing
     ///   - noteURL: URL of the associated note
     public func processDrawing(
-        _ drawing: PKDrawing,
+        _ drawing: sending PKDrawing,
         drawingID: String,
         noteURL: URL
     ) async throws {

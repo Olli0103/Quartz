@@ -558,9 +558,9 @@ public struct QuartzSectionHeader: View {
 public struct QuartzButton: View {
     public let title: String
     public let icon: String?
-    public let action: @Sendable () -> Void
+    public let action: () -> Void
 
-    public init(_ title: String, icon: String? = nil, action: @escaping @Sendable () -> Void) {
+    public init(_ title: String, icon: String? = nil, action: @escaping () -> Void) {
         self.title = title
         self.icon = icon
         self.action = action
@@ -688,7 +688,6 @@ public struct QuartzEmptyState: View {
                 .font(.largeTitle.weight(.regular))
                 .imageScale(.large)
                 .foregroundStyle(.quaternary)
-                .symbolEffect(.pulse, options: .repeating)
 
             VStack(spacing: 6) {
                 Text(title)

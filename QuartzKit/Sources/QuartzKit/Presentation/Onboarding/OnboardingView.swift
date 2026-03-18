@@ -318,9 +318,13 @@ public struct OnboardingView: View {
             }
             .padding(16)
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSelected ? color.gradient : AnyShapeStyle(.regularMaterial))
-                    .shadow(color: isSelected ? color.opacity(0.35) : .clear, radius: isSelected ? 12 : 0, y: isSelected ? 6 : 0)
+                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                if isSelected {
+                    shape.fill(color.gradient)
+                        .shadow(color: color.opacity(0.35), radius: 12, y: 6)
+                } else {
+                    shape.fill(.regularMaterial)
+                }
             }
             .overlay {
                 if !isSelected {

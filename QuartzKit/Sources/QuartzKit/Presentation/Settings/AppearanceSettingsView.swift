@@ -85,7 +85,7 @@ public struct AppearanceSettingsView: View {
 private struct ThemeCard: View {
     let theme: AppearanceManager.Theme
     let isSelected: Bool
-    let action: @Sendable () -> Void
+    let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {

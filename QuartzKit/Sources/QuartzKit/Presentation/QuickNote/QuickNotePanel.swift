@@ -77,7 +77,7 @@ public final class QuickNoteManager {
         // monitors fire on the main thread.
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             MainActor.assumeIsolated {
-                self?.handleKeyEvent(event)
+                _ = self?.handleKeyEvent(event)
             }
         }
 

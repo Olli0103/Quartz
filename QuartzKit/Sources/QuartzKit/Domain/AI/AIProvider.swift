@@ -90,7 +90,7 @@ public final class OpenAIProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try keychain.getKey(for: id)
+        let apiKey = try await keychain.getKey(for: id)
         let modelID = model ?? "gpt-4o"
 
         let body = OpenAIChatBody(
@@ -158,7 +158,7 @@ public final class AnthropicProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try keychain.getKey(for: id)
+        let apiKey = try await keychain.getKey(for: id)
         let modelID = model ?? "claude-sonnet-4-6"
 
         let systemMsg = messages.first { $0.role == .system }?.content
@@ -198,7 +198,7 @@ public final class OllamaProvider: AIProvider, Sendable {
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
-    static let defaultBaseURL: URL = {
+    public static let defaultBaseURL: URL = {
         guard let url = URL(string: "http://localhost:11434") else {
             preconditionFailure("Invalid static URL for Ollama")
         }
@@ -263,7 +263,7 @@ public final class GeminiProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try keychain.getKey(for: id)
+        let apiKey = try await keychain.getKey(for: id)
         let modelID = model ?? "gemini-2.5-flash"
 
         let systemMsg = messages.first { $0.role == .system }?.content
@@ -332,7 +332,7 @@ public final class OpenRouterProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try keychain.getKey(for: id)
+        let apiKey = try await keychain.getKey(for: id)
         let modelID = model ?? "anthropic/claude-sonnet-4"
 
         // OpenRouter uses the OpenAI-compatible format
