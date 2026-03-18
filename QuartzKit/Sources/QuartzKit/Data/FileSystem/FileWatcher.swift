@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Watches a vault folder for file changes.
 ///
