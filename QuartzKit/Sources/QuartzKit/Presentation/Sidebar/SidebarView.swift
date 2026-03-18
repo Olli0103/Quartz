@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Sidebar with recursive file tree, tags, search and context menus.
 /// Apple Notes-inspired design with Liquid Glass accents.
@@ -223,10 +224,18 @@ public struct SidebarView: View {
             } label: {
                 FileNodeRow(node: node)
             }
+            .draggable(node.url.absoluteString)
+            .dropDestination(for: String.self) { items, _ in
+                guard let urlString = items.first, let sourceURL = URL(string: urlString) else { return false }
+                guard sourceURL != node.url else { return false }
+                Task { await viewModel.move(at: sourceURL, to: node.url) }
+                return true
+            }
             .contextMenu { folderContextMenu(for: node) }
         } else if node.isNote {
             FileNodeRow(node: node)
                 .tag(node.url)
+                .draggable(node.url.absoluteString)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         pendingDeleteURL = node.url

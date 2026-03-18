@@ -68,8 +68,13 @@ public final class OpenAIProvider: AIProvider, Sendable {
     public let displayName = "OpenAI"
     private let keychain: KeychainHelper
 
-    // swiftlint:disable:next force_unwrapping - Static well-known URL, guaranteed valid
-    private static let chatURL = URL(string: "https://api.openai.com/v1/chat/completions")!
+    // Static well-known URL – constructed once at load time.
+    private static let chatURL: URL = {
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            preconditionFailure("Invalid static API URL for OpenAI")
+        }
+        return url
+    }()
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -129,7 +134,12 @@ public final class AnthropicProvider: AIProvider, Sendable {
     public let displayName = "Anthropic"
     private let keychain: KeychainHelper
 
-    private static let messagesURL = URL(string: "https://api.anthropic.com/v1/messages")!
+    private static let messagesURL: URL = {
+        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+            preconditionFailure("Invalid static API URL for Anthropic")
+        }
+        return url
+    }()
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 
@@ -186,7 +196,12 @@ public final class OllamaProvider: AIProvider, Sendable {
     public let displayName = "Ollama (Local)"
     private let baseURL: URL
 
-    static let defaultBaseURL = URL(string: "http://localhost:11434")!
+    static let defaultBaseURL: URL = {
+        guard let url = URL(string: "http://localhost:11434") else {
+            preconditionFailure("Invalid static URL for Ollama")
+        }
+        return url
+    }()
 
     public var isConfigured: Bool { true } // No API key required
 
@@ -290,7 +305,12 @@ public final class OpenRouterProvider: AIProvider, Sendable {
     public let displayName = "OpenRouter"
     private let keychain: KeychainHelper
 
-    private static let chatURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+    private static let chatURL: URL = {
+        guard let url = URL(string: "https://openrouter.ai/api/v1/chat/completions") else {
+            preconditionFailure("Invalid static API URL for OpenRouter")
+        }
+        return url
+    }()
 
     public var isConfigured: Bool { keychain.hasKey(for: id) }
 

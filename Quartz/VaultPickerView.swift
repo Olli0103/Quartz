@@ -74,7 +74,11 @@ struct VaultPickerView: View {
         case .success(let urls):
             guard let url = urls.first else { return }
             guard url.startAccessingSecurityScopedResource() else {
-                errorMessage = String(localized: "Unable to access the selected folder. Please try again.")
+                #if os(macOS)
+                errorMessage = String(localized: "Unable to access the selected folder. Grant Full Disk Access in System Settings.")
+                #else
+                errorMessage = String(localized: "Unable to access the selected folder. Please re-select from the Files app.")
+                #endif
                 return
             }
 
@@ -102,6 +106,11 @@ struct VaultPickerView: View {
             } catch {
                 Logger(subsystem: "com.quartz", category: "VaultPicker")
                     .error("Failed to persist vault bookmark: \(error.localizedDescription)")
+                #if os(macOS)
+                errorMessage = String(localized: "Could not save bookmark. Grant Full Disk Access in System Settings.")
+                #else
+                errorMessage = String(localized: "Could not bookmark folder. Please re-select from the Files app.")
+                #endif
             }
 
             onVaultSelected(vault)
@@ -113,7 +122,11 @@ struct VaultPickerView: View {
             dismiss()
 
         case .failure:
-            errorMessage = String(localized: "Could not open the selected folder. Please try again.")
+            #if os(macOS)
+            errorMessage = String(localized: "Could not open the selected folder. Check Sandbox permissions in System Settings.")
+            #else
+            errorMessage = String(localized: "Could not open the selected folder. Please try again from the Files app.")
+            #endif
         }
     }
 }

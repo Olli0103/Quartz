@@ -82,6 +82,17 @@ public final class SidebarViewModel {
         }
     }
 
+    /// Moves an item to a new parent folder.
+    public func move(at sourceURL: URL, to destinationFolder: URL) async {
+        do {
+            let folderUseCase = FolderManagementUseCase(vaultProvider: vaultProvider)
+            _ = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
+            await refresh()
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+    }
+
     /// Deletes an item.
     public func delete(at url: URL) async {
         do {

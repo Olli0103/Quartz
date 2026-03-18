@@ -351,12 +351,14 @@ private struct ScaleInModifier: ViewModifier {
 }
 
 /// Shimmer effect for skeleton loading.
+/// Automatically stops after 30 seconds to prevent unnecessary off-screen animation.
 public struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = -1
+    @State private var isActive = true
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     public func body(content: Content) -> some View {
-        if reduceMotion {
+        if reduceMotion || !isActive {
             content
         } else {
             content
@@ -382,6 +384,11 @@ public struct ShimmerModifier: ViewModifier {
                         }
                     }
                     .mask(content)
+                }
+                .task {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    withAnimation { isActive = false }
                 }
         }
     }
