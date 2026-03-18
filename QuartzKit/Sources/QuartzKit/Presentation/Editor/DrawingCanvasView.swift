@@ -201,12 +201,10 @@ struct DrawingThumbnailView: View {
         .background(.background)
         .task(id: drawing.bounds) {
             guard !drawing.bounds.isEmpty else { return }
-            // PKDrawing is not Sendable; suppress diagnostic since it is
-            // a value type (backed by NSData) that is safe to transfer.
-            nonisolated(unsafe) let drawingCopy = drawing
-            let img = await Task.detached(priority: .userInitiated) {
-                drawingCopy.image(from: drawingCopy.bounds, scale: 2.0)
-            }.value
+            // PKDrawing.image is main-actor isolated; run on main actor.
+            let img = await MainActor.run {
+                drawing.image(from: drawing.bounds, scale: 2.0)
+            }
             renderedImage = img
         }
     }
