@@ -14,13 +14,13 @@ public struct QuickNoteView: View {
     @FocusState private var focusedField: Field?
 
     let vaultRoot: URL
-    let onDismiss: () -> Void
+    let onDismiss: @Sendable () -> Void
 
     private enum Field {
         case title, body
     }
 
-    public init(vaultRoot: URL, onDismiss: @escaping () -> Void) {
+    public init(vaultRoot: URL, onDismiss: @escaping @Sendable () -> Void) {
         self.vaultRoot = vaultRoot
         self.onDismiss = onDismiss
     }

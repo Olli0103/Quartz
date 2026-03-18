@@ -75,7 +75,7 @@ public enum MarkdownSyntax: Sendable {
 
 /// Toolbar for Markdown formatting – Liquid Glass style.
 public struct FormattingToolbar: View {
-    let onAction: (FormattingAction) -> Void
+    let onAction: @Sendable (FormattingAction) -> Void
 
     private let primaryActions: [FormattingAction] = [
         .bold, .italic, .heading, .bulletList, .checkbox, .code, .link
@@ -85,7 +85,7 @@ public struct FormattingToolbar: View {
         .numberedList, .codeBlock, .image, .blockquote
     ]
 
-    public init(onAction: @escaping (FormattingAction) -> Void) {
+    public init(onAction: @escaping @Sendable (FormattingAction) -> Void) {
         self.onAction = onAction
     }
 

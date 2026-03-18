@@ -12,7 +12,7 @@ public class MarkdownUITextView: UITextView {
     private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
     private var isUpdating = false
 
-    public var onTextChange: ((String) -> Void)?
+    public var onTextChange: (@Sendable (String) -> Void)?
 
     public override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -114,7 +114,7 @@ public class MarkdownNSTextView: NSTextView {
     private let logger = Logger(subsystem: "com.quartz", category: "MarkdownTextView")
     private var isUpdating = false
 
-    public var onTextChange: ((String) -> Void)?
+    public var onTextChange: (@Sendable (String) -> Void)?
 
     public override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)

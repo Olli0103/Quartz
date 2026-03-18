@@ -17,9 +17,9 @@ public struct OnboardingView: View {
     @ScaledMetric(relativeTo: .title) private var folderIconSize: CGFloat = 56
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let onComplete: (VaultConfig) -> Void
+    let onComplete: @Sendable (VaultConfig) -> Void
 
-    public init(onComplete: @escaping (VaultConfig) -> Void) {
+    public init(onComplete: @escaping @Sendable (VaultConfig) -> Void) {
         self.onComplete = onComplete
     }
 

@@ -3,10 +3,10 @@ import SwiftUI
 /// Panel that displays backlinks to the current note – Liquid Glass style.
 public struct BacklinksPanel: View {
     let backlinks: [Backlink]
-    let onNavigate: (URL) -> Void
+    let onNavigate: @Sendable (URL) -> Void
     @State private var isExpanded: Bool = false
 
-    public init(backlinks: [Backlink], onNavigate: @escaping (URL) -> Void) {
+    public init(backlinks: [Backlink], onNavigate: @escaping @Sendable (URL) -> Void) {
         self.backlinks = backlinks
         self.onNavigate = onNavigate
     }

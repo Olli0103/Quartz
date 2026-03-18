@@ -16,12 +16,12 @@ public struct ShareExtensionView: View {
 
     let sharedItem: SharedItem
     let vaultRoot: URL
-    let onDismiss: () -> Void
+    let onDismiss: @Sendable () -> Void
 
     public init(
         sharedItem: SharedItem,
         vaultRoot: URL,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping @Sendable () -> Void
     ) {
         self.sharedItem = sharedItem
         self.vaultRoot = vaultRoot

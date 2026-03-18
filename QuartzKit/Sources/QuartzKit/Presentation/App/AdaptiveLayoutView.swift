@@ -11,15 +11,15 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
 
-    let sidebar: () -> Sidebar
-    let content: () -> Content
-    let detail: () -> Detail
+    let sidebar: @Sendable () -> Sidebar
+    let content: @Sendable () -> Content
+    let detail: @Sendable () -> Detail
 
     public init(
         columnVisibility: Binding<NavigationSplitViewVisibility>,
-        @ViewBuilder sidebar: @escaping () -> Sidebar,
-        @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder detail: @escaping () -> Detail
+        @ViewBuilder sidebar: @escaping @Sendable () -> Sidebar,
+        @ViewBuilder content: @escaping @Sendable () -> Content,
+        @ViewBuilder detail: @escaping @Sendable () -> Detail
     ) {
         self._columnVisibility = columnVisibility
         self.sidebar = sidebar
@@ -59,20 +59,20 @@ public struct AdaptiveLayoutView<Sidebar: View, Content: View, Detail: View>: Vi
 /// - ⌘⇧F: Vault-wide search
 /// - ⌘/: Toggle sidebar
 public struct KeyboardShortcutCommands: Commands {
-    let onNewNote: () -> Void
-    let onNewFolder: () -> Void
-    let onSearch: () -> Void
-    let onGlobalSearch: () -> Void
-    let onToggleSidebar: () -> Void
-    let onDailyNote: () -> Void
+    let onNewNote: @Sendable () -> Void
+    let onNewFolder: @Sendable () -> Void
+    let onSearch: @Sendable () -> Void
+    let onGlobalSearch: @Sendable () -> Void
+    let onToggleSidebar: @Sendable () -> Void
+    let onDailyNote: @Sendable () -> Void
 
     public init(
-        onNewNote: @escaping () -> Void,
-        onNewFolder: @escaping () -> Void,
-        onSearch: @escaping () -> Void,
-        onGlobalSearch: @escaping () -> Void,
-        onToggleSidebar: @escaping () -> Void,
-        onDailyNote: @escaping () -> Void
+        onNewNote: @escaping @Sendable () -> Void,
+        onNewFolder: @escaping @Sendable () -> Void,
+        onSearch: @escaping @Sendable () -> Void,
+        onGlobalSearch: @escaping @Sendable () -> Void,
+        onToggleSidebar: @escaping @Sendable () -> Void,
+        onDailyNote: @escaping @Sendable () -> Void
     ) {
         self.onNewNote = onNewNote
         self.onNewFolder = onNewFolder

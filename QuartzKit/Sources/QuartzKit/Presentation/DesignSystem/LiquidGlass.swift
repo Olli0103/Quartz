@@ -558,9 +558,9 @@ public struct QuartzSectionHeader: View {
 public struct QuartzButton: View {
     public let title: String
     public let icon: String?
-    public let action: () -> Void
+    public let action: @Sendable () -> Void
 
-    public init(_ title: String, icon: String? = nil, action: @escaping () -> Void) {
+    public init(_ title: String, icon: String? = nil, action: @escaping @Sendable () -> Void) {
         self.title = title
         self.icon = icon
         self.action = action
