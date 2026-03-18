@@ -7,7 +7,7 @@ import Foundation
 public struct TagExtractor: Sendable {
     /// Pattern: `#` followed by at least one Unicode letter or digit.
     /// Uses Unicode properties (\p{L}, \p{N}) to support CJK, Arabic, Cyrillic, etc.
-    private static let tagPattern = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_\/\-]*)/
+    nonisolated(unsafe) private static let tagPattern = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_\/\-]*)/
 
     public init() {}
 

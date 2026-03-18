@@ -77,7 +77,7 @@ public struct ShareCaptureUseCase: Sendable {
     // MARK: - Private
 
     // ISO8601DateFormatter is thread-safe (unlike DateFormatter)
-    private static let iso8601Formatter = ISO8601DateFormatter()
+    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = ISO8601DateFormatter()
     // DateFormatter is NOT thread-safe; create per-use for Sendable struct
     private static func formattedTime() -> String {
         let f = DateFormatter()
