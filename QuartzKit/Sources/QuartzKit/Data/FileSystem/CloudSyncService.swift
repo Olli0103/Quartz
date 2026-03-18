@@ -58,15 +58,15 @@ public actor CloudSyncService {
                 }
             }
 
+            // Suppress Sendable diagnostic – NSMetadataQuery is only
+            // accessed on MainActor inside the closure.
+            nonisolated(unsafe) let sendableQuery = query
+
             continuation.onTermination = { @Sendable _ in
                 gatherTask.cancel()
                 updateTask.cancel()
-                // query.stop() is called via the tasks cancelling;
-                // we use nonisolated(unsafe) to suppress the Sendable diagnostic
-                // since NSMetadataQuery is only accessed on MainActor.
-                nonisolated(unsafe) let capturedQuery = query
                 Task { @MainActor in
-                    capturedQuery.stop()
+                    sendableQuery.stop()
                 }
             }
 

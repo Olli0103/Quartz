@@ -76,8 +76,11 @@ public struct ShareCaptureUseCase: Sendable {
 
     // MARK: - Private
 
-    // ISO8601DateFormatter is thread-safe (unlike DateFormatter)
-    nonisolated(unsafe) private static let iso8601Formatter: ISO8601DateFormatter = ISO8601DateFormatter()
+    // ISO8601DateFormatter is thread-safe (unlike DateFormatter).
+    // Created per-call to avoid concurrency-safety issues with static stored properties.
+    private static func iso8601Now() -> String {
+        ISO8601DateFormatter().string(from: Date())
+    }
     // DateFormatter is NOT thread-safe; create per-use for Sendable struct
     private static func formattedTime() -> String {
         let f = DateFormatter()
@@ -89,7 +92,7 @@ public struct ShareCaptureUseCase: Sendable {
 
     private func appendToInbox(_ item: SharedItem, vaultRoot: URL) throws -> URL {
         let inboxURL = vaultRoot.appending(path: "Inbox.md")
-        let now = Self.iso8601Formatter.string(from: Date())
+        let now = Self.iso8601Now()
 
         let entry = "\n\n---\n_Captured \(Self.formattedTime())_\n\n\(item.markdownContent)"
 
@@ -125,7 +128,7 @@ public struct ShareCaptureUseCase: Sendable {
             .replacingOccurrences(of: "\n", with: " ")
         let fileName = safeTitle.hasSuffix(".md") ? safeTitle : "\(safeTitle).md"
         let fileURL = vaultRoot.appending(path: fileName)
-        let now = Self.iso8601Formatter.string(from: Date())
+        let now = Self.iso8601Now()
 
         // Quote title if it contains YAML special characters
         let yamlTitle = Self.yamlSafeString(safeTitle)
