@@ -56,7 +56,7 @@ public actor AssetManager {
     #if canImport(UIKit)
     /// Imports a UIImage (e.g. from paste/drag) into the vault.
     public func importImage(
-        _ image: UIImage,
+        _ image: sending UIImage,
         named name: String? = nil,
         vaultRoot: URL,
         noteURL: URL
@@ -82,7 +82,7 @@ public actor AssetManager {
     #if canImport(AppKit)
     /// Imports an NSImage (e.g. from paste/drag) into the vault.
     public func importImage(
-        _ image: NSImage,
+        _ image: sending NSImage,
         named name: String? = nil,
         vaultRoot: URL,
         noteURL: URL

@@ -6,8 +6,10 @@ import os
 /// Uses `DispatchSource` for file system events and
 /// delivers changes as an `AsyncStream<FileChangeEvent>`.
 public actor FileWatcher {
-    private var source: (any DispatchSourceFileSystemObject)?
-    private var fileDescriptor: Int32 = -1
+    // nonisolated(unsafe) so deinit can access them outside actor isolation.
+    // These are only mutated from actor-isolated methods.
+    nonisolated(unsafe) private var source: (any DispatchSourceFileSystemObject)?
+    nonisolated(unsafe) private var fileDescriptor: Int32 = -1
     private let url: URL
 
     public init(url: URL) {
@@ -37,9 +39,12 @@ public actor FileWatcher {
         // Use a flag to ensure the file descriptor is closed exactly once,
         // even if both setCancelHandler and onTermination fire.
         let closedFlag = ClosedFlag()
+        // Suppress Sendable diagnostic – DispatchSource is only accessed
+        // from its own serial queue and the handlers below.
+        nonisolated(unsafe) let sendableSource = dispatchSource
         return AsyncStream { continuation in
-            dispatchSource.setEventHandler {
-                let event = dispatchSource.data
+            sendableSource.setEventHandler {
+                let event = sendableSource.data
                 if event.contains(.delete) {
                     continuation.yield(.deleted(watchedURL))
                     continuation.finish()
@@ -57,15 +62,15 @@ public actor FileWatcher {
                 }
             }
 
-            dispatchSource.setCancelHandler {
+            sendableSource.setCancelHandler {
                 closedFlag.closeOnce(fd)
             }
 
             continuation.onTermination = { @Sendable _ in
-                dispatchSource.cancel()
+                sendableSource.cancel()
             }
 
-            dispatchSource.resume()
+            sendableSource.resume()
         }
     }
 
