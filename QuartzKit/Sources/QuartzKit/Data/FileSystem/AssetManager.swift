@@ -152,17 +152,27 @@ public actor AssetManager {
     }
 
     private func relativePath(from base: URL, to target: URL) -> String {
-        let basePath = base.path(percentEncoded: false)
-        let targetPath = target.path(percentEncoded: false)
+        let baseComponents = base.standardizedFileURL.pathComponents
+        let targetComponents = target.standardizedFileURL.pathComponents
 
-        // Simple case: Target is under Base
-        if targetPath.hasPrefix(basePath) {
-            return String(targetPath.dropFirst(basePath.count))
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var commonLength = 0
+        for i in 0..<min(baseComponents.count, targetComponents.count) {
+            if baseComponents[i] == targetComponents[i] {
+                commonLength = i + 1
+            } else {
+                break
+            }
         }
 
-        // Fallback: Only file name
-        return "\(assetFolderName)/\(target.lastPathComponent)"
+        let upCount = baseComponents.count - commonLength
+        let ups = Array(repeating: "..", count: upCount)
+        let remaining = targetComponents.count > commonLength
+            ? Array(targetComponents[commonLength...])
+            : []
+
+        let parts = ups + remaining
+        guard !parts.isEmpty else { return target.lastPathComponent }
+        return parts.joined(separator: "/")
     }
 
     /// Thread-safe timestamp generator. Creates a new formatter per call to avoid

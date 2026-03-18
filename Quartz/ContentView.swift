@@ -1,5 +1,7 @@
 import SwiftUI
 import QuartzKit
+import UniformTypeIdentifiers
+import os
 
 /// Main layout: 2-column NavigationSplitView with sidebar and editor.
 struct ContentView: View {
@@ -14,7 +16,15 @@ struct ContentView: View {
     @State private var newNoteName = ""
     @State private var newNoteParent: URL?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showOnboarding = false
+    @State private var vaultChatSheetItem: VaultChatSheetItem?
+    @State private var availableUpdate: UpdateChecker.ReleaseInfo?
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
+    #if os(macOS)
+    @State private var quickNoteManager: QuickNoteManager?
+    #endif
+
+    private static let onboardingCompletedKey = "quartz.hasCompletedOnboarding"
 
     var body: some View {
         AdaptiveLayoutView(columnVisibility: $columnVisibility) {
@@ -22,14 +32,31 @@ struct ContentView: View {
         } detail: {
             detailColumn
         }
-        .animation(QuartzAnimation.content, value: viewModel?.editorViewModel?.note?.fileURL)
         .task {
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)
             }
             if appState.currentVault == nil {
-                restoreLastVault()
+                if !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) {
+                    showOnboarding = true
+                } else {
+                    restoreLastVault()
+                }
             }
+            availableUpdate = await UpdateChecker.shared.checkForUpdate()
+        }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView { [self] vault in
+                Task { @MainActor in
+                    UserDefaults.standard.set(true, forKey: ContentView.onboardingCompletedKey)
+                    showOnboarding = false
+                    persistBookmark(for: vault.rootURL, vaultName: vault.name)
+                    openVault(vault)
+                }
+            }
+            #if os(macOS)
+            .frame(minWidth: 600, minHeight: 500)
+            #endif
         }
         .onChange(of: selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)
@@ -46,13 +73,15 @@ struct ContentView: View {
                 newNoteParent: &newNoteParent
             )
         }
-        .sheet(isPresented: $showVaultPicker) {
-            VaultPickerView { vault in
-                appState.switchVault(to: vault)
-                viewModel?.loadVault(vault)
-            }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzReindexRequested)) { _ in
+            viewModel?.reindexVault()
         }
         #if os(iOS)
+        .sheet(isPresented: $showVaultPicker) {
+            VaultPickerView { vault in
+                openVault(vault)
+            }
+        }
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
@@ -64,13 +93,19 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(item: $vaultChatSheetItem) { item in
+            VaultChatView(session: item.session)
+        }
         .alert(String(localized: "New Note"), isPresented: $showNewNote) {
             TextField(String(localized: "Note name"), text: $newNoteName)
             Button(String(localized: "Create")) {
                 guard let parent = newNoteParent else { return }
-                let name = newNoteName
+                let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newNoteName = ""
-                Task { await viewModel?.sidebarViewModel?.createNote(named: name, in: parent) }
+                guard !name.isEmpty else { return }
+                Task {
+                    await viewModel?.sidebarViewModel?.createNote(named: name, in: parent)
+                }
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
@@ -78,9 +113,12 @@ struct ContentView: View {
             TextField(String(localized: "Folder name"), text: $newNoteName)
             Button(String(localized: "Create")) {
                 guard let parent = newNoteParent else { return }
-                let name = newNoteName
+                let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newNoteName = ""
-                Task { await viewModel?.sidebarViewModel?.createFolder(named: name, in: parent) }
+                guard !name.isEmpty else { return }
+                Task {
+                    await viewModel?.sidebarViewModel?.createFolder(named: name, in: parent)
+                }
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
         }
@@ -95,48 +133,300 @@ struct ContentView: View {
                     }
             }
         }
+        .onChange(of: showVaultPicker) { _, shouldShow in
+            #if os(macOS)
+            if shouldShow {
+                showVaultPicker = false
+                DispatchQueue.main.async {
+                    pickVaultFolderMacOS()
+                }
+            }
+            #endif
+        }
         .tint(Color(hex: 0xF2994A))
+        #if os(macOS)
+        .onDisappear {
+            quickNoteManager?.unregisterHotkey()
+            quickNoteManager = nil
+            viewModel?.stopCloudSync()
+        }
+        #endif
     }
+
+    // MARK: - Vault Opening
+
+    private func openVault(_ vault: VaultConfig) {
+        appState.switchVault(to: vault)
+        viewModel?.loadVault(vault)
+        selectedNoteURL = nil
+
+        #if os(macOS)
+        quickNoteManager?.unregisterHotkey()
+        quickNoteManager = QuickNoteManager(vaultRoot: vault.rootURL)
+        quickNoteManager?.registerHotkey()
+        #endif
+    }
+
+    #if os(macOS)
+    private func pickVaultFolderMacOS() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Vault Folder"
+        panel.message = "Choose an existing folder with your notes, or create a new one."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Open"
+
+        panel.begin { response in
+            DispatchQueue.main.async {
+                guard response == .OK, let url = panel.url else { return }
+
+                guard url.startAccessingSecurityScopedResource() else {
+                    appState.showError("Unable to access the selected folder.")
+                    return
+                }
+
+                let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
+                persistBookmark(for: url, vaultName: vault.name)
+                openVault(vault)
+            }
+        }
+    }
+    #endif
 
     // MARK: - Sidebar Column
 
     @ViewBuilder
     private var sidebarColumn: some View {
         if let sidebarVM = viewModel?.sidebarViewModel {
-            SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
-                .navigationTitle(appState.currentVault?.name ?? "Quartz")
-                .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button {
-                            showSearch = true
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        .accessibilityLabel(String(localized: "Search"))
-                        .disabled(viewModel?.searchIndex == nil)
+            VStack(spacing: 0) {
+                // Vault header
+                vaultHeader
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
 
-                        Menu {
-                            Button {
-                                showVaultPicker = true
-                            } label: {
-                                Label(String(localized: "Open Vault"), systemImage: "folder.badge.plus")
-                            }
-                            #if os(iOS)
-                            Button {
-                                showSettings = true
-                            } label: {
-                                Label(String(localized: "Settings"), systemImage: "gearshape")
-                            }
-                            #endif
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .accessibilityLabel(String(localized: "More options"))
+                SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
+
+                // Bottom bar: Settings
+                sidebarBottomBar
+            }
+            .navigationTitle(appState.currentVault?.name ?? "Quartz")
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showSearch = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
                     }
+                    .accessibilityLabel(String(localized: "Search"))
+                    .help(String(localized: "Search notes"))
+                    .disabled(viewModel?.searchIndex == nil)
+
+                    Button {
+                        if let session = viewModel?.createVaultChatSession() {
+                            vaultChatSheetItem = VaultChatSheetItem(session: session)
+                        }
+                    } label: {
+                        Image(systemName: "brain.head.profile")
+                    }
+                    .accessibilityLabel(String(localized: "Chat with Vault"))
+                    .help(String(localized: "AI chat across all notes"))
+                    .disabled(viewModel?.embeddingService == nil)
+
+                    Button {
+                        showVaultPicker = true
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    .accessibilityLabel(String(localized: "Open Vault"))
+                    .help(String(localized: "Open or create vault"))
+
+                    #if os(iOS)
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel(String(localized: "Settings"))
+                    .help(String(localized: "Settings"))
+                    #endif
                 }
+            }
         } else {
             welcomeView
         }
+    }
+
+    // MARK: - Vault Header
+
+    private var vaultHeader: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(QuartzColors.accent.gradient)
+                .frame(width: 36, height: 36)
+                .overlay {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(appState.currentVault?.name ?? "Quartz")
+                    .font(.body.weight(.bold))
+                    .lineLimit(1)
+                Text(String(localized: "Personal Vault"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+
+            Menu {
+                Button {
+                    showVaultPicker = true
+                } label: {
+                    Label(String(localized: "Open Existing Vault"), systemImage: "folder")
+                }
+                Button {
+                    showOnboarding = true
+                } label: {
+                    Label(String(localized: "Create New Vault…"), systemImage: "plus.rectangle.on.folder")
+                }
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 24)
+            .accessibilityLabel(String(localized: "Vault Options"))
+            .help(String(localized: "Vault Options"))
+        }
+    }
+
+    // MARK: - Sidebar Bottom
+
+    private var sidebarBottomBar: some View {
+        VStack(spacing: 0) {
+            Divider().overlay(QuartzColors.accent.opacity(0.1))
+
+            if let vm = viewModel, vm.cloudSyncStatus != .notApplicable {
+                cloudSyncIndicator(status: vm.cloudSyncStatus)
+            }
+
+            if let progress = viewModel?.indexingProgress {
+                indexingIndicator(current: progress.current, total: progress.total)
+            }
+
+            #if os(macOS)
+            SettingsLink {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    Text(String(localized: "Settings"))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            #else
+            Button {
+                showSettings = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    Text(String(localized: "Settings"))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            #endif
+        }
+    }
+
+    // MARK: - Cloud Sync Indicator
+
+    private func cloudSyncIndicator(status: CloudSyncStatus) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: cloudSyncIcon(for: status))
+                .font(.caption)
+                .foregroundStyle(cloudSyncColor(for: status))
+                .symbolEffect(.pulse, isActive: status == .uploading || status == .downloading)
+            Text(cloudSyncLabel(for: status))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    private func cloudSyncIcon(for status: CloudSyncStatus) -> String {
+        switch status {
+        case .current: "checkmark.icloud"
+        case .uploading: "icloud.and.arrow.up"
+        case .downloading: "icloud.and.arrow.down"
+        case .notDownloaded: "icloud.and.arrow.down"
+        case .conflict: "exclamationmark.icloud"
+        case .error: "xmark.icloud"
+        case .notApplicable: "icloud"
+        }
+    }
+
+    private func cloudSyncColor(for status: CloudSyncStatus) -> Color {
+        switch status {
+        case .current: .green
+        case .uploading, .downloading, .notDownloaded: .blue
+        case .conflict: .orange
+        case .error: .red
+        case .notApplicable: .secondary
+        }
+    }
+
+    private func cloudSyncLabel(for status: CloudSyncStatus) -> String {
+        switch status {
+        case .current: String(localized: "iCloud: Synced")
+        case .uploading: String(localized: "iCloud: Uploading…")
+        case .downloading, .notDownloaded: String(localized: "iCloud: Downloading…")
+        case .conflict: String(localized: "iCloud: Conflict")
+        case .error: String(localized: "iCloud: Sync Error")
+        case .notApplicable: String(localized: "iCloud")
+        }
+    }
+
+    // MARK: - Indexing Indicator
+
+    private func indexingIndicator(current: Int, total: Int) -> some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle")
+                    .font(.caption)
+                    .foregroundStyle(QuartzColors.accent)
+                    .symbolEffect(.pulse)
+                Text("Indexing notes… \(current)/\(total)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            ProgressView(value: Double(current), total: Double(max(total, 1)))
+                .tint(QuartzColors.accent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .transition(.opacity)
+        .animation(.easeInOut, value: current)
     }
 
     // MARK: - Detail Column
@@ -146,7 +436,6 @@ struct ContentView: View {
         if let editorVM = viewModel?.editorViewModel {
             NoteEditorView(viewModel: editorVM)
                 .id(editorVM.note?.fileURL)
-                .transition(.opacity)
         } else {
             QuartzEmptyState(
                 icon: "doc.text",
@@ -184,6 +473,19 @@ struct ContentView: View {
             .padding(.horizontal, 40)
             .slideUp(delay: 0.15)
 
+            Button {
+                showOnboarding = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.rectangle.on.folder")
+                    Text(String(localized: "Create New Vault"))
+                }
+                .font(.body.weight(.medium))
+                .foregroundStyle(QuartzColors.accent)
+            }
+            .buttonStyle(.plain)
+            .slideUp(delay: 0.25)
+
             Spacer()
         }
         .toolbar {
@@ -211,27 +513,62 @@ struct ContentView: View {
             let url = try URL(resolvingBookmarkData: bookmarkData, bookmarkDataIsStale: &isStale)
             #endif
 
-            guard url.startAccessingSecurityScopedResource() else { return }
+            guard url.startAccessingSecurityScopedResource() else {
+                clearBookmark()
+                return
+            }
+
+            // Test write access: try to write a tiny temp file then remove it.
+            // Old bookmarks created with readonly scope will fail here.
+            let testFile = url.appending(path: ".quartz-write-test")
+            do {
+                try Data().write(to: testFile, options: .atomic)
+                try? FileManager.default.removeItem(at: testFile)
+            } catch {
+                url.stopAccessingSecurityScopedResource()
+                clearBookmark()
+                Logger(subsystem: "com.quartz", category: "Vault")
+                    .warning("Saved bookmark has read-only access; user must re-select vault.")
+                return
+            }
 
             if isStale {
-                // Re-save a fresh bookmark
-                #if os(macOS)
-                if let fresh = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
-                    UserDefaults.standard.set(fresh, forKey: "quartz.lastVault.bookmark")
-                }
-                #else
-                if let fresh = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) {
-                    UserDefaults.standard.set(fresh, forKey: "quartz.lastVault.bookmark")
-                }
-                #endif
+                persistBookmark(for: url, vaultName: url.lastPathComponent)
             }
 
             let name = UserDefaults.standard.string(forKey: "quartz.lastVault.name") ?? url.lastPathComponent
             let vault = VaultConfig(name: name, rootURL: url)
-            appState.switchVault(to: vault)
-            viewModel?.loadVault(vault)
+            openVault(vault)
         } catch {
-            // Bookmark resolution failed; user will need to re-pick
+            clearBookmark()
+        }
+    }
+
+    private func clearBookmark() {
+        UserDefaults.standard.removeObject(forKey: "quartz.lastVault.bookmark")
+        UserDefaults.standard.removeObject(forKey: "quartz.lastVault.name")
+    }
+
+    private func persistBookmark(for url: URL, vaultName: String) {
+        do {
+            #if os(macOS)
+            let bookmarkData = try url.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            #else
+            let bookmarkData = try url.bookmarkData(
+                options: .minimalBookmark,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            #endif
+            UserDefaults.standard.set(bookmarkData, forKey: "quartz.lastVault.bookmark")
+            UserDefaults.standard.set(vaultName, forKey: "quartz.lastVault.name")
+        } catch {
+            Logger(subsystem: "com.quartz", category: "VaultPicker")
+                .error("Failed to persist vault bookmark: \(error.localizedDescription)")
         }
     }
 
@@ -269,4 +606,11 @@ struct ContentView: View {
         }
         .animation(QuartzAnimation.status, value: appState.errorMessage)
     }
+}
+
+// MARK: - Vault Chat Sheet Item
+
+private struct VaultChatSheetItem: Identifiable {
+    let id = UUID()
+    let session: VaultChatSession
 }

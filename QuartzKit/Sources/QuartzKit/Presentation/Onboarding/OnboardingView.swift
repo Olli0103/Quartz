@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// First-start onboarding – Liquid Glass design.
 ///
@@ -121,7 +124,7 @@ public struct OnboardingView: View {
                 Text(String(localized: "Choose a Vault Folder", bundle: .module))
                     .font(.title2.bold())
 
-                Text(String(localized: "Pick a folder where Quartz will store your notes.", bundle: .module))
+                Text(String(localized: "Pick a folder where Quartz will store your notes, or create a new one.", bundle: .module))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -131,6 +134,11 @@ public struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 12) {
+                #if os(macOS)
+                QuartzButton(String(localized: "Choose Folder", bundle: .module), icon: "folder") {
+                    pickFolderMacOS()
+                }
+                #else
                 QuartzButton(String(localized: "Choose Folder", bundle: .module), icon: "folder") {
                     showFilePicker = true
                 }
@@ -140,7 +148,6 @@ public struct OnboardingView: View {
                     allowsMultipleSelection: false
                 ) { result in
                     if case .success(let urls) = result, let url = urls.first {
-                        // Release previous security scope before acquiring new one
                         if let previous = vaultURL, previous != url {
                             previous.stopAccessingSecurityScopedResource()
                         }
@@ -149,6 +156,7 @@ public struct OnboardingView: View {
                         currentStep = .chooseTemplate
                     }
                 }
+                #endif
 
                 Button(String(localized: "Back", bundle: .module)) {
                     currentStep = .welcome
@@ -159,6 +167,31 @@ public struct OnboardingView: View {
             .padding(.bottom, 48)
         }
     }
+
+    #if os(macOS)
+    private func pickFolderMacOS() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Choose Vault Folder", bundle: .module)
+        panel.message = String(localized: "Choose an existing folder or create a new one for your vault.", bundle: .module)
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Choose", bundle: .module)
+
+        panel.begin { response in
+            DispatchQueue.main.async {
+                guard response == .OK, let url = panel.url else { return }
+                if let previous = vaultURL, previous != url {
+                    previous.stopAccessingSecurityScopedResource()
+                }
+                guard url.startAccessingSecurityScopedResource() else { return }
+                vaultURL = url
+                currentStep = .chooseTemplate
+            }
+        }
+    }
+    #endif
 
     // MARK: - Choose Template
 
@@ -355,17 +388,14 @@ public struct OnboardingView: View {
             do {
                 try await templateService.applyTemplate(selectedTemplate, to: url)
             } catch {
+                let detail = error.localizedDescription
                 url.stopAccessingSecurityScopedResource()
                 await MainActor.run {
-                    errorMessage = String(localized: "Could not create vault. Please check folder permissions and try again.", bundle: .module)
+                    errorMessage = String(localized: "Could not create vault: \(detail)", bundle: .module)
                     currentStep = .chooseTemplate
                 }
                 return
             }
-
-            // Do NOT call stopAccessingSecurityScopedResource() here.
-            // The caller (ContentView.loadVault) needs the security-scoped
-            // access to remain active for the vault session.
 
             let vault = VaultConfig(
                 name: url.lastPathComponent,

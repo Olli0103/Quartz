@@ -155,25 +155,62 @@ public actor AppleIntelligenceService {
         text: String,
         tone: Tone?
     ) async throws -> String {
-        // Uses the NaturalLanguage framework as an on-device fallback.
-        // When WritingTools becomes available, it can be integrated directly here.
+        // Prefer configured AI provider for all actions.
+        // Fall back to on-device NLP when no provider is available.
+        if await hasAIProvider() {
+            return try await performWithAIProvider(action: action, text: text, tone: tone)
+        }
+
         switch action {
         case .summarize:
-            return summarizeText(text)
+            return summarizeTextOnDevice(text)
         case .proofread:
-            return await proofreadText(text)
+            return await proofreadTextOnDevice(text)
         case .makeConcise:
-            return makeConciseText(text)
+            return makeConciseTextOnDevice(text)
         case .makeDetailed:
-            return try makeDetailedText(text)
+            throw AIError.featureUnavailable(
+                String(localized: "Text expansion requires an AI provider. Please configure one in Settings.", bundle: .module)
+            )
         case .rewrite:
-            return try rewriteText(text, tone: tone ?? .professional)
+            throw AIError.featureUnavailable(
+                String(localized: "Tone rewriting requires an AI provider. Please configure one in Settings.", bundle: .module)
+            )
         }
+    }
+
+    // MARK: - AI Provider Path
+
+    private func hasAIProvider() async -> Bool {
+        let registry = await AIProviderRegistry.shared
+        return await registry.selectedProvider != nil
+    }
+
+    private func performWithAIProvider(
+        action: AIAction,
+        text: String,
+        tone: Tone?
+    ) async throws -> String {
+        let prompt: String
+        switch action {
+        case .summarize:
+            prompt = "Summarize the following text into concise bullet points. Keep the same language. Return only the summary:\n\n\(text)"
+        case .rewrite:
+            let t = tone ?? .professional
+            prompt = "Rewrite the following text in a \(t.rawValue) tone. Keep the same language and meaning. Return only the rewritten text:\n\n\(text)"
+        case .proofread:
+            prompt = "Proofread and correct any grammar, spelling, and punctuation errors in the following text. Keep the same language and meaning. Return only the corrected text:\n\n\(text)"
+        case .makeConcise:
+            prompt = "Make the following text more concise while preserving all key information. Keep the same language. Return only the concise text:\n\n\(text)"
+        case .makeDetailed:
+            prompt = "Expand and make the following text more detailed. Keep the same language and tone. Return only the expanded text:\n\n\(text)"
+        }
+        return try await fallbackToAIProvider(prompt: prompt)
     }
 
     // MARK: - On-Device NLP Fallback
 
-    private func summarizeText(_ text: String) -> String {
+    private func summarizeTextOnDevice(_ text: String) -> String {
         let tokenizer = NLTokenizer(unit: .sentence)
         tokenizer.string = text
         var sentences: [String] = []
@@ -182,50 +219,49 @@ public actor AppleIntelligenceService {
             return true
         }
 
-        // Keep the first ~30% of sentences as a summary
         let keepCount = max(1, sentences.count * 3 / 10)
         let summary = sentences.prefix(keepCount).joined(separator: " ")
         let header = String(localized: "Summary", bundle: .module)
         return "**\(header):**\n\n\(summary)"
     }
 
-    private func proofreadText(_ text: String) async -> String {
+    private func proofreadTextOnDevice(_ text: String) async -> String {
         #if canImport(UIKit)
-        let checker = UITextChecker()
-        var mutableText = text
-        let nsText = mutableText as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
+        return await MainActor.run {
+            let checker = UITextChecker()
+            var mutableText = text
+            let nsText = mutableText as NSString
+            let fullRange = NSRange(location: 0, length: nsText.length)
 
-        var corrections: [(NSRange, String)] = []
-        let language = Locale.preferredLanguages.first ?? Locale.current.language.languageCode?.identifier ?? "en"
-        var offset = 0
-        while offset < nsText.length {
-            let misspelled = checker.rangeOfMisspelledWord(
-                in: mutableText,
-                range: fullRange,
-                startingAt: offset,
-                wrap: false,
-                language: language
-            )
-            guard misspelled.location != NSNotFound else { break }
+            var corrections: [(NSRange, String)] = []
+            let language = Locale.preferredLanguages.first ?? Locale.current.language.languageCode?.identifier ?? "en"
+            var offset = 0
+            while offset < nsText.length {
+                let misspelled = checker.rangeOfMisspelledWord(
+                    in: mutableText,
+                    range: fullRange,
+                    startingAt: offset,
+                    wrap: false,
+                    language: language
+                )
+                guard misspelled.location != NSNotFound else { break }
 
-            let guesses = checker.guesses(forWordRange: misspelled, in: mutableText, language: language)
-            if let correction = guesses?.first {
-                corrections.append((misspelled, correction))
+                let guesses = checker.guesses(forWordRange: misspelled, in: mutableText, language: language)
+                if let correction = guesses?.first {
+                    corrections.append((misspelled, correction))
+                }
+                offset = NSMaxRange(misspelled)
             }
-            offset = NSMaxRange(misspelled)
-        }
 
-        // Apply corrections from back to front
-        for (corrRange, correction) in corrections.reversed() {
-            if let swiftRange = Range(corrRange, in: mutableText) {
-                mutableText.replaceSubrange(swiftRange, with: correction)
+            for (corrRange, correction) in corrections.reversed() {
+                if let swiftRange = Range(corrRange, in: mutableText) {
+                    mutableText.replaceSubrange(swiftRange, with: correction)
+                }
             }
-        }
 
-        return mutableText
+            return mutableText
+        }
         #elseif canImport(AppKit)
-        // NSSpellChecker.shared is MainActor-isolated; dispatch there.
         return await MainActor.run {
             let checker = NSSpellChecker.shared
             var mutableText = text
@@ -264,7 +300,7 @@ public actor AppleIntelligenceService {
         #endif
     }
 
-    private func makeConciseText(_ text: String) -> String {
+    private func makeConciseTextOnDevice(_ text: String) -> String {
         let tokenizer = NLTokenizer(unit: .sentence)
         tokenizer.string = text
         var sentences: [String] = []
@@ -276,23 +312,23 @@ public actor AppleIntelligenceService {
             return true
         }
 
-        // Remove short filler sentences and keep the longer, more informative ones
         let filtered = sentences.filter { $0.count > 15 }
         return (filtered.isEmpty ? sentences : filtered).joined(separator: " ")
     }
 
-    private func makeDetailedText(_ text: String) throws -> String {
-        // On-device text expansion without AI model is not possible.
-        // Throw so the UI can inform the user that an AI provider is needed.
-        throw AIError.featureUnavailable(
-            String(localized: "Text expansion requires an AI provider. Please configure one in Settings.", bundle: .module)
+    private func fallbackToAIProvider(prompt: String) async throws -> String {
+        let registry = await AIProviderRegistry.shared
+        guard let provider = await registry.selectedProvider else {
+            throw AIError.featureUnavailable(
+                String(localized: "This feature requires an AI provider. Please configure one in Settings.", bundle: .module)
+            )
+        }
+        let modelID = await registry.selectedModelID
+        let response = try await provider.chat(
+            messages: [AIMessage(role: .user, content: prompt)],
+            model: modelID,
+            temperature: 0.7
         )
-    }
-
-    private func rewriteText(_ text: String, tone: Tone) throws -> String {
-        // Tone rewriting without AI model is not possible.
-        throw AIError.featureUnavailable(
-            String(localized: "Tone rewriting requires an AI provider. Please configure one in Settings.", bundle: .module)
-        )
+        return response.content
     }
 }

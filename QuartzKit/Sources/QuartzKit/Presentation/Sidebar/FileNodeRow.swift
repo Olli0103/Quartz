@@ -1,7 +1,6 @@
 import SwiftUI
 
 /// Single row in the sidebar for a FileNode.
-/// Clean design with subtle colors and typography.
 public struct FileNodeRow: View {
     public let node: FileNode
 
@@ -13,35 +12,23 @@ public struct FileNodeRow: View {
         Label {
             VStack(alignment: .leading, spacing: 3) {
                 Text(displayName)
-                    .font(.callout.weight(node.isFolder ? .semibold : .regular))
+                    .font(.body.weight(node.isFolder ? .semibold : .regular))
                     .lineLimit(1)
 
                 if node.isNote {
-                    HStack(spacing: 6) {
-                        Text(node.metadata.modifiedAt, style: .relative)
-
-                        if let tags = node.frontmatter?.tags, !tags.isEmpty {
-                            Text("·")
-                            Text(tags.prefix(2).joined(separator: ", "))
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    Text(node.metadata.modifiedAt, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
         } icon: {
             Image(systemName: iconName)
-                .font(.subheadline)
+                .font(.body)
                 .foregroundStyle(iconColor)
                 .frame(width: 22)
         }
-        .padding(.vertical, 4)
-        #if os(iOS)
-        .hoverEffect(.highlight)
-        #elseif os(macOS)
-        .focusable()
-        #endif
+        .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -51,11 +38,6 @@ public struct FileNodeRow: View {
         parts.append(node.isFolder
             ? String(localized: "Folder", bundle: .module)
             : String(localized: "Note", bundle: .module))
-        if node.isNote {
-            if let tags = node.frontmatter?.tags, !tags.isEmpty {
-                parts.append(String(localized: "Tags: \(tags.joined(separator: ", "))", bundle: .module))
-            }
-        }
         return parts.joined(separator: ", ")
     }
 
@@ -77,8 +59,8 @@ public struct FileNodeRow: View {
 
     private var iconColor: Color {
         switch node.nodeType {
-        case .folder: QuartzColors.folderYellow
-        case .note: QuartzColors.noteBlue
+        case .folder: QuartzColors.accent.opacity(0.7)
+        case .note: QuartzColors.accent.opacity(0.5)
         case .asset: QuartzColors.assetOrange
         case .canvas: QuartzColors.canvasPurple
         }

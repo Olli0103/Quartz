@@ -1,8 +1,8 @@
 # Quartz – Master Architektur & Entwicklungs-Plan
 
-> **Version:** 0.2 · **Datum:** 2026-03-13
+> **Version:** 1.0 · **Datum:** 2026-03-18
 > **Ziel:** Der Sweet Spot zwischen Apple Notes, Obsidian und moderner KI.
-> **Modell:** OpenCore – Open-Source-Kern auf GitHub, polierte Pro-Version als Einmalkauf im App Store.
+> **Modell:** Vollständig Open-Source (MIT-Lizenz) – finanziert durch Community-Donations (GitHub Sponsors, Ko-fi, etc.).
 > **Projektname:** Quartz (alle Xcode-Targets, Namespaces und Bundle-IDs verwenden diesen Namen)
 
 ---
@@ -79,155 +79,98 @@
 
 ---
 
-## 2. OpenCore-Strategie im Repository
+## 2. Open-Source-Strategie
 
 ### 2.1 Xcode-Projekt-Struktur
 
 ```
 Quartz/
-├── QuartzApp/                      # App Entry Point (Universal: iOS, iPadOS, macOS)
+├── Quartz/                         # App Entry Point (Universal: iOS, iPadOS, macOS)
 │   ├── QuartzApp.swift
+│   ├── ContentView.swift
 │   ├── Assets.xcassets
 │   └── Info.plist
 │
-├── QuartzKit/                      # 🔓 OPEN SOURCE – Swift Package (Core)
-│   ├── Sources/
+├── QuartzKit/                      # 🔓 MIT-lizenziertes Swift Package (gesamte Logik)
+│   ├── Sources/QuartzKit/
 │   │   ├── Domain/
-│   │   │   ├── Models/
-│   │   │   │   ├── NoteDocument.swift
-│   │   │   │   ├── FileNode.swift
-│   │   │   │   ├── VaultConfig.swift
-│   │   │   │   └── Frontmatter.swift
-│   │   │   ├── Protocols/
-│   │   │   │   ├── VaultProviding.swift
-│   │   │   │   ├── MarkdownParsing.swift
-│   │   │   │   └── AIProviding.swift
-│   │   │   └── UseCases/
-│   │   │       ├── CreateNoteUseCase.swift
-│   │   │       ├── SearchVaultUseCase.swift
-│   │   │       └── ...
-│   │   │
+│   │   │   ├── Models/             # FileNode, NoteDocument, VaultConfig, Frontmatter, Feature
+│   │   │   ├── Protocols/          # VaultProviding, MarkdownParsing, AIProviding, FeatureGating
+│   │   │   └── UseCases/           # CreateNote, SearchVault, LinkSuggestion, VaultChat, etc.
 │   │   ├── Data/
-│   │   │   ├── FileSystem/
-│   │   │   │   ├── FileSystemVaultProvider.swift
-│   │   │   │   ├── ICloudSyncAdapter.swift
-│   │   │   │   ├── FileWatcher.swift
-│   │   │   │   └── FileCoordinator.swift
-│   │   │   ├── Markdown/
-│   │   │   │   ├── MarkdownParser.swift
-│   │   │   │   ├── FrontmatterParser.swift
-│   │   │   │   └── MarkdownRenderer.swift
-│   │   │   ├── AI/
-│   │   │   │   ├── OnDeviceAIProvider.swift
-│   │   │   │   ├── BYOKProvider.swift
-│   │   │   │   └── EmbeddingService.swift
-│   │   │   └── Security/
-│   │   │       ├── BiometricService.swift
-│   │   │       └── VaultEncryption.swift
-│   │   │
+│   │   │   ├── FileSystem/         # FileSystemVaultProvider, CloudSyncService, AssetManager
+│   │   │   ├── Markdown/           # MarkdownParser, FrontmatterParser
+│   │   │   ├── AI/                 # AIProviderRegistry, OpenAI/Anthropic/Gemini/Ollama adapters
+│   │   │   ├── Audio/              # AudioRecordingService, TranscriptionService, MeetingMinutes
+│   │   │   └── Security/           # BiometricAuthService, VaultEncryptionService, KeychainHelper
 │   │   └── Presentation/
-│   │       ├── App/
-│   │       │   ├── AppState.swift
-│   │       │   ├── AppearanceManager.swift  # Dark/Light/System Theme
-│   │       │   └── ServiceContainer.swift
-│   │       ├── Sidebar/
-│   │       │   ├── SidebarView.swift
-│   │       │   └── SidebarViewModel.swift
-│   │       ├── Editor/
-│   │       │   ├── NoteEditorView.swift
-│   │       │   ├── NoteEditorViewModel.swift
-│   │       │   ├── MarkdownTextView.swift   # TextKit 2 basiert
-│   │       │   └── FormattingToolbar.swift
-│   │       ├── Onboarding/
-│   │       │   └── OnboardingFlow.swift
-│   │       └── Settings/
-│   │           ├── SettingsView.swift
-│   │           └── AppearanceSettingsView.swift
-│   │
+│   │       ├── App/                # AppState, AppearanceManager, ContentViewModel, ServiceContainer
+│   │       ├── Sidebar/            # SidebarView, SidebarViewModel
+│   │       ├── Editor/             # NoteEditorView, MarkdownTextView, FormattingToolbar, FocusMode
+│   │       ├── Chat/               # NoteChatView, VaultChatView
+│   │       ├── Audio/              # AudioRecordingView
+│   │       ├── Onboarding/         # OnboardingView (vault creation, templates)
+│   │       ├── QuickNote/          # QuickNoteView, QuickNotePanel, QuickNoteManager (macOS)
+│   │       ├── Settings/           # SettingsView, AI/Appearance/Security/Data settings
+│   │       └── Widgets/            # Widget definitions (WidgetKit extension target)
 │   └── Tests/
-│       ├── DomainTests/
-│       ├── DataTests/
-│       └── PresentationTests/
 │
-├── QuartzPro/                      # 🔒 CLOSED SOURCE – Pro Features (separates Target)
-│   ├── ProFeatureGate.swift         # Feature-Flag-Logik
-│   ├── AdvancedAI/
-│   ├── MeetingMinutes/
-│   └── AdvancedTemplates/
+├── QuartzPro/                      # ⚠️ LEGACY – no longer used (kept for reference)
 │
-├── Extensions/                     # App Extensions
+├── Extensions/                     # App Extensions (future)
 │   ├── ShareExtension/
-│   ├── WidgetExtension/
-│   └── QuickNoteExtension/         # macOS Schwebefenster
+│   └── WidgetExtension/
 │
 └── Resources/
     ├── Templates/                  # Onboarding-Vorlagen (PARA, Zettelkasten)
     └── Localization/               # String Catalogs (.xcstrings) für Mehrsprachigkeit
 ```
 
-### 2.2 Target-Aufteilung
+### 2.2 Lizenz & Finanzierung
 
-| Target | Lizenz | Inhalt |
-|---|---|---|
-| `QuartzKit` | MIT / Apache 2.0 | Domain-Modelle, FileSystem-Services, Markdown-Parser, Basis-UI |
-| `QuartzPro` | Proprietär | Erweiterte KI, Meeting Minutes, Premium-Templates |
-| `QuartzApp` | Proprietär | App-Shell, verbindet Core + Pro, App Store Build |
-| `Extensions` | Proprietär | Share Extension, Widgets, Quick Note |
+| Komponente | Lizenz |
+|---|---|
+| Gesamtes Repository | **MIT** |
+| QuartzKit (Swift Package) | MIT |
+| Quartz App | MIT |
 
-**QuartzKit** ist ein **Swift Package** innerhalb des Monorepos. Es kann unabhängig gebaut, getestet und als Open-Source-Paket veröffentlicht werden.
+**Finanzierung durch Community:**
+- GitHub Sponsors
+- Ko-fi / Buy Me a Coffee
+- Optional: App Store Version als "Pay what you want" (kostenlos + Tip Jar)
 
 ### 2.3 Repository-Strategie
 
-**Modell:** Privates Hauptrepo + automatisch gespiegeltes Public Package.
+**Modell:** Ein einziges öffentliches Repository.
 
 ```
-quartz (privat, GitHub)          ←  Hauptentwicklung
-  ├── QuartzApp/                      proprietär
-  ├── QuartzKit/                      ── GitHub Action ──→  quartz-kit (öffentlich, GitHub)
-  ├── QuartzPro/                      proprietär
-  └── Extensions/                     proprietär
+quartz (öffentlich, GitHub)     ←  MIT-Lizenz
+  ├── Quartz/                        App Shell
+  ├── QuartzKit/                     Gesamte Logik als Swift Package
+  └── Extensions/                    App Extensions
 ```
 
-- **Ein privates Repo** (`quartz`) für die gesamte Entwicklung. Alle Targets, alle Features.
-- **GitHub Action** spiegelt `QuartzKit/` bei jedem Release automatisch in ein separates öffentliches `quartz-kit` Repo.
-- Pro-Code kann niemals versehentlich öffentlich werden.
-- Community-Contributors stellen PRs gegen `quartz-kit`, die zurück ins Hauptrepo gemergt werden.
+- **Ein öffentliches Repo** (`quartz`) für die gesamte Entwicklung.
+- Community-Contributors stellen PRs direkt gegen das Hauptrepo.
+- Releases über GitHub Releases + optional App Store.
 
 ### 2.4 Feature-Flag-System
 
-Jedes Feature wird über ein zentrales `FeatureFlag`-System gesteuert. Features können **flexibel zwischen Free und Pro verschoben** werden – eine einzige Konfigurationsänderung genügt.
+Das Feature-Flag-System bleibt erhalten für Runtime-Checks und zukünftige Erweiterbarkeit. **Alle Features sind frei** – es gibt keine Pro-Einschränkungen.
 
 ```swift
-// Domain/Models/Feature.swift
 enum Feature: String, CaseIterable, Codable {
-    // Editor
     case markdownEditor, focusMode, typewriterMode
-    // Organisation
     case biDirectionalLinks, tagSystem, fullTextSearch
-    // AI
     case aiChat, aiSummarize, vaultSearch
-    // Audio
     case audioRecording, transcription, meetingMinutes, speakerDiarization
 }
 
-enum FeatureTier: String, Codable {
-    case free       // Immer verfügbar
-    case pro        // Nur mit Pro-Kauf
-}
-
-// Domain/Protocols/FeatureGating.swift
+// Alle Features sind .free – DefaultFeatureGate gibt immer true zurück
 protocol FeatureGating: Sendable {
     func isEnabled(_ feature: Feature) -> Bool
-    func tier(for feature: Feature) -> FeatureTier
 }
 ```
-
-**Architektur-Regeln:**
-- `DefaultFeatureGate` definiert die zentrale Free/Pro-Zuordnung als Dictionary.
-- Zum Verschieben eines Features von Pro → Free: **eine Zeile ändern**.
-- Views prüfen per `@Environment(\.featureGate)` ob ein Feature verfügbar ist.
-- Nicht freigeschaltete Features zeigen einen "Pro"-Badge + Upgrade-Sheet.
-- `QuartzPro` Target registriert die Pro-Freischaltung über `ProFeatureGate`, der die Käufe via StoreKit prüft.
 
 ---
 
@@ -555,7 +498,7 @@ Intelligenz und Audio-Features.
 | **Markdown-Parser** | `swift-markdown` (Apple) vs. komplett eigener Parser | `swift-markdown` als Basis, eigene Extensions |
 | **Vektor-Embeddings & Suche** | Native Apple Vector Search APIs (iOS 18+) vs. eigene Implementierung | **Native Apple APIs first.** Fallback: `NLEmbedding` + `Accelerate` für ältere OS-Versionen |
 | **WebDAV-Implementation** | Eigener Client vs. Open-Source-Lib | Eigener minimaler Client (wenige HTTP-Calls) |
-| **Pro-Feature-Abgrenzung** | ~~Welche Features sind Core vs. Pro?~~ **Gelöst:** Flexibles Feature-Flag-System (siehe 2.4). Features jederzeit zwischen Free ↔ Pro verschiebbar. | Default: Core = Editor, Sync, Organisation. Pro = KI-Chat, Meeting Minutes, Vault-Suche. Aber konfigurierbar. |
+| **Monetarisierung** | Donations vs. App Store Tip Jar vs. Sponsoring | Donation-Modell (GitHub Sponsors, Ko-fi). Alle Features frei. |
 
 ### 7.3 Mindest-Anforderungen
 

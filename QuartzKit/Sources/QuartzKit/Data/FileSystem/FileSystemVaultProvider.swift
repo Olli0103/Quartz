@@ -211,8 +211,6 @@ public actor FileSystemVaultProvider: VaultProviding {
 
                 if isDirectory {
                     let children = try buildTreeStatic(at: itemURL, relativeTo: root, depth: depth + 1, fileManager: fileManager)
-                    // Only include folders that contain at least one .md note (directly or nested)
-                    guard !children.isEmpty else { return nil }
                     return FileNode(
                         name: itemURL.lastPathComponent,
                         url: itemURL,

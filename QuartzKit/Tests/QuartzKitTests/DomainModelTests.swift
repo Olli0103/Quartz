@@ -287,6 +287,5 @@ struct FeatureTests {
     @Test("FeatureTier values")
     func tiers() {
         #expect(FeatureTier.free.rawValue == "free")
-        #expect(FeatureTier.pro.rawValue == "pro")
     }
 }

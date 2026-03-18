@@ -6,24 +6,30 @@ struct QuartzApp: App {
     @State private var appState = AppState()
     @State private var appearanceManager = AppearanceManager()
     @State private var focusModeManager = FocusModeManager()
-    private let proFeatureGate = ProFeatureGate()
+    @AppStorage("quartz.appLockEnabled") private var appLockEnabled = false
+    private let featureGate = DefaultFeatureGate()
+    private let biometricAuthService = BiometricAuthService()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(appState)
-                .environment(\.featureGate, proFeatureGate)
-                .environment(\.appearanceManager, appearanceManager)
-                .environment(\.focusModeManager, focusModeManager)
-                .preferredColorScheme(appearanceManager.theme.colorScheme)
-                .tint(Color(hex: 0xF2994A))
-                .task {
-                    ServiceContainer.shared.bootstrap(
-                        featureGate: proFeatureGate
-                    )
-                    await proFeatureGate.checkPurchaseStatus()
-                    proFeatureGate.observeTransactionUpdates()
+            Group {
+                if appLockEnabled {
+                    AppLockView(authService: biometricAuthService) {
+                        ContentView()
+                    }
+                } else {
+                    ContentView()
                 }
+            }
+            .environment(appState)
+            .environment(\.featureGate, featureGate)
+            .environment(\.appearanceManager, appearanceManager)
+            .environment(\.focusModeManager, focusModeManager)
+            .preferredColorScheme(appearanceManager.theme.colorScheme)
+            .tint(Color(hex: 0xF2994A))
+            .task {
+                ServiceContainer.shared.bootstrap(featureGate: featureGate)
+            }
         }
         .commands {
             KeyboardShortcutCommands(
@@ -45,7 +51,7 @@ struct QuartzApp: App {
                 .environment(appState)
                 .environment(\.appearanceManager, appearanceManager)
                 .environment(\.focusModeManager, focusModeManager)
-                .environment(\.featureGate, proFeatureGate)
+                .environment(\.featureGate, featureGate)
         }
         #endif
     }

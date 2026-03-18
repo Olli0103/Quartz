@@ -11,7 +11,6 @@ public struct AppearanceSettingsView: View {
 
     public var body: some View {
         Form {
-            // Theme Picker
             Section {
                 HStack(spacing: 12) {
                     ForEach(AppearanceManager.Theme.allCases, id: \.self) { theme in
@@ -29,10 +28,9 @@ public struct AppearanceSettingsView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             } header: {
-                QuartzSectionHeader(String(localized: "Theme", bundle: .module), icon: "paintbrush")
+                Text(String(localized: "Theme", bundle: .module))
             }
 
-            // Editor Font Size
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -73,9 +71,10 @@ public struct AppearanceSettingsView: View {
                         .animation(reduceMotion ? .default : QuartzAnimation.fontScale, value: appearance.editorFontScale)
                 }
             } header: {
-                QuartzSectionHeader(String(localized: "Editor", bundle: .module), icon: "textformat.size")
+                Text(String(localized: "Editor", bundle: .module))
             }
         }
+        .formStyle(.grouped)
         .navigationTitle(String(localized: "Appearance", bundle: .module))
     }
 }

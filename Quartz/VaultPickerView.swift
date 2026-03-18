@@ -7,7 +7,8 @@ import os
 struct VaultPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showFilePicker = false
-    @State private var showCreateSheet = false
+    @State private var showCreateNameSheet = false
+    @State private var showCreateLocationPicker = false
     @State private var newVaultName = ""
     @State private var errorMessage: String?
     @ScaledMetric(relativeTo: .largeTitle) private var folderIconSize: CGFloat = 56
@@ -34,7 +35,6 @@ struct VaultPickerView: View {
                         .padding(.horizontal, 20)
                 }
 
-                // Previously used vault
                 if let lastVaultName = UserDefaults.standard.string(forKey: "quartz.lastVault.name"),
                    UserDefaults.standard.data(forKey: "quartz.lastVault.bookmark") != nil {
                     Button {
@@ -83,7 +83,7 @@ struct VaultPickerView: View {
                     }
 
                     Button {
-                        showCreateSheet = true
+                        showCreateNameSheet = true
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "plus.circle")
@@ -113,14 +113,26 @@ struct VaultPickerView: View {
             ) { result in
                 handleFileImport(result)
             }
-            .alert(String(localized: "Create New Vault"), isPresented: $showCreateSheet) {
+            .fileImporter(
+                isPresented: $showCreateLocationPicker,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { result in
+                handleCreateVaultLocation(result)
+            }
+            .alert(String(localized: "Create New Vault"), isPresented: $showCreateNameSheet) {
                 TextField(String(localized: "Vault name"), text: $newVaultName)
-                Button(String(localized: "Create")) {
-                    createNewVault()
+                Button(String(localized: "Choose Location…")) {
+                    let name = newVaultName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else {
+                        errorMessage = String(localized: "Please enter a vault name.")
+                        return
+                    }
+                    showCreateLocationPicker = true
                 }
                 Button(String(localized: "Cancel"), role: .cancel) { newVaultName = "" }
             } message: {
-                Text(String(localized: "A new folder will be created in your Documents."))
+                Text(String(localized: "Enter a name and then choose where to create it."))
             }
         }
     }
@@ -152,28 +164,40 @@ struct VaultPickerView: View {
         }
     }
 
-    private func createNewVault() {
-        let name = newVaultName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else {
-            errorMessage = String(localized: "Please enter a vault name.")
-            return
+    private func handleCreateVaultLocation(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let parentURL = urls.first else { return }
+            guard parentURL.startAccessingSecurityScopedResource() else {
+                errorMessage = String(localized: "Unable to access the selected location.")
+                return
+            }
+
+            let name = newVaultName.trimmingCharacters(in: .whitespacesAndNewlines)
+            newVaultName = ""
+            guard !name.isEmpty else {
+                errorMessage = String(localized: "Please enter a vault name.")
+                parentURL.stopAccessingSecurityScopedResource()
+                return
+            }
+
+            let vaultURL = parentURL.appending(path: name)
+            do {
+                try FileManager.default.createDirectory(at: vaultURL, withIntermediateDirectories: true)
+            } catch {
+                errorMessage = error.localizedDescription
+                parentURL.stopAccessingSecurityScopedResource()
+                return
+            }
+
+            let vault = VaultConfig(name: name, rootURL: vaultURL)
+            persistBookmark(for: vaultURL, vaultName: vault.name)
+            onVaultSelected(vault)
+            dismiss()
+
+        case .failure:
+            errorMessage = String(localized: "Could not access the selected location.")
         }
-        newVaultName = ""
-
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let vaultURL = documentsURL.appending(path: name)
-
-        do {
-            try FileManager.default.createDirectory(at: vaultURL, withIntermediateDirectories: true)
-        } catch {
-            errorMessage = error.localizedDescription
-            return
-        }
-
-        let vault = VaultConfig(name: name, rootURL: vaultURL)
-        persistBookmark(for: vaultURL, vaultName: vault.name)
-        onVaultSelected(vault)
-        dismiss()
     }
 
     private func restoreLastVault() {

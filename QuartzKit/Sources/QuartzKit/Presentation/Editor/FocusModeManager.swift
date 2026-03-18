@@ -8,16 +8,31 @@ import SwiftUI
 @Observable
 @MainActor
 public final class FocusModeManager {
+    private static let focusKey = "quartz.editor.focusModeActive"
+    private static let typewriterKey = "quartz.editor.typewriterModeActive"
+
     /// Focus Mode: Hides all UI elements.
-    public var isFocusModeActive: Bool = false
+    public var isFocusModeActive: Bool = false {
+        didSet { UserDefaults.standard.set(isFocusModeActive, forKey: Self.focusKey) }
+    }
 
     /// Typewriter Mode: Active line stays centered.
-    public var isTypewriterModeActive: Bool = false
+    public var isTypewriterModeActive: Bool = false {
+        didSet { UserDefaults.standard.set(isTypewriterModeActive, forKey: Self.typewriterKey) }
+    }
 
     /// Opacity for inactive lines in typewriter mode.
     public var dimmedLineOpacity: Double = 0.3
 
-    public init() {}
+    public init() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: Self.focusKey) != nil {
+            isFocusModeActive = defaults.bool(forKey: Self.focusKey)
+        }
+        if defaults.object(forKey: Self.typewriterKey) != nil {
+            isTypewriterModeActive = defaults.bool(forKey: Self.typewriterKey)
+        }
+    }
 
     /// Toggles focus mode.
     public func toggleFocusMode() {

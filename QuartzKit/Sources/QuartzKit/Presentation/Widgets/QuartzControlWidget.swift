@@ -27,8 +27,8 @@ public struct QuickNoteControlWidget: ControlWidget {
 /// Intent for the Control Center button.
 @available(iOS 18.0, *)
 public struct QuickNoteControlIntent: ControlConfigurationIntent {
-    public static let title: LocalizedStringResource = "Quick Note"
-    public static let description = IntentDescription(String(localized: "Opens Quartz for a quick note.", bundle: .module))
+    public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Quick Note")
+    public static let description = IntentDescription(stringLiteral: String(localized: "Opens Quartz for a quick note.", bundle: .module))
     public static let openAppWhenRun: Bool = true
     public static let isDiscoverable: Bool = true
 
@@ -63,8 +63,8 @@ public struct DailyNoteControlWidget: ControlWidget {
 /// Intent for the Daily Note Control Center button.
 @available(iOS 18.0, *)
 public struct DailyNoteControlIntent: ControlConfigurationIntent {
-    public static let title: LocalizedStringResource = "Daily Note"
-    public static let description = IntentDescription(String(localized: "Opens today's daily note.", bundle: .module))
+    public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Daily Note")
+    public static let description = IntentDescription(stringLiteral: String(localized: "Opens today's daily note.", bundle: .module))
     public static let openAppWhenRun: Bool = true
     public static let isDiscoverable: Bool = true
 

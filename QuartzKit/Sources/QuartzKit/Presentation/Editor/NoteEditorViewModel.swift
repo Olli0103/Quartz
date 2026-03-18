@@ -32,12 +32,17 @@ public final class NoteEditorViewModel {
 
     public private(set) var note: NoteDocument?
 
+    /// Root URL of the current vault, used for backlink scanning.
+    public var vaultRootURL: URL?
+
+    /// File tree snapshot for link suggestion.
+    public var fileTree: [FileNode] = []
+
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
     private var autosaveTask: Task<Void, Never>?
 
-    /// Autosave delay in seconds.
-    private let autosaveDelay: Duration = .seconds(2)
+    private let autosaveDelay: Duration = .seconds(1)
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing) {
         self.vaultProvider = vaultProvider
@@ -58,8 +63,9 @@ public final class NoteEditorViewModel {
     }
 
     /// Saves the current note immediately.
-    public func save() async {
-        guard var currentNote = note, isDirty, !isSaving else { return }
+    /// - Parameter force: When true, writes even if not dirty (e.g. explicit user save).
+    public func save(force: Bool = false) async {
+        guard var currentNote = note, (isDirty || force), !isSaving else { return }
 
         isSaving = true
         // Snapshot content before async gap to prevent race condition:
@@ -77,8 +83,7 @@ public final class NoteEditorViewModel {
             }
             errorMessage = nil
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
-            // Retry autosave after failure to prevent data loss
+            errorMessage = error.localizedDescription
             scheduleAutosave()
         }
 
@@ -87,9 +92,10 @@ public final class NoteEditorViewModel {
 
     /// Explicit save triggered by user action (Cmd+S, toolbar button).
     /// Triggers haptic feedback on completion unlike autosave.
+    /// Forces a write even when not dirty so the user always gets feedback.
     public func manualSave() async {
-        await save()
-        if errorMessage == nil {
+        await save(force: true)
+        if note != nil, errorMessage == nil {
             manualSaveCompleted.toggle()
         }
     }
@@ -97,6 +103,15 @@ public final class NoteEditorViewModel {
     /// Updates the frontmatter and marks the note as dirty.
     public func updateFrontmatter(_ newFrontmatter: Frontmatter) {
         note?.frontmatter = newFrontmatter
+        isDirty = true
+        scheduleAutosave()
+    }
+
+    /// Renames the note by updating the frontmatter title.
+    public func renameNote(to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        note?.frontmatter.title = trimmed
         isDirty = true
         scheduleAutosave()
     }
@@ -132,6 +147,40 @@ public final class NoteEditorViewModel {
             await self.save()
         }
     }
+
+    // MARK: - Image Import
+
+    /// Inserts text at the current cursor position, replacing any selection.
+    public func insertTextAtCursor(_ text: String) {
+        let nsContent = content as NSString
+        let location = min(cursorPosition.location, nsContent.length)
+        let length = min(cursorPosition.length, nsContent.length - location)
+        let range = NSRange(location: location, length: length)
+        content = nsContent.replacingCharacters(in: range, with: text)
+        cursorPosition = NSRange(location: location + text.count, length: 0)
+    }
+
+    /// Imports an image from a file URL into the vault's assets folder
+    /// and inserts the resulting Markdown link at the cursor.
+    public func importImage(from sourceURL: URL) async {
+        guard let note, let vaultRoot = vaultRootURL else {
+            errorMessage = String(localized: "No active note or vault.", bundle: .module)
+            return
+        }
+        let assetManager = AssetManager()
+        do {
+            let markdownLink = try await assetManager.importImage(
+                from: sourceURL,
+                vaultRoot: vaultRoot,
+                noteURL: note.fileURL
+            )
+            insertTextAtCursor("\n" + markdownLink + "\n")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Task Management
 
     public func cancelAllTasks() {
         autosaveTask?.cancel()

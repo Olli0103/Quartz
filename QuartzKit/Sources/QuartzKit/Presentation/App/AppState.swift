@@ -54,6 +54,11 @@ public final class AppState {
         errorQueue.removeFirst()
     }
 
+    /// Convenience to show an error string.
+    public func showError(_ message: String) {
+        errorMessage = message
+    }
+
     // MARK: - Command Actions (triggered by keyboard shortcuts)
 
     /// Pending command action triggered by keyboard shortcuts or menus.

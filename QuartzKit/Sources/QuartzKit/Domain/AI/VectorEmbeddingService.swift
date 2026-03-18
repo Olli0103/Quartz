@@ -1,6 +1,7 @@
 import Foundation
 import NaturalLanguage
 @preconcurrency import Accelerate
+import CryptoKit
 
 // MARK: - Embedding Entry
 
@@ -275,6 +276,22 @@ public actor VectorEmbeddingService {
     /// All indexed note IDs.
     public var indexedNoteIDs: Set<UUID> {
         Set(index.map(\.noteID))
+    }
+
+    // MARK: - Stable Note ID
+
+    /// Derives a deterministic UUID from a note's relative path within the vault.
+    /// This ensures the same file always maps to the same UUID across app launches,
+    /// unlike `FileNode.id` which is regenerated each time the tree is built.
+    public static func stableNoteID(for url: URL, vaultRoot: URL) -> UUID {
+        let relative = url.path(percentEncoded: false)
+            .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
+        let hash = SHA256.hash(data: Data(relative.utf8))
+        let bytes = Array(hash.prefix(16))
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2],  bytes[3],  bytes[4],  bytes[5],  bytes[6],  bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     // MARK: - Search Result

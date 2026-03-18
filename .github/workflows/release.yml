@@ -1,0 +1,99 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Resolve SPM dependencies
+        run: xcodebuild -resolvePackageDependencies -project Quartz.xcodeproj -scheme Quartz
+
+      - name: Build for macOS
+        run: |
+          xcodebuild archive \
+            -project Quartz.xcodeproj \
+            -scheme Quartz \
+            -destination 'generic/platform=macOS' \
+            -archivePath $RUNNER_TEMP/Quartz.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export app
+        run: |
+          mkdir -p $RUNNER_TEMP/export
+          cp -R "$RUNNER_TEMP/Quartz.xcarchive/Products/Applications/Quartz.app" "$RUNNER_TEMP/export/"
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "Quartz" \
+            -srcfolder "$RUNNER_TEMP/export" \
+            -ov -format UDZO \
+            "$RUNNER_TEMP/Quartz-macOS.dmg"
+
+      - name: Create ZIP for Sparkle
+        run: |
+          cd "$RUNNER_TEMP/export"
+          ditto -c -k --keepParent Quartz.app "$RUNNER_TEMP/Quartz-macOS.zip"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: |
+            ${{ runner.temp }}/Quartz-macOS.dmg
+            ${{ runner.temp }}/Quartz-macOS.zip
+
+  create-release:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: artifacts
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "## Quartz $TAG" > release_notes.md
+          echo "" >> release_notes.md
+          echo "### Installation" >> release_notes.md
+          echo "1. Download \`Quartz-macOS.dmg\`" >> release_notes.md
+          echo "2. Open the DMG and drag Quartz to your Applications folder" >> release_notes.md
+          echo "3. Open Quartz from Applications" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Auto-Update" >> release_notes.md
+          echo "If you already have Quartz installed, it will auto-update via Sparkle." >> release_notes.md
+          echo "" >> release_notes.md
+          echo "---" >> release_notes.md
+          echo "*Quartz is open-source and free. Consider [sponsoring](https://github.com/sponsors/Olli0103) the project!*" >> release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: Quartz ${{ steps.notes.outputs.tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/Quartz-macOS.dmg
+            artifacts/Quartz-macOS.zip

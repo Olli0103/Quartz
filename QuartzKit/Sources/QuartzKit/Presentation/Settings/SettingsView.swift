@@ -10,18 +10,38 @@ public struct SettingsView: View {
         #if os(macOS)
         TabView {
             AppearanceSettingsView()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Appearance", bundle: .module), systemImage: "paintbrush.fill")
                 }
 
-            editorPlaceholder
+            EditorSettingsView()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Editor", bundle: .module), systemImage: "textformat")
                 }
 
-            vaultPlaceholder
+            AISettingsView()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
-                    Label(String(localized: "Vault", bundle: .module), systemImage: "folder.fill")
+                    Label(String(localized: "AI", bundle: .module), systemImage: "brain")
+                }
+
+            DataSettingsView()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .tabItem {
+                    Label(String(localized: "Data", bundle: .module), systemImage: "externaldrive")
+                }
+
+            SecuritySettingsView()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .tabItem {
+                    Label(String(localized: "Security", bundle: .module), systemImage: "lock.fill")
                 }
 
             aboutTab
@@ -29,7 +49,7 @@ public struct SettingsView: View {
                     Label(String(localized: "About", bundle: .module), systemImage: "info.circle.fill")
                 }
         }
-        .frame(minWidth: 480, minHeight: 300)
+        .frame(minWidth: 560, idealWidth: 600, minHeight: 420, idealHeight: 500)
         #else
         NavigationStack {
             List {
@@ -45,7 +65,7 @@ public struct SettingsView: View {
                     }
 
                     NavigationLink {
-                        editorPlaceholder
+                        EditorSettingsView()
                     } label: {
                         SettingsRow(
                             icon: "textformat",
@@ -59,16 +79,44 @@ public struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        vaultPlaceholder
+                        AISettingsView()
                     } label: {
                         SettingsRow(
-                            icon: "folder.fill",
-                            iconColor: QuartzColors.folderYellow,
-                            title: String(localized: "Vault", bundle: .module)
+                            icon: "brain",
+                            iconColor: .purple,
+                            title: String(localized: "AI", bundle: .module)
                         )
                     }
                 } header: {
-                    Text(String(localized: "Data", bundle: .module))
+                    Text(String(localized: "Intelligence", bundle: .module))
+                }
+
+                Section {
+                    NavigationLink {
+                        DataSettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "externaldrive",
+                            iconColor: .orange,
+                            title: String(localized: "Data", bundle: .module)
+                        )
+                    }
+                } header: {
+                    Text(String(localized: "Data & Import", bundle: .module))
+                }
+
+                Section {
+                    NavigationLink {
+                        SecuritySettingsView()
+                    } label: {
+                        SettingsRow(
+                            icon: "lock.fill",
+                            iconColor: .green,
+                            title: String(localized: "Security", bundle: .module)
+                        )
+                    }
+                } header: {
+                    Text(String(localized: "Security", bundle: .module))
                 }
 
                 Section {
@@ -82,6 +130,15 @@ public struct SettingsView: View {
                         Text(QuartzKit.version)
                             .font(.subheadline)
                             .foregroundStyle(.tertiary)
+                    }
+                    NavigationLink {
+                        FeedbackView()
+                    } label: {
+                        SettingsRow(
+                            icon: "bubble.left.and.bubble.right",
+                            iconColor: .blue,
+                            title: String(localized: "Send Feedback", bundle: .module)
+                        )
                     }
                 } header: {
                     Text(String(localized: "About", bundle: .module))
@@ -100,26 +157,6 @@ public struct SettingsView: View {
         #endif
     }
 
-    private var editorPlaceholder: some View {
-        VStack {
-            Spacer()
-            Text(String(localized: "Editor settings – coming soon", bundle: .module))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var vaultPlaceholder: some View {
-        VStack {
-            Spacer()
-            Text(String(localized: "Vault settings – coming soon", bundle: .module))
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private var aboutTab: some View {
         VStack(spacing: 16) {
             Spacer()
@@ -133,13 +170,54 @@ public struct SettingsView: View {
             Text(String(localized: "Version \(QuartzKit.version)", bundle: .module))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            Text(String(localized: "A beautiful, open-source note-taking app\nfor Apple platforms.", bundle: .module))
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+
+            UpdateCheckButton()
+
+            HStack(spacing: 20) {
+                Link(destination: URL(string: "https://github.com/Olli0103/Quartz")!) {
+                    Label("GitHub", systemImage: "link")
+                        .font(.callout)
+                }
+                FeedbackLink()
+                Link(destination: URL(string: "https://github.com/sponsors/Olli0103")!) {
+                    Label(String(localized: "Sponsor", bundle: .module), systemImage: "heart.fill")
+                        .font(.callout)
+                        .foregroundStyle(.pink)
+                }
+            }
+            .padding(.top, 4)
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Settings Row (iOS only)
+// MARK: - Feedback Link
+
+private struct FeedbackLink: View {
+    @State private var showFeedback = false
+
+    var body: some View {
+        Button {
+            showFeedback = true
+        } label: {
+            Label(String(localized: "Send Feedback", bundle: .module), systemImage: "bubble.left.and.bubble.right")
+                .font(.callout)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showFeedback) {
+            FeedbackView()
+        }
+    }
+}
+
+// MARK: - Settings Row
 
 private struct SettingsRow: View {
     let icon: String

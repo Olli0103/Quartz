@@ -1,5 +1,16 @@
 import SwiftUI
 
+public extension Notification.Name {
+    static let quartzFavoritesDidChange = Notification.Name("quartzFavoritesDidChange")
+    static let quartzReindexRequested = Notification.Name("quartzReindexRequested")
+}
+
+public enum SidebarFilter: String, CaseIterable, Sendable {
+    case all
+    case favorites
+    case recent
+}
+
 /// ViewModel for the sidebar: loads the file tree, filters, and sorts.
 @Observable
 @MainActor
@@ -13,20 +24,69 @@ public final class SidebarViewModel {
     public var selectedTag: String? {
         didSet { invalidateFilterCache() }
     }
+    public var activeFilter: SidebarFilter = .all {
+        didSet { invalidateFilterCache() }
+    }
     public var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
+
+    private static let favoritesKey = "quartz.favoriteNotes"
 
     private let vaultProvider: any VaultProviding
     private var vaultRoot: URL?
     private var cachedFilteredTree: [FileNode]?
     private var cachedFlatNotes: [FileNode]?
+    private var _favoriteURLs: Set<String>?
 
     /// Public access to the vault root URL.
     public var vaultRootURL: URL? { vaultRoot }
 
+    // MARK: - Favorites
+
+    public var favoriteURLs: Set<String> {
+        if let cached = _favoriteURLs { return cached }
+        let set = Set(UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? [])
+        _favoriteURLs = set
+        return set
+    }
+
+    public func isFavorite(_ url: URL) -> Bool {
+        favoriteURLs.contains(url.lastPathComponent)
+    }
+
+    public func toggleFavorite(_ url: URL) {
+        var favs = UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? []
+        let key = url.lastPathComponent
+        if favs.contains(key) {
+            favs.removeAll { $0 == key }
+        } else {
+            favs.append(key)
+        }
+        UserDefaults.standard.set(favs, forKey: Self.favoritesKey)
+        _favoriteURLs = Set(favs)
+        invalidateFilterCache()
+        NotificationCenter.default.post(name: .quartzFavoritesDidChange, object: nil)
+    }
+
+    private var favoritesObserver: Any?
+
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
+        favoritesObserver = NotificationCenter.default.addObserver(
+            forName: .quartzFavoritesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.invalidateFavorites()
+            }
+        }
+    }
+
+    public func invalidateFavorites() {
+        _favoriteURLs = nil
+        invalidateFilterCache()
     }
 
     /// Loads the file tree for the given vault root URL.
@@ -66,6 +126,17 @@ public final class SidebarViewModel {
     public func createNote(named name: String, in folder: URL) async {
         do {
             _ = try await vaultProvider.createNote(named: name, in: folder)
+            await refresh()
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+    }
+
+    /// Creates a new note from a template.
+    public func createNoteFromTemplate(_ template: NoteTemplate, named name: String, in folder: URL) async {
+        do {
+            let templateService = VaultTemplateService()
+            _ = try await templateService.createFromTemplate(template, named: name, in: folder)
             await refresh()
         } catch {
             errorMessage = userFacingMessage(for: error)
@@ -125,8 +196,7 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Filtered nodes based on search text and selected tag.
-    /// Result is cached until fileTree, searchText, or selectedTag change.
+    /// Filtered nodes based on search text, selected tag, and active filter.
     public var filteredTree: [FileNode] {
         if let cached = cachedFilteredTree {
             return cached
@@ -142,8 +212,37 @@ public final class SidebarViewModel {
             result = result.compactMap { filterNode($0, matching: searchText) }
         }
 
+        switch activeFilter {
+        case .all:
+            break
+        case .favorites:
+            let favs = favoriteURLs
+            result = result.compactMap { filterByFavorite($0, favorites: favs) }
+        case .recent:
+            let allNotes = collectFlatNotes(from: result)
+            let recent = allNotes
+                .sorted { $0.metadata.modifiedAt > $1.metadata.modifiedAt }
+                .prefix(20)
+            result = Array(recent)
+        }
+
         cachedFilteredTree = result
         return result
+    }
+
+    private func filterByFavorite(_ node: FileNode, favorites: Set<String>) -> FileNode? {
+        if node.isNote {
+            return favorites.contains(node.url.lastPathComponent) ? node : nil
+        }
+        if node.isFolder, let children = node.children {
+            let filtered = children.compactMap { filterByFavorite($0, favorites: favorites) }
+            if !filtered.isEmpty {
+                var copy = node
+                copy.children = filtered
+                return copy
+            }
+        }
+        return nil
     }
 
     /// Flattened list of all note nodes from the filtered tree (cached).

@@ -28,7 +28,7 @@ public struct AdaptiveLayoutView<Sidebar: View, Detail: View>: View {
         ) {
             sidebar()
                 #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 420)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
                 #else
                 .navigationSplitViewColumnWidth(min: 200, ideal: 280, max: 380)
                 #endif

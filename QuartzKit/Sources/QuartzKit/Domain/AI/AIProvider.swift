@@ -22,6 +22,22 @@ public protocol AIProvider: Sendable {
         model: String?,
         temperature: Double
     ) async throws -> AIMessage
+
+    /// Tests connectivity and configuration. Default implementation sends a minimal chat.
+    func checkConnection() async -> Bool
+}
+
+public extension AIProvider {
+    func checkConnection() async -> Bool {
+        guard isConfigured else { return false }
+        do {
+            let model = availableModels.first?.id
+            _ = try await chat(messages: [AIMessage(role: .user, content: "Hi")], model: model, temperature: 0)
+            return true
+        } catch {
+            return false
+        }
+    }
 }
 
 /// An AI model.
@@ -193,10 +209,11 @@ public final class AnthropicProvider: AIProvider, Sendable {
 }
 
 /// Ollama Provider (local models)
-public final class OllamaProvider: AIProvider, Sendable {
+public final class OllamaProvider: AIProvider, @unchecked Sendable {
     public let id = "ollama"
     public let displayName = "Ollama (Local)"
-    private let baseURL: URL
+
+    private static let urlDefaultsKey = "ollamaBaseURL"
 
     public static let defaultBaseURL: URL = {
         guard let url = URL(string: "http://localhost:11434") else {
@@ -205,7 +222,24 @@ public final class OllamaProvider: AIProvider, Sendable {
         return url
     }()
 
-    public var isConfigured: Bool { true } // No API key required
+    public var baseURL: URL {
+        if let stored = UserDefaults.standard.string(forKey: Self.urlDefaultsKey),
+           let url = URL(string: stored) {
+            return url
+        }
+        return Self.defaultBaseURL
+    }
+
+    public static func setBaseURL(_ url: URL) {
+        UserDefaults.standard.set(url.absoluteString, forKey: urlDefaultsKey)
+    }
+
+    /// Returns the currently stored base URL string for UI display.
+    public static func getStoredBaseURLString() -> String {
+        UserDefaults.standard.string(forKey: urlDefaultsKey) ?? defaultBaseURL.absoluteString
+    }
+
+    public var isConfigured: Bool { true }
 
     public var availableModels: [AIModel] {
         [
@@ -215,8 +249,33 @@ public final class OllamaProvider: AIProvider, Sendable {
         ]
     }
 
-    public init(baseURL: URL = OllamaProvider.defaultBaseURL) {
-        self.baseURL = baseURL
+    public init() {}
+
+    public func checkConnection() async -> Bool {
+        let url = baseURL.appending(path: "api/tags")
+        var request = URLRequest(url: url, timeoutInterval: 3)
+        request.httpMethod = "GET"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    public func fetchAvailableModels() async throws -> [AIModel] {
+        let url = baseURL.appending(path: "api/tags")
+        let (data, _) = try await URLSession.shared.data(from: url)
+        struct OllamaModelsResponse: Codable {
+            struct Model: Codable {
+                let name: String
+                let size: Int64?
+                let modified_at: String?
+            }
+            let models: [Model]
+        }
+        let response = try JSONDecoder().decode(OllamaModelsResponse.self, from: data)
+        return response.models.map { AIModel(id: $0.name, name: $0.name, contextWindow: 128_000, provider: "ollama") }
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
@@ -369,12 +428,19 @@ public final class OpenRouterProvider: AIProvider, Sendable {
 @MainActor
 public final class AIProviderRegistry: @unchecked Sendable {
     public private(set) var providers: [any AIProvider]
-    public var selectedProviderID: String
-    public var selectedModelID: String?
+    public var selectedProviderID: String {
+        didSet { persistSelection() }
+    }
+    public var selectedModelID: String? {
+        didSet { persistSelection() }
+    }
 
     public static let shared = AIProviderRegistry()
 
     private let customModelStore = CustomModelStore()
+
+    private static let providerKey = "quartz.ai.selectedProviderID"
+    private static let modelKey = "quartz.ai.selectedModelID"
 
     public init() {
         let providers: [any AIProvider] = [
@@ -385,8 +451,17 @@ public final class AIProviderRegistry: @unchecked Sendable {
             OllamaProvider(),
         ]
         self.providers = providers
-        self.selectedProviderID = "anthropic"
-        self.selectedModelID = nil
+        self.selectedProviderID = UserDefaults.standard.string(forKey: Self.providerKey) ?? "ollama"
+        self.selectedModelID = UserDefaults.standard.string(forKey: Self.modelKey)
+    }
+
+    private func persistSelection() {
+        UserDefaults.standard.set(selectedProviderID, forKey: Self.providerKey)
+        if let model = selectedModelID {
+            UserDefaults.standard.set(model, forKey: Self.modelKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.modelKey)
+        }
     }
 
     public var selectedProvider: (any AIProvider)? {

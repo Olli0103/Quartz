@@ -1,8 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Sidebar with recursive file tree, tags, search and context menus.
-/// Apple Notes-inspired design with Liquid Glass accents.
 public struct SidebarView: View {
     @Bindable var viewModel: SidebarViewModel
     @Binding var selectedNoteURL: URL?
@@ -16,6 +14,7 @@ public struct SidebarView: View {
     @State private var pendingDeleteIsNote = false
     @State private var searchQuery: String = ""
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var selectedTemplate: NoteTemplate = .blank
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>) {
         self.viewModel = viewModel
@@ -23,42 +22,34 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        List(selection: $selectedNoteURL) {
-            quickActionsSection
+        VStack(spacing: 0) {
+            newNoteButton
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
 
-            if !viewModel.tagInfos.isEmpty {
-                tagsSection
-            }
+            List(selection: $selectedNoteURL) {
+                quickAccessSection
 
-            notesSection
+                if !viewModel.tagInfos.isEmpty {
+                    tagsSection
+                }
 
-            if !viewModel.isLoading && viewModel.fileTree.isEmpty {
-                Section {
-                    VStack(spacing: 8) {
-                        Image(systemName: "tray")
-                            .font(.title2)
-                            .foregroundStyle(.quaternary)
-                        Text(String(localized: "No Notes Yet", bundle: .module))
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Text(String(localized: "Create your first note to get started.", bundle: .module))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
+                foldersSection
+
+                if !viewModel.isLoading && viewModel.fileTree.isEmpty {
+                    emptyState
                 }
             }
-        }
-        .listStyle(.sidebar)
-        .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes…", bundle: .module)))
-        .onChange(of: searchQuery) { _, newValue in
-            searchDebounceTask?.cancel()
-            searchDebounceTask = Task {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { return }
-                viewModel.searchText = newValue
+            .listStyle(.sidebar)
+            .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes, tags…", bundle: .module)))
+            .onChange(of: searchQuery) { _, newValue in
+                searchDebounceTask?.cancel()
+                searchDebounceTask = Task {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    guard !Task.isCancelled else { return }
+                    viewModel.searchText = newValue
+                }
             }
         }
         .overlay {
@@ -72,8 +63,10 @@ public struct SidebarView: View {
             TextField(String(localized: "Folder name", bundle: .module), text: $newItemName)
             Button(String(localized: "Create", bundle: .module)) {
                 guard let parent = newItemParent else { return }
-                Task { await viewModel.createFolder(named: newItemName, in: parent) }
+                let name = newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newItemName = ""
+                guard !name.isEmpty else { return }
+                Task { await viewModel.createFolder(named: name, in: parent) }
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
@@ -81,8 +74,19 @@ public struct SidebarView: View {
             TextField(String(localized: "Note name", bundle: .module), text: $newItemName)
             Button(String(localized: "Create", bundle: .module)) {
                 guard let parent = newItemParent else { return }
-                Task { await viewModel.createNote(named: newItemName, in: parent) }
+                let name = newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let template = selectedTemplate
                 newItemName = ""
+                guard !name.isEmpty else { return }
+                Task {
+                    if template == .blank {
+                        await viewModel.createNote(named: name, in: parent)
+                    } else {
+                        await viewModel.createNoteFromTemplate(template, named: name, in: parent)
+                    }
+                    let noteURL = parent.appending(path: "\(name.hasSuffix(".md") ? name : "\(name).md")")
+                    selectedNoteURL = noteURL
+                }
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
@@ -93,16 +97,12 @@ public struct SidebarView: View {
         ) {
             Button(String(localized: "Delete", bundle: .module), role: .destructive) {
                 guard let url = pendingDeleteURL else { return }
-                if pendingDeleteIsNote, selectedNoteURL == url {
-                    selectedNoteURL = nil
-                }
+                if pendingDeleteIsNote, selectedNoteURL == url { selectedNoteURL = nil }
                 deletionTrigger.toggle()
                 Task { await viewModel.delete(at: url) }
                 pendingDeleteURL = nil
             }
-            Button(String(localized: "Cancel", bundle: .module), role: .cancel) {
-                pendingDeleteURL = nil
-            }
+            Button(String(localized: "Cancel", bundle: .module), role: .cancel) { pendingDeleteURL = nil }
         } message: {
             Text(String(localized: "This action cannot be undone.", bundle: .module))
         }
@@ -115,36 +115,113 @@ public struct SidebarView: View {
         ) {
             Button(String(localized: "OK", bundle: .module), role: .cancel) {}
         } message: {
-            if let msg = viewModel.errorMessage {
-                Text(msg)
-            }
+            if let msg = viewModel.errorMessage { Text(msg) }
         }
         .sensoryFeedback(.selection, trigger: viewModel.selectedTag)
         .sensoryFeedback(.warning, trigger: deletionTrigger)
-        .task {
-            viewModel.collectTags()
+        .task { viewModel.collectTags() }
+    }
+
+    // MARK: - New Note Button
+
+    private var newNoteButton: some View {
+        Menu {
+            ForEach(NoteTemplate.allCases, id: \.rawValue) { template in
+                Button {
+                    if let root = viewModel.vaultRootURL {
+                        newItemParent = root
+                        newItemName = generateNoteName()
+                        selectedTemplate = template
+                        showNewNoteDialog = true
+                    }
+                } label: {
+                    Label(template.displayName, systemImage: template.icon)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .bold))
+                Text(String(localized: "New Note", bundle: .module))
+                    .font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(QuartzColors.accent.gradient)
+                    .shadow(color: QuartzColors.accent.opacity(0.3), radius: 8, y: 3)
+            )
+            .foregroundStyle(.white)
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    private func generateNoteName() -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH-mm"
+        return "Note \(df.string(from: Date()))"
+    }
+
+    // MARK: - Quick Access
+
+    private var quickAccessSection: some View {
+        Section {
+            quickAccessRow(
+                icon: "folder.fill",
+                iconColor: QuartzColors.accent,
+                label: String(localized: "All Notes", bundle: .module),
+                filter: .all
+            )
+            quickAccessRow(
+                icon: "star.fill",
+                iconColor: .yellow,
+                label: String(localized: "Favorites", bundle: .module),
+                filter: .favorites
+            )
+            quickAccessRow(
+                icon: "clock.fill",
+                iconColor: .secondary,
+                label: String(localized: "Recent", bundle: .module),
+                filter: .recent
+            )
+        } header: {
+            Text(String(localized: "Quick Access", bundle: .module))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
         }
     }
 
-    // MARK: - Quick Actions
-
-    private var quickActionsSection: some View {
-        Section {
-            Button {
-                if let root = viewModel.vaultRootURL {
-                    newItemParent = root
-                    showNewNoteDialog = true
-                }
-            } label: {
-                Label {
-                    Text(String(localized: "New Note", bundle: .module))
-                        .foregroundStyle(.primary)
-                } icon: {
-                    Image(systemName: "square.and.pencil")
+    private func quickAccessRow(icon: String, iconColor: Color, label: String, filter: SidebarFilter) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                viewModel.activeFilter = filter
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundStyle(iconColor)
+                    .frame(width: 20)
+                Text(label)
+                    .font(.body)
+                Spacer()
+                if viewModel.activeFilter == filter {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(QuartzColors.accent)
                 }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            viewModel.activeFilter == filter
+                ? RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(QuartzColors.accent.opacity(0.1))
+                : nil
+        )
     }
 
     // MARK: - Tags Section
@@ -156,54 +233,69 @@ public struct SidebarView: View {
                     ForEach(viewModel.tagInfos.prefix(12)) { tag in
                         Button {
                             withAnimation(QuartzAnimation.standard) {
-                                if viewModel.selectedTag == tag.name {
-                                    viewModel.selectedTag = nil
-                                } else {
-                                    viewModel.selectedTag = tag.name
-                                }
+                                viewModel.selectedTag = viewModel.selectedTag == tag.name ? nil : tag.name
                             }
                         } label: {
-                            QuartzTagBadge(
-                                text: tag.name,
-                                isSelected: viewModel.selectedTag == tag.name
-                            )
+                            QuartzTagBadge(text: tag.name, isSelected: viewModel.selectedTag == tag.name)
                         }
                         .buttonStyle(QuartzBounceButtonStyle())
-                        .accessibilityAddTraits(viewModel.selectedTag == tag.name ? .isSelected : [])
-                        .accessibilityLabel(tag.name)
-                        .accessibilityHint(viewModel.selectedTag == tag.name
-                            ? String(localized: "Double tap to deselect", bundle: .module)
-                            : String(localized: "Double tap to filter by this tag", bundle: .module))
                     }
                 }
                 .padding(.vertical, 2)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(String(localized: "Tags", bundle: .module))
         } header: {
             HStack {
-                QuartzSectionHeader(String(localized: "Tags", bundle: .module), icon: "tag")
+                Text(String(localized: "Tags", bundle: .module))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
                 Spacer()
                 if viewModel.selectedTag != nil {
                     Button(String(localized: "Clear", bundle: .module)) {
                         withAnimation { viewModel.selectedTag = nil }
                     }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(QuartzColors.accent)
                 }
             }
         }
     }
 
-    // MARK: - Notes Section
+    // MARK: - Folders Section
 
-    private var notesSection: some View {
+    private var foldersSection: some View {
         Section {
             ForEach(viewModel.filteredTree) { node in
                 nodeView(for: node)
             }
         } header: {
-            QuartzSectionHeader(String(localized: "Notes", bundle: .module), icon: "doc.text")
+            Text(String(localized: "Folders", bundle: .module))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+        }
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        Section {
+            VStack(spacing: 10) {
+                Image(systemName: "tray")
+                    .font(.title)
+                    .foregroundStyle(.quaternary)
+                Text(String(localized: "No Notes Yet", bundle: .module))
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(String(localized: "Create your first note to get started.", bundle: .module))
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
         }
     }
 
@@ -215,20 +307,14 @@ public struct SidebarView: View {
             DisclosureGroup {
                 ForEach(children) { child in
                     AnyView(nodeView(for: child))
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .opacity
-                        ))
                 }
             } label: {
                 FileNodeRow(node: node)
             }
-            .draggable(node.url.absoluteString)
             .dropDestination(for: String.self) { items, _ in
-                guard let urlString = items.first, let sourceURL = URL(string: urlString) else { return false }
-                guard sourceURL != node.url else { return false }
-                Task { await viewModel.move(at: sourceURL, to: node.url) }
-                return true
+                handleDrop(items: items, onto: node)
+            } isTargeted: { isTargeted in
+                // visual feedback handled by SwiftUI
             }
             .contextMenu { folderContextMenu(for: node) }
         } else if node.isNote {
@@ -250,26 +336,40 @@ public struct SidebarView: View {
         }
     }
 
+    private func handleDrop(items: [String], onto folder: FileNode) -> Bool {
+        guard folder.isFolder else { return false }
+        var moved = false
+        for urlString in items {
+            guard let sourceURL = URL(string: urlString) else { continue }
+            guard sourceURL != folder.url else { continue }
+            // Don't drop a folder into itself
+            guard !folder.url.path(percentEncoded: false).hasPrefix(sourceURL.path(percentEncoded: false)) else { continue }
+            Task {
+                await viewModel.move(at: sourceURL, to: folder.url)
+            }
+            moved = true
+        }
+        return moved
+    }
+
     // MARK: - Context Menus
 
     @ViewBuilder
     private func folderContextMenu(for node: FileNode) -> some View {
         Button {
             newItemParent = node.url
+            newItemName = generateNoteName()
             showNewNoteDialog = true
         } label: {
             Label(String(localized: "New Note", bundle: .module), systemImage: "doc.badge.plus")
         }
-
         Button {
             newItemParent = node.url
             showNewFolderDialog = true
         } label: {
             Label(String(localized: "New Folder", bundle: .module), systemImage: "folder.badge.plus")
         }
-
         Divider()
-
         Button(role: .destructive) {
             pendingDeleteURL = node.url
             pendingDeleteIsNote = false
@@ -281,6 +381,17 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func noteContextMenu(for node: FileNode) -> some View {
+        Button {
+            viewModel.toggleFavorite(node.url)
+        } label: {
+            Label(
+                viewModel.isFavorite(node.url)
+                    ? String(localized: "Remove from Favorites", bundle: .module)
+                    : String(localized: "Add to Favorites", bundle: .module),
+                systemImage: viewModel.isFavorite(node.url) ? "star.slash" : "star"
+            )
+        }
+        Divider()
         Button(role: .destructive) {
             pendingDeleteURL = node.url
             pendingDeleteIsNote = true

@@ -1,92 +1,107 @@
 # Quartz
 
-**Der Sweet Spot zwischen Apple Notes, Obsidian und moderner KI.**
+**The sweet spot between Apple Notes, Obsidian, and modern AI.**
 
-Quartz ist eine native Notiz-App fuer iOS, iPadOS und macOS, gebaut mit SwiftUI und Clean Architecture. Notizen werden als Markdown-Dateien gespeichert – kein Vendor-Lock-in, volle Kontrolle ueber deine Daten.
+Quartz is a native, open-source note-taking app for iOS, iPadOS, and macOS. Built with SwiftUI and Clean Architecture. Notes are stored as plain Markdown files – no vendor lock-in, full control over your data.
 
-> **OpenCore-Modell:** Der Kern (`QuartzKit`) ist Open Source. Die Pro-Version gibt es als Einmalkauf im App Store.
+> **100% Free & Open Source.** Funded by community donations.
+
+[![GitHub release](https://img.shields.io/github/v/release/Olli0103/Quartz?style=flat-square)](https://github.com/Olli0103/Quartz/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/Olli0103?style=flat-square&color=ea4aaa)](https://github.com/sponsors/Olli0103)
 
 ---
 
 ## Features
 
-### Markdown-Editor
-- WYSIWYG-Editing mit TextKit 2 – sieht aus wie Apple Notes, speichert reines Markdown
-- Formatierungs-Toolbar: Bold, Italic, Headings, Listen, Checkboxen, Code, Links, Bilder
-- YAML-Frontmatter-Editor mit Tag-Management
-- Fokus-Modus & Typewriter-Modus fuer ablenkungsfreies Schreiben
-- Auto-Save mit visueller Speicher-Anzeige
-- Wortanzahl-Statistik in der Statusleiste
+### Markdown Editor
+- WYSIWYG editing with TextKit 2 – looks like Apple Notes, stores pure Markdown
+- Formatting toolbar: Bold, Italic, Headings, Lists, Checkboxes, Code, Links, Images
+- **Inline image rendering** – images displayed directly in the editor
+- YAML frontmatter editor with tag management
+- Focus Mode & Typewriter Mode for distraction-free writing
+- Auto-save with visual indicator
+- Word count & reading time in status bar
+- Keyboard shortcuts (Cmd+B, Cmd+I, Cmd+K, etc.)
+- PDF export and system share sheet
 
-### Organisation
-- **Vault-basiert:** Jeder Vault ist ein Ordner auf dem Dateisystem
-- **Ordner-Management:** Erstellen, Umbenennen, Verschieben, Loeschen per Drag & Drop
-- **Tags:** Inline `#tag`-Erkennung, Tag-Uebersicht mit Farbcodes und Zaehler-Badges
-- **Wiki-Links:** `[[Notiz-Name]]` mit Alias- und Anker-Support
-- **Backlinks:** Panel zeigt alle Notizen, die auf die aktuelle Notiz verlinken
-- **Volltext-Suche:** Spotlight-aehnliche Suche ueber Titel, Inhalt und Tags
+### Organization
+- **Vault-based:** Each vault is a folder on the filesystem
+- **Folder management:** Create, rename, move, delete via drag & drop
+- **Tags:** Inline `#tag` detection, tag overview with color codes and badges
+- **Wiki-links:** `[[Note Name]]` with alias and anchor support
+- **Backlinks:** Panel showing all notes linking to the current note
+- **Full-text search:** Spotlight-style search across titles, content, and tags
+- **Favorites:** Star notes for quick access
+- **Knowledge Graph:** Interactive force-directed graph visualization of note connections
 
-### KI-Integration
-5 Provider werden unterstuetzt – du bringst deinen eigenen API-Key mit:
+### AI Integration
+5 providers supported – bring your own API key:
 
-| Provider | Modelle (Built-in) |
+| Provider | Built-in Models |
 |---|---|
 | **OpenAI** | GPT-4o, GPT-4o Mini |
 | **Anthropic** | Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5 |
 | **Google Gemini** | Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.0 Flash |
-| **OpenRouter** | Claude Sonnet 4, GPT-4o, Gemini 2.5 Pro, Llama 4 Maverick, DeepSeek R1, Mistral Large 2 |
-| **Ollama (Lokal)** | Llama 3.1, Mistral, Gemma 2 – kein API-Key noetig |
+| **OpenRouter** | Claude Sonnet 4, GPT-4o, Gemini 2.5 Pro, Llama 4, DeepSeek R1 |
+| **Ollama (Local)** | Auto-detected models – no API key needed |
 
-**Custom Models:** Bei allen Providern koennen eigene Modelle per technischem Namen hinzugefuegt werden. Die benutzerdefinierten Modelle werden persistent gespeichert.
+AI Features:
+- **Chat with Note** – discuss the current note with AI
+- **Chat with Vault** – semantic search across all notes using vector embeddings
+- **Writing Tools** – Summarize, Rewrite, Proofread, Change Tone (AI-powered with on-device NLP fallback)
+- **Link Suggestions** – AI-assisted wiki-link recommendations
+- **Knowledge Graph** – visualize connections between notes
+- **Ollama auto-detection** with health check and model listing
+- Custom models per provider; API keys stored securely in Keychain
 
-Weitere KI-Features:
-- Chat mit einzelner Notiz (Notiz-Inhalt als Kontext)
-- Vault-weite semantische Suche mit Vektor-Embeddings
-- On-Device AI via Apple Intelligence (Zusammenfassen, Umschreiben)
-- API-Keys werden sicher in der Keychain gespeichert
+### Audio & Transcription
+- In-app audio recording with waveform visualization
+- On-device transcription (Speech framework)
+- Automatic meeting minutes with AI-generated summaries
+- Speaker diarization (speaker identification)
 
-### Audio & Transkription
-- In-App Audio-Aufnahme mit Wellenform-Visualisierung
-- On-Device Transkription (Speech Framework / Whisper CoreML)
-- Automatische Meeting-Protokolle mit Action Items
-- Speaker Diarization (Sprechererkennung)
+### Handwriting (iPad)
+- PencilKit integration inline in the Markdown editor
+- Background OCR: handwriting automatically converted to searchable text
+- OCR text stored in frontmatter (searchable but invisible)
 
-### Handschrift (iPad)
-- PencilKit-Integration inline im Markdown-Editor
-- Background-OCR: Handschrift wird automatisch zu durchsuchbarem Text
-- OCR-Text im Frontmatter gespeichert (durchsuchbar, aber unsichtbar)
-
-### Sicherheit
-- FaceID / TouchID App-Lock
-- AES-256-GCM Vault-Verschluesselung (CryptoKit)
-- Biometrischer Ordner-Lock fuer sensible Bereiche
+### Security
+- FaceID / TouchID App Lock
+- AES-256-GCM vault encryption (CryptoKit)
+- Biometric folder lock for sensitive areas
 
 ### Sync & Cloud
-- iCloud Drive Sync mit Conflict Resolution
-- WebDAV-Support
-- Download-on-Demand fuer grosse Vaults
+- iCloud Drive sync with real-time status indicator
+- Conflict resolution
+- Download-on-demand for large vaults
 
-### OS-Integration
-- **Share Extension:** Inhalte aus jeder App in den Vault senden
-- **Mac Quick Note:** Globaler Hotkey fuer sofortige Notiz-Erfassung (Schwebefenster)
-- **Widgets:** Lockscreen, Home Screen und Control Center
-- **App Intents:** Siri-Shortcuts fuer schnellen Zugriff
+### OS Integration
+- **Share Extension:** Send content from any app to your vault
+- **Mac Quick Note:** Global hotkey (⌥⌘N) for instant note capture
+- **Widgets:** Lock Screen, Home Screen, and Control Center
+- **App Intents:** Siri Shortcuts for quick access
+
+### Apple Notes Import
+- Import from exported Apple Notes (TXT, HTML, RTF, MD)
+- Preserves folder structure recursively
+- Automatic frontmatter generation
 
 ### Design
-- **Liquid Glass** Design-System mit Glassmorphismus-Effekten
-- Animationen: Staggered Lists, Bounce-In, Shimmer Loading, Spring-Transitions, Parallax
-- Themes: Hell, Dunkel, System (folgt Geraete-Einstellung)
-- Dynamische Schriftgroesse (Dynamic Type)
-- Lokalisierung: Deutsch & Englisch
+- **Liquid Glass** design system with glassmorphism effects
+- Amber accent color throughout
+- Animations: Staggered Lists, Bounce-In, Shimmer, Spring Transitions
+- Themes: Light, Dark, System
+- Dynamic Type support
+- Localization: German & English
 
-### Onboarding
-- Vault-Erstellung mit optionalen Strukturvorlagen
-- Templates: PARA-Methode, Zettelkasten, Daily Notes, Meeting Notes
-- Animierter Onboarding-Flow mit Template-Vorschau
+### Auto-Update
+- Automatic update checks via GitHub Releases
+- One-click download of new versions
 
 ---
 
-## Architektur
+## Architecture
 
 ### Clean Architecture
 
@@ -99,67 +114,28 @@ Weitere KI-Features:
 │   (Protocols, Models, Use Cases)    │
 ├─────────────────────────────────────┤
 │              Data                   │
-│ (FileSystem, Markdown, AI, Sync)   │
+│ (FileSystem, Markdown, AI, Sync)    │
 └─────────────────────────────────────┘
 ```
 
-- **MVVM** mit `@Observable` ViewModels (Swift Observation Framework)
-- **Protocol-First Dependency Injection** ueber `ServiceContainer`
-- **Actor-basierte Concurrency** fuer thread-sichere File-I/O
-- **Adapter Pattern** fuer AI-Provider
-- **Feature Flag System** mit `FeatureGating`-Protokoll (Features flexibel zwischen Free/Pro verschiebbar)
+- **MVVM** with `@Observable` ViewModels (Swift Observation Framework)
+- **Protocol-first Dependency Injection** via `ServiceContainer`
+- **Actor-based Concurrency** for thread-safe file I/O
+- **Adapter Pattern** for AI providers
+- **Feature Flag System** with `FeatureGating` protocol (all features free)
 
-### Projektstruktur
+### Data Model
 
-```
-Quartz/
-├── QuartzApp/              # App Entry Point (iOS, iPadOS, macOS)
-│   ├── QuartzApp.swift
-│   ├── ContentView.swift
-│   └── VaultPickerView.swift
-│
-├── QuartzKit/              # Open-Source Swift Package (MIT)
-│   ├── Sources/QuartzKit/
-│   │   ├── Domain/
-│   │   │   ├── Models/         # FileNode, NoteDocument, Frontmatter, VaultConfig
-│   │   │   ├── Protocols/      # VaultProviding, FrontmatterParsing, FeatureGating
-│   │   │   ├── UseCases/       # CreateNote, DeleteNote, FolderManagement, Backlinks
-│   │   │   ├── AI/             # AIProvider, NoteChatService, VaultChatService, Embeddings
-│   │   │   ├── Audio/          # Recording, Transcription, MeetingMinutes, Diarization
-│   │   │   ├── Security/       # BiometricAuth, VaultEncryption
-│   │   │   └── OCR/            # HandwritingOCR, OCRFrontmatter
-│   │   ├── Data/
-│   │   │   ├── FileSystem/     # VaultProvider, FileWatcher, AssetManager, SearchIndex
-│   │   │   ├── Markdown/       # Parser, Renderer, TagExtractor, WikiLinkExtractor
-│   │   │   └── FeatureConfig/  # DefaultFeatureGate
-│   │   └── Presentation/
-│   │       ├── App/            # AppState, AppearanceManager, ServiceContainer, SearchView
-│   │       ├── DesignSystem/   # LiquidGlass (Farben, Animationen, Komponenten)
-│   │       ├── Sidebar/        # SidebarView, FileNodeRow, TagOverview
-│   │       ├── Editor/         # NoteEditor, FormattingToolbar, Frontmatter, Backlinks
-│   │       ├── Onboarding/     # OnboardingView mit Template-Auswahl
-│   │       ├── Settings/       # SettingsView, AppearanceSettings
-│   │       ├── Widgets/        # Home, Lockscreen, Control Center
-│   │       ├── QuickNote/      # Mac Schwebefenster
-│   │       └── ShareExtension/
-│   └── Tests/QuartzKitTests/   # Unit Tests (96+ Tests)
-│
-└── QuartzPro/              # Closed Source – Pro Features
-    └── ProFeatureGate.swift
-```
-
-### Datenmodell
-
-- **Dateisystem als Single Source of Truth** – keine Datenbank
-- Jede Notiz = eine `.md`-Datei mit YAML-Frontmatter
-- In-Memory FileIndex fuer schnelle Navigation
-- Vektor-Index in `.quartz/embeddings.idx`
+- **Filesystem as single source of truth** – no database
+- Each note = a `.md` file with YAML frontmatter
+- In-memory FileIndex for fast navigation
+- Vector index in `.quartz/embeddings.idx`
 
 ---
 
-## Voraussetzungen
+## Requirements
 
-| Anforderung | Minimum |
+| Requirement | Minimum |
 |---|---|
 | iOS / iPadOS | 18.0 |
 | macOS | 15.0 (Sequoia) |
@@ -168,27 +144,27 @@ Quartz/
 
 ---
 
-## Installation & Setup
+## Installation
 
-### Entwicklung
+### Download
+
+Download the latest release from [GitHub Releases](https://github.com/Olli0103/Quartz/releases).
+
+### Build from Source
 
 ```bash
-# Repository klonen
-git clone https://github.com/Olli0103/Cortex.git
-cd Cortex
-
-# Xcode-Projekt oeffnen
-open QuartzApp.xcodeproj
+git clone https://github.com/Olli0103/Quartz.git
+cd Quartz
+open Quartz.xcodeproj
 ```
 
-`QuartzKit` wird als lokales Swift Package automatisch aufgeloest. Die einzige externe Abhaengigkeit ist [swift-markdown](https://github.com/apple/swift-markdown) (Apple).
+`QuartzKit` is resolved as a local Swift Package. The only external dependency is [swift-markdown](https://github.com/swiftlang/swift-markdown) (Apple).
 
-### QuartzKit als Package nutzen
+### Use QuartzKit as a Package
 
 ```swift
-// Package.swift
 dependencies: [
-    .package(url: "https://github.com/Olli0103/quartz-kit.git", from: "0.1.0"),
+    .package(url: "https://github.com/Olli0103/Quartz.git", from: "1.0.0"),
 ]
 ```
 
@@ -197,47 +173,55 @@ dependencies: [
 ## Tests
 
 ```bash
-# Tests ausfuehren (Xcode CLI)
 xcodebuild test -scheme QuartzKit -destination 'platform=macOS'
-
-# Oder in Xcode: Cmd+U
 ```
 
-Abgedeckte Bereiche:
-- Domain-Modelle (FileNode, NoteDocument, VaultConfig, Frontmatter, Feature)
-- Tag-Extraktion (Inline-Tags, Code-Block-Ausschluss, Unicode)
-- Wiki-Link-Extraktion (Aliase, Anker, Nested Brackets)
-- Feature Gate (Free/Pro-Gating, Runtime-Aenderungen)
-- Markdown-Formatierung (Bold, Italic, Headings, Listen, Code, Links)
-- Volltext-Suche (Titel/Body/Tag-Match, Scoring, AND-Logik)
-- ViewModels (SidebarVM, EditorVM, AppState)
-- Frontmatter-Parser & Markdown-Renderer
+---
+
+## AI Provider Setup
+
+1. Open **Settings** in the app
+2. Navigate to **AI**
+3. Select a provider and enter your API key
+4. For Ollama: enter the server URL and test the connection
+
+API keys are stored exclusively in the system Keychain.
 
 ---
 
-## KI-Provider konfigurieren
+## Creating a Release
 
-1. Oeffne **Einstellungen** in der App
-2. Navigiere zu **KI-Provider**
-3. Waehle einen Provider und gib deinen API-Key ein
-4. Optional: Fuege eigene Modelle per technischem Namen hinzu
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
-Die API-Keys werden ausschliesslich in der System-Keychain gespeichert und nie im Klartext abgelegt.
-
----
-
-## Lizenz
-
-- **QuartzKit** (Open-Source-Kern): MIT License
-- **QuartzApp** & **QuartzPro**: Proprietaer
+The GitHub Actions workflow will automatically build the macOS app, create a DMG, and publish a GitHub Release.
 
 ---
 
-## Mitwirken
+## License
 
-Beitraege zum Open-Source-Kern (`QuartzKit`) sind willkommen! Bitte stelle PRs gegen das `quartz-kit` Repository.
+MIT License – see [LICENSE](LICENSE) for details.
 
-1. Fork das Repository
-2. Erstelle einen Feature-Branch (`git checkout -b feature/mein-feature`)
-3. Committe deine Aenderungen
-4. Erstelle einen Pull Request
+---
+
+## Support & Donations
+
+Quartz is free and open-source. If you find it useful, consider supporting development:
+
+- [GitHub Sponsors](https://github.com/sponsors/Olli0103)
+- Star the repo to help others find it
+
+---
+
+## Contributing
+
+Contributions are welcome!
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes
+4. Create a Pull Request
+
+Please follow the existing code style and architecture patterns.

@@ -2,22 +2,15 @@ import SwiftUI
 
 /// Markdown formatting actions.
 public enum FormattingAction: String, CaseIterable, Sendable {
-    case bold
-    case italic
-    case heading
-    case bulletList
-    case numberedList
-    case checkbox
-    case code
-    case codeBlock
-    case link
-    case image
-    case blockquote
+    case bold, italic, strikethrough, heading, bulletList, numberedList, checkbox
+    case code, codeBlock, link, image, blockquote
+    case table, math, footnote, mermaid
 
     var icon: String {
         switch self {
         case .bold: "bold"
         case .italic: "italic"
+        case .strikethrough: "strikethrough"
         case .heading: "textformat.size.larger"
         case .bulletList: "list.bullet"
         case .numberedList: "list.number"
@@ -27,6 +20,21 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: "link"
         case .image: "photo"
         case .blockquote: "text.quote"
+        case .table: "tablecells"
+        case .math: "function"
+        case .footnote: "number"
+        case .mermaid: "chart.bar.doc.horizontal"
+        }
+    }
+
+    /// Keyboard shortcut for help text, e.g. "⌘B".
+    var shortcut: String? {
+        switch self {
+        case .bold: "⌘B"
+        case .italic: "⌘I"
+        case .code: "⌘E"
+        case .link: "⌘K"
+        default: nil
         }
     }
 
@@ -34,6 +42,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         switch self {
         case .bold: String(localized: "Bold", bundle: .module)
         case .italic: String(localized: "Italic", bundle: .module)
+        case .strikethrough: String(localized: "Strikethrough", bundle: .module)
         case .heading: String(localized: "Heading", bundle: .module)
         case .bulletList: String(localized: "Bullet List", bundle: .module)
         case .numberedList: String(localized: "Numbered List", bundle: .module)
@@ -43,6 +52,10 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: String(localized: "Link", bundle: .module)
         case .image: String(localized: "Image", bundle: .module)
         case .blockquote: String(localized: "Quote", bundle: .module)
+        case .table: String(localized: "Table", bundle: .module)
+        case .math: String(localized: "Math", bundle: .module)
+        case .footnote: String(localized: "Footnote", bundle: .module)
+        case .mermaid: String(localized: "Mermaid Diagram", bundle: .module)
         }
     }
 
@@ -50,6 +63,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         switch self {
         case .bold: .wrap("**")
         case .italic: .wrap("*")
+        case .strikethrough: .wrap("~~")
         case .heading: .linePrefix("# ")
         case .bulletList: .linePrefix("- ")
         case .numberedList: .linePrefix("1. ")
@@ -59,30 +73,32 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: .template("[", "](url)")
         case .image: .template("![", "](path)")
         case .blockquote: .linePrefix("> ")
+        case .table: .insert("| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| Cell 1 | Cell 2 | Cell 3 |\n")
+        case .math: .wrap("$")
+        case .footnote: .template("[^", "]: ")
+        case .mermaid: .block("```mermaid\n", "\n```")
         }
     }
 }
 
-/// Describes how Markdown syntax is applied to text.
 public enum MarkdownSyntax: Sendable {
     case wrap(String)
     case linePrefix(String)
     case block(String, String)
     case template(String, String)
+    case insert(String)
 }
 
 // MARK: - Formatting Toolbar View
 
-/// Toolbar for Markdown formatting – Liquid Glass style.
 public struct FormattingToolbar: View {
     let onAction: (FormattingAction) -> Void
 
     private let primaryActions: [FormattingAction] = [
-        .bold, .italic, .heading, .bulletList, .checkbox, .code, .link
+        .bold, .italic, .strikethrough, .heading, .bulletList, .checkbox, .code, .link
     ]
-
     private let secondaryActions: [FormattingAction] = [
-        .numberedList, .codeBlock, .image, .blockquote
+        .numberedList, .codeBlock, .image, .blockquote, .table, .math, .footnote, .mermaid
     ]
 
     public init(onAction: @escaping (FormattingAction) -> Void) {
@@ -93,44 +109,79 @@ public struct FormattingToolbar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 ForEach(primaryActions, id: \.self) { action in
-                    Button {
+                    FormatButton(action: action) {
                         onAction(action)
-                    } label: {
-                        Image(systemName: action.icon)
-                            .font(.subheadline.weight(.medium))
-                            .frame(minWidth: 44, minHeight: 44)
                     }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(action.label)
-                    .accessibilityHint(String(localized: "Double tap to apply \(action.label) formatting", bundle: .module))
                 }
 
-                Divider()
-                    .frame(height: 18)
+                Rectangle()
+                    .fill(.separator)
+                    .frame(width: 1, height: 18)
                     .padding(.horizontal, 4)
 
                 Menu {
                     ForEach(secondaryActions, id: \.self) { action in
-                        Button {
-                            onAction(action)
-                        } label: {
+                        Button { onAction(action) } label: {
                             Label(action.label, systemImage: action.icon)
                         }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.subheadline.weight(.medium))
-                        .frame(minWidth: 44, minHeight: 44)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 34, height: 28)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .menuStyle(.borderlessButton)
                 .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
+                .help(String(localized: "More formatting options", bundle: .module))
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
         }
-        .frame(height: 44)
+        .frame(height: 36)
+    }
+}
+
+/// Individual formatting button with explicit hover + press visual feedback.
+private struct FormatButton: View {
+    let action: FormattingAction
+    let onTap: () -> Void
+    @State private var isHovered = false
+    @State private var isPressed = false
+
+    var body: some View {
+        Image(systemName: action.icon)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isPressed ? QuartzColors.accent : isHovered ? .primary : .secondary)
+            .frame(width: 34, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: isPressed)
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
+            .onHover { hovering in isHovered = hovering }
+            .onTapGesture { onTap() }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in isPressed = false }
+            )
+            .accessibilityLabel(action.label)
+            .help(helpText)
+    }
+
+    private var helpText: String {
+        if let shortcut = action.shortcut {
+            return "\(action.label) (\(shortcut))"
+        }
+        return action.label
+    }
+
+    private var backgroundColor: Color {
+        if isPressed { return QuartzColors.accent.opacity(0.2) }
+        if isHovered { return Color.primary.opacity(0.06) }
+        return .clear
     }
 }
 
@@ -150,62 +201,47 @@ public struct MarkdownFormatter: Sendable {
         switch action.markdownSyntax {
         case .wrap(let marker):
             return applyWrap(marker, text: text, selection: selectedRange, selectedText: selectedText)
-
         case .linePrefix(let prefix):
             return applyLinePrefix(prefix, text: text, selection: selectedRange)
-
         case .block(let open, let close):
             let replacement = "\(open)\(selectedText)\(close)"
             let newText = nsText.replacingCharacters(in: selectedRange, with: replacement)
-            let cursorPos = selectedRange.location + open.count
-            return (newText, NSRange(location: cursorPos, length: selectedText.count))
-
+            return (newText, NSRange(location: selectedRange.location + open.count, length: selectedText.count))
         case .template(let before, let after):
             let replacement = "\(before)\(selectedText)\(after)"
             let newText = nsText.replacingCharacters(in: selectedRange, with: replacement)
             if selectedText.isEmpty {
-                let cursorPos = selectedRange.location + before.count
-                return (newText, NSRange(location: cursorPos, length: 0))
+                return (newText, NSRange(location: selectedRange.location + before.count, length: 0))
             } else {
-                let cursorPos = selectedRange.location + before.count + selectedText.count + after.count
-                return (newText, NSRange(location: cursorPos, length: 0))
+                return (newText, NSRange(location: selectedRange.location + before.count + selectedText.count + after.count, length: 0))
             }
+        case .insert(let raw):
+            let newText = nsText.replacingCharacters(in: selectedRange, with: raw)
+            return (newText, NSRange(location: selectedRange.location + raw.count, length: 0))
         }
     }
 
-    private func applyWrap(
-        _ marker: String,
-        text: String,
-        selection: NSRange,
-        selectedText: String
-    ) -> (String, NSRange) {
+    private func applyWrap(_ marker: String, text: String, selection: NSRange, selectedText: String) -> (String, NSRange) {
         let nsText = text as NSString
-
-        let markerLen = marker.count
-        let before = selection.location >= markerLen
-            ? nsText.substring(with: NSRange(location: selection.location - markerLen, length: markerLen))
-            : ""
+        let mLen = marker.count
+        let before = selection.location >= mLen
+            ? nsText.substring(with: NSRange(location: selection.location - mLen, length: mLen)) : ""
         let afterEnd = selection.location + selection.length
-        let after = afterEnd + markerLen <= nsText.length
-            ? nsText.substring(with: NSRange(location: afterEnd, length: markerLen))
-            : ""
+        let after = afterEnd + mLen <= nsText.length
+            ? nsText.substring(with: NSRange(location: afterEnd, length: mLen)) : ""
 
         if before == marker && after == marker {
-            let removeRange = NSRange(location: selection.location - markerLen, length: selection.length + markerLen * 2)
+            let removeRange = NSRange(location: selection.location - mLen, length: selection.length + mLen * 2)
             let newText = nsText.replacingCharacters(in: removeRange, with: selectedText)
-            return (newText, NSRange(location: selection.location - markerLen, length: selectedText.count))
+            return (newText, NSRange(location: selection.location - mLen, length: selectedText.count))
         } else {
             let replacement = "\(marker)\(selectedText)\(marker)"
             let newText = nsText.replacingCharacters(in: selection, with: replacement)
-            return (newText, NSRange(location: selection.location + markerLen, length: selectedText.count))
+            return (newText, NSRange(location: selection.location + mLen, length: selectedText.count))
         }
     }
 
-    private func applyLinePrefix(
-        _ prefix: String,
-        text: String,
-        selection: NSRange
-    ) -> (String, NSRange) {
+    private func applyLinePrefix(_ prefix: String, text: String, selection: NSRange) -> (String, NSRange) {
         let nsText = text as NSString
         let lineRange = nsText.lineRange(for: selection)
         let line = nsText.substring(with: lineRange)
@@ -213,8 +249,7 @@ public struct MarkdownFormatter: Sendable {
         if line.hasPrefix(prefix) {
             let newLine = String(line.dropFirst(prefix.count))
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
-            let newLoc = max(selection.location - prefix.count, lineRange.location)
-            return (newText, NSRange(location: newLoc, length: 0))
+            return (newText, NSRange(location: max(selection.location - prefix.count, lineRange.location), length: 0))
         } else {
             let newLine = prefix + line
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)

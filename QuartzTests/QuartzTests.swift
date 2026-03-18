@@ -131,44 +131,15 @@ struct FocusModeManagerTests {
     }
 }
 
-// MARK: - ProFeatureGate Tests
+// MARK: - Open-Source Feature Gate Tests
 
-@Suite("ProFeatureGate Integration")
-struct ProFeatureGateIntegrationTests {
-    @Test("Free features are always enabled")
-    func freeFeatures() {
-        let gate = ProFeatureGate()
-        #expect(gate.isEnabled(.markdownEditor))
-        #expect(gate.isEnabled(.focusMode))
-        #expect(gate.isEnabled(.biDirectionalLinks))
-        #expect(gate.isEnabled(.tagSystem))
-        #expect(gate.isEnabled(.audioRecording))
-    }
-
-    @Test("Pro features disabled without purchase")
-    func proFeaturesDisabled() {
-        let gate = ProFeatureGate()
-        #expect(!gate.isEnabled(.aiChat))
-        #expect(!gate.isEnabled(.aiSummarize))
-        #expect(!gate.isEnabled(.meetingMinutes))
-        #expect(!gate.isEnabled(.speakerDiarization))
-    }
-
-    @Test("Tier mapping matches DefaultFeatureGate")
-    func tierMapping() {
-        let proGate = ProFeatureGate()
-        let defaultGate = DefaultFeatureGate()
-
+@Suite("FeatureGate (Open-Source)")
+struct OpenSourceFeatureGateTests {
+    @Test("All features are enabled – no Pro gating")
+    func allFeaturesEnabled() {
+        let gate = DefaultFeatureGate()
         for feature in Feature.allCases {
-            #expect(
-                proGate.tier(for: feature) == defaultGate.tier(for: feature),
-                "Tier mismatch for \(feature)"
-            )
+            #expect(gate.isEnabled(feature), "Feature \(feature) should be enabled")
         }
-    }
-
-    @Test("Product ID is correct")
-    func productID() {
-        #expect(ProFeatureGate.proProductID == "olli.Quartz.pro")
     }
 }

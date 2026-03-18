@@ -2,8 +2,8 @@ import Foundation
 
 /// All toggleable features of the app.
 ///
-/// Each feature can be flexibly moved between Free and Pro.
-/// The assignment is managed centrally in `DefaultFeatureGate`.
+/// Quartz is fully open-source – every feature is free.
+/// The Feature enum exists for runtime checks and future extensibility.
 public enum Feature: String, CaseIterable, Codable, Sendable {
     // MARK: - Editor
     case markdownEditor
@@ -27,10 +27,8 @@ public enum Feature: String, CaseIterable, Codable, Sendable {
     case speakerDiarization
 }
 
-/// Membership tier of a feature.
+/// Feature tier – kept for API compatibility.
+/// All features are free in the open-source release.
 public enum FeatureTier: String, Codable, Sendable {
-    /// Always available, without purchase.
     case free
-    /// Only available with a one-time Pro purchase.
-    case pro
 }
