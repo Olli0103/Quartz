@@ -73,17 +73,21 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
     let editorFontScale: CGFloat
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let scaledBaseFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: baseFontSize * editorFontScale))
+        return Coordinator(
             text: $text,
             cursorPosition: $cursorPosition,
-            baseFontSize: baseFontSize * editorFontScale
+            baseFontSize: scaledBaseFont.pointSize,
+            editorFontScale: editorFontScale
         )
     }
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
         tv.delegate = context.coordinator
-        tv.font = .systemFont(ofSize: baseFontSize * editorFontScale)
+        let baseFont = UIFont.systemFont(ofSize: baseFontSize * editorFontScale)
+        tv.font = UIFontMetrics.default.scaledFont(for: baseFont)
+        tv.adjustsFontForContentSizeCategory = true
         tv.backgroundColor = .clear
         tv.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         tv.textContainer.lineFragmentPadding = 0
@@ -96,23 +100,47 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             uiView.text = text
             uiView.selectedTextRange = sel
         }
-        context.coordinator.baseFontSize = baseFontSize * editorFontScale
+        let scaledBaseFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: baseFontSize * editorFontScale))
+        context.coordinator.baseFontSize = scaledBaseFont.pointSize
+        context.coordinator.editorFontScale = editorFontScale
         context.coordinator.textView = uiView
         context.coordinator.scheduleHighlight(text: text, textView: uiView)
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+        final class Coordinator: NSObject, UITextViewDelegate {
         @Binding var text: String
         @Binding var cursorPosition: NSRange
         var baseFontSize: CGFloat
+        var editorFontScale: CGFloat
         weak var textView: UITextView?
         private let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
         private var highlightTask: Task<Void, Never>?
 
-        init(text: Binding<String>, cursorPosition: Binding<NSRange>, baseFontSize: CGFloat) {
+        init(text: Binding<String>, cursorPosition: Binding<NSRange>, baseFontSize: CGFloat, editorFontScale: CGFloat) {
             _text = text
             _cursorPosition = cursorPosition
             self.baseFontSize = baseFontSize
+            self.editorFontScale = editorFontScale
+            super.init()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(contentSizeCategoryDidChange),
+                name: UIContentSizeCategory.didChangeNotification,
+                object: nil
+            )
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc private func contentSizeCategoryDidChange() {
+            guard let tv = textView else { return }
+            let preferredSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+            let scaledFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: preferredSize * editorFontScale))
+            baseFontSize = scaledFont.pointSize
+            tv.font = scaledFont
+            scheduleHighlight(text: tv.text ?? "", textView: tv)
         }
 
         func scheduleHighlight(text: String, textView: UITextView) {
@@ -129,15 +157,38 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
 
         func applySpans(_ spans: [HighlightSpan], to textView: UITextView, baseFontSize: CGFloat) {
             guard let storage = textView.textStorage else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
+            let storageLength = storage.length
+            guard storageLength > 0 else { return }
+
+            // Compute bounding range of all spans to avoid full-document invalidation.
+            // Only apply layout attributes to the modified subset when possible.
+            let updateRange: NSRange
+            if spans.isEmpty {
+                updateRange = NSRange(location: 0, length: storageLength)
+            } else {
+                var minLoc = storageLength
+                var maxEnd = 0
+                for span in spans {
+                    let r = span.range
+                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+                    minLoc = min(minLoc, r.location)
+                    maxEnd = max(maxEnd, r.location + r.length)
+                }
+                if minLoc <= maxEnd {
+                    updateRange = NSRange(location: minLoc, length: maxEnd - minLoc)
+                } else {
+                    updateRange = NSRange(location: 0, length: storageLength)
+                }
+            }
+
             storage.beginEditing()
             storage.setAttributes([
                 .font: UIFont.systemFont(ofSize: baseFontSize),
                 .foregroundColor: UIColor.label
-            ], range: fullRange)
+            ], range: updateRange)
             for span in spans {
                 let r = span.range
-                guard r.location >= 0, r.location + r.length <= storage.length else { continue }
+                guard r.location >= 0, r.location + r.length <= storageLength else { continue }
                 storage.addAttributes([
                     .font: span.font,
                     .foregroundColor: span.color ?? .label,
@@ -236,15 +287,38 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
 
         func applySpans(_ spans: [HighlightSpan], to textView: NSTextView, baseFontSize: CGFloat) {
             guard let storage = textView.textStorage else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
+            let storageLength = storage.length
+            guard storageLength > 0 else { return }
+
+            // Compute bounding range of all spans to avoid full-document invalidation.
+            // Only apply layout attributes to the modified subset when possible.
+            let updateRange: NSRange
+            if spans.isEmpty {
+                updateRange = NSRange(location: 0, length: storageLength)
+            } else {
+                var minLoc = storageLength
+                var maxEnd = 0
+                for span in spans {
+                    let r = span.range
+                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+                    minLoc = min(minLoc, r.location)
+                    maxEnd = max(maxEnd, r.location + r.length)
+                }
+                if minLoc <= maxEnd {
+                    updateRange = NSRange(location: minLoc, length: maxEnd - minLoc)
+                } else {
+                    updateRange = NSRange(location: 0, length: storageLength)
+                }
+            }
+
             storage.beginEditing()
             storage.setAttributes([
                 .font: NSFont.systemFont(ofSize: baseFontSize),
                 .foregroundColor: NSColor.labelColor
-            ], range: fullRange)
+            ], range: updateRange)
             for span in spans {
                 let r = span.range
-                guard r.location >= 0, r.location + r.length <= storage.length else { continue }
+                guard r.location >= 0, r.location + r.length <= storageLength else { continue }
                 storage.addAttributes([
                     .font: span.font,
                     .foregroundColor: span.color ?? .labelColor,

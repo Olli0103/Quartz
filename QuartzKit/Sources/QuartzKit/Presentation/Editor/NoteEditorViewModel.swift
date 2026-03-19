@@ -1,6 +1,9 @@
 import SwiftUI
+import CoreText
 #if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
 #endif
 
 /// ViewModel for the plaintext editor.
@@ -211,6 +214,93 @@ public final class NoteEditorViewModel {
         autosaveTask = nil
         wordCountTask?.cancel()
         wordCountTask = nil
+    }
+
+    // MARK: - PDF Export
+
+    /// Generates PDF data for the given title and body.
+    /// Moved out of the view layer for separation of concerns.
+    public func generatePDFData(title: String, body: String) -> Data {
+        let pageSize = CGSize(width: 612, height: 792)
+        let margin: CGFloat = 54
+        let contentWidth = pageSize.width - 2 * margin
+        let contentHeight = pageSize.height - 2 * margin
+
+        #if os(macOS)
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 20, weight: .bold),
+            .foregroundColor: NSColor.black,
+        ]
+        let bodyAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.black,
+        ]
+        #else
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+            .foregroundColor: UIColor.black,
+        ]
+        let bodyAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: UIColor.black,
+        ]
+        #endif
+
+        let fullText = NSMutableAttributedString()
+        fullText.append(NSAttributedString(string: title + "\n\n", attributes: titleAttributes))
+        fullText.append(NSAttributedString(string: body, attributes: bodyAttributes))
+
+        let mutableData = NSMutableData()
+        var mediaBox = CGRect(origin: .zero, size: pageSize)
+
+        guard let consumer = CGDataConsumer(data: mutableData as CFMutableData),
+              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            return Data()
+        }
+
+        let framesetter = CTFramesetterCreateWithAttributedString(fullText as CFAttributedString)
+        var currentIndex = 0
+
+        while currentIndex < fullText.length {
+            ctx.beginPage(mediaBox: &mediaBox)
+
+            let frameRect = CGRect(x: margin, y: margin, width: contentWidth, height: contentHeight)
+            let framePath = CGPath(rect: frameRect, transform: nil)
+            let ctFrame = CTFramesetterCreateFrame(
+                framesetter, CFRange(location: currentIndex, length: 0), framePath, nil
+            )
+
+            CTFrameDraw(ctFrame, ctx)
+
+            let visibleRange = CTFrameGetVisibleStringRange(ctFrame)
+            if visibleRange.length == 0 { break }
+            currentIndex += visibleRange.length
+
+            ctx.endPage()
+        }
+
+        ctx.closePDF()
+        return mutableData as Data
+    }
+
+    // MARK: - Link Suggestions
+
+    /// Computes link suggestions on a background thread to avoid blocking the main actor.
+    /// Use when opening the link suggestion sheet or after applying a suggestion.
+    public func computeLinkSuggestions() async -> [LinkSuggestionService.Suggestion] {
+        guard let note else { return [] }
+        let contentSnapshot = content
+        let currentNoteURL = note.fileURL
+        let fileTreeSnapshot = fileTree
+
+        return await Task.detached(priority: .userInitiated) {
+            let service = LinkSuggestionService()
+            return service.suggestLinks(
+                for: contentSnapshot,
+                currentNoteURL: currentNoteURL,
+                allNotes: fileTreeSnapshot
+            )
+        }.value
     }
 
     // NOTE: No deinit – Task cancellation is handled by cancelAllTasks()

@@ -158,11 +158,6 @@ public struct NoteEditorView: View {
         #if os(macOS)
         HStack(spacing: 0) {
             editorContent
-                .overlay(alignment: .bottom) {
-                    macosFloatingToolbar
-                        .padding(.bottom, 28)
-                        .hidesInFocusMode()
-                }
             if let note = viewModel.note, !focusMode.isFocusModeActive {
                 NoteMetadataPanelView(
                     note: note,
@@ -199,7 +194,20 @@ public struct NoteEditorView: View {
         .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
+            #if os(macOS)
+            ToolbarItemGroup(placement: .principal) {
+                MacEditorToolbar(
+                    isPreviewMode: isPreviewMode,
+                    onPreviewToggle: { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() } },
+                    onFormatting: applyFormatting,
+                    onImagePick: { showImagePicker = true }
+                )
+                .hidesInFocusMode()
+            }
+            #endif
+            #if os(iOS)
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Text(String(localized: "EDITING", bundle: .module))
@@ -211,8 +219,8 @@ public struct NoteEditorView: View {
                         .lineLimit(1)
                 }
             }
+            #endif
         }
-        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 toolbarActions
@@ -238,10 +246,16 @@ public struct NoteEditorView: View {
         #if os(iOS)
         .overlay(alignment: .bottom) {
             if !isPreviewMode {
-                iosFloatingToolbar
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-                    .hidesInFocusMode()
+                IosEditorToolbar(
+                    isPreviewMode: isPreviewMode,
+                    onPreviewToggle: { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() } },
+                    onFormatting: applyFormatting,
+                    onImagePick: { showImageSourceSheet = true },
+                    onSave: { Task { await viewModel.manualSave() } }
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .hidesInFocusMode()
             }
         }
         #endif
@@ -493,7 +507,7 @@ public struct NoteEditorView: View {
         switch format {
         case .pdf:
             pdfExportFilename = baseName + ".pdf"
-            let data = generatePDFData(title: note.displayName, body: viewModel.content)
+            let data = viewModel.generatePDFData(title: note.displayName, body: viewModel.content)
             pdfDocument = PDFFileDocument(data: data)
             showPDFExporter = true
         case .plainText:
@@ -523,17 +537,10 @@ public struct NoteEditorView: View {
         }
     }
 
-    private func computeLinkSuggestions() {
-        guard let note = viewModel.note else {
-            linkSuggestions = []
-            return
+    private func loadLinkSuggestions() {
+        Task {
+            linkSuggestions = await viewModel.computeLinkSuggestions()
         }
-        let service = LinkSuggestionService()
-        linkSuggestions = service.suggestLinks(
-            for: viewModel.content,
-            currentNoteURL: note.fileURL,
-            allNotes: viewModel.fileTree
-        )
     }
 
     private func applyLinkSuggestion(_ suggestion: LinkSuggestionService.Suggestion) {
@@ -567,7 +574,7 @@ public struct NoteEditorView: View {
                         ForEach(linkSuggestions) { suggestion in
                             Button {
                                 applyLinkSuggestion(suggestion)
-                                computeLinkSuggestions()
+                                loadLinkSuggestions()
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "link")
@@ -819,177 +826,6 @@ public struct NoteEditorView: View {
         return components
     }
 
-    // MARK: - Floating Toolbars (shared design)
-
-    #if os(macOS)
-    /// Floating pill-shaped toolbar for Mac: B, I, Link, bullet, image, code, More.
-    private var macosFloatingToolbar: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
-                } label: {
-                    Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
-                        .font(.system(size: 14, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
-                        .frame(minWidth: 32, minHeight: 32)
-                }
-                .buttonStyle(.plain)
-                .help(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
-                Rectangle()
-                    .fill(.separator)
-                    .frame(width: 1, height: 22)
-                    .padding(.horizontal, 4)
-                formatButton(.bold, icon: "bold")
-                formatButton(.italic, icon: "italic")
-                formatButton(.link, icon: "link")
-            }
-            .padding(.leading, 16)
-            .padding(.vertical, 8)
-
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 22)
-                .padding(.horizontal, 8)
-
-            HStack(spacing: 8) {
-                formatButton(.bulletList, icon: "list.bullet")
-                Button {
-                    showImagePicker = true
-                } label: {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 14, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.primary)
-                        #if os(iOS)
-                        .frame(minWidth: 44, minHeight: 44)
-                        #else
-                        .frame(minWidth: 32, minHeight: 32)
-                        #endif
-                }
-                .buttonStyle(.plain)
-                formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
-            }
-
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 22)
-                .padding(.horizontal, 8)
-
-            Menu {
-                ForEach([FormattingAction.table, .codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
-                    Button { applyFormatting(action) } label: {
-                        Label(action.label, systemImage: action.icon)
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 14, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.secondary)
-                    #if os(iOS)
-                    .frame(minWidth: 44, minHeight: 44)
-                    #else
-                    .frame(minWidth: 32, minHeight: 32)
-                    #endif
-            }
-            .menuStyle(.borderlessButton)
-            .padding(.trailing, 16)
-        }
-        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16, layer: .floating)
-    }
-    #endif
-
-    private func formatButton(_ action: FormattingAction, icon: String) -> some View {
-        EditorFormatButton(action: action, icon: icon) {
-            applyFormatting(action)
-        }
-    }
-
-    #if os(iOS)
-    /// Floating pill-shaped toolbar for iPhone: B, I, bullet, link, table, image, code, More, save.
-    private var iosFloatingToolbar: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
-                    } label: {
-                        Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
-                            .font(.system(size: 14, weight: .medium))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
-                            .frame(minWidth: 44, minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(isPreviewMode ? String(localized: "Edit mode", bundle: .module) : String(localized: "Preview", bundle: .module))
-                    Rectangle()
-                        .fill(.separator)
-                        .frame(width: 1, height: 24)
-                    formatButton(.bold, icon: "bold")
-                    formatButton(.italic, icon: "italic")
-                    formatButton(.bulletList, icon: "list.bullet")
-                    formatButton(.link, icon: "link")
-                    Rectangle()
-                        .fill(.separator)
-                        .frame(width: 1, height: 24)
-                        .padding(.horizontal, 8)
-                    formatButton(.table, icon: "tablecells")
-                    Button {
-                        showImageSourceSheet = true
-                    } label: {
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.system(size: 14, weight: .medium))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.primary)
-                            .frame(minWidth: 44, minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                    formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
-                    Menu {
-                        ForEach([FormattingAction.codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
-                            Button { applyFormatting(action) } label: {
-                                Label(action.label, systemImage: action.icon)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 14, weight: .medium))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                            .frame(minWidth: 44, minHeight: 44)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
-            .frame(maxWidth: 300)
-
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 24)
-                .padding(.horizontal, 8)
-
-            Button {
-                Task { await viewModel.manualSave() }
-            } label: {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .background(Circle().fill(appearance.accentColor))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Save note", bundle: .module))
-            .padding(.leading, 12)
-            .padding(.trailing, 12)
-        }
-        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16, layer: .floating)
-    }
-    #endif
-
     // MARK: - Backlinks Bar
 
     private var backlinkBar: some View {
@@ -1189,78 +1025,13 @@ public struct NoteEditorView: View {
         return String(localized: "Synced", bundle: .module)
     }
 
-    // MARK: - PDF Export
-
     private func exportAsPDF() {
         guard let note = viewModel.note else { return }
-        let data = generatePDFData(title: note.displayName, body: viewModel.content)
+        let data = viewModel.generatePDFData(title: note.displayName, body: viewModel.content)
         pdfDocument = PDFFileDocument(data: data)
         pdfExportFilename = note.displayName
             .replacingOccurrences(of: ".md", with: "") + ".pdf"
         showPDFExporter = true
-    }
-
-    private func generatePDFData(title: String, body: String) -> Data {
-        let pageSize = CGSize(width: 612, height: 792)
-        let margin: CGFloat = 54
-        let contentWidth = pageSize.width - 2 * margin
-        let contentHeight = pageSize.height - 2 * margin
-
-        #if os(macOS)
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 20, weight: .bold),
-            .foregroundColor: NSColor.black,
-        ]
-        let bodyAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.black,
-        ]
-        #else
-        let titleAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 20, weight: .bold),
-            .foregroundColor: UIColor.black,
-        ]
-        let bodyAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: UIColor.black,
-        ]
-        #endif
-
-        let fullText = NSMutableAttributedString()
-        fullText.append(NSAttributedString(string: title + "\n\n", attributes: titleAttributes))
-        fullText.append(NSAttributedString(string: body, attributes: bodyAttributes))
-
-        let mutableData = NSMutableData()
-        var mediaBox = CGRect(origin: .zero, size: pageSize)
-
-        guard let consumer = CGDataConsumer(data: mutableData as CFMutableData),
-              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            return Data()
-        }
-
-        let framesetter = CTFramesetterCreateWithAttributedString(fullText as CFAttributedString)
-        var currentIndex = 0
-
-        while currentIndex < fullText.length {
-            ctx.beginPage(mediaBox: &mediaBox)
-
-            let frameRect = CGRect(x: margin, y: margin, width: contentWidth, height: contentHeight)
-            let framePath = CGPath(rect: frameRect, transform: nil)
-            let ctFrame = CTFramesetterCreateFrame(
-                framesetter, CFRange(location: currentIndex, length: 0), framePath, nil
-            )
-
-            CTFrameDraw(ctFrame, ctx)
-
-            let visibleRange = CTFrameGetVisibleStringRange(ctFrame)
-            if visibleRange.length == 0 { break }
-            currentIndex += visibleRange.length
-
-            ctx.endPage()
-        }
-
-        ctx.closePDF()
-        return mutableData as Data
     }
 
     // MARK: - Toolbar Actions
@@ -1288,7 +1059,7 @@ public struct NoteEditorView: View {
                 }
                 Divider()
                 Button {
-                    computeLinkSuggestions()
+                    loadLinkSuggestions()
                     showLinkSuggestions = true
                 } label: {
                     Label(String(localized: "Suggest Links", bundle: .module), systemImage: "link.badge.plus")
@@ -1524,7 +1295,7 @@ private struct TextExportDocument: FileDocument {
 
 // MARK: - Editor Format Button (hover + press feedback)
 
-private struct EditorFormatButton: View {
+struct EditorFormatButton: View {
     let action: FormattingAction
     let icon: String
     let onTap: () -> Void
