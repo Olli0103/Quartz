@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Sidebar row icon size – larger on macOS.
+/// Sidebar row icon size – compact for cleaner sidebar.
 private var fileNodeIconSize: CGFloat {
     #if os(macOS)
-    18
+    14
     #else
-    15
+    12
     #endif
 }
 
@@ -21,6 +21,7 @@ private var fileNodeMetadataFont: Font {
 /// Single row in the sidebar for a FileNode.
 public struct FileNodeRow: View {
     public let node: FileNode
+    @Environment(\.appearanceManager) private var appearance
 
     public init(node: FileNode) {
         self.node = node
@@ -28,7 +29,7 @@ public struct FileNodeRow: View {
 
     public var body: some View {
         Label {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(displayName)
                     .font(.body.weight(node.isFolder ? .semibold : .regular))
                     .lineLimit(1)
@@ -43,10 +44,11 @@ public struct FileNodeRow: View {
         } icon: {
             Image(systemName: iconName)
                 .font(.system(size: fileNodeIconSize, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(iconColor)
-                .frame(width: fileNodeIconSize + 6)
+                .frame(width: fileNodeIconSize + 4)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
         .frame(minHeight: 44)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -79,8 +81,8 @@ public struct FileNodeRow: View {
 
     private var iconColor: Color {
         switch node.nodeType {
-        case .folder: QuartzColors.accent.opacity(0.7)
-        case .note: QuartzColors.accent.opacity(0.5)
+        case .folder: appearance.accentColor.opacity(0.7)
+        case .note: appearance.accentColor.opacity(0.5)
         case .asset: QuartzColors.assetOrange
         case .canvas: QuartzColors.canvasPurple
         }

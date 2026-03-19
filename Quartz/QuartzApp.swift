@@ -26,7 +26,7 @@ struct QuartzApp: App {
             .environment(\.appearanceManager, appearanceManager)
             .environment(\.focusModeManager, focusModeManager)
             .preferredColorScheme(appearanceManager.theme.colorScheme)
-            .tint(Color(hex: 0xF2994A))
+            .tint(appearanceManager.accentColor)
             .task {
                 ServiceContainer.shared.bootstrap(featureGate: featureGate)
             }

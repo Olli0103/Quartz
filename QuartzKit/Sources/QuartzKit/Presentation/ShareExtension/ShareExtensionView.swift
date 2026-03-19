@@ -110,7 +110,6 @@ public struct ShareExtensionView: View {
                 .font(.headline)
         }
         .padding(32)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .quartzMaterialBackground(cornerRadius: 16)
     }
 }

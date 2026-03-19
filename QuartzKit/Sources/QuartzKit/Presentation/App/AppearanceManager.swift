@@ -46,6 +46,16 @@ public final class AppearanceManager {
         didSet { save() }
     }
 
+    /// Accent color as hex (e.g. 0xF2994A for orange).
+    public var accentColorHex: UInt {
+        didSet { save() }
+    }
+
+    /// Resolved accent color for tinting the app.
+    public var accentColor: Color {
+        Color(hex: accentColorHex)
+    }
+
     // MARK: - Init
 
     private let defaults: UserDefaults
@@ -55,6 +65,7 @@ public final class AppearanceManager {
         self.theme = Self.loadTheme(from: defaults)
         self.editorFontScale = defaults.double(forKey: Keys.editorFontScale).clamped(to: 0.8...2.0, default: 1.0)
         self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
+        self.accentColorHex = UInt(defaults.integer(forKey: Keys.accentColorHex)).clamped(to: 1...0xFFFFFF, default: 0xF2994A)
     }
 
     // MARK: - Persistence
@@ -63,12 +74,14 @@ public final class AppearanceManager {
         static let theme = "quartz.appearance.theme"
         static let editorFontScale = "quartz.appearance.editorFontScale"
         static let vibrantTransparency = "quartz.appearance.vibrantTransparency"
+        static let accentColorHex = "quartz.appearance.accentColorHex"
     }
 
     private func save() {
         defaults.set(theme.rawValue, forKey: Keys.theme)
         defaults.set(editorFontScale, forKey: Keys.editorFontScale)
         defaults.set(vibrantTransparency, forKey: Keys.vibrantTransparency)
+        defaults.set(Int(accentColorHex), forKey: Keys.accentColorHex)
     }
 
     private static func loadTheme(from defaults: UserDefaults) -> Theme {
@@ -97,6 +110,13 @@ extension EnvironmentValues {
 
 private extension Double {
     func clamped(to range: ClosedRange<Double>, default defaultValue: Double) -> Double {
+        if self == 0 { return defaultValue }
+        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension UInt {
+    func clamped(to range: ClosedRange<UInt>, default defaultValue: UInt) -> UInt {
         if self == 0 { return defaultValue }
         return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }

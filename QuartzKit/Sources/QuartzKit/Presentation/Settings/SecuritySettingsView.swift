@@ -36,10 +36,11 @@ public struct SecuritySettingsView: View {
     private func checkBiometry() {
         #if canImport(LocalAuthentication)
         let context = LAContext()
+        // Allow app lock when biometrics OR device passcode is available (e.g. Mac without Touch ID)
         biometryAvailable = context.canEvaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
             error: nil
-        )
+        ) || context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
         biometryLabel = switch context.biometryType {
         case .faceID: "Face ID"
         case .touchID: "Touch ID"

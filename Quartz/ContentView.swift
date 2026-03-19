@@ -24,6 +24,8 @@ private var sidebarFooterFont: Font {
 /// Main layout: 2-column NavigationSplitView with sidebar and editor.
 struct ContentView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.appearanceManager) private var appearance
+    @Environment(\.focusModeManager) private var focusMode
     @State private var viewModel: ContentViewModel?
     @State private var selectedNoteURL: URL?
     @State private var showVaultPicker = false
@@ -39,6 +41,7 @@ struct ContentView: View {
     @State private var showKnowledgeGraph = false
     #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
+    @State private var showSupport = false
     @State private var availableUpdate: UpdateChecker.ReleaseInfo?
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
     #if os(macOS)
@@ -47,12 +50,16 @@ struct ContentView: View {
 
     private static let onboardingCompletedKey = "quartz.hasCompletedOnboarding"
 
-    var body: some View {
-        AdaptiveLayoutView(columnVisibility: $columnVisibility) {
+    private var mainLayout: some View {
+        AdaptiveLayoutView(columnVisibility: focusMode.isFocusModeActive ? .constant(.detailOnly) : $columnVisibility) {
             sidebarColumn
         } detail: {
             detailColumn
         }
+    }
+
+    var body: some View {
+        mainLayout
         .task {
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)
@@ -114,6 +121,9 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $showSupport) {
+            SupportView()
+        }
         #if os(macOS)
         .sheet(isPresented: $showKnowledgeGraph) {
             NavigationStack {
@@ -129,7 +139,7 @@ struct ContentView: View {
                 )
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "Done", bundle: .module)) {
+                        Button(String(localized: "Done")) {
                             showKnowledgeGraph = false
                         }
                     }
@@ -191,7 +201,7 @@ struct ContentView: View {
             }
             #endif
         }
-        .tint(Color(hex: 0xF2994A))
+        .tint(appearance.accentColor)
         #if os(macOS)
         .onDisappear {
             quickNoteManager?.unregisterHotkey()
@@ -260,45 +270,44 @@ struct ContentView: View {
                 SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
                 #endif
 
-                // Bottom bar: Settings
+                // Bottom bar: sync/ indexing (macOS also has Settings link)
                 sidebarBottomBar
             }
+            .quartzLiquidGlass(enabled: appearance.vibrantTransparency)
             .navigationTitle(appState.currentVault?.name ?? String(localized: "Quartz"))
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
+                    toolbarIconButton(icon: "magnifyingglass") {
                         showSearch = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
                     }
                     .accessibilityLabel(String(localized: "Search"))
                     .help(String(localized: "Search notes"))
                     .disabled(viewModel?.searchIndex == nil)
 
-                    Button {
+                    toolbarIconButton(icon: "cup.and.saucer") {
+                        showSupport = true
+                    }
+                    .accessibilityLabel(String(localized: "Support My Work"))
+                    .help(String(localized: "Support the project"))
+
+                    toolbarIconButton(icon: "brain.head.profile") {
                         if let session = viewModel?.createVaultChatSession() {
                             vaultChatSheetItem = VaultChatSheetItem(session: session)
                         }
-                    } label: {
-                        Image(systemName: "brain.head.profile")
                     }
                     .accessibilityLabel(String(localized: "Chat with Vault"))
                     .help(String(localized: "AI chat across all notes"))
                     .disabled(viewModel?.embeddingService == nil)
 
-                    Button {
+                    toolbarIconButton(icon: "folder.badge.plus") {
                         showVaultPicker = true
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
                     }
                     .accessibilityLabel(String(localized: "Open Vault"))
                     .help(String(localized: "Open or create vault"))
 
                     #if os(iOS)
-                    Button {
+                    toolbarIconButton(icon: "gearshape") {
                         showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
                     }
                     .accessibilityLabel(String(localized: "Settings"))
                     .help(String(localized: "Settings"))
@@ -310,32 +319,42 @@ struct ContentView: View {
         }
     }
 
+    /// HIG-compliant toolbar icon button: minimum 44×44pt touch target.
+    @ViewBuilder
+    private func toolbarIconButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                #if os(iOS)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                #endif
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Vault Header
 
     private var vaultHeader: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(QuartzColors.accent.gradient)
+            Image("AppIconImage")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 36, height: 36)
-                .overlay {
-                    Image(systemName: "diamond.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(appState.currentVault?.name ?? String(localized: "Quartz"))
                     .font(.body.weight(.bold))
                     .lineLimit(1)
-                Text(
+                Group {
                     #if os(macOS)
-                    String(localized: "Second Brain", bundle: .module)
+                    Text(String(localized: "Second Brain"))
                     #else
-                    String(localized: "Personal Vault", bundle: .module)
+                    Text(String(localized: "Personal Vault"))
                     #endif
-                )
-                    .font(vaultSubtitleFont)
-                    .foregroundStyle(.secondary)
+                }
+                .font(vaultSubtitleFont)
+                .foregroundStyle(.secondary)
             }
             Spacer()
 
@@ -394,26 +413,8 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            #else
-            Button {
-                showSettings = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                    Text(String(localized: "Settings"))
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
             #endif
+            // iOS: Settings is in the top toolbar, no bottom row needed
         }
     }
 
@@ -474,7 +475,7 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkle")
                     .font(sidebarFooterFont)
-                    .foregroundStyle(QuartzColors.accent)
+                    .foregroundStyle(appearance.accentColor)
                     .symbolEffect(.pulse)
                 Text(String(format: String(localized: "Indexing notes… %lld/%lld"), Int64(current), Int64(total)))
                     .font(sidebarFooterFont)
@@ -482,7 +483,7 @@ struct ContentView: View {
                 Spacer()
             }
             ProgressView(value: Double(current), total: Double(max(total, 1)))
-                .tint(QuartzColors.accent)
+                .tint(appearance.accentColor)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -530,7 +531,7 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.subheadline)
-                        Text(String(localized: "Search Brain…", bundle: .module))
+                        Text(String(localized: "Search Brain…"))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -540,6 +541,13 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(viewModel?.searchIndex == nil)
+
+                Button {
+                    showSupport = true
+                } label: {
+                    Image(systemName: "cup.and.saucer")
+                }
+                .help(String(localized: "Support the project"))
 
                 Button {
                     newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
@@ -562,16 +570,6 @@ struct ContentView: View {
                 SettingsLink {
                     Image(systemName: "gearshape")
                 }
-
-                // User avatar placeholder
-                Circle()
-                    .fill(QuartzColors.accent.opacity(0.3))
-                    .frame(width: 28, height: 28)
-                    .overlay {
-                        Image(systemName: "person.fill")
-                            .font(.caption)
-                            .foregroundStyle(QuartzColors.accent)
-                    }
             }
         }
         #endif
@@ -725,11 +723,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
             .padding(12)
-            .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
-            }
+            .quartzMaterialBackground(cornerRadius: 12, shadowRadius: 8)
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))

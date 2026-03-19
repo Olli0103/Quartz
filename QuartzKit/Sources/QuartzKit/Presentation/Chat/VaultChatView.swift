@@ -140,10 +140,7 @@ public struct VaultChatView: View {
             .buttonStyle(.plain)
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
+        .quartzMaterialBackground(cornerRadius: 10)
         .padding(.horizontal, 12)
         .padding(.top, 8)
     }
@@ -247,6 +244,8 @@ private struct VaultMessageBubble: View {
         .padding(.horizontal, 16)
     }
 
+    @Environment(\.layoutDirection) private var layoutDirection
+
     private func sourcesView(_ sources: [VaultSource]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(String(localized: "Sources", bundle: .module))
@@ -254,7 +253,7 @@ private struct VaultMessageBubble: View {
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
-            FlowLayout(spacing: 4) {
+            FlowLayout(spacing: 4, layoutDirection: layoutDirection) {
                 ForEach(sources) { source in
                     sourceChip(source)
                 }
@@ -288,9 +287,10 @@ private struct VaultMessageBubble: View {
 
 // MARK: - Flow Layout
 
-/// Simple horizontal wrapping layout for source chips.
+/// Simple horizontal wrapping layout for source chips. Supports RTL via layoutDirection.
 private struct FlowLayout: Layout {
     var spacing: CGFloat = 4
+    var layoutDirection: LayoutDirection = .leftToRight
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let result = arrange(proposal: proposal, subviews: subviews)
@@ -299,12 +299,17 @@ private struct FlowLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let result = arrange(proposal: proposal, subviews: subviews)
+        let isRTL = layoutDirection == .rightToLeft
         for (index, subview) in subviews.enumerated() {
             guard index < result.origins.count else { continue }
-            let origin = CGPoint(
-                x: bounds.minX + result.origins[index].x,
-                y: bounds.minY + result.origins[index].y
-            )
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let x: CGFloat
+            if isRTL {
+                x = bounds.maxX - result.origins[index].x - size.width
+            } else {
+                x = bounds.minX + result.origins[index].x
+            }
+            let origin = CGPoint(x: x, y: bounds.minY + result.origins[index].y)
             subview.place(at: origin, proposal: .unspecified)
         }
     }

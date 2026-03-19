@@ -167,7 +167,7 @@ public struct AudioRecordingView: View {
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.ultraThinMaterial)
+            .quartzMaterialBackground(cornerRadius: 0)
             .navigationTitle(String(localized: "Record Audio", bundle: .module))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -278,7 +278,7 @@ public struct AudioRecordingView: View {
                         .font(.title2)
                         .foregroundStyle(.primary)
                         .frame(width: 52, height: 52)
-                        .background(Circle().fill(.regularMaterial))
+                        .quartzMaterialCircle()
                 }
                 .buttonStyle(QuartzBounceButtonStyle())
                 .accessibilityLabel(viewModel.recordingService.isPaused
@@ -310,7 +310,7 @@ public struct AudioRecordingView: View {
                         .font(.title2)
                         .foregroundStyle(.red.opacity(0.8))
                         .frame(width: 52, height: 52)
-                        .background(Circle().fill(.regularMaterial))
+                        .quartzMaterialCircle()
                 }
                 .buttonStyle(QuartzBounceButtonStyle())
                 .accessibilityLabel(String(localized: "Discard recording", bundle: .module))

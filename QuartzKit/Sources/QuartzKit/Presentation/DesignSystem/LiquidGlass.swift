@@ -130,44 +130,150 @@ public extension Color {
 // MARK: - Liquid Glass Material
 
 /// A glassmorphism effect with adjustable transparency and blur.
+/// Uses native Liquid Glass (iOS 26+) when available, otherwise material.
 public struct GlassBackground: ViewModifier {
     var cornerRadius: CGFloat
     var opacity: Double
     var shadowRadius: CGFloat
 
     public func body(content: Content) -> some View {
-        content
-            .background {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .opacity(opacity)
-                    .shadow(color: .black.opacity(0.06), radius: shadowRadius, y: shadowRadius / 3)
-            }
+        if #available(iOS 26, macOS 26, *) {
+            content
+                .glassEffect(in: .rect(cornerRadius: cornerRadius))
+                .shadow(color: .black.opacity(0.06), radius: shadowRadius, y: shadowRadius / 3)
+        } else {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(opacity)
+                        .shadow(color: .black.opacity(0.06), radius: shadowRadius, y: shadowRadius / 3)
+                }
+        }
     }
 }
 
-/// More subtle glass variant for cards.
+// MARK: - Liquid Glass (iOS 26+)
+
+/// Applies the native Liquid Glass effect when available (iOS 26+), otherwise falls back to material.
+/// Use when `vibrantTransparency` is enabled for sidebar and floating surfaces.
+public struct QuartzLiquidGlassModifier: ViewModifier {
+    var enabled: Bool
+    var cornerRadius: CGFloat
+
+    public init(enabled: Bool, cornerRadius: CGFloat = 20) {
+        self.enabled = enabled
+        self.cornerRadius = cornerRadius
+    }
+
+    public func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 26, macOS 26, *) {
+                content.glassEffect(in: .rect(cornerRadius: cornerRadius))
+            } else {
+                content.background(.ultraThinMaterial)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+public extension View {
+    /// Applies Liquid Glass when enabled and available (iOS 26+); otherwise material or no effect.
+    func quartzLiquidGlass(enabled: Bool, cornerRadius: CGFloat = 20) -> some View {
+        modifier(QuartzLiquidGlassModifier(enabled: enabled, cornerRadius: cornerRadius))
+    }
+
+    /// Applies Liquid Glass when available (iOS 26+), otherwise material. Use for toolbars, panels, floating bars.
+    /// Set `preferRegularMaterial` to true for floating elements (e.g. search bar) to avoid dark/black rendering.
+    func quartzMaterialBackground(cornerRadius: CGFloat = 16, shadowRadius: CGFloat = 0, preferRegularMaterial: Bool = false) -> some View {
+        modifier(QuartzMaterialBackgroundModifier(cornerRadius: cornerRadius, shadowRadius: shadowRadius, preferRegularMaterial: preferRegularMaterial))
+    }
+
+    /// Applies Liquid Glass to circular views (e.g. icon buttons) when available.
+    func quartzMaterialCircle() -> some View {
+        modifier(QuartzMaterialCircleModifier())
+    }
+}
+
+// MARK: - Material Background (always-on Liquid Glass with fallback)
+
+/// Applies Liquid Glass when available (iOS 26+), otherwise material. For toolbars, panels, floating bars.
+public struct QuartzMaterialBackgroundModifier: ViewModifier {
+    var cornerRadius: CGFloat
+    var shadowRadius: CGFloat
+    var preferRegularMaterial: Bool
+
+    public init(cornerRadius: CGFloat = 16, shadowRadius: CGFloat = 0, preferRegularMaterial: Bool = false) {
+        self.cornerRadius = cornerRadius
+        self.shadowRadius = shadowRadius
+        self.preferRegularMaterial = preferRegularMaterial
+    }
+
+    public func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 26, macOS 26, *) {
+                content
+                    .glassEffect(in: .rect(cornerRadius: cornerRadius))
+            } else {
+                content
+                    .background {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(preferRegularMaterial ? .regularMaterial : .ultraThinMaterial)
+                    }
+            }
+        }
+        .shadow(color: shadowRadius > 0 ? .black.opacity(0.06) : .clear, radius: shadowRadius, y: shadowRadius / 4)
+    }
+}
+
+/// Applies Liquid Glass to circular views when available (iOS 26+).
+public struct QuartzMaterialCircleModifier: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 26, macOS 26, *) {
+                content.glassEffect(in: Circle())
+            } else {
+                content.background(Circle().fill(.regularMaterial))
+            }
+        }
+    }
+}
+
+// MARK: - Glass Card
+
+/// More subtle glass variant for cards. Uses Liquid Glass when available.
 public struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat
 
     public func body(content: Content) -> some View {
-        content
-            .background {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.regularMaterial)
-                    .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+        Group {
+            if #available(iOS 26, macOS 26, *) {
+                content
+                    .glassEffect(in: .rect(cornerRadius: cornerRadius))
+            } else {
+                content
+                    .background {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(.regularMaterial)
+                            .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.3), .white.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.5
+                            )
+                    }
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [.white.opacity(0.3), .white.opacity(0.05)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.5
-                    )
-            }
+        }
     }
 }
 
@@ -516,8 +622,8 @@ public struct QuartzTagBadge: View {
                 .foregroundStyle(isSelected ? .white : .primary)
         }
         .font(.caption)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .background {
             Capsule()
                 .fill(isSelected ? tagColor : tagColor.opacity(0.12))
@@ -539,10 +645,11 @@ public struct QuartzSectionHeader: View {
     }
 
     public var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
+                    .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
             }
             Text(title)
@@ -572,6 +679,7 @@ public struct QuartzButton: View {
                 if let icon {
                     Image(systemName: icon)
                         .font(.body.weight(.semibold))
+                        .symbolRenderingMode(.hierarchical)
                 }
                 Text(title)
                     .fontWeight(.semibold)
@@ -687,6 +795,7 @@ public struct QuartzEmptyState: View {
             Image(systemName: icon)
                 .font(.largeTitle.weight(.regular))
                 .imageScale(.large)
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.quaternary)
 
             VStack(spacing: 6) {
@@ -699,7 +808,7 @@ public struct QuartzEmptyState: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .padding(40)
+        .padding(48)
         .accessibilityElement(children: .combine)
     }
 }

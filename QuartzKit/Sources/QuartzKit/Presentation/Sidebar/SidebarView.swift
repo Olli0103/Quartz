@@ -1,6 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Transferable wrapper for sidebar items. Using URL.self directly in dropDestination fails on iOS;
+/// a custom Transferable with CodableRepresentation works on both platforms.
+private struct SidebarItemTransferable: Transferable, Codable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .json)
+    }
+}
+
 /// Section header font – larger on macOS.
 private var sidebarSectionFont: Font {
     #if os(macOS)
@@ -32,6 +42,7 @@ public struct SidebarView: View {
     @Bindable var viewModel: SidebarViewModel
     @Binding var selectedNoteURL: URL?
     var onMapViewTap: (() -> Void)?
+    @Environment(\.appearanceManager) private var appearance
     @State private var showNewFolderDialog = false
     @State private var showNewNoteDialog = false
     @State private var newItemName: String = ""
@@ -51,31 +62,45 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            newNoteButton
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
+        ScrollView {
+            VStack(spacing: 0) {
+                newNoteButton
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 8)
 
-            List(selection: $selectedNoteURL) {
+                // Single scrollable layout: List breaks dropDestination when source and target are in same List (SwiftUI bug).
+                // Everything in one ScrollView for correct scrolling; folder tree outside List for drag & drop.
                 quickAccessSection
+                    .padding(.horizontal, 16)
 
                 if !viewModel.tagInfos.isEmpty {
                     tagsSection
+                        .padding(.horizontal, 16)
                 }
 
-                foldersSection
+                foldersSectionContent
 
                 #if os(macOS)
                 mapViewAndTrashSection
+                    .padding(.horizontal, 16)
                 #endif
 
                 if !viewModel.isLoading && viewModel.fileTree.isEmpty {
                     emptyState
+                        .padding(.horizontal, 16)
                 }
             }
-            .listStyle(.sidebar)
+            .padding(.bottom, 16)
+        }
+        #if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: 68)
+        }
+        #endif
+            #if os(macOS)
             .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes, tags…", bundle: .module)))
+            #endif
             .onChange(of: searchQuery) { _, newValue in
                 searchDebounceTask?.cancel()
                 searchDebounceTask = Task {
@@ -85,11 +110,16 @@ public struct SidebarView: View {
                 }
             }
         }
+        #if os(iOS)
+        .overlay(alignment: .bottom) {
+            iosFloatingSearchBar
+        }
+        #endif
         .overlay {
             if viewModel.isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.ultraThinMaterial)
+                    .quartzMaterialBackground(cornerRadius: 0)
             }
         }
         .alert(String(localized: "New Folder", bundle: .module), isPresented: $showNewFolderDialog) {
@@ -155,6 +185,25 @@ public struct SidebarView: View {
         .task { viewModel.collectTags() }
     }
 
+    #if os(iOS)
+    /// Floating search bar at bottom with liquid glass styling.
+    private var iosFloatingSearchBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+            TextField(String(localized: "Search notes, tags…", bundle: .module), text: $searchQuery)
+                .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 12, preferRegularMaterial: true)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+    }
+    #endif
+
     // MARK: - New Note Button
 
     private static let navyButton = Color(hex: 0x1E3A5F)
@@ -163,7 +212,7 @@ public struct SidebarView: View {
         #if os(macOS)
         Self.navyButton
         #else
-        QuartzColors.accent.gradient
+        appearance.accentColor.gradient
         #endif
     }
 
@@ -210,9 +259,12 @@ public struct SidebarView: View {
 
     private var quickAccessSection: some View {
         Section {
+            #if os(macOS)
+            dashboardRow
+            #endif
             quickAccessRow(
                 icon: "folder.fill",
-                iconColor: QuartzColors.accent,
+                iconColor: appearance.accentColor,
                 label: String(localized: "All Notes", bundle: .module),
                 filter: .all
             )
@@ -237,6 +289,37 @@ public struct SidebarView: View {
         }
     }
 
+    #if os(macOS)
+    private var dashboardRow: some View {
+        Button {
+            selectedNoteURL = nil
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: sidebarIconSize, weight: .medium))
+                    .foregroundStyle(QuartzColors.accent)
+                    .frame(width: sidebarIconSize + 4)
+                Text(String(localized: "Dashboard", bundle: .module))
+                    .font(.body)
+                Spacer()
+                if selectedNoteURL == nil {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(appearance.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            selectedNoteURL == nil
+                ? RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(appearance.accentColor.opacity(0.1))
+                : nil
+        )
+    }
+    #endif
+
     private func quickAccessRow(icon: String, iconColor: Color, label: String, filter: SidebarFilter) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -254,7 +337,7 @@ public struct SidebarView: View {
                 if viewModel.activeFilter == filter {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(QuartzColors.accent)
+                        .foregroundStyle(appearance.accentColor)
                 }
             }
             .contentShape(Rectangle())
@@ -263,7 +346,7 @@ public struct SidebarView: View {
         .listRowBackground(
             viewModel.activeFilter == filter
                 ? RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(QuartzColors.accent.opacity(0.1))
+                    .fill(appearance.accentColor.opacity(0.1))
                 : nil
         )
     }
@@ -300,25 +383,48 @@ public struct SidebarView: View {
                         withAnimation { viewModel.selectedTag = nil }
                     }
                     .font(.caption)
-                    .foregroundStyle(QuartzColors.accent)
+                    .foregroundStyle(appearance.accentColor)
                 }
             }
         }
     }
 
-    // MARK: - Folders Section
+    // MARK: - Folders Section (outside List for drag & drop – List breaks dropDestination)
 
-    private var foldersSection: some View {
-        Section {
-            ForEach(viewModel.filteredTree) { node in
-                nodeView(for: node)
+    private var foldersSectionContent: some View {
+        Group {
+            if !viewModel.fileTree.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(String(localized: "Folders", bundle: .module))
+                        .font(sidebarSectionFont)
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .dropDestination(for: SidebarItemTransferable.self) { items, _ in
+                            guard let root = viewModel.vaultRootURL else { return false }
+                            var moved = false
+                            for sourceURL in items.map(\.url) {
+                                guard sourceURL.deletingLastPathComponent() != root else { continue }
+                                Task { await viewModel.move(at: sourceURL, to: root) }
+                                moved = true
+                            }
+                            return moved
+                        } isTargeted: { _ in }
+
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(viewModel.filteredTree) { node in
+                            nodeView(for: node)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } header: {
-            Text(String(localized: "Folders", bundle: .module))
-                .font(sidebarSectionFont)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
         }
     }
 
@@ -374,19 +480,29 @@ public struct SidebarView: View {
                 ForEach(children) { child in
                     AnyView(nodeView(for: child))
                 }
-            } label: {
+            }             label: {
                 FileNodeRow(node: node)
+                    .contentShape(Rectangle())
+                    .draggable(SidebarItemTransferable(url: node.url))
             }
-            .dropDestination(for: String.self) { items, _ in
-                handleDrop(items: items, onto: node)
-            } isTargeted: { isTargeted in
-                // visual feedback handled by SwiftUI
-            }
+            .dropDestination(for: SidebarItemTransferable.self) { items, _ in
+                handleDrop(urls: items.map(\.url), onto: node)
+            } isTargeted: { _ in }
+            .contentShape(Rectangle())
             .contextMenu { folderContextMenu(for: node) }
         } else if node.isNote {
-            FileNodeRow(node: node)
-                .tag(node.url)
-                .draggable(node.url.absoluteString)
+            Button {
+                selectedNoteURL = node.url
+            } label: {
+                FileNodeRow(node: node)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selectedNoteURL == node.url ? appearance.accentColor.opacity(0.1) : Color.clear)
+            )
+            .draggable(SidebarItemTransferable(url: node.url))
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         pendingDeleteURL = node.url
@@ -402,14 +518,15 @@ public struct SidebarView: View {
         }
     }
 
-    private func handleDrop(items: [String], onto folder: FileNode) -> Bool {
+    private func handleDrop(urls: [URL], onto folder: FileNode) -> Bool {
         guard folder.isFolder else { return false }
         var moved = false
-        for urlString in items {
-            guard let sourceURL = URL(string: urlString) else { continue }
+        for sourceURL in urls {
             guard sourceURL != folder.url else { continue }
-            // Don't drop a folder into itself
-            guard !folder.url.path(percentEncoded: false).hasPrefix(sourceURL.path(percentEncoded: false)) else { continue }
+            // Don't drop a folder into itself or a parent into its descendant
+            let folderPath = folder.url.path(percentEncoded: false)
+            let sourcePath = sourceURL.path(percentEncoded: false)
+            guard !folderPath.hasPrefix(sourcePath + "/") else { continue }
             Task {
                 await viewModel.move(at: sourceURL, to: folder.url)
             }

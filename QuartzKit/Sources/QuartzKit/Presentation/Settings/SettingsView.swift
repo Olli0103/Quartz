@@ -10,35 +10,35 @@ public struct SettingsView: View {
         #if os(macOS)
         TabView {
             AppearanceSettingsView()
-                .padding(20)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Appearance", bundle: .module), systemImage: "paintbrush.fill")
                 }
 
             EditorSettingsView()
-                .padding(20)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Editor", bundle: .module), systemImage: "textformat")
                 }
 
             AISettingsView()
-                .padding(20)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "AI", bundle: .module), systemImage: "brain")
                 }
 
             DataSettingsView()
-                .padding(20)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Data", bundle: .module), systemImage: "externaldrive")
                 }
 
             SecuritySettingsView()
-                .padding(20)
+                .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
                     Label(String(localized: "Security", bundle: .module), systemImage: "lock.fill")
@@ -83,7 +83,7 @@ public struct SettingsView: View {
                     } label: {
                         SettingsRow(
                             icon: "brain",
-                            iconColor: .purple,
+                            iconColor: QuartzColors.canvasPurple,
                             title: String(localized: "AI", bundle: .module)
                         )
                     }
@@ -97,7 +97,7 @@ public struct SettingsView: View {
                     } label: {
                         SettingsRow(
                             icon: "externaldrive",
-                            iconColor: .orange,
+                            iconColor: QuartzColors.assetOrange,
                             title: String(localized: "Data", bundle: .module)
                         )
                     }
@@ -161,7 +161,7 @@ public struct SettingsView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "square.and.pencil")
-                .font(.system(size: 48, weight: .thin))
+                .font(.largeTitle.weight(.thin))
                 .foregroundStyle(QuartzColors.accentGradient)
 
             Text("Quartz")
@@ -228,6 +228,7 @@ private struct SettingsRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.subheadline.weight(.semibold))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
                 .background(

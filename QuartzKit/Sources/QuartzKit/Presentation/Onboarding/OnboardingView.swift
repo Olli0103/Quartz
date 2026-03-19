@@ -351,14 +351,13 @@ public struct OnboardingView: View {
             }
             .padding(16)
             .background {
-                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
                 if isSelected {
-                    shape.fill(color.gradient)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(color.gradient)
                         .shadow(color: color.opacity(0.35), radius: 12, y: 6)
-                } else {
-                    shape.fill(.regularMaterial)
                 }
             }
+            .quartzLiquidGlass(enabled: !isSelected, cornerRadius: 14)
             .overlay {
                 if !isSelected {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)

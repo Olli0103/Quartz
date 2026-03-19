@@ -96,8 +96,7 @@ public struct QuickNoteView: View {
                         .font(.caption.bold())
                 }
                 .padding(24)
-                .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .quartzMaterialBackground(cornerRadius: 12)
                 .transition(.scale.combined(with: .opacity))
             }
         }

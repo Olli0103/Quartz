@@ -7,14 +7,14 @@ public struct AppearanceSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var baseBodySize: CGFloat = 17
 
-    private static let accentOptions: [(Color, String)] = [
-        (Color.blue, "Blue"),
-        (Color.red, "Red"),
-        (Color.green, "Green"),
-        (QuartzColors.accent, "Orange"),
-        (Color.purple, "Purple"),
-        (Color.pink, "Pink"),
-        (Color.gray, "Gray"),
+    private static let accentOptions: [(UInt, String)] = [
+        (0x007AFF, "Blue"),
+        (0xFF3B30, "Red"),
+        (0x34C759, "Green"),
+        (0xF2994A, "Orange"),
+        (0xAF52DE, "Purple"),
+        (0xFF2D55, "Pink"),
+        (0x8E8E93, "Gray"),
     ]
 
     public init() {}
@@ -44,7 +44,14 @@ public struct AppearanceSettingsView: View {
             Section {
                 HStack(spacing: 12) {
                     ForEach(Array(Self.accentOptions.enumerated()), id: \.offset) { _, item in
-                        accentSwatch(color: item.0, isSelected: item.0 == QuartzColors.accent)
+                        Button {
+                            withAnimation(reduceMotion ? .default : QuartzAnimation.soft) {
+                                appearance.accentColorHex = item.0
+                            }
+                        } label: {
+                            accentSwatch(color: Color(hex: item.0), isSelected: appearance.accentColorHex == item.0)
+                        }
+                        .buttonStyle(.plain)
                     }
                     Button {
                         // Custom color – future enhancement
@@ -53,7 +60,7 @@ public struct AppearanceSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(width: 32, height: 32)
-                            .background(Circle().strokeBorder(Color.gray.opacity(0.3), lineWidth: 1))
+                            .background(Circle().strokeBorder(.separator, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -72,13 +79,13 @@ public struct AppearanceSettingsView: View {
                         Spacer()
                         Text("\(Int(baseBodySize * appearance.editorFontScale * 0.85))px")
                             .font(.subheadline.weight(.medium))
-                            .foregroundStyle(QuartzColors.accent)
+                            .foregroundStyle(appearance.accentColor)
                             .monospacedDigit()
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .fill(QuartzColors.accent.opacity(0.15))
+                                    .fill(appearance.accentColor.opacity(0.15))
                             )
                     }
 
@@ -90,7 +97,7 @@ public struct AppearanceSettingsView: View {
                         in: 0.8...2.0,
                         step: 0.1
                     )
-                    .tint(QuartzColors.accent)
+                    .tint(appearance.accentColor)
 
                     Text(String(localized: "The quick brown fox jumps over the lazy dog. Quartz makes note-taking effortless and beautiful.", bundle: .module))
                         .font(.system(size: baseBodySize * appearance.editorFontScale * 0.85))
@@ -123,7 +130,7 @@ public struct AppearanceSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .tint(QuartzColors.accent)
+                .tint(appearance.accentColor)
             }
         }
         .formStyle(.grouped)
@@ -136,7 +143,7 @@ public struct AppearanceSettingsView: View {
             .frame(width: 32, height: 32)
             .overlay {
                 Circle()
-                    .strokeBorder(isSelected ? QuartzColors.accent : .clear, lineWidth: 3)
+                    .strokeBorder(isSelected ? color : .clear, lineWidth: 3)
             }
     }
 }
@@ -147,11 +154,12 @@ private struct ThemeCard: View {
     let theme: AppearanceManager.Theme
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
                 // Mini preview
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(previewFill)
@@ -159,7 +167,7 @@ private struct ThemeCard: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(
-                                isSelected ? Color.accentColor : .clear,
+                                isSelected ? appearance.accentColor : .clear,
                                 lineWidth: 2.5
                             )
                     }
@@ -169,7 +177,7 @@ private struct ThemeCard: View {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(appearance.accentColor)
                         .transition(.scale.combined(with: .opacity))
                 }
 

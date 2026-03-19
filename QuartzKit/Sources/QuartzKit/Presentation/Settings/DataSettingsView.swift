@@ -3,6 +3,7 @@ import SwiftUI
 /// Settings view for data import/export operations.
 public struct DataSettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.appearanceManager) private var appearance
     @State private var showFilePicker = false
     @State private var importResult: ImportResultInfo?
     @State private var isImporting = false
@@ -104,7 +105,7 @@ public struct DataSettingsView: View {
                     }
                     .disabled(appState.currentVault == nil)
                     .buttonStyle(.borderedProminent)
-                    .tint(QuartzColors.accent)
+                    .tint(appearance.accentColor)
                 }
                 .padding(.vertical, 4)
             } header: {
@@ -155,7 +156,7 @@ public struct DataSettingsView: View {
             }
             .disabled(isImporting)
             .buttonStyle(.borderedProminent)
-            .tint(QuartzColors.accent)
+            .tint(appearance.accentColor)
 
             Text(String(localized: "Importing into: \(vault.name)", bundle: .module))
                 .font(.caption2)

@@ -4,6 +4,8 @@ import SwiftUI
 /// Collapsible with Liquid Glass design.
 public struct FrontmatterEditorView: View {
     @Binding var frontmatter: Frontmatter
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.appearanceManager) private var appearance
     @State private var isExpanded: Bool = false
     @State private var newTag: String = ""
     @State private var newCustomKey: String = ""
@@ -51,7 +53,7 @@ public struct FrontmatterEditorView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
+                .quartzMaterialBackground(cornerRadius: 0)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isExpanded ? String(localized: "Collapse frontmatter", bundle: .module) : String(localized: "Expand frontmatter", bundle: .module))
@@ -72,7 +74,7 @@ public struct FrontmatterEditorView: View {
 
                     // Tags
                     LabeledField(label: String(localized: "Tags", bundle: .module)) {
-                        FlowLayout(spacing: 6) {
+                        FlowLayout(spacing: 6, layoutDirection: layoutDirection) {
                             ForEach(frontmatter.tags, id: \.self) { tag in
                                 HStack(spacing: 4) {
                                     QuartzTagBadge(text: tag)
@@ -99,7 +101,7 @@ public struct FrontmatterEditorView: View {
 
                                 Button { addTag() } label: {
                                     Image(systemName: "plus.circle.fill")
-                                        .foregroundStyle(QuartzColors.accent)
+                                        .foregroundStyle(appearance.accentColor)
                                         .frame(minWidth: 44, minHeight: 44)
                                         .contentShape(Rectangle())
                                 }

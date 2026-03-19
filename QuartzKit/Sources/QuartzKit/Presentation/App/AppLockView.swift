@@ -87,7 +87,7 @@ public struct AppLockView<Content: View>: View {
             Spacer()
                 .frame(height: 48)
         }
-        .background(.ultraThinMaterial)
+        .quartzMaterialBackground(cornerRadius: 0)
     }
 
     private func resolveBiometryIcon() {

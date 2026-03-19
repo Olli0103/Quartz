@@ -116,50 +116,33 @@ public struct NoteEditorView: View {
         self.viewModel = viewModel
     }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            editorHeader
-                .hidesInFocusMode()
-
-            #if os(macOS)
-            formattingBar
-                .hidesInFocusMode()
-            #endif
-
-            if showFrontmatter, viewModel.note != nil {
-                FrontmatterEditorView(
-                    frontmatter: Binding(
-                        get: { viewModel.note?.frontmatter ?? Frontmatter() },
-                        set: { viewModel.updateFrontmatter($0) }
-                    )
+    @ViewBuilder
+    private var mainEditorView: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            editorContent
+                .overlay(alignment: .bottom) {
+                    macosFloatingToolbar
+                        .padding(.bottom, 28)
+                        .hidesInFocusMode()
+                }
+            if let note = viewModel.note, !focusMode.isFocusModeActive {
+                NoteMetadataPanelView(
+                    note: note,
+                    content: viewModel.content,
+                    vaultRootURL: viewModel.vaultRootURL,
+                    onUpdateFrontmatter: { viewModel.updateFrontmatter($0) },
+                    onExportPDF: { prepareAndShowPDFExport() }
                 )
-                .hidesInFocusMode()
-                .transition(.move(edge: .top).combined(with: .opacity))
             }
-
-            MarkdownTextViewRepresentable(
-                text: $viewModel.content,
-                cursorPosition: $viewModel.cursorPosition,
-                editorFontScale: appearance.editorFontScale,
-                noteURL: viewModel.note?.fileURL
-            )
-            .onDrop(of: [.image], isTargeted: nil) { providers in
-                handleImageDrop(providers)
-            }
-
-            if showBacklinks && !backlinks.isEmpty {
-                backlinkBar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            if viewModel.note != nil {
-                tagBar
-                    .hidesInFocusMode()
-            }
-
-            statusBar
-                .hidesInFocusMode()
         }
+        #else
+        editorContent
+        #endif
+    }
+
+    public var body: some View {
+        mainEditorView
         .sensoryFeedback(.success, trigger: viewModel.manualSaveCompleted)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: focusMode.isFocusModeActive)
         .onChange(of: viewModel.manualSaveCompleted) { _, _ in
@@ -207,6 +190,7 @@ public struct NoteEditorView: View {
         #if os(iOS)
         .overlay(alignment: .bottom) {
             iosFloatingToolbar
+                .padding(.horizontal, 20)
                 .padding(.bottom, 12)
                 .hidesInFocusMode()
         }
@@ -218,7 +202,7 @@ public struct NoteEditorView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .quartzMaterialBackground(cornerRadius: 20)
                     .padding(.bottom, 24)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -369,6 +353,58 @@ public struct NoteEditorView: View {
         .task(id: viewModel.note?.fileURL) {
             await loadBacklinks()
         }
+    }
+
+    private var editorContent: some View {
+        VStack(spacing: 0) {
+            editorHeader
+                .hidesInFocusMode()
+
+            if showFrontmatter, viewModel.note != nil {
+                FrontmatterEditorView(
+                    frontmatter: Binding(
+                        get: { viewModel.note?.frontmatter ?? Frontmatter() },
+                        set: { viewModel.updateFrontmatter($0) }
+                    )
+                )
+                .hidesInFocusMode()
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            MarkdownTextViewRepresentable(
+                text: $viewModel.content,
+                cursorPosition: $viewModel.cursorPosition,
+                editorFontScale: appearance.editorFontScale,
+                noteURL: viewModel.note?.fileURL
+            )
+            .onDrop(of: [.image], isTargeted: nil) { providers in
+                handleImageDrop(providers)
+            }
+
+            if showBacklinks && !backlinks.isEmpty {
+                backlinkBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            #if os(iOS)
+            if viewModel.note != nil {
+                tagBar
+                    .hidesInFocusMode()
+            }
+            #endif
+
+            statusBar
+                .hidesInFocusMode()
+        }
+    }
+
+    private func prepareAndShowPDFExport() {
+        guard let note = viewModel.note else { return }
+        pdfExportFilename = note.displayName
+            .replacingOccurrences(of: ".md", with: "") + ".pdf"
+        let data = generatePDFData(title: note.displayName, body: viewModel.content)
+        pdfDocument = PDFFileDocument(data: data)
+        showPDFExporter = true
     }
 
     private func loadBacklinks() async {
@@ -655,34 +691,13 @@ public struct NoteEditorView: View {
                         : String(localized: "Add to Favorites", bundle: .module))
                 }
                 .padding(.horizontal, 20)
-
-                // Metadata
-                HStack(spacing: 14) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: editorMetadataIconSize))
-                        Text(note.frontmatter.modifiedAt, style: .relative)
-                    }
-
-                    if !note.frontmatter.tags.isEmpty {
-                        HStack(spacing: 5) {
-                            Image(systemName: "tag")
-                                .font(.system(size: editorMetadataIconSize))
-                            Text(note.frontmatter.tags.prefix(3).joined(separator: ", "))
-                        }
-                    }
-                }
-                .font(editorMetadataFont)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
                 .padding(.bottom, 14)
             }
 
             Divider()
                 .overlay(QuartzColors.accent.opacity(0.1))
         }
-        .background(.ultraThinMaterial)
+        .quartzMaterialBackground(cornerRadius: 0)
     }
 
     private func breadcrumbComponents(for note: NoteDocument) -> [String] {
@@ -696,37 +711,135 @@ public struct NoteEditorView: View {
         return components
     }
 
-    // MARK: - Formatting Bar
+    // MARK: - Floating Toolbars (shared design)
 
-    private var formattingBar: some View {
-        FormattingToolbar { action in
-            if action == .image {
-                showImagePicker = true
-            } else {
-                applyFormatting(action)
+    #if os(macOS)
+    /// Floating pill-shaped toolbar for Mac: B, I, Link, bullet, image, code, More.
+    private var macosFloatingToolbar: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                formatButton(.bold, icon: "bold")
+                formatButton(.italic, icon: "italic")
+                formatButton(.link, icon: "link")
             }
-        }
-        .background {
+            .padding(.leading, 16)
+            .padding(.vertical, 8)
+
             Rectangle()
-                .fill(.bar)
-                .overlay(alignment: .bottom) {
-                    Divider().overlay(QuartzColors.accent.opacity(0.05))
+                .fill(.separator)
+                .frame(width: 1, height: 22)
+                .padding(.horizontal, 8)
+
+            HStack(spacing: 8) {
+                formatButton(.bulletList, icon: "list.bullet")
+                Button {
+                    showImagePicker = true
+                } label: {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 14, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.primary)
+                        #if os(iOS)
+                        .frame(minWidth: 44, minHeight: 44)
+                        #else
+                        .frame(minWidth: 32, minHeight: 32)
+                        #endif
                 }
+                .buttonStyle(.plain)
+                formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
+            }
+
+            Rectangle()
+                .fill(.separator)
+                .frame(width: 1, height: 22)
+                .padding(.horizontal, 8)
+
+            Menu {
+                ForEach([FormattingAction.table, .codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
+                    Button { applyFormatting(action) } label: {
+                        Label(action.label, systemImage: action.icon)
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 14, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+                    #if os(iOS)
+                    .frame(minWidth: 44, minHeight: 44)
+                    #else
+                    .frame(minWidth: 32, minHeight: 32)
+                    #endif
+            }
+            .menuStyle(.borderlessButton)
+            .padding(.trailing, 16)
         }
+        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16)
+    }
+    #endif
+
+    private func formatButton(_ action: FormattingAction, icon: String) -> some View {
+        Button {
+            applyFormatting(action)
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.primary)
+                #if os(iOS)
+                .frame(minWidth: 44, minHeight: 44)
+                #else
+                .frame(minWidth: 32, minHeight: 32)
+                #endif
+        }
+        .buttonStyle(.plain)
     }
 
     #if os(iOS)
-    /// Floating pill-shaped toolbar for iPhone: B, I, bullet, link, save.
+    /// Floating pill-shaped toolbar for iPhone: B, I, bullet, link, table, image, code, More, save.
     private var iosFloatingToolbar: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 4) {
-                formatButton(.bold, icon: "bold")
-                formatButton(.italic, icon: "italic")
-                formatButton(.bulletList, icon: "list.bullet")
-                formatButton(.link, icon: "link")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    formatButton(.bold, icon: "bold")
+                    formatButton(.italic, icon: "italic")
+                    formatButton(.bulletList, icon: "list.bullet")
+                    formatButton(.link, icon: "link")
+                    Rectangle()
+                        .fill(.separator)
+                        .frame(width: 1, height: 24)
+                        .padding(.horizontal, 8)
+                    formatButton(.table, icon: "tablecells")
+                    Button {
+                        showImageSourceSheet = true
+                    } label: {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 14, weight: .medium))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.primary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
+                    Menu {
+                        ForEach([FormattingAction.codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
+                            Button { applyFormatting(action) } label: {
+                                Label(action.label, systemImage: action.icon)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 14, weight: .medium))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
-            .padding(.leading, 12)
-            .padding(.vertical, 8)
+            .frame(maxWidth: 300)
 
             Rectangle()
                 .fill(.separator)
@@ -740,28 +853,13 @@ public struct NoteEditorView: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(width: 36, height: 36)
-                    .background(Circle().fill(QuartzColors.accent))
+                    .background(Circle().fill(appearance.accentColor))
             }
             .buttonStyle(.plain)
-            .padding(.trailing, 8)
+            .padding(.leading, 12)
+            .padding(.trailing, 12)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-        )
-    }
-
-    private func formatButton(_ action: FormattingAction, icon: String) -> some View {
-        Button {
-            applyFormatting(action)
-        } label: {
-            Image(systemName: icon)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.primary)
-                .frame(minWidth: 40, minHeight: 40)
-        }
-        .buttonStyle(.plain)
+        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16)
     }
     #endif
 
@@ -791,7 +889,7 @@ public struct NoteEditorView: View {
                 .padding(.horizontal, 12)
             }
             .frame(height: 36)
-            .background(.ultraThinMaterial)
+            .quartzMaterialBackground(cornerRadius: 0)
         }
     }
 
@@ -1175,8 +1273,10 @@ private extension View {
 private struct ImageDataTransferable: Transferable {
     let data: Data
     var preferredExtension: String? {
-        if data.prefix(8) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] { return "png" }
-        if data.prefix(2) == [0xFF, 0xD8] { return "jpg" }
+        let pngHeader = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let jpgHeader = Data([0xFF, 0xD8])
+        if data.prefix(8) == pngHeader { return "png" }
+        if data.prefix(2) == jpgHeader { return "jpg" }
         return "png"
     }
     static var transferRepresentation: some TransferRepresentation {

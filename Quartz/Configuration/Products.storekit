@@ -1,0 +1,83 @@
+{
+  "identifier" : "A1B2C3D4",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "bronze001",
+      "localizations" : [
+        {
+          "description" : "One-time support",
+          "displayName" : "Bronze",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "olli.Quartz.support.bronze",
+      "referenceName" : "Bronze",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "silver001",
+      "localizations" : [
+        {
+          "description" : "One-time support",
+          "displayName" : "Silver",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "olli.Quartz.support.silver",
+      "referenceName" : "Silver",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "3842938740293847",
+    "_developerTeamID" : "XXXXXXXXXX",
+    "_lastSynchronizedDate" : 757382400
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "quartz_support",
+      "localizations" : [
+
+      ],
+      "name" : "Quartz Support",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "1.49",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6738293847",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monthly support subscription",
+              "displayName" : "Gold",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "olli.Quartz.support.gold",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Gold",
+          "subscriptionGroupID" : "quartz_support",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

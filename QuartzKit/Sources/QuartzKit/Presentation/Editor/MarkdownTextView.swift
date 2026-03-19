@@ -41,8 +41,7 @@ public class MarkdownUITextView: UITextView {
         _rawMarkdown = markdown
         let sel = selectedRange
         text = markdown
-        // On iOS: apply tables in next run loop to avoid NSUndoManager crash
-        // when replaceCharacters runs in same transaction as text=.
+        // Tables stay as raw markdown on iOS (no attachments) for editable tables.
         #if canImport(UIKit)
         highlighter.applyHighlighting(
             to: textStorage,
@@ -50,21 +49,6 @@ public class MarkdownUITextView: UITextView {
             noteURL: noteURL,
             applyTables: false
         )
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard !self.isUpdating else { return }
-            self.isUpdating = true
-            defer { self.isUpdating = false }
-            let s = self.selectedRange
-            self.highlighter.applyTableAttachmentsOnly(
-                to: self.textStorage,
-                baseFont: self.font ?? .preferredFont(forTextStyle: .body)
-            )
-            let maxLen = self.textStorage.length
-            let loc = min(s.location, maxLen)
-            let len = min(s.length, maxLen - loc)
-            self.selectedRange = NSRange(location: loc, length: len)
-        }
         #endif
         let maxLen = textStorage.length
         let loc = min(sel.location, maxLen)
@@ -106,11 +90,12 @@ extension MarkdownUITextView: UITextViewDelegate {
             self.isUpdating = true
             defer { self.isUpdating = false }
             let sel = self.selectedRange
-            // No undoManager manipulation on iOS – avoids crash with table attachments.
+            // No table attachments on iOS – tables stay as editable raw markdown.
             self.highlighter.applyHighlighting(
                 to: self.textStorage,
                 baseFont: self.font ?? .preferredFont(forTextStyle: .body),
-                noteURL: self.noteURL
+                noteURL: self.noteURL,
+                applyTables: false
             )
             let maxLen = self.textStorage.length
             let loc = min(sel.location, maxLen)
@@ -118,7 +103,25 @@ extension MarkdownUITextView: UITextViewDelegate {
             self.selectedRange = NSRange(location: loc, length: len)
         }
         highlightWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: item)
+    }
+
+    public func textViewDidEndEditing(_ textView: UITextView) {
+        highlightWorkItem?.cancel()
+        guard !isUpdating else { return }
+        isUpdating = true
+        defer { isUpdating = false }
+        let sel = selectedRange
+        highlighter.applyHighlighting(
+            to: textStorage,
+            baseFont: font ?? .preferredFont(forTextStyle: .body),
+            noteURL: noteURL,
+            applyTables: false
+        )
+        let maxLen = textStorage.length
+        let loc = min(sel.location, maxLen)
+        let len = min(sel.length, maxLen - loc)
+        selectedRange = NSRange(location: loc, length: len)
     }
 
     public func textViewDidChangeSelection(_ textView: UITextView) {
@@ -242,7 +245,8 @@ public class MarkdownNSTextView: NSTextView {
         highlighter.applyHighlighting(
             to: textStorage!,
             baseFont: font ?? .systemFont(ofSize: NSFont.systemFontSize),
-            noteURL: noteURL
+            noteURL: noteURL,
+            applyTables: false
         )
         let maxLen = textStorage?.length ?? 0
         let clamped = prevRanges.compactMap { rv -> NSValue? in
@@ -307,7 +311,8 @@ public class MarkdownNSTextView: NSTextView {
             self.highlighter.applyHighlighting(
                 to: self.textStorage!,
                 baseFont: self.font ?? .systemFont(ofSize: NSFont.systemFontSize),
-                noteURL: self.noteURL
+                noteURL: self.noteURL,
+                applyTables: false
             )
             let maxLen = self.textStorage?.length ?? 0
             let clamped = sel.compactMap { rv -> NSValue? in
@@ -321,7 +326,37 @@ public class MarkdownNSTextView: NSTextView {
                 : clamped
         }
         highlightWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: item)
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result {
+            highlightWorkItem?.cancel()
+            guard !isUpdating else { return result }
+            isUpdating = true
+            defer { isUpdating = false }
+            let sel = selectedRanges
+            undoManager?.disableUndoRegistration()
+            defer { undoManager?.enableUndoRegistration() }
+            highlighter.applyHighlighting(
+                to: textStorage!,
+                baseFont: font ?? .systemFont(ofSize: NSFont.systemFontSize),
+                noteURL: noteURL,
+                applyTables: false
+            )
+            let maxLen = textStorage?.length ?? 0
+            let clamped = sel.compactMap { rv -> NSValue? in
+                let r = rv.rangeValue
+                let loc = min(r.location, maxLen)
+                let len = min(r.length, maxLen - loc)
+                return NSValue(range: NSRange(location: loc, length: len))
+            }
+            selectedRanges = clamped.isEmpty
+                ? [NSValue(range: NSRange(location: maxLen, length: 0))]
+                : clamped
+        }
+        return result
     }
 
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting flag: Bool) {

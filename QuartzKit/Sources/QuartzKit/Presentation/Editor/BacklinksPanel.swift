@@ -22,11 +22,13 @@ public struct BacklinksPanel: View {
                 HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption2.weight(.semibold))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.tertiary)
                         .frame(width: 12)
 
                     Image(systemName: "link")
-                        .font(.caption)
+                        .font(.caption.weight(.medium))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.secondary)
 
                     Text(String(localized: "Backlinks", bundle: .module))
@@ -44,8 +46,8 @@ public struct BacklinksPanel: View {
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
+                .padding(.vertical, 12)
+                .quartzMaterialBackground(cornerRadius: 0)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isExpanded ? String(localized: "Collapse backlinks", bundle: .module) : String(localized: "Expand backlinks", bundle: .module))
@@ -62,14 +64,15 @@ public struct BacklinksPanel: View {
                     }
                     .padding(.vertical, 16)
                 } else {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
                         ForEach(backlinks) { backlink in
                             Button {
                                 onNavigate(backlink.sourceNoteURL)
                             } label: {
-                                HStack(spacing: 10) {
+                                HStack(spacing: 12) {
                                     Image(systemName: "doc.text.fill")
-                                        .font(.caption)
+                                        .font(.caption.weight(.medium))
+                                        .symbolRenderingMode(.hierarchical)
                                         .foregroundStyle(QuartzColors.noteBlue)
 
                                     VStack(alignment: .leading, spacing: 2) {
@@ -87,10 +90,11 @@ public struct BacklinksPanel: View {
                                     Spacer()
 
                                     Image(systemName: "chevron.right")
-                                        .font(.caption2)
+                                        .font(.caption2.weight(.medium))
+                                        .symbolRenderingMode(.hierarchical)
                                         .foregroundStyle(.quaternary)
                                 }
-                                .padding(10)
+                                .padding(12)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                                         .fill(.fill.quaternary)

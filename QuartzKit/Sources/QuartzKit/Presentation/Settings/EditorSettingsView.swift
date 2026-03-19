@@ -67,7 +67,7 @@ public struct EditorSettingsView: View {
                     ) {
                         Text(String(localized: "Font Size", bundle: .module))
                     }
-                    .tint(QuartzColors.accent)
+                    .tint(appearance.accentColor)
                 }
             } header: {
                 Text(String(localized: "Typography", bundle: .module))

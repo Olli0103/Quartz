@@ -128,10 +128,7 @@ public struct NoteChatView: View {
             .buttonStyle(.plain)
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
+        .quartzMaterialBackground(cornerRadius: 10)
         .padding(.horizontal, 12)
         .padding(.top, 8)
     }

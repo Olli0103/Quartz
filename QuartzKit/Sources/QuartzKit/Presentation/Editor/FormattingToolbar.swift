@@ -132,7 +132,7 @@ public struct FormattingToolbar: View {
 
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
+            HStack(spacing: 8) {
                 ForEach(primaryActions, id: \.self) { action in
                     FormatButton(action: action) {
                         onAction(action)
@@ -142,7 +142,7 @@ public struct FormattingToolbar: View {
                 Rectangle()
                     .fill(.separator)
                     .frame(width: 1, height: formatBarDividerHeight)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 8)
 
                 Menu {
                     ForEach(secondaryActions, id: \.self) { action in
@@ -153,6 +153,7 @@ public struct FormattingToolbar: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: formatBarIconSize, weight: formatBarIconWeight))
+                        .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 44, minHeight: 44)
                 }
@@ -160,7 +161,7 @@ public struct FormattingToolbar: View {
                 .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
                 .help(String(localized: "More formatting options", bundle: .module))
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 16)
         }
         .frame(minHeight: 44)
     }
@@ -170,13 +171,15 @@ public struct FormattingToolbar: View {
 private struct FormatButton: View {
     let action: FormattingAction
     let onTap: () -> Void
+    @Environment(\.appearanceManager) private var appearance
     @State private var isHovered = false
     @State private var isPressed = false
 
     var body: some View {
         Image(systemName: action.icon)
             .font(.system(size: formatBarIconSize, weight: formatBarIconWeight))
-            .foregroundStyle(isPressed ? QuartzColors.accent : isHovered ? .primary : .secondary)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(isPressed ? appearance.accentColor : isHovered ? .primary : .secondary)
             .frame(minWidth: 44, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -204,7 +207,7 @@ private struct FormatButton: View {
     }
 
     private var backgroundColor: Color {
-        if isPressed { return QuartzColors.accent.opacity(0.2) }
+        if isPressed { return appearance.accentColor.opacity(0.2) }
         if isHovered { return Color.primary.opacity(0.06) }
         return .clear
     }

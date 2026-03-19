@@ -247,7 +247,7 @@ public final class GraphViewModel {
         }
         if isConnected { return QuartzColors.noteBlue }
         if node.connectionCount > 0 { return QuartzColors.canvasPurple.opacity(0.7) }
-        return Color.gray.opacity(0.5)
+        return Color.secondary.opacity(0.5)
     }
 
     private func collectNotes(from nodes: [FileNode]) -> [FileNode] {
@@ -376,11 +376,6 @@ public struct KnowledgeGraphView: View {
                     }
                 }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(String(localized: "Done", bundle: .module)) {
-                    // Dismiss handled by parent
-                }
-            }
         }
         .searchable(text: $searchText, prompt: Text(String(localized: "Search knowledge…", bundle: .module)))
         .task {
@@ -414,14 +409,14 @@ public struct KnowledgeGraphView: View {
             Text(String(localized: "Note in your vault", bundle: .module))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 ForEach(["#philosophy", "#systems"], id: \.self) { tag in
                     Text(tag)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.gray.opacity(0.15)))
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
                 }
             }
             Button {
@@ -431,6 +426,7 @@ public struct KnowledgeGraphView: View {
                     Text(String(localized: "Open Note", bundle: .module))
                     Image(systemName: "arrow.right")
                         .font(.caption2.weight(.semibold))
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .foregroundStyle(QuartzColors.accent)
             }
@@ -438,11 +434,7 @@ public struct KnowledgeGraphView: View {
         }
         .padding(16)
         .frame(maxWidth: 200, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
-        )
+        .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 16)
     }
 
     // MARK: - Filter Bar
@@ -450,28 +442,26 @@ public struct KnowledgeGraphView: View {
     private var filterBar: some View {
         HStack(spacing: 8) {
             ForEach(GraphFilterOption.allCases, id: \.self) { option in
-                Button {
-                    withAnimation(QuartzAnimation.standard) { activeFilter = option }
-                } label: {
-                    Text(option.label)
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(activeFilter == option ? QuartzColors.accent : Color.gray.opacity(0.12))
-                        )
-                        .foregroundStyle(activeFilter == option ? .white : .primary)
-                }
-                .buttonStyle(.plain)
+                filterButton(option: option)
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        )
+        .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 12)
+    }
+
+    private func filterButton(option: GraphFilterOption) -> some View {
+        let isSelected = activeFilter == option
+        return Button {
+            withAnimation(QuartzAnimation.standard) { activeFilter = option }
+        } label: {
+            Text(option.label)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(isSelected ? QuartzColors.accent : Color.secondary.opacity(0.12)))
+                .foregroundStyle(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Zoom Controls
@@ -483,8 +473,9 @@ public struct KnowledgeGraphView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.semibold))
+                    .symbolRenderingMode(.hierarchical)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.regularMaterial))
+                    .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
             Button {
@@ -492,8 +483,9 @@ public struct KnowledgeGraphView: View {
             } label: {
                 Image(systemName: "minus")
                     .font(.body.weight(.semibold))
+                    .symbolRenderingMode(.hierarchical)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.regularMaterial))
+                    .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
             Button {
@@ -501,8 +493,9 @@ public struct KnowledgeGraphView: View {
             } label: {
                 Image(systemName: "location.fill")
                     .font(.body.weight(.medium))
+                    .symbolRenderingMode(.hierarchical)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(.regularMaterial))
+                    .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
         }

@@ -259,13 +259,14 @@ private struct RecentNoteCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
+                    let colorIndex = abs(note.id.hashValue) % Self.iconColors.count
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill((Self.iconColors[note.id.hashValue % 3]).opacity(0.2))
+                        .fill((Self.iconColors[colorIndex]).opacity(0.2))
                         .frame(width: 36, height: 36)
                         .overlay {
                             Image(systemName: "doc.text")
                                 .font(.subheadline)
-                                .foregroundStyle(Self.iconColors[note.id.hashValue % 3])
+                                .foregroundStyle(Self.iconColors[colorIndex])
                         }
                     Spacer()
                     Text(note.metadata.modifiedAt, style: .relative)

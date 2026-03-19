@@ -18,6 +18,9 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
         vaultRoot = root
+        #if !os(macOS)
+        purgeTrashOlderThan30Days(at: root)
+        #endif
         // Move heavy recursive I/O off the actor to avoid blocking other actor calls.
         // FileManager.default is used inside the closure instead of capturing the
         // actor's instance (FileManager is not Sendable in Swift 6).
@@ -173,6 +176,26 @@ public actor FileSystemVaultProvider: VaultProviding {
             try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
         }
         try data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - Trash Purge
+
+    /// Permanently deletes items in .trash that are older than 30 days.
+    /// Only used on iOS where we maintain a vault .trash folder; macOS uses system Trash.
+    private func purgeTrashOlderThan30Days(at root: URL) {
+        let trashURL = root.appending(path: ".trash")
+        guard fileManager.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return }
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: trashURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: []
+        ) else { return }
+        for item in contents {
+            guard let modDate = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                  modDate < cutoff else { continue }
+            try? fileManager.removeItem(at: item)
+        }
     }
 
     // MARK: - Private
