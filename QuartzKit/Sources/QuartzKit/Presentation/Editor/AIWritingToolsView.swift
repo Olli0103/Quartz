@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// Sheet/popover that provides AI writing tools (summarize, rewrite, proofread).
-/// Uses on-device AppleIntelligenceService.
+/// Uses on-device AppleIntelligenceService with optional Vault Memory (RAG) context.
 public struct AIWritingToolsView: View {
     let selectedText: String
+    let embeddingService: VectorEmbeddingService?
+    let currentNoteURL: URL?
+    let vaultRootURL: URL?
     let onApply: @Sendable (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -18,8 +21,17 @@ public struct AIWritingToolsView: View {
 
     private let aiService = AppleIntelligenceService()
 
-    public init(selectedText: String, onApply: @escaping @Sendable (String) -> Void) {
+    public init(
+        selectedText: String,
+        embeddingService: VectorEmbeddingService? = nil,
+        currentNoteURL: URL? = nil,
+        vaultRootURL: URL? = nil,
+        onApply: @escaping @Sendable (String) -> Void
+    ) {
         self.selectedText = selectedText
+        self.embeddingService = embeddingService
+        self.currentNoteURL = currentNoteURL
+        self.vaultRootURL = vaultRootURL
         self.onApply = onApply
     }
 
@@ -204,21 +216,34 @@ public struct AIWritingToolsView: View {
         errorMessage = nil
         Task {
             do {
-                let aiResult = try await aiService.process(
+                let contextChunks = await fetchVaultContext()
+                let aiResult = try await aiService.processWithVaultContext(
                     action: selectedAction,
                     text: selectedText,
-                    tone: selectedTone
+                    tone: selectedTone,
+                    contextChunks: contextChunks
                 )
-                withAnimation {
-                    result = aiResult.processedText
-                    isProcessing = false
+                await MainActor.run {
+                    withAnimation {
+                        result = aiResult.processedText
+                        isProcessing = false
+                    }
                 }
             } catch {
-                withAnimation {
-                    errorMessage = error.localizedDescription
-                    isProcessing = false
+                await MainActor.run {
+                    withAnimation {
+                        errorMessage = error.localizedDescription
+                        isProcessing = false
+                    }
                 }
             }
         }
+    }
+
+    /// Fetches relevant note chunks from the vault for RAG context.
+    private func fetchVaultContext() async -> [String] {
+        guard let embeddingService, let currentNoteURL, let vaultRootURL else { return [] }
+        let noteID = VectorEmbeddingService.stableNoteID(for: currentNoteURL, vaultRoot: vaultRootURL)
+        return await embeddingService.getContextChunksForSimilarNotes(to: noteID, limit: 5, maxChunksPerNote: 2)
     }
 }

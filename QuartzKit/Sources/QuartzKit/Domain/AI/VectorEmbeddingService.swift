@@ -310,6 +310,27 @@ public actor VectorEmbeddingService {
             .map(\.key)
     }
 
+    /// Returns chunk text from notes semantically similar to the given note.
+    /// Used for Vault Memory (RAG) context in AI writing tools.
+    public func getContextChunksForSimilarNotes(
+        to noteID: UUID,
+        limit: Int = 5,
+        maxChunksPerNote: Int = 2,
+        threshold: Float = 0.35
+    ) -> [String] {
+        let similarIDs = findSimilarNoteIDs(for: noteID, limit: limit, threshold: threshold)
+        var chunks: [String] = []
+        for id in similarIDs {
+            let noteChunks = index
+                .filter { $0.noteID == id }
+                .sorted { $0.chunkIndex < $1.chunkIndex }
+                .prefix(maxChunksPerNote)
+                .map(\.chunkText)
+            chunks.append(contentsOf: noteChunks)
+        }
+        return chunks
+    }
+
     // MARK: - Stable Note ID
 
     /// Derives a deterministic UUID from a note's relative path within the vault.

@@ -84,7 +84,6 @@ public struct NoteEditorView: View {
     var embeddingService: VectorEmbeddingService?
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
-    @Environment(\.featureGate) private var featureGate
     @State private var showFocusModeHint = false
     @State private var showAITools = false
     @State private var showChat = false
@@ -282,7 +281,12 @@ public struct NoteEditorView: View {
         }
         .sheet(isPresented: $showAITools) {
             let text = selectedOrFullText
-            AIWritingToolsView(selectedText: text) { [viewModel] processedText in
+            AIWritingToolsView(
+                selectedText: text,
+                embeddingService: embeddingService,
+                currentNoteURL: viewModel.note?.fileURL,
+                vaultRootURL: viewModel.vaultRootURL
+            ) { [viewModel] processedText in
                 Task { @MainActor in
                     let pos = viewModel.cursorPosition
                     if pos.length > 0 {
@@ -823,7 +827,7 @@ public struct NoteEditorView: View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button {
-                    withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
                 } label: {
                     Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                         .font(.system(size: 14, weight: .medium))
@@ -893,7 +897,7 @@ public struct NoteEditorView: View {
             .menuStyle(.borderlessButton)
             .padding(.trailing, 16)
         }
-        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16)
+        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16, layer: .floating)
     }
     #endif
 
@@ -910,7 +914,7 @@ public struct NoteEditorView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     Button {
-                        withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
                     } label: {
                         Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                             .font(.system(size: 14, weight: .medium))
@@ -974,14 +978,15 @@ public struct NoteEditorView: View {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
+                    .frame(minWidth: 44, minHeight: 44)
                     .background(Circle().fill(appearance.accentColor))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Save note", bundle: .module))
             .padding(.leading, 12)
             .padding(.trailing, 12)
         }
-        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16)
+        .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 16, layer: .floating)
     }
     #endif
 
@@ -1324,23 +1329,27 @@ public struct NoteEditorView: View {
             .accessibilityLabel(String(localized: "AI & Tools", bundle: .module))
             .help(String(localized: "AI writing tools, link suggestions, frontmatter, backlinks, knowledge graph, PDF export", bundle: .module))
 
-            if featureGate.isEnabled(.focusMode) {
-                Button {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     focusMode.toggleFocusMode()
-                } label: {
-                    Image(systemName: focusMode.isFocusModeActive ? "eye.slash.fill" : "eye.fill")
-                        .symbolRenderingMode(.hierarchical)
                 }
-                .accessibilityLabel(focusMode.isFocusModeActive
-                    ? String(localized: "Exit focus mode", bundle: .module)
-                    : String(localized: "Enter focus mode", bundle: .module))
-                .help(focusMode.isFocusModeActive
-                    ? String(localized: "Exit focus mode", bundle: .module)
-                    : String(localized: "Enter focus mode", bundle: .module))
+            } label: {
+                Image(systemName: focusMode.isFocusModeActive ? "eye.slash.fill" : "eye.fill")
+                    .symbolRenderingMode(.hierarchical)
             }
+            #if os(macOS)
+            .focusable()
+            #endif
+            .accessibilityLabel(focusMode.isFocusModeActive
+                ? String(localized: "Exit focus mode", bundle: .module)
+                : String(localized: "Enter focus mode", bundle: .module))
+            .accessibilityHint(String(localized: "Double tap to toggle", bundle: .module))
+            .help(focusMode.isFocusModeActive
+                ? String(localized: "Exit focus mode", bundle: .module)
+                : String(localized: "Enter focus mode", bundle: .module))
 
             Button {
-                withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
             } label: {
                 Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                     .symbolRenderingMode(.hierarchical)

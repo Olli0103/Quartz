@@ -12,6 +12,8 @@ public final class ContentViewModel {
     public var searchIndex: VaultSearchIndex?
     public var embeddingService: VectorEmbeddingService?
     public var cloudSyncStatus: CloudSyncStatus = .notApplicable
+    /// URLs of files with unresolved iCloud sync conflicts. Used to present ConflictResolverView.
+    public var conflictingFileURLs: [URL] = []
     public var indexingProgress: (current: Int, total: Int)?
 
     private let appState: AppState
@@ -216,12 +218,14 @@ public final class ContentViewModel {
         cloudSyncService = service
         cloudSyncStatus = .current
 
+        conflictingFileURLs = []
         syncMonitoringTask = Task {
             let stream = await service.startMonitoring(vaultRoot: vaultURL)
             var fileStatuses: [URL: CloudSyncStatus] = [:]
             for await (url, status) in stream {
                 fileStatuses[url] = status
                 cloudSyncStatus = Self.aggregateStatus(from: fileStatuses)
+                conflictingFileURLs = fileStatuses.filter { $0.value == .conflict }.map(\.key)
             }
         }
     }
@@ -234,6 +238,7 @@ public final class ContentViewModel {
         }
         cloudSyncService = nil
         cloudSyncStatus = .notApplicable
+        conflictingFileURLs = []
     }
 
     private static func isICloudDriveURL(_ url: URL) -> Bool {

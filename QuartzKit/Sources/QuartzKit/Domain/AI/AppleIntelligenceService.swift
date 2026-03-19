@@ -110,6 +110,17 @@ public actor AppleIntelligenceService {
         text: String,
         tone: Tone? = nil
     ) async throws -> AIResult {
+        try await processWithVaultContext(action: action, text: text, tone: tone, contextChunks: [])
+    }
+
+    /// Performs an AI action with optional Vault Memory (RAG) context.
+    /// Context chunks from semantically similar notes are included in the prompt.
+    public func processWithVaultContext(
+        action: AIAction,
+        text: String,
+        tone: Tone? = nil,
+        contextChunks: [String] = []
+    ) async throws -> AIResult {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIError.emptyInput
         }
@@ -118,11 +129,11 @@ public actor AppleIntelligenceService {
             throw AIError.notAvailable
         }
 
-        // Call Apple Intelligence WritingTools API
         let processedText = try await performAppleIntelligence(
             action: action,
             text: text,
-            tone: tone
+            tone: tone,
+            contextChunks: contextChunks
         )
 
         return AIResult(
@@ -153,12 +164,13 @@ public actor AppleIntelligenceService {
     private func performAppleIntelligence(
         action: AIAction,
         text: String,
-        tone: Tone?
+        tone: Tone?,
+        contextChunks: [String] = []
     ) async throws -> String {
         // Prefer configured AI provider for all actions.
         // Fall back to on-device NLP when no provider is available.
         if await hasAIProvider() {
-            return try await performWithAIProvider(action: action, text: text, tone: tone)
+            return try await performWithAIProvider(action: action, text: text, tone: tone, contextChunks: contextChunks)
         }
 
         switch action {
@@ -189,21 +201,37 @@ public actor AppleIntelligenceService {
     private func performWithAIProvider(
         action: AIAction,
         text: String,
-        tone: Tone?
+        tone: Tone?,
+        contextChunks: [String] = []
     ) async throws -> String {
+        let contextPrefix: String
+        if !contextChunks.isEmpty {
+            let contextBlock = contextChunks.prefix(10).joined(separator: "\n\n")
+            contextPrefix = """
+            ## Vault Memory (RAG Context)
+            Relevant excerpts from the user's notes vault:
+            \(contextBlock)
+
+            ---
+
+            """
+        } else {
+            contextPrefix = ""
+        }
+
         let prompt: String
         switch action {
         case .summarize:
-            prompt = "Summarize the following text into concise bullet points. Keep the same language. Return only the summary:\n\n\(text)"
+            prompt = "\(contextPrefix)Summarize the following text into concise bullet points. Keep the same language. Return only the summary:\n\n\(text)"
         case .rewrite:
             let t = tone ?? .professional
-            prompt = "Rewrite the following text in a \(t.rawValue) tone. Keep the same language and meaning. Return only the rewritten text:\n\n\(text)"
+            prompt = "\(contextPrefix)Rewrite the following text in a \(t.rawValue) tone. Keep the same language and meaning. Return only the rewritten text:\n\n\(text)"
         case .proofread:
-            prompt = "Proofread and correct any grammar, spelling, and punctuation errors in the following text. Keep the same language and meaning. Return only the corrected text:\n\n\(text)"
+            prompt = "\(contextPrefix)Proofread and correct any grammar, spelling, and punctuation errors in the following text. Keep the same language and meaning. Return only the corrected text:\n\n\(text)"
         case .makeConcise:
-            prompt = "Make the following text more concise while preserving all key information. Keep the same language. Return only the concise text:\n\n\(text)"
+            prompt = "\(contextPrefix)Make the following text more concise while preserving all key information. Keep the same language. Return only the concise text:\n\n\(text)"
         case .makeDetailed:
-            prompt = "Expand and make the following text more detailed. Keep the same language and tone. Return only the expanded text:\n\n\(text)"
+            prompt = "\(contextPrefix)Expand and make the following text more detailed. Keep the same language and tone. Return only the expanded text:\n\n\(text)"
         }
         return try await fallbackToAIProvider(prompt: prompt)
     }

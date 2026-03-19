@@ -44,6 +44,7 @@ struct ContentView: View {
     #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
     @State private var showSupport = false
+    @State private var showConflictResolver = false
     @State private var availableUpdate: UpdateChecker.ReleaseInfo?
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
     #if os(macOS)
@@ -77,6 +78,13 @@ struct ContentView: View {
             .sheet(isPresented: $showKnowledgeGraph) { knowledgeGraphSheet }
             #endif
             .sheet(item: $vaultChatSheetItem) { VaultChatView(session: $0.session) }
+            .sheet(isPresented: $showConflictResolver) {
+                if let urls = viewModel?.conflictingFileURLs, !urls.isEmpty {
+                    ConflictListResolverView(fileURLs: urls) {
+                        Task { await viewModel?.sidebarViewModel?.refresh() }
+                    }
+                }
+            }
             #if os(macOS)
             .sheet(isPresented: $showVoiceNoteSheet) { voiceNoteSheet }
             .sheet(isPresented: $showMeetingMinutesSheet) { meetingMinutesSheet }
@@ -484,18 +492,44 @@ struct ContentView: View {
     // MARK: - Cloud Sync Indicator
 
     private func cloudSyncIndicator(status: CloudSyncStatus) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: cloudSyncIcon(for: status))
-                .font(sidebarFooterFont)
-                .foregroundStyle(cloudSyncColor(for: status))
-                .symbolEffect(.pulse, isActive: status == .uploading || status == .downloading)
-            Text(cloudSyncLabel(for: status))
-                .font(sidebarFooterFont)
-                .foregroundStyle(.secondary)
-            Spacer()
+        Group {
+            if status == .conflict {
+                Button {
+                    showConflictResolver = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: cloudSyncIcon(for: status))
+                            .font(sidebarFooterFont)
+                            .foregroundStyle(cloudSyncColor(for: status))
+                        Text(cloudSyncLabel(for: status))
+                            .font(sidebarFooterFont)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "iCloud conflict. Tap to resolve."))
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: cloudSyncIcon(for: status))
+                        .font(sidebarFooterFont)
+                        .foregroundStyle(cloudSyncColor(for: status))
+                        .symbolEffect(.pulse, isActive: status == .uploading || status == .downloading)
+                    Text(cloudSyncLabel(for: status))
+                        .font(sidebarFooterFont)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
     }
 
     private func cloudSyncIcon(for status: CloudSyncStatus) -> String {
