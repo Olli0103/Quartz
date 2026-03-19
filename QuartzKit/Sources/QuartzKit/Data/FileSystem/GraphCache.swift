@@ -28,6 +28,7 @@ public struct GraphCache: Sendable {
             public let x: CGFloat
             public let y: CGFloat
             public let connectionCount: Int
+            public let tags: [String]?
         }
 
         public struct CachedEdge: Codable, Sendable {

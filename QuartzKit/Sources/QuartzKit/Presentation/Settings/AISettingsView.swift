@@ -1,4 +1,13 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
+
+/// Keys for app-wide settings.
+private enum AppSettingsKeys {
+    static let semanticAutoLinkingEnabled = "semanticAutoLinkingEnabled"
+    static let iCloudSyncEnabled = "iCloudSyncEnabled"
+}
 
 /// AI provider configuration: select providers, enter API keys, pick models.
 public struct AISettingsView: View {
@@ -6,6 +15,7 @@ public struct AISettingsView: View {
     @State private var apiKeyInputs: [String: String] = [:]
     @State private var savingKey: String?
     @State private var savedProviders: Set<String> = []
+    @State private var keySaveResult: [String: Bool] = [:]
     @State private var customModelInput = ""
     @State private var customModels: [AIModel] = []
     @State private var ollamaURL: String = ""
@@ -15,6 +25,8 @@ public struct AISettingsView: View {
     @State private var ollamaModelsFetched = false
     @State private var connectionTestResult: Bool?
     @State private var connectionTesting = false
+    @AppStorage(AppSettingsKeys.semanticAutoLinkingEnabled) private var semanticAutoLinkingEnabled = true
+    @AppStorage(AppSettingsKeys.iCloudSyncEnabled) private var iCloudSyncEnabled = true
 
     public init() {}
 
@@ -33,6 +45,8 @@ public struct AISettingsView: View {
             modelSection
             connectionTestSection
             customModelSection
+            semanticAutoLinkingSection
+            iCloudSyncSection
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "AI", bundle: .module))
@@ -120,8 +134,20 @@ public struct AISettingsView: View {
                             .textInputAutocapitalization(.never)
                             #endif
 
-                            Button(String(localized: "Save", bundle: .module)) {
+                            Button {
                                 saveKey(for: provider)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if savingKey == provider.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else if let result = keySaveResult[provider.id] {
+                                        Image(systemName: result ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                            .foregroundStyle(result ? .green : .red)
+                                            .symbolEffect(.bounce, value: result)
+                                    }
+                                    Text(String(localized: "Save", bundle: .module))
+                                }
                             }
                             .disabled((apiKeyInputs[provider.id] ?? "").isEmpty || savingKey == provider.id)
                         }
@@ -423,17 +449,64 @@ public struct AISettingsView: View {
         guard let key = apiKeyInputs[provider.id], !key.isEmpty else { return }
         let providerID = provider.id
         savingKey = providerID
+        keySaveResult[providerID] = nil
         Task {
             do {
                 try await KeychainHelper.shared.saveKey(key, for: providerID)
-                withAnimation {
-                    savedProviders.insert(providerID)
-                    apiKeyInputs[providerID] = ""
-                    savingKey = nil
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        savedProviders.insert(providerID)
+                        apiKeyInputs[providerID] = ""
+                        savingKey = nil
+                        keySaveResult[providerID] = true
+                    }
+                    #if os(iOS)
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    #endif
                 }
             } catch {
-                savingKey = nil
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        savingKey = nil
+                        keySaveResult[providerID] = false
+                    }
+                    #if os(iOS)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.error)
+                    #endif
+                }
             }
+        }
+    }
+
+    // MARK: - Semantic Auto-Linking Section
+
+    private var semanticAutoLinkingSection: some View {
+        Section {
+            Toggle(isOn: $semanticAutoLinkingEnabled) {
+                Label(String(localized: "Semantic Auto-Linking", bundle: .module), systemImage: "cpu")
+            }
+            .tint(QuartzColors.accent)
+        } header: {
+            Text(String(localized: "Knowledge Graph", bundle: .module))
+        } footer: {
+            Text(String(localized: "When enabled, the graph view uses AI-powered embeddings to show dashed connections between semantically related notes.", bundle: .module))
+        }
+    }
+
+    // MARK: - iCloud Sync Section
+
+    private var iCloudSyncSection: some View {
+        Section {
+            Toggle(isOn: $iCloudSyncEnabled) {
+                Label(String(localized: "iCloud Sync", bundle: .module), systemImage: "icloud")
+            }
+            .tint(QuartzColors.accent)
+        } header: {
+            Text(String(localized: "Sync", bundle: .module))
+        } footer: {
+            Text(String(localized: "When enabled, Quartz monitors iCloud Drive vaults for sync status and conflicts. Disable when using local-only vaults.", bundle: .module))
         }
     }
 }

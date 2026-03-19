@@ -134,6 +134,7 @@ public final class AudioRecordingViewModel {
 
 public struct AudioRecordingView: View {
     @State private var viewModel = AudioRecordingViewModel()
+    @State private var showCompactPill = false
     @Environment(\.dismiss) private var dismiss
 
     private let vaultURL: URL?
@@ -155,38 +156,13 @@ public struct AudioRecordingView: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Spacer()
-
-                if !compactMode {
-                    waveformDisplay
-                        .padding(.bottom, 24)
+            Group {
+                if viewModel.recordingService.isRecording && showCompactPill {
+                    compactPillOverlay
+                } else {
+                    fullRecordingView
                 }
-
-                timerDisplay
-                    .padding(.bottom, compactMode ? 16 : 32)
-
-                recordingControls
-                    .padding(.bottom, compactMode ? 12 : 28)
-
-                if !compactMode {
-                    modeSelector
-                        .padding(.bottom, 16)
-                }
-
-                if viewModel.isTranscribing {
-                    transcriptionStatus
-                        .padding(.bottom, 16)
-                }
-
-                if let error = viewModel.errorMessage {
-                    errorBanner(error)
-                        .padding(.bottom, 16)
-                }
-
-                Spacer()
             }
-            .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .quartzMaterialBackground(cornerRadius: 0)
             .navigationTitle(String(localized: "Record Audio", bundle: .module))
@@ -198,6 +174,17 @@ public struct AudioRecordingView: View {
                     Button(String(localized: "Cancel", bundle: .module)) {
                         viewModel.discardRecording()
                         dismiss()
+                    }
+                }
+                if viewModel.recordingService.isRecording && !showCompactPill {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            withAnimation(QuartzAnimation.standard) { showCompactPill = true }
+                        } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                        .accessibilityLabel(String(localized: "Minimize to compact mode", bundle: .module))
                     }
                 }
                 if viewModel.didFinish {
@@ -217,6 +204,119 @@ public struct AudioRecordingView: View {
             }
         }
         .frame(minWidth: compactMode ? 280 : 380, minHeight: compactMode ? 260 : 440)
+    }
+
+    // MARK: - Granola-Style Compact Pill (Floating During Recording)
+
+    private var compactPillOverlay: some View {
+        VStack {
+            Spacer()
+            compactPillView
+                .padding(.horizontal, 24)
+                .padding(.bottom, 32)
+        }
+    }
+
+    private var compactPillView: some View {
+        HStack(spacing: 16) {
+            Button {
+                withAnimation(QuartzAnimation.standard) { showCompactPill = false }
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.body.weight(.medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Expand to full view", bundle: .module))
+
+            Text(viewModel.recordingService.formattedDuration)
+                .font(.system(size: 20, weight: .medium, design: .monospaced))
+                .foregroundStyle(QuartzColors.accent)
+                .contentTransition(.numericText())
+
+            if viewModel.recordingService.isPaused {
+                Text(String(localized: "Paused", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                    .pulse()
+            }
+
+            Spacer()
+
+            Button { viewModel.togglePause() } label: {
+                Image(systemName: viewModel.recordingService.isPaused ? "play.fill" : "pause.fill")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                Task {
+                    if let text = await viewModel.stopRecording() {
+                        showCompactPill = false
+                        onInsertText(text)
+                    }
+                }
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(QuartzColors.accent.gradient))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Stop recording", bundle: .module))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+    }
+
+    // MARK: - Full Recording View
+
+    private var fullRecordingView: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            if !compactMode {
+                waveformDisplay
+                    .padding(.bottom, 24)
+            }
+
+            timerDisplay
+                .padding(.bottom, compactMode ? 16 : 32)
+
+            recordingControls
+                .padding(.bottom, compactMode ? 12 : 28)
+
+            if !compactMode {
+                modeSelector
+                    .padding(.bottom, 16)
+            }
+
+            if viewModel.isTranscribing {
+                transcriptionStatus
+                    .padding(.bottom, 16)
+            }
+
+            if let error = viewModel.errorMessage {
+                errorBanner(error)
+                    .padding(.bottom, 16)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
     }
 
     // MARK: - Waveform

@@ -55,7 +55,8 @@ public final class ContentViewModel {
             indexAllNotes(in: viewModel.fileTree, vaultRoot: vault.rootURL, embedding: embedding)
         }
 
-        if Self.isICloudDriveURL(vault.rootURL) {
+        let iCloudSyncEnabled = (UserDefaults.standard.object(forKey: "iCloudSyncEnabled") as? Bool) ?? true
+        if iCloudSyncEnabled && Self.isICloudDriveURL(vault.rootURL) {
             startCloudSync(for: vault.rootURL)
         }
     }

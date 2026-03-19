@@ -1,15 +1,28 @@
-#if os(macOS)
 import SwiftUI
 
-/// macOS Dashboard: Brain Garden hero, Recent Notes, Quick Capture.
-/// Matches the "Quartz Second Brain" design with card-based layout.
+// MARK: - Morning Command Center (Pillar 8)
+
+/// Dashboard acting as a "Morning Command Center" with AI briefing, action items, and Jump Back In.
+///
+/// **Architecture:**
+/// - **AI Morning Briefing:** Uses `DashboardBriefingService` to summarize recent notes via AI provider
+/// - **Action Items:** Parses `- [ ]` from all vault notes via `TaskItemParser`
+/// - **Jump Back In:** Rich cards for recent notes using `.ultraThinMaterial`
 public struct DashboardView: View {
     let sidebarViewModel: SidebarViewModel?
+    let vaultProvider: (any VaultProviding)?
     let onSelectNote: (URL) -> Void
     let onNewNote: () -> Void
     let onExploreGraph: () -> Void
     var onRecordVoiceNote: (() -> Void)? = nil
     var onRecordMeetingMinutes: (() -> Void)? = nil
+
+    @State private var briefing: String?
+    @State private var briefingLoading = false
+    @State private var actionItems: [DashboardTaskItem] = []
+    @State private var actionItemsLoading = false
+    @State private var togglingTaskID: UUID?
+    @State private var taskToggledSuccessfully = false
 
     private static let background = Color(hex: 0xFDFBF8)
     private static let navyButton = Color(hex: 0x1E3A5F)
@@ -17,6 +30,7 @@ public struct DashboardView: View {
 
     public init(
         sidebarViewModel: SidebarViewModel?,
+        vaultProvider: (any VaultProviding)? = nil,
         onSelectNote: @escaping (URL) -> Void,
         onNewNote: @escaping () -> Void,
         onExploreGraph: @escaping () -> Void,
@@ -24,6 +38,7 @@ public struct DashboardView: View {
         onRecordMeetingMinutes: (() -> Void)? = nil
     ) {
         self.sidebarViewModel = sidebarViewModel
+        self.vaultProvider = vaultProvider
         self.onSelectNote = onSelectNote
         self.onNewNote = onNewNote
         self.onExploreGraph = onExploreGraph
@@ -36,9 +51,11 @@ public struct DashboardView: View {
             VStack(alignment: .leading, spacing: 28) {
                 headerSection
 
-                brainGardenCard
+                aiMorningBriefingSection
 
-                recentNotesSection
+                actionItemsSection
+
+                jumpBackInSection
 
                 bottomCardsRow
             }
@@ -47,6 +64,10 @@ public struct DashboardView: View {
         }
         .background(Self.background)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sensoryFeedback(.success, trigger: taskToggledSuccessfully)
+        .task {
+            await loadDashboardData()
+        }
     }
 
     // MARK: - Header
@@ -55,13 +76,186 @@ public struct DashboardView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(String(localized: "Dashboard", bundle: .module))
                 .font(.system(size: 28, weight: .bold))
-            Text(String(localized: "Nurturing your digital connections.", bundle: .module))
+            Text(String(localized: "Your morning command center.", bundle: .module))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
     }
 
-    // MARK: - Brain Garden Hero
+    // MARK: - AI Morning Briefing
+
+    private var aiMorningBriefingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(QuartzColors.accent)
+                Text(String(localized: "AI MORNING BRIEFING", bundle: .module))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(QuartzColors.accent)
+                    .textCase(.uppercase)
+            }
+
+            if briefingLoading {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(QuartzColors.accent)
+                    Text(String(localized: "Generating your briefing…", bundle: .module))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+            } else if let briefing {
+                Text(briefing)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineSpacing(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(String(localized: "Configure an AI provider in Settings to get a personalized summary of your recent work.", bundle: .module))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+    }
+
+    // MARK: - Action Items
+
+    private var actionItemsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label(String(localized: "Action Items", bundle: .module), systemImage: "checklist")
+                    .font(.headline)
+                Spacer()
+                if !actionItems.isEmpty {
+                    Text("\(actionItems.count)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(.quaternary))
+                }
+            }
+
+            if actionItemsLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(QuartzColors.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(20)
+            } else if actionItems.isEmpty {
+                Text(String(localized: "No open tasks. Add `- [ ]` to your notes to see them here.", bundle: .module))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(actionItems.prefix(10)) { item in
+                        HStack(alignment: .top, spacing: 12) {
+                            Button {
+                                toggleTask(item)
+                            } label: {
+                                Image(systemName: "circle")
+                                    .font(.body)
+                                    .foregroundStyle(QuartzColors.accent)
+                                    .contentShape(Rectangle())
+                                    .frame(width: 28, height: 28)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(togglingTaskID == item.id)
+
+                            Button {
+                                onSelectNote(item.noteURL)
+                            } label: {
+                                HStack(alignment: .top, spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.text)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                            .multilineTextAlignment(.leading)
+                                            .lineLimit(2)
+                                        Text(item.noteTitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: "arrow.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(12)
+                        .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+    }
+
+    // MARK: - Jump Back In (Recent Notes)
+
+    private var jumpBackInSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(String(localized: "Jump Back In", bundle: .module))
+                    .font(.headline)
+                Spacer()
+                Button(String(localized: "View all", bundle: .module)) {
+                    // Could navigate to All Notes filter
+                }
+                .font(.subheadline)
+                .foregroundStyle(QuartzColors.accent)
+                .buttonStyle(.plain)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(recentNotes) { note in
+                        JumpBackInCard(note: note, onTap: { onSelectNote(note.url) })
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private var recentNotes: [FileNode] {
+        sidebarViewModel?.recentNotes(limit: 6) ?? []
+    }
+
+    // MARK: - Bottom Row
+
+    private var bottomCardsRow: some View {
+        HStack(spacing: 20) {
+            brainGardenCard
+            quickCaptureCard
+            if onRecordVoiceNote != nil || onRecordMeetingMinutes != nil {
+                voiceCaptureCard
+            }
+        }
+    }
 
     private var brainGardenCard: some View {
         HStack(spacing: 0) {
@@ -91,7 +285,6 @@ public struct DashboardView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Minimal graph visual
             ZStack {
                 ForEach(0..<12, id: \.self) { i in
                     Circle()
@@ -132,49 +325,6 @@ public struct DashboardView: View {
         return count
     }
 
-    // MARK: - Recent Notes
-
-    private var recentNotesSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(String(localized: "Recent Notes", bundle: .module))
-                    .font(.headline)
-                Spacer()
-                Button(String(localized: "View all", bundle: .module)) {
-                    // Could navigate to All Notes
-                }
-                .font(.subheadline)
-                .foregroundStyle(QuartzColors.accent)
-                .buttonStyle(.plain)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(recentNotes) { note in
-                        RecentNoteCard(note: note, onTap: { onSelectNote(note.url) })
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-    }
-
-    private var recentNotes: [FileNode] {
-        sidebarViewModel?.recentNotes(limit: 6) ?? []
-    }
-
-    // MARK: - Bottom Row
-
-    private var bottomCardsRow: some View {
-        HStack(spacing: 20) {
-            pinnedThoughtCard
-            quickCaptureCard
-            if onRecordVoiceNote != nil || onRecordMeetingMinutes != nil {
-                voiceCaptureCard
-            }
-        }
-    }
-
     private var voiceCaptureCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -203,50 +353,6 @@ public struct DashboardView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                .fill(.background)
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        )
-    }
-
-    private var pinnedThoughtCard: some View {
-        HStack(spacing: 20) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [QuartzColors.canvasPurple.opacity(0.3), QuartzColors.noteBlue.opacity(0.2)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 100, height: 80)
-                .overlay {
-                    Image(systemName: "lightbulb.fill")
-                        .font(.title)
-                        .foregroundStyle(QuartzColors.canvasPurple)
-                }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Image(systemName: "pin.fill")
-                        .font(.caption2)
-                    Text(String(localized: "PINNED THOUGHT", bundle: .module))
-                        .font(.caption2.weight(.semibold))
-                        .textCase(.uppercase)
-                }
-                .foregroundStyle(QuartzColors.canvasPurple)
-                Text(String(localized: "The Architecture of Silence", bundle: .module))
-                    .font(.headline)
-                Text(String(localized: "A moment of clarity in the noise of daily life.", bundle: .module))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,11 +398,66 @@ public struct DashboardView: View {
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Data Loading
+
+    private func loadDashboardData() async {
+        guard let provider = vaultProvider, let vm = sidebarViewModel else { return }
+
+        let recent = vm.recentNotes(limit: 15)
+        guard !recent.isEmpty else { return }
+
+        // Offload task parsing to background actor (non-blocking)
+        actionItemsLoading = true
+        let taskActor = DashboardTaskActor(vaultProvider: provider)
+        let noteURLs = recent.map(\.url)
+        let allTasks = await taskActor.parseOpenTasks(from: noteURLs)
+        actionItems = allTasks
+        actionItemsLoading = false
+
+        // Load briefing context and generate (cached 4h by DashboardBriefingService)
+        var contents: [(title: String, body: String)] = []
+        for note in recent.prefix(10) {
+            do {
+                let doc = try await provider.readNote(at: note.url)
+                let title = doc.frontmatter.title ?? note.name.replacingOccurrences(of: ".md", with: "")
+                contents.append((title: title, body: doc.body))
+            } catch {
+                // Skip
+            }
+        }
+
+        briefingLoading = true
+        let service = DashboardBriefingService(vaultProvider: provider)
+        do {
+            briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents)
+        } catch {
+            briefing = nil
+        }
+        briefingLoading = false
+    }
+
+    private func toggleTask(_ item: DashboardTaskItem) {
+        togglingTaskID = item.id
+        let toggleService = DashboardTaskToggleService()
+        Task {
+            do {
+                _ = try await toggleService.toggleTask(item, toCompleted: true)
+                await MainActor.run {
+                    actionItems.removeAll { $0.id == item.id }
+                    taskToggledSuccessfully.toggle()
+                }
+            } catch {
+                await MainActor.run { togglingTaskID = nil }
+            }
+            await MainActor.run { togglingTaskID = nil }
+        }
+    }
 }
 
-// MARK: - Recent Note Card
+// MARK: - Jump Back In Card
 
-private struct RecentNoteCard: View {
+private struct JumpBackInCard: View {
     let note: FileNode
     let onTap: () -> Void
 
@@ -343,13 +504,13 @@ private struct RecentNoteCard: View {
             }
             .padding(16)
             .frame(width: 200, alignment: .leading)
-            .background(
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.background)
-                    .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
+                    .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
             )
+            .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
         }
         .buttonStyle(.plain)
     }
 }
-#endif

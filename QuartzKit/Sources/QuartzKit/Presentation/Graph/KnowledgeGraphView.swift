@@ -7,16 +7,18 @@ public struct GraphNode: Identifiable, Sendable {
     public let id: String
     public let title: String
     public let url: URL
+    public var tags: [String]
     public var x: CGFloat
     public var y: CGFloat
     public var vx: CGFloat = 0
     public var vy: CGFloat = 0
     public var connectionCount: Int = 0
 
-    public init(id: String, title: String, url: URL, x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0, connectionCount: Int = 0) {
+    public init(id: String, title: String, url: URL, tags: [String] = [], x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0, connectionCount: Int = 0) {
         self.id = id
         self.title = title
         self.url = url
+        self.tags = tags
         self.x = x
         self.y = y
         self.vx = vx
@@ -57,13 +59,14 @@ public final class GraphViewModel {
 
     /// Builds the graph from a file tree and the currently selected note.
     /// Uses disk cache when notes haven't changed to avoid slow rebuilds.
-    /// When embeddingService is provided, adds AI-assisted semantic links between similar notes.
+    /// When embeddingService is provided and semanticAutoLinkingEnabled, adds AI-assisted semantic links between similar notes.
     public func buildGraph(
         fileTree: [FileNode],
         currentNoteURL: URL?,
         vaultRootURL: URL?,
         vaultProvider: (any VaultProviding)?,
-        embeddingService: VectorEmbeddingService? = nil
+        embeddingService: VectorEmbeddingService? = nil,
+        semanticAutoLinkingEnabled: Bool = true
     ) async {
         isLoading = true
 
@@ -85,6 +88,7 @@ public final class GraphViewModel {
                         id: n.id,
                         title: n.title,
                         url: n.url,
+                        tags: n.tags ?? [],
                         x: n.x,
                         y: n.y,
                         vx: 0,
@@ -103,16 +107,37 @@ public final class GraphViewModel {
         var builtNodes: [GraphNode] = []
         var builtEdges: [GraphEdge] = []
         var nameToID: [String: String] = [:]
+        var urlToTags: [URL: [String]] = [:]
+
+        if let provider = vaultProvider {
+            await withTaskGroup(of: (URL, [String]).self) { group in
+                for note in allNotes {
+                    group.addTask {
+                        do {
+                            let doc = try await provider.readNote(at: note.url)
+                            return (note.url, doc.frontmatter.tags)
+                        } catch {
+                            return (note.url, [])
+                        }
+                    }
+                }
+                for await (url, tags) in group {
+                    urlToTags[url] = tags
+                }
+            }
+        }
 
         for note in allNotes {
             let nodeID = note.url.absoluteString
             let displayName = note.name.replacingOccurrences(of: ".md", with: "")
             let randomX = CGFloat.random(in: -200...200)
             let randomY = CGFloat.random(in: -200...200)
+            let tags = urlToTags[note.url] ?? []
             builtNodes.append(GraphNode(
                 id: nodeID,
                 title: displayName,
                 url: note.url,
+                tags: tags,
                 x: randomX,
                 y: randomY
             ))
@@ -155,8 +180,8 @@ public final class GraphViewModel {
             }
         }
 
-        // AI-assisted semantic linking: add edges between semantically similar notes
-        if let embedding = embeddingService, let root = vaultRootURL {
+        // AI-assisted semantic linking: add edges between semantically similar notes (when enabled)
+        if semanticAutoLinkingEnabled, let embedding = embeddingService, let root = vaultRootURL {
             var stableIDToNodeID: [UUID: String] = [:]
             for note in allNotes {
                 let sid = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
@@ -203,7 +228,8 @@ public final class GraphViewModel {
                         url: n.url,
                         x: n.x,
                         y: n.y,
-                        connectionCount: n.connectionCount
+                        connectionCount: n.connectionCount,
+                        tags: n.tags.isEmpty ? nil : n.tags
                     )
                 },
                 edges: edges.map { e in
@@ -383,6 +409,7 @@ public struct KnowledgeGraphView: View {
     @State private var searchText = ""
     @State private var activeFilter: GraphFilterOption = .all
     @State private var lastMagnification: CGFloat = 1.0
+    @AppStorage("semanticAutoLinkingEnabled") private var semanticAutoLinkingEnabled = true
 
     private let fileTree: [FileNode]
     private let currentNoteURL: URL?
@@ -460,13 +487,14 @@ public struct KnowledgeGraphView: View {
             }
         }
         .searchable(text: $searchText, prompt: Text(String(localized: "Search knowledge…", bundle: .module)))
-        .task {
+        .task(id: semanticAutoLinkingEnabled) {
             await viewModel.buildGraph(
                 fileTree: fileTree,
                 currentNoteURL: currentNoteURL,
                 vaultRootURL: vaultRootURL,
                 vaultProvider: vaultProvider,
-                embeddingService: embeddingService
+                embeddingService: embeddingService,
+                semanticAutoLinkingEnabled: semanticAutoLinkingEnabled
             )
         }
     }
@@ -492,14 +520,16 @@ public struct KnowledgeGraphView: View {
             Text(String(localized: "Note in your vault", bundle: .module))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ForEach(["#philosophy", "#systems"], id: \.self) { tag in
-                    Text(tag)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            if !node.tags.isEmpty {
+                HStack(spacing: 8) {
+                    ForEach(node.tags.prefix(5), id: \.self) { tag in
+                        Text(tag.hasPrefix("#") ? tag : "#\(tag)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                    }
                 }
             }
             Button {
@@ -517,7 +547,12 @@ public struct KnowledgeGraphView: View {
         }
         .padding(16)
         .frame(maxWidth: 200, alignment: .leading)
-        .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
     }
 
     // MARK: - Filter Bar
@@ -642,11 +677,17 @@ public struct KnowledgeGraphView: View {
                     let edgeColor: Color = isHighlightedEdge
                         ? QuartzColors.accent.opacity(0.5)
                         : edge.isSemantic
-                            ? QuartzColors.canvasPurple.opacity(0.25)
+                            ? QuartzColors.canvasPurple.opacity(0.6)
                             : Color.gray.opacity(0.25)
-                    let lineWidth: CGFloat = isHighlightedEdge ? 1.5 : 0.8
+                    let lineWidth: CGFloat = isHighlightedEdge ? 1.5 : (edge.isSemantic ? 1.2 : 0.8)
+                    let strokeStyle: StrokeStyle = edge.isSemantic
+                        ? StrokeStyle(lineWidth: lineWidth, dash: [6, 4])
+                        : StrokeStyle(lineWidth: lineWidth)
 
-                    context.stroke(path, with: .color(edgeColor), lineWidth: lineWidth)
+                    if edge.isSemantic {
+                        context.stroke(path, with: .color(QuartzColors.canvasPurple.opacity(0.25)), lineWidth: lineWidth + 2)
+                    }
+                    context.stroke(path, with: .color(edgeColor), style: strokeStyle)
                 }
 
                 // Draw nodes

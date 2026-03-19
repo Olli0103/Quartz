@@ -67,6 +67,8 @@ public struct SidebarView: View {
     @State private var dragExpandedFolderURLs: Set<URL> = []
     /// Insertion indicator: (parentURL, index) for "drop between" visual.
     @State private var insertionIndicator: (parent: URL, index: Int)?
+    /// Triggers sensory feedback when a drop succeeds.
+    @State private var dropSuccessTrigger = 0
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>, onMapViewTap: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -188,6 +190,7 @@ public struct SidebarView: View {
         }
         .sensoryFeedback(.selection, trigger: viewModel.selectedTag)
         .sensoryFeedback(.warning, trigger: deletionTrigger)
+        .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.6), trigger: dropSuccessTrigger)
         .task { viewModel.collectTags() }
         .sheet(isPresented: $showMoveToFolderSheet) { moveToFolderSheet }
     }
@@ -465,6 +468,7 @@ public struct SidebarView: View {
                         insertionIndicator: $insertionIndicator,
                         appearance: appearance,
                         onDrop: { urls, folder in handleDrop(urls: urls, onto: folder) },
+                        onDropSuccess: { dropSuccessTrigger += 1 },
                         onSelectNote: { selectedNoteURL = $0 },
                         onDeleteNote: {
                             pendingDeleteURL = $0
@@ -563,6 +567,7 @@ public struct SidebarView: View {
                 Task { await viewModel.move(at: sourceURL, to: root) }
                 moved = true
             }
+            if moved { dropSuccessTrigger += 1 }
             return moved
         } isTargeted: { targeted in
             dropTargetURL = targeted ? viewModel.vaultRootURL : (dropTargetURL == viewModel.vaultRootURL ? nil : dropTargetURL)
@@ -637,6 +642,7 @@ private struct SidebarTreeView: View {
     @Binding var insertionIndicator: (parent: URL, index: Int)?
     let appearance: AppearanceManager
     let onDrop: ([URL], FileNode) -> Bool
+    let onDropSuccess: () -> Void
     let onSelectNote: (URL) -> Void
     let onDeleteNote: (URL) -> Void
     let onDeleteFolder: (URL) -> Void
@@ -649,6 +655,13 @@ private struct SidebarTreeView: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+                if let root = vaultRootURL, let ind = insertionIndicator, ind.parent == root, ind.index == index {
+                    Rectangle()
+                        .fill(appearance.accentColor)
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                }
                 SidebarTreeNode(
                     node: node,
                     depth: 0,
@@ -659,6 +672,7 @@ private struct SidebarTreeView: View {
                     insertionIndicator: $insertionIndicator,
                     appearance: appearance,
                     onDrop: onDrop,
+                    onDropSuccess: onDropSuccess,
                     onSelectNote: onSelectNote,
                     onDeleteNote: onDeleteNote,
                     onDeleteFolder: onDeleteFolder,
@@ -683,6 +697,7 @@ private struct SidebarTreeNode: View {
     @Binding var insertionIndicator: (parent: URL, index: Int)?
     let appearance: AppearanceManager
     let onDrop: ([URL], FileNode) -> Bool
+    let onDropSuccess: () -> Void
     let onSelectNote: (URL) -> Void
     let onDeleteNote: (URL) -> Void
     let onDeleteFolder: (URL) -> Void
@@ -702,6 +717,13 @@ private struct SidebarTreeNode: View {
         if node.isFolder, let children = node.children {
             DisclosureGroup(isExpanded: $isExpanded) {
                 ForEach(Array(children.enumerated()), id: \.element.id) { childIndex, child in
+                    if let ind = insertionIndicator, ind.parent == node.url, ind.index == childIndex {
+                        Rectangle()
+                            .fill(appearance.accentColor)
+                            .frame(height: 2)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                    }
                     SidebarTreeNode(
                         node: child,
                         depth: depth + 1,
@@ -712,6 +734,7 @@ private struct SidebarTreeNode: View {
                         insertionIndicator: $insertionIndicator,
                         appearance: appearance,
                         onDrop: onDrop,
+                        onDropSuccess: onDropSuccess,
                         onSelectNote: onSelectNote,
                         onDeleteNote: onDeleteNote,
                         onDeleteFolder: onDeleteFolder,
@@ -742,7 +765,9 @@ private struct SidebarTreeNode: View {
                 dropTargetURL = nil
                 dragExpandedFolderURLs = []
                 insertionIndicator = nil
-                return onDrop(items.map(\.url), node)
+                let moved = onDrop(items.map(\.url), node)
+                if moved { onDropSuccess() }
+                return moved
             } isTargeted: { targeted in
                 if targeted {
                     dropTargetURL = node.url
@@ -774,7 +799,9 @@ private struct SidebarTreeNode: View {
                     dropTargetURL = nil
                     dragExpandedFolderURLs = []
                     insertionIndicator = nil
-                    return onDrop(items.map(\.url), node)
+                    let moved = onDrop(items.map(\.url), node)
+                    if moved { onDropSuccess() }
+                    return moved
                 } isTargeted: { targeted in
                     if targeted { dropTargetURL = node.url }
                     else if dropTargetURL == node.url { dropTargetURL = nil }

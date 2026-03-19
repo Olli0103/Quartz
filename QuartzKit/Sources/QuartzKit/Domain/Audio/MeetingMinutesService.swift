@@ -8,6 +8,9 @@ public enum MeetingMinutesTemplate: String, CaseIterable, Identifiable, Sendable
     case executive = "executive"
     case technical = "technical"
     case actionFocused = "actionFocused"
+    case oneOnOne = "oneOnOne"
+    case engineeringSync = "engineeringSync"
+    case clientPitch = "clientPitch"
     case custom = "custom"
 
     public var id: String { rawValue }
@@ -18,6 +21,9 @@ public enum MeetingMinutesTemplate: String, CaseIterable, Identifiable, Sendable
         case .executive: String(localized: "Executive Summary", bundle: .module)
         case .technical: String(localized: "Technical", bundle: .module)
         case .actionFocused: String(localized: "Action-Focused", bundle: .module)
+        case .oneOnOne: String(localized: "1:1", bundle: .module)
+        case .engineeringSync: String(localized: "Engineering Sync", bundle: .module)
+        case .clientPitch: String(localized: "Client Pitch", bundle: .module)
         case .custom: String(localized: "Custom", bundle: .module)
         }
     }
@@ -114,6 +120,78 @@ public enum MeetingMinutesTemplate: String, CaseIterable, Identifiable, Sendable
             - Respond in the same language as the transcript.
             - Every action item must be clear and actionable.
             - Prioritize by impact if possible.
+            """
+        case .oneOnOne:
+            """
+            You are a 1:1 meeting assistant. Create concise, personal notes from this one-on-one conversation.
+
+            Respond with ONLY:
+            ## Summary
+            A brief 2-3 sentence overview of the conversation.
+
+            ## Topics Discussed
+            - Key topics covered (career, feedback, blockers, goals, etc.)
+
+            ## Action Items
+            - [ ] Commitments made by either party with owner (if mentioned)
+
+            ## Follow-up
+            - Any scheduled follow-ups or topics to revisit
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Keep tone professional but personal. Preserve confidentiality.
+            - Focus on outcomes and commitments, not verbatim quotes.
+            """
+        case .engineeringSync:
+            """
+            You are an engineering standup/sync meeting assistant. Create structured technical notes from this transcript.
+
+            Respond with ONLY:
+            ## Overview
+            Brief context: sprint, project, or team focus.
+
+            ## Updates by Person/Topic
+            - What was shared (blockers, progress, plans)
+
+            ## Blockers & Dependencies
+            - Technical blockers, waiting on, or blocked by
+
+            ## Action Items
+            - [ ] Technical tasks with owners (if mentioned)
+
+            ## Decisions
+            - Architecture, tooling, or process decisions made
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Preserve technical terms, ticket IDs, and system names.
+            - Be concise; standups are time-boxed.
+            """
+        case .clientPitch:
+            """
+            You are a client-facing meeting assistant. Create polished meeting notes suitable for client sharing.
+
+            Respond with ONLY:
+            ## Executive Summary
+            One paragraph capturing the meeting purpose and key outcomes.
+
+            ## Discussion Points
+            - Main topics discussed with client
+
+            ## Decisions & Agreements
+            - Commitments, approvals, or agreements reached
+
+            ## Next Steps
+            - [ ] Clear action items with owners and deadlines (if mentioned)
+
+            ## Open Items
+            - Questions or topics to be resolved later
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Use professional, client-ready language.
+            - Emphasize clarity and accountability for follow-ups.
             """
         case .custom:
             ""

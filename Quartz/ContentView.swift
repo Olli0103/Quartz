@@ -616,6 +616,7 @@ struct ContentView: View {
             #if os(macOS)
             DashboardView(
                 sidebarViewModel: viewModel?.sidebarViewModel,
+                vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
                 onSelectNote: { url in selectedNoteURL = url },
                 onNewNote: {
                     newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
