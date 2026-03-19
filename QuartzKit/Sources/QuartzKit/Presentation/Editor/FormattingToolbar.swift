@@ -3,7 +3,7 @@ import SwiftUI
 /// Markdown formatting actions.
 public enum FormattingAction: String, CaseIterable, Sendable {
     case bold, italic, strikethrough, heading, bulletList, numberedList, checkbox
-    case code, codeBlock, link, image, blockquote
+    case code, codeBlock, link, image, blockquote, highlight
     case table, math, footnote, mermaid
 
     var icon: String {
@@ -20,6 +20,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: "link"
         case .image: "photo"
         case .blockquote: "text.quote"
+        case .highlight: "highlighter"
         case .table: "tablecells"
         case .math: "function"
         case .footnote: "number"
@@ -32,8 +33,11 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         switch self {
         case .bold: "⌘B"
         case .italic: "⌘I"
+        case .strikethrough: "⌘⇧X"
+        case .heading: "⌘⇧H"
         case .code: "⌘E"
         case .link: "⌘K"
+        case .blockquote: "⌘⇧Q"
         default: nil
         }
     }
@@ -52,6 +56,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: String(localized: "Link", bundle: .module)
         case .image: String(localized: "Image", bundle: .module)
         case .blockquote: String(localized: "Quote", bundle: .module)
+        case .highlight: String(localized: "Highlight", bundle: .module)
         case .table: String(localized: "Table", bundle: .module)
         case .math: String(localized: "Math", bundle: .module)
         case .footnote: String(localized: "Footnote", bundle: .module)
@@ -73,6 +78,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .link: .template("[", "](url)")
         case .image: .template("![", "](path)")
         case .blockquote: .linePrefix("> ")
+        case .highlight: .wrap("==")
         case .table: .insert("| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| Cell 1 | Cell 2 | Cell 3 |\n")
         case .math: .wrap("$")
         case .footnote: .template("[^", "]: ")
@@ -123,7 +129,7 @@ public struct FormattingToolbar: View {
         .bold, .italic, .strikethrough, .heading, .bulletList, .checkbox, .code, .link
     ]
     private let secondaryActions: [FormattingAction] = [
-        .numberedList, .codeBlock, .image, .blockquote, .table, .math, .footnote, .mermaid
+        .numberedList, .codeBlock, .image, .blockquote, .highlight, .table, .math, .footnote, .mermaid
     ]
 
     public init(onAction: @escaping (FormattingAction) -> Void) {

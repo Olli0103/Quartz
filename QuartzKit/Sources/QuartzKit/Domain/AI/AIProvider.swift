@@ -373,7 +373,29 @@ public final class OpenRouterProvider: AIProvider, Sendable {
         return url
     }()
 
+    private static let modelsURL: URL = {
+        guard let url = URL(string: "https://openrouter.ai/api/v1/models") else {
+            preconditionFailure("Invalid static models URL for OpenRouter")
+        }
+        return url
+    }()
+
     public var isConfigured: Bool { keychain.hasKey(for: id) }
+
+    public func checkConnection() async -> Bool {
+        guard isConfigured else { return false }
+        do {
+            let apiKey = try await keychain.getKey(for: id)
+            var request = URLRequest(url: Self.modelsURL)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            let (_, httpResponse) = try await Self.session.data(for: request)
+            guard let response = httpResponse as? HTTPURLResponse else { return false }
+            return (200 ..< 300).contains(response.statusCode)
+        } catch {
+            return false
+        }
+    }
 
     public var availableModels: [AIModel] {
         [

@@ -54,6 +54,8 @@ public struct SidebarView: View {
     @State private var searchQuery: String = ""
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedTemplate: NoteTemplate = .blank
+    /// URL of the folder currently targeted by a drag (nil = none). Used for drop zone highlight.
+    @State private var dropTargetURL: URL?
 
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>, onMapViewTap: (() -> Void)? = nil) {
         self.viewModel = viewModel
@@ -63,11 +65,9 @@ public struct SidebarView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 newNoteButton
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
 
                 // Single scrollable layout: List breaks dropDestination when source and target are in same List (SwiftUI bug).
                 // Everything in one ScrollView for correct scrolling; folder tree outside List for drag & drop.
@@ -109,7 +109,6 @@ public struct SidebarView: View {
                     viewModel.searchText = newValue
                 }
             }
-        }
         #if os(iOS)
         .overlay(alignment: .bottom) {
             iosFloatingSearchBar
@@ -257,8 +256,18 @@ public struct SidebarView: View {
 
     // MARK: - Quick Access
 
+    private static let quickAccessRowSpacing: CGFloat = 2
+    private static let sectionHeaderBottomPadding: CGFloat = 6
+
     private var quickAccessSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
+            Text(String(localized: "Quick Access", bundle: .module))
+                .font(sidebarSectionFont)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+                .padding(.bottom, Self.sectionHeaderBottomPadding)
+
             #if os(macOS)
             dashboardRow
             #endif
@@ -280,13 +289,9 @@ public struct SidebarView: View {
                 label: String(localized: "Recent", bundle: .module),
                 filter: .recent
             )
-        } header: {
-            Text(String(localized: "Quick Access", bundle: .module))
-                .font(sidebarSectionFont)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     #if os(macOS)
@@ -309,14 +314,14 @@ public struct SidebarView: View {
                 }
             }
             .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selectedNoteURL == nil ? appearance.accentColor.opacity(0.1) : Color.clear)
+            )
         }
         .buttonStyle(.plain)
-        .listRowBackground(
-            selectedNoteURL == nil
-                ? RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(appearance.accentColor.opacity(0.1))
-                : nil
-        )
     }
     #endif
 
@@ -341,36 +346,20 @@ public struct SidebarView: View {
                 }
             }
             .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(viewModel.activeFilter == filter ? appearance.accentColor.opacity(0.1) : Color.clear)
+            )
         }
         .buttonStyle(.plain)
-        .listRowBackground(
-            viewModel.activeFilter == filter
-                ? RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(appearance.accentColor.opacity(0.1))
-                : nil
-        )
     }
 
     // MARK: - Tags Section
 
     private var tagsSection: some View {
-        Section {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(viewModel.tagInfos.prefix(12)) { tag in
-                        Button {
-                            withAnimation(QuartzAnimation.standard) {
-                                viewModel.selectedTag = viewModel.selectedTag == tag.name ? nil : tag.name
-                            }
-                        } label: {
-                            QuartzTagBadge(text: tag.name, isSelected: viewModel.selectedTag == tag.name)
-                        }
-                        .buttonStyle(QuartzBounceButtonStyle())
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-        } header: {
+        VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
             HStack {
                 Text(String(localized: "Tags", bundle: .module))
                     .font(sidebarSectionFont)
@@ -386,7 +375,26 @@ public struct SidebarView: View {
                     .foregroundStyle(appearance.accentColor)
                 }
             }
+            .padding(.bottom, Self.sectionHeaderBottomPadding)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(viewModel.tagInfos.prefix(12)) { tag in
+                        Button {
+                            withAnimation(QuartzAnimation.standard) {
+                                viewModel.selectedTag = viewModel.selectedTag == tag.name ? nil : tag.name
+                            }
+                        } label: {
+                            QuartzTagBadge(text: tag.name, isSelected: viewModel.selectedTag == tag.name)
+                        }
+                        .buttonStyle(QuartzBounceButtonStyle())
+                    }
+                }
+                .padding(.vertical, 2)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Folders Section (outside List for drag & drop – List breaks dropDestination)
@@ -402,11 +410,20 @@ public struct SidebarView: View {
                         .tracking(0.5)
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(dropTargetURL == viewModel.vaultRootURL ? appearance.accentColor.opacity(0.15) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(dropTargetURL == viewModel.vaultRootURL ? appearance.accentColor.opacity(0.5) : Color.clear, lineWidth: 2)
+                        )
                         .dropDestination(for: SidebarItemTransferable.self) { items, _ in
                             guard let root = viewModel.vaultRootURL else { return false }
+                            dropTargetURL = nil
                             var moved = false
                             for sourceURL in items.map(\.url) {
                                 guard sourceURL.deletingLastPathComponent() != root else { continue }
@@ -414,9 +431,11 @@ public struct SidebarView: View {
                                 moved = true
                             }
                             return moved
-                        } isTargeted: { _ in }
+                        } isTargeted: { targeted in
+                            dropTargetURL = targeted ? viewModel.vaultRootURL : (dropTargetURL == viewModel.vaultRootURL ? nil : dropTargetURL)
+                        }
 
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(viewModel.filteredTree) { node in
                             nodeView(for: node)
                         }
@@ -432,11 +451,14 @@ public struct SidebarView: View {
 
     #if os(macOS)
     private var mapViewAndTrashSection: some View {
-        Section {
+        VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
             Button {
                 onMapViewTap?()
             } label: {
                 Label(String(localized: "Map View", bundle: .module), systemImage: "map")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
 
@@ -444,31 +466,34 @@ public struct SidebarView: View {
                 // Trash – future: show deleted notes
             } label: {
                 Label(String(localized: "Trash", bundle: .module), systemImage: "trash")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
     }
     #endif
 
     // MARK: - Empty State
 
     private var emptyState: some View {
-        Section {
-            VStack(spacing: 10) {
-                Image(systemName: "tray")
-                    .font(.title)
-                    .foregroundStyle(.quaternary)
-                Text(String(localized: "No Notes Yet", bundle: .module))
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "Create your first note to get started.", bundle: .module))
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
+        VStack(spacing: 10) {
+            Image(systemName: "tray")
+                .font(.title)
+                .foregroundStyle(.quaternary)
+            Text(String(localized: "No Notes Yet", bundle: .module))
+                .font(.body.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(String(localized: "Create your first note to get started.", bundle: .module))
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
     }
 
     // MARK: - Node View
@@ -480,24 +505,73 @@ public struct SidebarView: View {
                 ForEach(children) { child in
                     AnyView(nodeView(for: child))
                 }
-            }             label: {
+                .padding(.leading, 16)
+            } label: {
                 FileNodeRow(node: node)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .draggable(SidebarItemTransferable(url: node.url))
             }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(dropTargetURL == node.url ? appearance.accentColor.opacity(0.15) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(dropTargetURL == node.url ? appearance.accentColor.opacity(0.5) : Color.clear, lineWidth: 2)
+            )
             .dropDestination(for: SidebarItemTransferable.self) { items, _ in
-                handleDrop(urls: items.map(\.url), onto: node)
-            } isTargeted: { _ in }
+                dropTargetURL = nil
+                return handleDrop(urls: items.map(\.url), onto: node)
+            } isTargeted: { targeted in
+                if targeted {
+                    dropTargetURL = node.url
+                } else if dropTargetURL == node.url {
+                    dropTargetURL = nil
+                }
+            }
             .contentShape(Rectangle())
             .contextMenu { folderContextMenu(for: node) }
+        } else if node.isFolder {
+            // Empty folder – still a valid drop target
+            FileNodeRow(node: node)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .draggable(SidebarItemTransferable(url: node.url))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(dropTargetURL == node.url ? appearance.accentColor.opacity(0.15) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(dropTargetURL == node.url ? appearance.accentColor.opacity(0.5) : Color.clear, lineWidth: 2)
+                )
+                .dropDestination(for: SidebarItemTransferable.self) { items, _ in
+                    dropTargetURL = nil
+                    return handleDrop(urls: items.map(\.url), onto: node)
+                } isTargeted: { targeted in
+                    if targeted {
+                        dropTargetURL = node.url
+                    } else if dropTargetURL == node.url {
+                        dropTargetURL = nil
+                    }
+                }
+                .contextMenu { folderContextMenu(for: node) }
         } else if node.isNote {
             Button {
                 selectedNoteURL = node.url
             } label: {
                 FileNodeRow(node: node)
                     .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(selectedNoteURL == node.url ? appearance.accentColor.opacity(0.1) : Color.clear)

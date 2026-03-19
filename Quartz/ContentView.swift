@@ -132,6 +132,7 @@ struct ContentView: View {
                     currentNoteURL: viewModel?.editorViewModel?.note?.fileURL,
                     vaultRootURL: viewModel?.sidebarViewModel?.vaultRootURL,
                     vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+                    embeddingService: viewModel?.embeddingService,
                     onSelectNote: { url in
                         showKnowledgeGraph = false
                         selectedNoteURL = url
@@ -497,8 +498,24 @@ struct ContentView: View {
     private var detailColumn: some View {
         Group {
             if let editorVM = viewModel?.editorViewModel {
-                NoteEditorView(viewModel: editorVM)
-                    .id(editorVM.note?.fileURL)
+                NoteEditorView(
+                    viewModel: editorVM,
+                    embeddingService: viewModel?.embeddingService,
+                    onSearch: { showSearch = true },
+                    onSupport: { showSupport = true },
+                    onNewNote: {
+                        newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
+                        let df = DateFormatter()
+                        df.dateFormat = "yyyy-MM-dd HH-mm"
+                        newNoteName = "Note \(df.string(from: Date()))"
+                        showNewNote = true
+                    },
+                    onRefresh: { Task { await viewModel?.sidebarViewModel?.refresh() } },
+                    searchDisabled: viewModel?.searchIndex == nil,
+                    newNoteDisabled: viewModel?.sidebarViewModel == nil,
+                    refreshDisabled: viewModel?.sidebarViewModel == nil
+                )
+                .id(editorVM.note?.fileURL)
             } else {
             #if os(macOS)
             DashboardView(
@@ -524,51 +541,55 @@ struct ContentView: View {
         }
         #if os(macOS)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    showSearch = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.subheadline)
-                        Text(String(localized: "Search Brain…"))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            // When no note is open (DashboardView), show global toolbar. When a note is open,
+            // NoteEditorView shows the full toolbar (AI, Focus Mode, Search Brain, etc.).
+            if viewModel?.editorViewModel == nil {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showSearch = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.subheadline)
+                            Text(String(localized: "Search Brain…"))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(.quaternary))
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(.quaternary))
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel?.searchIndex == nil)
+                    .buttonStyle(.plain)
+                    .disabled(viewModel?.searchIndex == nil)
 
-                Button {
-                    showSupport = true
-                } label: {
-                    Image(systemName: "cup.and.saucer")
-                }
-                .help(String(localized: "Support the project"))
+                    Button {
+                        showSupport = true
+                    } label: {
+                        Image(systemName: "cup.and.saucer")
+                    }
+                    .help(String(localized: "Support the project"))
 
-                Button {
-                    newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
-                    let df = DateFormatter()
-                    df.dateFormat = "yyyy-MM-dd HH-mm"
-                    newNoteName = "Note \(df.string(from: Date()))"
-                    showNewNote = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .disabled(viewModel?.sidebarViewModel == nil)
+                    Button {
+                        newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
+                        let df = DateFormatter()
+                        df.dateFormat = "yyyy-MM-dd HH-mm"
+                        newNoteName = "Note \(df.string(from: Date()))"
+                        showNewNote = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(viewModel?.sidebarViewModel == nil)
 
-                Button {
-                    Task { await viewModel?.sidebarViewModel?.refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .disabled(viewModel?.sidebarViewModel == nil)
+                    Button {
+                        Task { await viewModel?.sidebarViewModel?.refresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(viewModel?.sidebarViewModel == nil)
 
-                SettingsLink {
-                    Image(systemName: "gearshape")
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                    }
                 }
             }
         }

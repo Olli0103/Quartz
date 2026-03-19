@@ -53,11 +53,14 @@ public final class GraphViewModel {
     public init() {}
 
     /// Builds the graph from a file tree and the currently selected note.
+    /// Uses disk cache when notes haven't changed to avoid slow rebuilds.
+    /// When embeddingService is provided, adds AI-assisted semantic links between similar notes.
     public func buildGraph(
         fileTree: [FileNode],
         currentNoteURL: URL?,
         vaultRootURL: URL?,
-        vaultProvider: (any VaultProviding)?
+        vaultProvider: (any VaultProviding)?,
+        embeddingService: VectorEmbeddingService? = nil
     ) async {
         isLoading = true
 
@@ -65,6 +68,33 @@ public final class GraphViewModel {
         guard !allNotes.isEmpty else {
             isLoading = false
             return
+        }
+
+        let noteURLs = allNotes.map(\.url)
+
+        // Try cache first (avoids reading 300+ files on every open)
+        if let root = vaultRootURL {
+            let cache = GraphCache(vaultRoot: root)
+            let fingerprint = cache.computeFingerprint(for: noteURLs)
+            if let cached = cache.loadIfValid(fingerprint: fingerprint) {
+                nodes = cached.nodes.map { n in
+                    GraphNode(
+                        id: n.id,
+                        title: n.title,
+                        url: n.url,
+                        x: n.x,
+                        y: n.y,
+                        vx: 0,
+                        vy: 0,
+                        connectionCount: n.connectionCount
+                    )
+                }
+                edges = cached.edges.map { e in GraphEdge(from: e.from, to: e.to, isSemantic: e.isSemantic) }
+                currentNoteID = currentNoteURL?.absoluteString
+                rebuildNodeIndex()
+                isLoading = false
+                return
+            }
         }
 
         var builtNodes: [GraphNode] = []
@@ -122,6 +152,28 @@ public final class GraphViewModel {
             }
         }
 
+        // AI-assisted semantic linking: add edges between semantically similar notes
+        if let embedding = embeddingService, let root = vaultRootURL {
+            var stableIDToNodeID: [UUID: String] = [:]
+            for note in allNotes {
+                let sid = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
+                stableIDToNodeID[sid] = note.url.absoluteString
+            }
+            for note in allNotes {
+                let stableID = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
+                let sourceID = note.url.absoluteString
+                let similarIDs = await embedding.findSimilarNoteIDs(for: stableID, limit: 5, threshold: 0.35)
+                for similarUUID in similarIDs {
+                    guard let targetID = stableIDToNodeID[similarUUID], targetID != sourceID else { continue }
+                    let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
+                    if !edgeSet.contains(edgeKey) {
+                        edgeSet.insert(edgeKey)
+                        builtEdges.append(GraphEdge(from: sourceID, to: targetID, isSemantic: true))
+                    }
+                }
+            }
+        }
+
         var connectionCounts: [String: Int] = [:]
         for edge in builtEdges {
             connectionCounts[edge.from, default: 0] += 1
@@ -135,6 +187,30 @@ public final class GraphViewModel {
         edges = builtEdges
         rebuildNodeIndex()
         layoutGraph()
+
+        // Persist to cache for next time
+        if let root = vaultRootURL {
+            let cache = GraphCache(vaultRoot: root)
+            let fingerprint = cache.computeFingerprint(for: noteURLs)
+            let cached = GraphCache.CachedGraph(
+                nodes: nodes.map { n in
+                    GraphCache.CachedGraph.CachedNode(
+                        id: n.id,
+                        title: n.title,
+                        url: n.url,
+                        x: n.x,
+                        y: n.y,
+                        connectionCount: n.connectionCount
+                    )
+                },
+                edges: edges.map { e in
+                    GraphCache.CachedGraph.CachedEdge(from: e.from, to: e.to, isSemantic: e.isSemantic)
+                },
+                fingerprint: fingerprint
+            )
+            try? cache.save(cached)
+        }
+
         isLoading = false
     }
 
@@ -309,6 +385,7 @@ public struct KnowledgeGraphView: View {
     private let currentNoteURL: URL?
     private let vaultRootURL: URL?
     private let vaultProvider: (any VaultProviding)?
+    private let embeddingService: VectorEmbeddingService?
     private let onSelectNote: ((URL) -> Void)?
 
     /// Light cream background per design (#FDFBF8).
@@ -319,12 +396,14 @@ public struct KnowledgeGraphView: View {
         currentNoteURL: URL?,
         vaultRootURL: URL?,
         vaultProvider: (any VaultProviding)?,
+        embeddingService: VectorEmbeddingService? = nil,
         onSelectNote: ((URL) -> Void)? = nil
     ) {
         self.fileTree = fileTree
         self.currentNoteURL = currentNoteURL
         self.vaultRootURL = vaultRootURL
         self.vaultProvider = vaultProvider
+        self.embeddingService = embeddingService
         self.onSelectNote = onSelectNote
     }
 
@@ -383,7 +462,8 @@ public struct KnowledgeGraphView: View {
                 fileTree: fileTree,
                 currentNoteURL: currentNoteURL,
                 vaultRootURL: vaultRootURL,
-                vaultProvider: vaultProvider
+                vaultProvider: vaultProvider,
+                embeddingService: embeddingService
             )
         }
     }

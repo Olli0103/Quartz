@@ -48,8 +48,8 @@ public struct FileNodeRow: View {
                 .foregroundStyle(iconColor)
                 .frame(width: fileNodeIconSize + 4)
         }
-        .padding(.vertical, 4)
-        .frame(minHeight: 44)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)

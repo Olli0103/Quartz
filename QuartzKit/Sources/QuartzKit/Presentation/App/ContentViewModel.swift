@@ -180,9 +180,19 @@ public final class ContentViewModel {
             for (i, url) in noteURLs.enumerated() {
                 guard !Task.isCancelled else { break }
 
+                let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
+                let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                if let mtime, let lastIndexed = await embedding.lastIndexedDate(for: stableID), mtime <= lastIndexed {
+                    // File unchanged since last index, skip
+                    let current = i + 1
+                    await MainActor.run { [weak self] in
+                        self?.indexingProgress = (current: current, total: total)
+                    }
+                    continue
+                }
+
                 let content = try? String(contentsOf: url, encoding: .utf8)
                 if let content, !content.isEmpty {
-                    let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                     try? await embedding.indexNote(noteID: stableID, content: content)
                 }
 

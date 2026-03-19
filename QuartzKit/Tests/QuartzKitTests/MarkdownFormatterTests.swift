@@ -149,6 +149,6 @@ struct MarkdownFormatterTests {
 
     @Test("Action count is correct")
     func actionCount() {
-        #expect(FormattingAction.allCases.count == 11)
+        #expect(FormattingAction.allCases.count == 17)
     }
 }

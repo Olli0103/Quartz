@@ -81,6 +81,7 @@ private var editorMetadataFont: Font {
 /// Markdown editor with liquid glass header, formatting toolbar, AI tools, and status bar.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
+    var embeddingService: VectorEmbeddingService?
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.featureGate) private var featureGate
@@ -112,8 +113,36 @@ public struct NoteEditorView: View {
     private let formatter = MarkdownFormatter()
     private static let favoritesKey = "quartz.favoriteNotes"
 
-    public init(viewModel: NoteEditorViewModel) {
+    /// Optional callbacks for global toolbar actions (Search Brain, Support, New Note, Refresh).
+    /// When provided, these appear after AI and Focus Mode, before Save and Share.
+    var onSearch: (() -> Void)? = nil
+    var onSupport: (() -> Void)? = nil
+    var onNewNote: (() -> Void)? = nil
+    var onRefresh: (() -> Void)? = nil
+    var searchDisabled: Bool = false
+    var newNoteDisabled: Bool = false
+    var refreshDisabled: Bool = false
+
+    public init(
+        viewModel: NoteEditorViewModel,
+        embeddingService: VectorEmbeddingService? = nil,
+        onSearch: (() -> Void)? = nil,
+        onSupport: (() -> Void)? = nil,
+        onNewNote: (() -> Void)? = nil,
+        onRefresh: (() -> Void)? = nil,
+        searchDisabled: Bool = false,
+        newNoteDisabled: Bool = false,
+        refreshDisabled: Bool = false
+    ) {
         self.viewModel = viewModel
+        self.embeddingService = embeddingService
+        self.onSearch = onSearch
+        self.onSupport = onSupport
+        self.onNewNote = onNewNote
+        self.onRefresh = onRefresh
+        self.searchDisabled = searchDisabled
+        self.newNoteDisabled = newNoteDisabled
+        self.refreshDisabled = refreshDisabled
     }
 
     @ViewBuilder
@@ -179,8 +208,11 @@ public struct NoteEditorView: View {
         }
         .keyboardShortcut(for: .bold) { applyFormatting(.bold) }
         .keyboardShortcut(for: .italic) { applyFormatting(.italic) }
+        .keyboardShortcut(for: .strikethrough) { applyFormatting(.strikethrough) }
+        .keyboardShortcut(for: .heading) { applyFormatting(.heading) }
         .keyboardShortcut(for: .code) { applyFormatting(.code) }
         .keyboardShortcut(for: .link) { applyFormatting(.link) }
+        .keyboardShortcut(for: .blockquote) { applyFormatting(.blockquote) }
         .onTapGesture(count: 3) {
             if focusMode.isFocusModeActive { focusMode.toggleFocusMode() }
         }
@@ -277,6 +309,7 @@ public struct NoteEditorView: View {
                     currentNoteURL: viewModel.note?.fileURL,
                     vaultRootURL: viewModel.vaultRootURL,
                     vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+                    embeddingService: embeddingService,
                     onSelectNote: { [viewModel] url in
                         showKnowledgeGraph = false
                         Task { @MainActor in
@@ -1217,6 +1250,56 @@ public struct NoteEditorView: View {
                     : String(localized: "Enter focus mode", bundle: .module))
             }
 
+            // Global toolbar actions (Search Brain, Support, etc.) – after AI and Focus Mode
+            if let onSearch {
+                Button {
+                    onSearch()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.subheadline)
+                        Text(String(localized: "Search Brain…", bundle: .module))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.quaternary))
+                }
+                .buttonStyle(.plain)
+                .disabled(searchDisabled)
+                .help(String(localized: "Search notes", bundle: .module))
+            }
+            if let onSupport {
+                Button {
+                    onSupport()
+                } label: {
+                    Image(systemName: "cup.and.saucer")
+                }
+                .help(String(localized: "Support the project", bundle: .module))
+            }
+            if let onNewNote {
+                Button {
+                    onNewNote()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(newNoteDisabled)
+            }
+            if let onRefresh {
+                Button {
+                    onRefresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(refreshDisabled)
+            }
+            if onSearch != nil || onSupport != nil || onNewNote != nil || onRefresh != nil {
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                }
+            }
+
             Button {
                 Task { await viewModel.manualSave() }
             } label: {
@@ -1247,7 +1330,7 @@ public struct NoteEditorView: View {
 // MARK: - Keyboard Shortcut Helpers
 
 private enum EditorShortcut {
-    case bold, italic, code, link
+    case bold, italic, strikethrough, heading, code, link, blockquote
 }
 
 private extension View {
@@ -1258,10 +1341,16 @@ private extension View {
                 Button("") { action() }.keyboardShortcut("b", modifiers: .command).hidden()
             case .italic:
                 Button("") { action() }.keyboardShortcut("i", modifiers: .command).hidden()
+            case .strikethrough:
+                Button("") { action() }.keyboardShortcut("x", modifiers: [.command, .shift]).hidden()
+            case .heading:
+                Button("") { action() }.keyboardShortcut("h", modifiers: [.command, .shift]).hidden()
             case .code:
                 Button("") { action() }.keyboardShortcut("e", modifiers: .command).hidden()
             case .link:
                 Button("") { action() }.keyboardShortcut("k", modifiers: .command).hidden()
+            case .blockquote:
+                Button("") { action() }.keyboardShortcut("q", modifiers: [.command, .shift]).hidden()
             }
         }
     }

@@ -278,6 +278,38 @@ public actor VectorEmbeddingService {
         Set(index.map(\.noteID))
     }
 
+    /// Returns the most recent index date for a note (from its chunks).
+    /// Used for incremental indexing: skip if file mtime is not newer.
+    public func lastIndexedDate(for noteID: UUID) -> Date? {
+        index.filter { $0.noteID == noteID }.map(\.lastUpdated).max()
+    }
+
+    /// Finds note IDs semantically similar to the given note.
+    /// Uses the note's first chunk as query; returns other notes' IDs sorted by max similarity.
+    /// Used for AI-assisted graph linking.
+    public func findSimilarNoteIDs(
+        for noteID: UUID,
+        limit: Int = 5,
+        threshold: Float = 0.35
+    ) -> [UUID] {
+        let sourceChunks = index.filter { $0.noteID == noteID }.sorted(by: { $0.chunkIndex < $1.chunkIndex })
+        guard let firstChunk = sourceChunks.first else { return [] }
+
+        var noteScores: [UUID: Float] = [:]
+        for entry in index where entry.noteID != noteID {
+            let sim = cosineSimilarity(firstChunk.embedding, entry.embedding)
+            if sim >= threshold {
+                let current = noteScores[entry.noteID] ?? 0
+                noteScores[entry.noteID] = max(current, sim)
+            }
+        }
+
+        return noteScores
+            .sorted { $0.value > $1.value }
+            .prefix(limit)
+            .map(\.key)
+    }
+
     // MARK: - Stable Note ID
 
     /// Derives a deterministic UUID from a note's relative path within the vault.
