@@ -34,7 +34,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 
 | | |
 |---|---|
-| **📝 Beautiful Markdown** | WYSIWYG editing with TextKit 2. Inline images, tables, code blocks. Export to PDF. |
+| **📝 Beautiful Markdown** | Raw markdown editing with syntax highlighting. Textual-powered preview with math, tables, code blocks. Export to PDF. |
 | **🧠 Second Brain** | Wiki-links, backlinks, tags, full-text search. Interactive knowledge graph. |
 | **🤖 AI-Powered** | Chat with notes or your entire vault. Summarize, rewrite, proofread. 5 providers + Ollama. |
 | **🎙️ Audio & Transcription** | Record, transcribe on-device, auto-generate meeting minutes. |
@@ -48,9 +48,10 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 ## Features
 
 ### Markdown Editor
-- WYSIWYG editing — looks like Apple Notes, stores pure Markdown
-- Formatting toolbar: Bold, Italic, Headings, Lists, Checkboxes, Code, Links, Images
-- Inline image rendering
+- **Edit mode** — Raw markdown with syntax highlighting. All markers visible (`#`, `**`, `[ ]`, etc.)
+- **Preview mode** — Rendered output via [Textual](https://github.com/gonzalezreal/textual). Math expressions (`$...$`), tables, code blocks
+- Formatting toolbar: Bold, Italic, Headings, Lists, Checkboxes, Code, Links, Images, Math
+- Inline image rendering & drag-and-drop
 - YAML frontmatter with tag management
 - Focus Mode & Typewriter Mode
 - Auto-save, word count, reading time
@@ -59,7 +60,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 
 ### Organization
 - **Vault-based** — Each vault is a folder. Use iCloud, Dropbox, or local storage.
-- **Folders** — Create, rename, move, delete. Drag & drop.
+- **Folders** — Create, rename, move, delete. Drag & drop notes and folders. Sort by name, date modified, or date created.
 - **Tags** — Inline `#tag` detection, tag overview with badges
 - **Wiki-links** — `[[Note Name]]` with alias and anchor support
 - **Backlinks** — See all notes linking to the current one
@@ -152,7 +153,7 @@ cd Quartz
 open Quartz.xcodeproj
 ```
 
-`QuartzKit` is a local Swift Package. The only external dependency is [swift-markdown](https://github.com/swiftlang/swift-markdown) (Apple).
+`QuartzKit` is a local Swift Package. Key dependencies: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Apple), [Textual](https://github.com/gonzalezreal/textual) (markdown preview rendering).
 
 ### Use QuartzKit as a Package
 ```swift
