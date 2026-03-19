@@ -14,7 +14,7 @@ struct IosEditorToolbar: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { onPreviewToggle() }
+                        withAnimation(.bouncy) { onPreviewToggle() }
                     } label: {
                         Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                             .font(.system(size: 14, weight: .medium))

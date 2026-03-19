@@ -13,7 +13,7 @@ struct MacEditorToolbar: View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { onPreviewToggle() }
+                    withAnimation(.bouncy) { onPreviewToggle() }
                 } label: {
                     Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                         .font(.system(size: 14, weight: .medium))

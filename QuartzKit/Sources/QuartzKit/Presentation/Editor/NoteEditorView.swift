@@ -118,6 +118,8 @@ public struct NoteEditorView: View {
     #endif
     @State private var showSavedOverlay = false
     @State private var isPreviewMode = false
+    @State private var showCommandPalette = false
+    @State private var showExternalModificationAlert = false
     private let formatter = MarkdownFormatter()
     private static let favoritesKey = "quartz.favoriteNotes"
 
@@ -200,7 +202,7 @@ public struct NoteEditorView: View {
             ToolbarItemGroup(placement: .principal) {
                 MacEditorToolbar(
                     isPreviewMode: isPreviewMode,
-                    onPreviewToggle: { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() } },
+                    onPreviewToggle: { withAnimation(.bouncy) { isPreviewMode.toggle() } },
                     onFormatting: applyFormatting,
                     onImagePick: { showImagePicker = true }
                 )
@@ -226,6 +228,11 @@ public struct NoteEditorView: View {
                 toolbarActions
             }
         }
+        .background {
+            Button("") { showCommandPalette = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .hidden()
+        }
         .keyboardShortcut(for: .bold) { applyFormatting(.bold) }
         .keyboardShortcut(for: .italic) { applyFormatting(.italic) }
         .keyboardShortcut(for: .strikethrough) { applyFormatting(.strikethrough) }
@@ -248,7 +255,7 @@ public struct NoteEditorView: View {
             if !isPreviewMode {
                 IosEditorToolbar(
                     isPreviewMode: isPreviewMode,
-                    onPreviewToggle: { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() } },
+                    onPreviewToggle: { withAnimation(.bouncy) { isPreviewMode.toggle() } },
                     onFormatting: applyFormatting,
                     onImagePick: { showImageSourceSheet = true },
                     onSave: { Task { await viewModel.manualSave() } }
@@ -443,6 +450,41 @@ public struct NoteEditorView: View {
         }
         .onChange(of: viewModel.note?.fileURL) { _, _ in
             isPreviewMode = false
+        }
+        .overlay {
+            if showCommandPalette {
+                CommandPaletteView(
+                    isPresented: $showCommandPalette,
+                    fileTree: viewModel.fileTree,
+                    vaultRootURL: viewModel.vaultRootURL,
+                    onSelectNote: { [viewModel] url in
+                        Task { @MainActor in
+                            await viewModel.loadNote(at: url)
+                        }
+                    },
+                    onNewNote: onNewNote,
+                    onSearch: onSearch
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .zIndex(100)
+            }
+        }
+        .animation(QuartzAnimation.content, value: showCommandPalette)
+        .alert(
+            String(localized: "File Modified Externally", bundle: .module),
+            isPresented: $showExternalModificationAlert
+        ) {
+            Button(String(localized: "Reload", bundle: .module), role: .destructive) {
+                Task { await viewModel.reloadFromDisk() }
+            }
+            Button(String(localized: "Keep Editing", bundle: .module)) {
+                viewModel.dismissExternalModificationWarning()
+            }
+        } message: {
+            Text(String(localized: "This note was modified by another app or device. Reload to discard your changes, or keep editing to overwrite.", bundle: .module))
+        }
+        .onChange(of: viewModel.externalModificationDetected) { _, detected in
+            if detected { showExternalModificationAlert = true }
         }
     }
 
@@ -1101,7 +1143,7 @@ public struct NoteEditorView: View {
             .help(String(localized: "AI writing tools, link suggestions, frontmatter, backlinks, knowledge graph, PDF export", bundle: .module))
 
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.bouncy) {
                     focusMode.toggleFocusMode()
                 }
             } label: {
@@ -1120,7 +1162,7 @@ public struct NoteEditorView: View {
                 : String(localized: "Enter focus mode", bundle: .module))
 
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isPreviewMode.toggle() }
+                withAnimation(.bouncy) { isPreviewMode.toggle() }
             } label: {
                 Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                     .symbolRenderingMode(.hierarchical)
@@ -1232,7 +1274,7 @@ private extension View {
             case .code:
                 Button("") { action() }.keyboardShortcut("e", modifiers: .command).hidden()
             case .link:
-                Button("") { action() }.keyboardShortcut("k", modifiers: .command).hidden()
+                Button("") { action() }.keyboardShortcut("l", modifiers: [.command, .shift]).hidden()
             case .blockquote:
                 Button("") { action() }.keyboardShortcut("q", modifiers: [.command, .shift]).hidden()
             }

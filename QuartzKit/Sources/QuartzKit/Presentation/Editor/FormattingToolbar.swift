@@ -36,7 +36,7 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .strikethrough: "⌘⇧X"
         case .heading: "⌘⇧H"
         case .code: "⌘E"
-        case .link: "⌘K"
+        case .link: "⌘⇧L"
         case .blockquote: "⌘⇧Q"
         default: nil
         }

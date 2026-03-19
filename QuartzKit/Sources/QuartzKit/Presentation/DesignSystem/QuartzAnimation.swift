@@ -2,62 +2,54 @@ import SwiftUI
 
 /// Central animation constants for consistent timing values throughout the app.
 ///
-/// Instead of using custom `.spring(response:dampingFraction:)` values everywhere,
-/// we use these predefined animations.
+/// Uses modern iOS 17+ `.bouncy` and `.smooth` where appropriate for fluid,
+/// interruptible physics. Falls back to spring for compatibility.
 public enum QuartzAnimation {
-    // MARK: - Standard Springs
+    // MARK: - Standard Springs (Interruptible, Fluid)
 
     /// Fast, snappy interaction (Buttons, Toggles, Selections).
-    /// response: 0.3, dampingFraction: 0.8
-    public static let standard: Animation = .spring(response: 0.3, dampingFraction: 0.8)
+    /// Uses .snappy for interruptible, velocity-tracked feel.
+    public static let standard: Animation = .snappy
 
     /// Fast bounce animation for small elements (Icon-Buttons, Badges).
-    /// response: 0.25, dampingFraction: 0.5
-    public static let bounce: Animation = .spring(response: 0.25, dampingFraction: 0.5)
+    /// Uses .bouncy for playful, responsive feedback.
+    public static let bounce: Animation = .bouncy(duration: 0.35)
 
     /// Soft interaction with a bit more motion (Tag selection, Card-Selection).
-    /// response: 0.3, dampingFraction: 0.6
-    public static let soft: Animation = .spring(response: 0.3, dampingFraction: 0.6)
+    public static let soft: Animation = .smooth(duration: 0.35)
 
-    // MARK: - Content Transitions
+    // MARK: - Content Transitions (Fluid, Interruptible)
 
     /// Medium-speed animation for content transitions (Panels, Expand/Collapse).
-    /// response: 0.35, dampingFraction: 0.8
-    public static let content: Animation = .spring(response: 0.35, dampingFraction: 0.8)
+    /// Uses .smooth for fluid, non-bouncy transitions.
+    public static let content: Animation = .smooth(duration: 0.4)
 
     /// Larger content transitions (Onboarding-Steps, Lock-Screen).
-    /// response: 0.35, dampingFraction: 0.85
-    public static let smooth: Animation = .spring(response: 0.35, dampingFraction: 0.85)
+    /// Slightly longer for deliberate feel.
+    public static let smooth: Animation = .smooth(duration: 0.45)
 
-    // MARK: - Appear Animations
+    // MARK: - Appear Animations (Bouncy, Fluid)
 
     /// Appear animation (FadeIn, SlideUp).
-    /// response: 0.4, dampingFraction: 0.85
-    public static let appear: Animation = .spring(response: 0.4, dampingFraction: 0.85)
+    public static let appear: Animation = .smooth(duration: 0.45)
 
     /// Staggered appear animation for lists.
-    /// response: 0.4, dampingFraction: 0.82
-    public static let stagger: Animation = .spring(response: 0.4, dampingFraction: 0.82)
+    public static let stagger: Animation = .bouncy(duration: 0.4)
 
     /// Scale-In for Buttons/Icons.
-    /// response: 0.45, dampingFraction: 0.7
-    public static let scaleIn: Animation = .spring(response: 0.45, dampingFraction: 0.7)
+    public static let scaleIn: Animation = .bouncy(duration: 0.4)
 
     /// SlideUp appear animation.
-    /// response: 0.5, dampingFraction: 0.8
-    public static let slideUp: Animation = .spring(response: 0.5, dampingFraction: 0.8)
+    public static let slideUp: Animation = .smooth(duration: 0.5)
 
     /// Onboarding-Step-Transition.
-    /// response: 0.5, dampingFraction: 0.85
-    public static let onboarding: Animation = .spring(response: 0.5, dampingFraction: 0.85)
+    public static let onboarding: Animation = .smooth(duration: 0.5)
 
     /// Rubber-Band Bounce.
-    /// response: 0.5, dampingFraction: 0.55
-    public static let rubberBand: Animation = .spring(response: 0.5, dampingFraction: 0.55)
+    public static let rubberBand: Animation = .bouncy(duration: 0.5, extraBounce: 0.3)
 
     /// Spin-In Rotation.
-    /// response: 0.5, dampingFraction: 0.6
-    public static let spinIn: Animation = .spring(response: 0.5, dampingFraction: 0.6)
+    public static let spinIn: Animation = .bouncy(duration: 0.45)
 
     // MARK: - Button Press Styles
 

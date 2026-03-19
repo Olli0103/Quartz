@@ -44,9 +44,14 @@ public final class NoteEditorViewModel {
     /// File tree snapshot for link suggestion.
     public var fileTree: [FileNode] = []
 
+    /// Set when an external modification is detected while the user has unsaved edits.
+    /// The view should prompt: reload (discard local) or keep editing (save overwrites).
+    public var externalModificationDetected: Bool = false
+
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
     private var autosaveTask: Task<Void, Never>?
+    private var fileWatchTask: Task<Void, Never>?
 
     private let autosaveDelay: Duration = .seconds(1)
 
@@ -57,15 +62,30 @@ public final class NoteEditorViewModel {
 
     /// Loads a note from the file system.
     public func loadNote(at url: URL) async {
+        stopFileWatching()
         do {
             let loaded = try await vaultProvider.readNote(at: url)
             note = loaded
             content = loaded.body
             isDirty = false
             errorMessage = nil
+            externalModificationDetected = false
+            startFileWatching(for: url)
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
         }
+    }
+
+    /// Reloads from disk, discarding local edits. Call when user chooses "Reload" after external modification.
+    public func reloadFromDisk() async {
+        guard let url = note?.fileURL else { return }
+        externalModificationDetected = false
+        await loadNote(at: url)
+    }
+
+    /// Clears the external modification flag. Call when user chooses to keep editing (save will overwrite).
+    public func dismissExternalModificationWarning() {
+        externalModificationDetected = false
     }
 
     /// Saves the current note immediately.
@@ -207,6 +227,41 @@ public final class NoteEditorViewModel {
     }
     #endif
 
+    // MARK: - File Watching (External Modification Detection)
+
+    private func startFileWatching(for url: URL) {
+        stopFileWatching()
+        let watcher = FileWatcher(url: url)
+        fileWatchTask = Task { [weak self] in
+            for await event in watcher.startWatching() {
+                guard !Task.isCancelled, let self else { return }
+                switch event {
+                case .modified(let changedURL):
+                    guard changedURL == self.note?.fileURL else { continue }
+                    await MainActor.run {
+                        if self.isDirty {
+                            self.externalModificationDetected = true
+                        } else {
+                            Task { await self.loadNote(at: changedURL) }
+                        }
+                    }
+                case .deleted:
+                    await MainActor.run {
+                        self.errorMessage = String(localized: "Note was deleted externally.", bundle: .module)
+                        self.stopFileWatching()
+                    }
+                case .created:
+                    break
+                }
+            }
+        }
+    }
+
+    private func stopFileWatching() {
+        fileWatchTask?.cancel()
+        fileWatchTask = nil
+    }
+
     // MARK: - Task Management
 
     public func cancelAllTasks() {
@@ -214,6 +269,7 @@ public final class NoteEditorViewModel {
         autosaveTask = nil
         wordCountTask?.cancel()
         wordCountTask = nil
+        stopFileWatching()
     }
 
     // MARK: - PDF Export
