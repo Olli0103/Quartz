@@ -42,7 +42,7 @@ public class MarkdownUITextView: UITextView {
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended else { return }
         let viewPoint = gesture.location(in: self)
-        guard let container = textContainer else { return }
+        let container = textContainer
         let containerPoint = CGPoint(
             x: viewPoint.x - textContainerInset.left,
             y: viewPoint.y - textContainerInset.top
@@ -50,7 +50,8 @@ public class MarkdownUITextView: UITextView {
         var fraction: CGFloat = 0
         let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: container, fractionOfDistanceThroughGlyph: &fraction)
         let glyphRange = NSRange(location: glyphIndex, length: 1)
-        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+        var glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+        glyphRect = glyphRect.insetBy(dx: -8, dy: -8)
         guard glyphRect.contains(containerPoint) else { return }
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard charIndex < textStorage.length else { return }
@@ -78,7 +79,8 @@ public class MarkdownUITextView: UITextView {
             to: textStorage,
             baseFont: font ?? .preferredFont(forTextStyle: .body),
             noteURL: noteURL,
-            applyTables: false
+            applyTables: false,
+            showRawMarkdown: true
         )
         #endif
         let maxLen = textStorage.length
@@ -148,11 +150,83 @@ public class MarkdownUITextView: UITextView {
                 result += headerAttachment.originalMarkdown
             } else if let delimAttachment = value as? MarkdownInlineDelimiterAttachment {
                 result += delimAttachment.originalMarkdown
+            } else if let orderedAttachment = value as? MarkdownOrderedListNumberAttachment {
+                result += orderedAttachment.originalMarkdown
             } else {
                 result += self.textStorage.attributedSubstring(from: range).string
             }
         }
         return result
+    }
+
+    /// Converts display (text storage) range to raw markdown range.
+    /// Needed because attachments (lists, headers, etc.) replace multiple chars with one.
+    func displayRangeToRawRange(_ displayRange: NSRange) -> NSRange {
+        let storage = textStorage
+        let len = storage.length
+        guard len > 0 else { return displayRange }
+        var rawLoc = 0, rawEnd = 0
+        let targetEnd = min(displayRange.location + displayRange.length, len)
+        for displayIdx in 0 ..< len {
+            let rawAdvance: Int
+            if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownImageAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownTableAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownCheckboxAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownHeaderPrefixAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownInlineDelimiterAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownOrderedListNumberAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else {
+                rawAdvance = 1
+            }
+            if displayIdx < displayRange.location {
+                rawLoc += rawAdvance
+            }
+            if displayIdx < targetEnd {
+                rawEnd += rawAdvance
+            }
+        }
+        return NSRange(location: rawLoc, length: max(0, rawEnd - rawLoc))
+    }
+
+    /// Converts raw markdown range to display (text storage) range.
+    func rawRangeToDisplayRange(_ rawRange: NSRange) -> NSRange {
+        let storage = textStorage
+        let len = storage.length
+        guard len > 0 else { return rawRange }
+        var rawIdx = 0, displayLoc = 0, displayEnd = 0
+        let targetEnd = rawRange.location + rawRange.length
+        for displayIdx in 0 ..< len {
+            let rawAdvance: Int
+            if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownImageAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownTableAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownCheckboxAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownHeaderPrefixAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownInlineDelimiterAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownOrderedListNumberAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else {
+                rawAdvance = 1
+            }
+            if rawIdx <= rawRange.location {
+                displayLoc = displayIdx
+            }
+            if rawIdx < targetEnd {
+                displayEnd = displayIdx + 1
+            }
+            rawIdx += rawAdvance
+        }
+        return NSRange(location: displayLoc, length: max(0, displayEnd - displayLoc))
     }
 }
 
@@ -161,7 +235,7 @@ extension MarkdownUITextView: UITextViewDelegate {
         guard text == "\n" else { return true }
         guard let prefix = listContinuationPrefix() else { return true }
         // Intercept: insert newline + prefix ourselves
-        guard let storage = textView.textStorage else { return true }
+        let storage = textView.textStorage
         let nsContent = storage.string as NSString
         let insertRange = NSRange(location: range.location, length: range.length)
         let replacement = "\n" + prefix
@@ -192,7 +266,8 @@ extension MarkdownUITextView: UITextViewDelegate {
                 to: self.textStorage,
                 baseFont: self.font ?? .preferredFont(forTextStyle: .body),
                 noteURL: self.noteURL,
-                applyTables: false
+                applyTables: false,
+                showRawMarkdown: true
             )
             let maxLen = self.textStorage.length
             let loc = min(sel.location, maxLen)
@@ -213,7 +288,8 @@ extension MarkdownUITextView: UITextViewDelegate {
             to: textStorage,
             baseFont: font ?? .preferredFont(forTextStyle: .body),
             noteURL: noteURL,
-            applyTables: false
+            applyTables: false,
+            showRawMarkdown: true
         )
         let maxLen = textStorage.length
         let loc = min(sel.location, maxLen)
@@ -223,7 +299,8 @@ extension MarkdownUITextView: UITextViewDelegate {
 
     public func textViewDidChangeSelection(_ textView: UITextView) {
         guard !isUpdating else { return }
-        onSelectionChange?(textView.selectedRange)
+        let rawRange = displayRangeToRawRange(textView.selectedRange)
+        onSelectionChange?(rawRange)
     }
 }
 
@@ -273,6 +350,11 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
         }
         if uiView.rawMarkdown != text {
             uiView.setMarkdown(text)
+            let displayRange = uiView.rawRangeToDisplayRange(cursorPosition)
+            let len = uiView.textStorage.length
+            let loc = min(displayRange.location, max(0, len - 1))
+            let selLen = min(displayRange.length, len - loc)
+            uiView.selectedRange = NSRange(location: loc, length: selLen)
             context.coordinator.lastContentFromEditor = text
         }
     }
@@ -343,7 +425,8 @@ public class MarkdownNSTextView: NSTextView {
             to: textStorage!,
             baseFont: font ?? .systemFont(ofSize: NSFont.systemFontSize),
             noteURL: noteURL,
-            applyTables: false
+            applyTables: false,
+            showRawMarkdown: true
         )
         let maxLen = textStorage?.length ?? 0
         let clamped = prevRanges.compactMap { rv -> NSValue? in
@@ -385,11 +468,82 @@ public class MarkdownNSTextView: NSTextView {
                 result += headerAttachment.originalMarkdown
             } else if let delimAttachment = value as? MarkdownInlineDelimiterAttachment {
                 result += delimAttachment.originalMarkdown
+            } else if let orderedAttachment = value as? MarkdownOrderedListNumberAttachment {
+                result += orderedAttachment.originalMarkdown
             } else {
                 result += storage.attributedSubstring(from: range).string
             }
         }
         return result
+    }
+
+    /// Converts display (text storage) range to raw markdown range.
+    func displayRangeToRawRange(_ displayRange: NSRange) -> NSRange {
+        guard let storage = textStorage else { return displayRange }
+        let len = storage.length
+        guard len > 0 else { return displayRange }
+        var rawLoc = 0, rawEnd = 0
+        let targetEnd = min(displayRange.location + displayRange.length, len)
+        for displayIdx in 0 ..< len {
+            let rawAdvance: Int
+            if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownImageAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownTableAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownCheckboxAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownHeaderPrefixAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownInlineDelimiterAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownOrderedListNumberAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else {
+                rawAdvance = 1
+            }
+            if displayIdx < displayRange.location {
+                rawLoc += rawAdvance
+            }
+            if displayIdx < targetEnd {
+                rawEnd += rawAdvance
+            }
+        }
+        return NSRange(location: rawLoc, length: max(0, rawEnd - rawLoc))
+    }
+
+    /// Converts raw markdown range to display (text storage) range.
+    func rawRangeToDisplayRange(_ rawRange: NSRange) -> NSRange {
+        guard let storage = textStorage else { return rawRange }
+        let len = storage.length
+        guard len > 0 else { return rawRange }
+        var rawIdx = 0, displayLoc = 0, displayEnd = 0
+        let targetEnd = rawRange.location + rawRange.length
+        for displayIdx in 0 ..< len {
+            let rawAdvance: Int
+            if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownImageAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownTableAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownCheckboxAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownHeaderPrefixAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownInlineDelimiterAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else if let att = storage.attribute(.attachment, at: displayIdx, effectiveRange: nil) as? MarkdownOrderedListNumberAttachment {
+                rawAdvance = att.originalMarkdown.count
+            } else {
+                rawAdvance = 1
+            }
+            if rawIdx <= rawRange.location {
+                displayLoc = displayIdx
+            }
+            if rawIdx < targetEnd {
+                displayEnd = displayIdx + 1
+            }
+            rawIdx += rawAdvance
+        }
+        return NSRange(location: displayLoc, length: max(0, displayEnd - displayLoc))
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -405,7 +559,8 @@ public class MarkdownNSTextView: NSTextView {
         var fraction: CGFloat = 0
         let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer, fractionOfDistanceThroughGlyph: &fraction)
         let glyphRange = NSRange(location: glyphIndex, length: 1)
-        let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        var glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        glyphRect = glyphRect.insetBy(dx: -8, dy: -8)
         guard glyphRect.contains(containerPoint) else {
             super.mouseDown(with: event)
             return
@@ -514,7 +669,8 @@ public class MarkdownNSTextView: NSTextView {
                 to: self.textStorage!,
                 baseFont: self.font ?? .systemFont(ofSize: NSFont.systemFontSize),
                 noteURL: self.noteURL,
-                applyTables: false
+                applyTables: false,
+                showRawMarkdown: true
             )
             let maxLen = self.textStorage?.length ?? 0
             let clamped = sel.compactMap { rv -> NSValue? in
@@ -545,7 +701,8 @@ public class MarkdownNSTextView: NSTextView {
                 to: textStorage!,
                 baseFont: font ?? .systemFont(ofSize: NSFont.systemFontSize),
                 noteURL: noteURL,
-                applyTables: false
+                applyTables: false,
+                showRawMarkdown: true
             )
             let maxLen = textStorage?.length ?? 0
             let clamped = sel.compactMap { rv -> NSValue? in
@@ -564,7 +721,8 @@ public class MarkdownNSTextView: NSTextView {
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: flag)
         if !isUpdating, !flag, let first = ranges.first {
-            onSelectionChange?(first.rangeValue)
+            let rawRange = displayRangeToRawRange(first.rangeValue)
+            onSelectionChange?(rawRange)
         }
     }
 }
@@ -633,6 +791,11 @@ public struct MarkdownTextViewRepresentable: NSViewRepresentable {
 
         if textView.rawMarkdown != text {
             textView.setMarkdown(text)
+            let displayRange = textView.rawRangeToDisplayRange(cursorPosition)
+            let len = textView.textStorage?.length ?? 0
+            let loc = min(displayRange.location, max(0, len - 1))
+            let selLen = min(displayRange.length, len - loc)
+            textView.setSelectedRanges([NSValue(range: NSRange(location: loc, length: selLen))], affinity: .downstream, stillSelecting: false)
         }
     }
 
@@ -768,6 +931,66 @@ final class MarkdownInlineDelimiterAttachment: NSTextAttachment {
     }
 }
 
+/// Ordered list number attachment. Displays correct ordinal (1, 2, 3...) while storing "1. " for round-trip.
+final class MarkdownOrderedListNumberAttachment: NSTextAttachment {
+    var originalMarkdown: String = ""
+    var displayOrdinal: Int = 1
+
+    #if canImport(UIKit)
+    override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> UIImage? {
+        let ptSize = (textContainer?.layoutManager?.textStorage?.attribute(.font, at: charIndex, effectiveRange: nil) as? UIFont)?.pointSize ?? 17
+        let color = (textContainer?.layoutManager?.textStorage?.attribute(.foregroundColor, at: charIndex, effectiveRange: nil) as? UIColor) ?? UIColor(red: 0.91, green: 0.64, blue: 0.23, alpha: 1.0)
+        return renderOrdinalImage(size: ptSize, color: color)
+    }
+    #elseif canImport(AppKit)
+    override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> NSImage? {
+        let ptSize = (textContainer?.layoutManager?.textStorage?.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont)?.pointSize ?? NSFont.systemFontSize
+        let color = (textContainer?.layoutManager?.textStorage?.attribute(.foregroundColor, at: charIndex, effectiveRange: nil) as? NSColor) ?? NSColor.secondaryLabelColor
+        return renderOrdinalImage(size: ptSize, color: color)
+    }
+    #endif
+
+    #if canImport(UIKit)
+    private func renderOrdinalImage(size: CGFloat, color: UIColor) -> UIImage? {
+        let text = "\(displayOrdinal). "
+        let font = UIFont.systemFont(ofSize: size, weight: .regular)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        let rect = CGRect(origin: .zero, size: CGSize(width: ceil(textSize.width), height: ceil(textSize.height)))
+        let renderer = UIGraphicsImageRenderer(size: rect.size)
+        return renderer.image { _ in
+            (text as NSString).draw(in: rect, withAttributes: attrs)
+        }
+    }
+    #elseif canImport(AppKit)
+    private func renderOrdinalImage(size: CGFloat, color: NSColor) -> NSImage? {
+        let text = "\(displayOrdinal). "
+        let font = NSFont.systemFont(ofSize: size, weight: .regular)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let strSize = (text as NSString).size(withAttributes: attrs)
+        let rect = CGRect(origin: .zero, size: CGSize(width: ceil(strSize.width), height: ceil(strSize.height)))
+        let image = NSImage(size: rect.size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+        (text as NSString).draw(in: rect, withAttributes: attrs)
+        return image
+    }
+    #endif
+
+    override var bounds: CGRect {
+        get {
+            let text = "\(displayOrdinal). "
+            #if canImport(UIKit)
+            let size = (text as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 17)])
+            #else
+            let size = (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)])
+            #endif
+            return CGRect(x: 0, y: -2, width: ceil(size.width), height: ceil(size.height))
+        }
+        set { }
+    }
+}
+
 // MARK: - Syntax Highlighter
 
 struct MarkdownSyntaxHighlighter: Sendable {
@@ -783,7 +1006,7 @@ struct MarkdownSyntaxHighlighter: Sendable {
     typealias PlatformImage = NSImage
     #endif
 
-    func applyHighlighting(to storage: NSTextStorage, baseFont: PlatformFont, noteURL: URL? = nil, applyTables: Bool = true) {
+    func applyHighlighting(to storage: NSTextStorage, baseFont: PlatformFont, noteURL: URL? = nil, applyTables: Bool = true, showRawMarkdown: Bool = true) {
         let text = storage.string
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
         guard fullRange.length > 0 else { return }
@@ -810,18 +1033,18 @@ struct MarkdownSyntaxHighlighter: Sendable {
             self.highlightLine(line, range: lineRange, in: storage, baseFont: baseFont)
         }
 
-        applyInlinePatterns(to: storage, text: nsText, fullRange: fullRange, baseFont: baseFont)
-        applyInlineDelimiterAttachments(to: storage, baseFont: baseFont)
-
-        // Attachments replace text; each uses current storage (order matters for range validity).
-        applyCheckboxAttachments(to: storage, baseFont: baseFont)
-        applyListPrefixAttachments(to: storage)
-        applyHeaderPrefixAttachments(to: storage)
-        if applyTables {
-            applyTableAttachments(to: storage, text: storage.string as NSString, baseFont: baseFont)
-        }
-        if let noteURL {
-            applyImageAttachments(to: storage, text: storage.string as NSString, noteURL: noteURL)
+        applyInlinePatterns(to: storage, text: nsText, fullRange: fullRange, baseFont: baseFont, showRawMarkdown: showRawMarkdown)
+        if !showRawMarkdown {
+            applyInlineDelimiterAttachments(to: storage, baseFont: baseFont)
+            applyCheckboxAttachments(to: storage, baseFont: baseFont)
+            applyListPrefixAttachments(to: storage)
+            applyHeaderPrefixAttachments(to: storage)
+            if applyTables {
+                applyTableAttachments(to: storage, text: storage.string as NSString, baseFont: baseFont)
+            }
+            if let noteURL {
+                applyImageAttachments(to: storage, text: storage.string as NSString, noteURL: noteURL)
+            }
         }
 
         storage.endEditing()
@@ -1073,7 +1296,24 @@ struct MarkdownSyntaxHighlighter: Sendable {
         }
     }
 
-    private func applyInlinePatterns(to storage: NSTextStorage, text: NSString, fullRange: NSRange, baseFont: PlatformFont) {
+    private func applyInlinePatterns(to storage: NSTextStorage, text: NSString, fullRange: NSRange, baseFont: PlatformFont, showRawMarkdown: Bool = false) {
+        // When showRawMarkdown: style content but keep ** * ` visible
+        if showRawMarkdown {
+            applyRegexWithCapture(#"\*\*(.+?)\*\*"#, to: text, range: fullRange) { _, contentRange in
+                storage.addAttribute(.font, value: PlatformFont.systemFont(ofSize: baseFont.pointSize, weight: .bold), range: contentRange)
+            }
+            applyRegexWithCapture(#"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)"#, to: text, range: fullRange) { _, contentRange in
+                storage.addAttribute(.font, value: baseFont.withTraits(.italic), range: contentRange)
+            }
+            applyRegexWithCapture(#"`([^`]+)`"#, to: text, range: fullRange) { _, contentRange in
+                storage.addAttribute(.font, value: PlatformFont.monospacedSystemFont(ofSize: baseFont.pointSize * 0.9, weight: .regular), range: contentRange)
+                #if canImport(UIKit)
+                storage.addAttribute(.backgroundColor, value: UIColor.systemFill, range: contentRange)
+                #elseif canImport(AppKit)
+                storage.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), range: contentRange)
+                #endif
+            }
+        }
         // Bold __...__ (no delimiter hiding for __ to avoid conflict with italic _)
         applyRegex(#"__(.+?)__"#, to: storage, text: text, range: fullRange) { matchRange in
             let boldFont = PlatformFont.systemFont(ofSize: baseFont.pointSize, weight: .bold)
@@ -1217,28 +1457,50 @@ struct MarkdownSyntaxHighlighter: Sendable {
         }
     }
 
-    // MARK: - List Prefix Attachments (Hide - * + at line start)
+    // MARK: - List Prefix Attachments (Hide - * + at line start; fix ordered list ordinals)
 
-    /// Replaces bullet list prefixes (- * +) with zero-width attachments. Runs after checkboxes.
+    /// Replaces bullet list prefixes (- * +) with zero-width attachments. For ordered lists (1. 2. 3.),
+    /// replaces the prefix with an attachment that displays the correct ordinal (1, 2, 3...).
     private func applyListPrefixAttachments(to storage: NSTextStorage) {
         let text = storage.string as NSString
-        var matches: [(range: NSRange, prefix: String)] = []
+        var bulletMatches: [(range: NSRange, prefix: String)] = []
+        var orderedMatches: [(range: NSRange, prefix: String, ordinal: Int)] = []
+        var orderedListIndex = 0
         text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: [.byLines, .substringNotRequired]) { _, lineRange, _, _ in
             let line = text.substring(with: lineRange)
             let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+            let trimmedStr = String(trimmed)
             let bulletPrefixes = ["- ", "* ", "+ "]
+            var found = false
             for prefix in bulletPrefixes {
-                if String(trimmed).hasPrefix(prefix) {
+                if trimmedStr.hasPrefix(prefix) {
                     let offset = line.count - trimmed.count
                     let prefixRange = NSRange(location: lineRange.location + offset, length: prefix.count)
-                    matches.append((prefixRange, String(prefix)))
+                    bulletMatches.append((prefixRange, prefix))
+                    orderedListIndex = 0
+                    found = true
                     break
                 }
             }
+            if found { return }
+            if let numMatch = trimmedStr.prefixMatch(of: /^(\d+)\.\s/) {
+                orderedListIndex += 1
+                let offset = line.count - trimmed.count
+                let prefixRange = NSRange(location: lineRange.location + offset, length: numMatch.0.count)
+                orderedMatches.append((prefixRange, String(numMatch.0), orderedListIndex))
+            } else {
+                orderedListIndex = 0
+            }
         }
-        for match in matches.reversed() {
+        for match in bulletMatches.reversed() {
             let att = MarkdownInlineDelimiterAttachment()
             att.originalMarkdown = match.prefix
+            storage.replaceCharacters(in: match.range, with: NSAttributedString(attachment: att))
+        }
+        for match in orderedMatches.reversed() {
+            let att = MarkdownOrderedListNumberAttachment()
+            att.originalMarkdown = match.prefix
+            att.displayOrdinal = match.ordinal
             storage.replaceCharacters(in: match.range, with: NSAttributedString(attachment: att))
         }
     }

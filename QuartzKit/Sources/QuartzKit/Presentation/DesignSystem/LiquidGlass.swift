@@ -220,7 +220,7 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
                 content
                     .background {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(preferRegularMaterial ? .regularMaterial : .ultraThinMaterial)
+                            .fill(preferRegularMaterial ? .regularMaterial : .thinMaterial)
                     }
             }
         }

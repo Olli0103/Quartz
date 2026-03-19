@@ -18,6 +18,15 @@ private var fileNodeMetadataFont: Font {
     #endif
 }
 
+/// Formats a date as relative time (e.g. "24 min ago") without ticking every second.
+/// SwiftUI's Text(date, style: .relative) updates continuously; this gives a stable display.
+private func relativeTimeString(from date: Date) -> String {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    formatter.formattingContext = .standalone
+    return formatter.localizedString(for: date, relativeTo: Date())
+}
+
 /// Single row in the sidebar for a FileNode.
 public struct FileNodeRow: View {
     public let node: FileNode
@@ -35,7 +44,7 @@ public struct FileNodeRow: View {
                     .lineLimit(1)
 
                 if node.isNote {
-                    Text(node.metadata.modifiedAt, style: .relative)
+                    Text(relativeTimeString(from: node.metadata.modifiedAt))
                         .font(fileNodeMetadataFont)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -48,8 +57,8 @@ public struct FileNodeRow: View {
                 .foregroundStyle(iconColor)
                 .frame(width: fileNodeIconSize + 4)
         }
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)

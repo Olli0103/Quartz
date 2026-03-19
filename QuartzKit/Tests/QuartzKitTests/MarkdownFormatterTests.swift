@@ -151,4 +151,27 @@ struct MarkdownFormatterTests {
     func actionCount() {
         #expect(FormattingAction.allCases.count == 17)
     }
+
+    // MARK: - Selection Preservation
+
+    @Test("Bold preserves selection around wrapped text")
+    func boldPreservesSelection() {
+        let (result, selection) = formatter.apply(.bold, to: "This", selectedRange: NSRange(location: 0, length: 4))
+        #expect(result == "**This**")
+        #expect(selection.location == 2)
+        #expect(selection.length == 4)
+    }
+
+    @Test("Italic on partial word")
+    func italicPartialWord() {
+        let text = "This is a text"
+        let (result, _) = formatter.apply(.italic, to: text, selectedRange: NSRange(location: 0, length: 4))
+        #expect(result == "*This* is a text")
+    }
+
+    @Test("Link on selected text")
+    func linkSelectedText() {
+        let (result, _) = formatter.apply(.link, to: "text", selectedRange: NSRange(location: 0, length: 4))
+        #expect(result == "[text](url)")
+    }
 }

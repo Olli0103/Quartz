@@ -39,6 +39,8 @@ struct ContentView: View {
     @State private var showOnboarding = false
     #if os(macOS)
     @State private var showKnowledgeGraph = false
+    @State private var showVoiceNoteSheet = false
+    @State private var showMeetingMinutesSheet = false
     #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
     @State private var showSupport = false
@@ -59,6 +61,75 @@ struct ContentView: View {
     }
 
     var body: some View {
+        bodyWithSheets
+    }
+
+    private var bodyWithSheets: some View {
+        bodyWithTask
+            .sheet(isPresented: $showOnboarding) { onboardingSheet }
+            #if os(iOS)
+            .sheet(isPresented: $showVaultPicker) { VaultPickerView { openVault($0) } }
+            .sheet(isPresented: $showSettings) { SettingsView() }
+            #endif
+            .sheet(isPresented: $showSearch) { searchSheet }
+            .sheet(isPresented: $showSupport) { SupportView() }
+            #if os(macOS)
+            .sheet(isPresented: $showKnowledgeGraph) { knowledgeGraphSheet }
+            #endif
+            .sheet(item: $vaultChatSheetItem) { VaultChatView(session: $0.session) }
+            #if os(macOS)
+            .sheet(isPresented: $showVoiceNoteSheet) { voiceNoteSheet }
+            .sheet(isPresented: $showMeetingMinutesSheet) { meetingMinutesSheet }
+            #endif
+            .alert(String(localized: "New Note"), isPresented: $showNewNote) {
+                TextField(String(localized: "Note name"), text: $newNoteName)
+                Button(String(localized: "Create")) {
+                    guard let parent = newNoteParent else { return }
+                    let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    newNoteName = ""
+                    guard !name.isEmpty else { return }
+                    let finalName = name.hasSuffix(".md") ? name : "\(name).md"
+                    let noteURL = parent.appending(path: finalName)
+                    Task {
+                        await viewModel?.sidebarViewModel?.createNote(named: name, in: parent)
+                        await MainActor.run { selectedNoteURL = noteURL }
+                    }
+                }
+                Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
+            }
+            .alert(String(localized: "New Folder"), isPresented: $showNewFolder) {
+                TextField(String(localized: "Folder name"), text: $newNoteName)
+                Button(String(localized: "Create")) {
+                    guard let parent = newNoteParent else { return }
+                    let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    newNoteName = ""
+                    guard !name.isEmpty else { return }
+                    Task {
+                        await viewModel?.sidebarViewModel?.createFolder(named: name, in: parent)
+                    }
+                }
+                Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
+            }
+            .overlay(alignment: .top) { errorOverlay }
+            .onChange(of: showVaultPicker) { _, shouldShow in
+                #if os(macOS)
+                if shouldShow {
+                    showVaultPicker = false
+                    Task { @MainActor in pickVaultFolderMacOS() }
+                }
+                #endif
+            }
+            .tint(appearance.accentColor)
+            #if os(macOS)
+            .onDisappear {
+                quickNoteManager?.unregisterHotkey()
+                quickNoteManager = nil
+                viewModel?.stopCloudSync()
+            }
+            #endif
+    }
+
+    private var bodyWithTask: some View {
         mainLayout
         .task {
             if viewModel == nil {
@@ -72,19 +143,6 @@ struct ContentView: View {
                 }
             }
             availableUpdate = await UpdateChecker.shared.checkForUpdate()
-        }
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingView { [self] vault in
-                Task { @MainActor in
-                    UserDefaults.standard.set(true, forKey: ContentView.onboardingCompletedKey)
-                    showOnboarding = false
-                    persistBookmark(for: vault.rootURL, vaultName: vault.name)
-                    openVault(vault)
-                }
-            }
-            #if os(macOS)
-            .frame(minWidth: 600, minHeight: 500)
-            #endif
         }
         .onChange(of: selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)
@@ -104,112 +162,116 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .quartzReindexRequested)) { _ in
             viewModel?.reindexVault()
         }
-        #if os(iOS)
-        .sheet(isPresented: $showVaultPicker) {
-            VaultPickerView { vault in
+    }
+
+    @ViewBuilder
+    private var onboardingSheet: some View {
+        OnboardingView { vault in
+            Task { @MainActor in
+                UserDefaults.standard.set(true, forKey: ContentView.onboardingCompletedKey)
+                showOnboarding = false
+                persistBookmark(for: vault.rootURL, vaultName: vault.name)
                 openVault(vault)
             }
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-        }
+        #if os(macOS)
+        .frame(minWidth: 600, minHeight: 500)
         #endif
-        .sheet(isPresented: $showSearch) {
-            if let searchIndex = viewModel?.searchIndex {
-                SearchView(searchIndex: searchIndex) { url in
+    }
+
+    @ViewBuilder
+    private var searchSheet: some View {
+        if let searchIndex = viewModel?.searchIndex {
+            SearchView(searchIndex: searchIndex) { url in
+                selectedNoteURL = url
+            }
+        }
+    }
+
+    #if os(macOS)
+    private var knowledgeGraphSheet: some View {
+        NavigationStack {
+            KnowledgeGraphView(
+                fileTree: viewModel?.sidebarViewModel?.fileTree ?? [],
+                currentNoteURL: viewModel?.editorViewModel?.note?.fileURL,
+                vaultRootURL: viewModel?.sidebarViewModel?.vaultRootURL,
+                vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+                embeddingService: viewModel?.embeddingService,
+                onSelectNote: { url in
+                    showKnowledgeGraph = false
                     selectedNoteURL = url
                 }
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Done")) {
+                        showKnowledgeGraph = false
+                    }
+                }
             }
         }
-        .sheet(isPresented: $showSupport) {
-            SupportView()
-        }
-        #if os(macOS)
-        .sheet(isPresented: $showKnowledgeGraph) {
-            NavigationStack {
-                KnowledgeGraphView(
-                    fileTree: viewModel?.sidebarViewModel?.fileTree ?? [],
-                    currentNoteURL: viewModel?.editorViewModel?.note?.fileURL,
-                    vaultRootURL: viewModel?.sidebarViewModel?.vaultRootURL,
-                    vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
-                    embeddingService: viewModel?.embeddingService,
-                    onSelectNote: { url in
-                        showKnowledgeGraph = false
-                        selectedNoteURL = url
-                    }
-                )
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(String(localized: "Done")) {
-                            showKnowledgeGraph = false
+        .frame(minWidth: 700, minHeight: 500)
+    }
+
+    @ViewBuilder
+    private var voiceNoteSheet: some View {
+        if let vaultURL = viewModel?.sidebarViewModel?.vaultRootURL {
+            AudioRecordingView(
+                vaultURL: vaultURL,
+                onInsertText: { [viewModel] text in
+                    let df = DateFormatter()
+                    df.dateFormat = "yyyy-MM-dd HH-mm"
+                    let name = "Voice Note \(df.string(from: Date()))"
+                    Task {
+                        if let url = await viewModel?.sidebarViewModel?.createNote(named: name, in: vaultURL, initialContent: text) {
+                            await MainActor.run {
+                                showVoiceNoteSheet = false
+                                selectedNoteURL = url
+                            }
                         }
                     }
-                }
-            }
-            .frame(minWidth: 700, minHeight: 500)
+                },
+                compactMode: true
+            )
         }
-        #endif
-        .sheet(item: $vaultChatSheetItem) { item in
-            VaultChatView(session: item.session)
-        }
-        .alert(String(localized: "New Note"), isPresented: $showNewNote) {
-            TextField(String(localized: "Note name"), text: $newNoteName)
-            Button(String(localized: "Create")) {
-                guard let parent = newNoteParent else { return }
-                let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
-                newNoteName = ""
-                guard !name.isEmpty else { return }
-                let finalName = name.hasSuffix(".md") ? name : "\(name).md"
-                let noteURL = parent.appending(path: finalName)
-                Task {
-                    await viewModel?.sidebarViewModel?.createNote(named: name, in: parent)
-                    await MainActor.run { selectedNoteURL = noteURL }
-                }
-            }
-            Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
-        }
-        .alert(String(localized: "New Folder"), isPresented: $showNewFolder) {
-            TextField(String(localized: "Folder name"), text: $newNoteName)
-            Button(String(localized: "Create")) {
-                guard let parent = newNoteParent else { return }
-                let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
-                newNoteName = ""
-                guard !name.isEmpty else { return }
-                Task {
-                    await viewModel?.sidebarViewModel?.createFolder(named: name, in: parent)
-                }
-            }
-            Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
-        }
-        .overlay(alignment: .top) {
-            if let error = appState.errorMessage {
-                errorBanner(message: error)
-                    .id(error)
-                    .task {
-                        try? await Task.sleep(for: .seconds(5))
-                        guard !Task.isCancelled else { return }
-                        withAnimation { appState.dismissCurrentError() }
+    }
+
+    @ViewBuilder
+    private var meetingMinutesSheet: some View {
+        if let vaultURL = viewModel?.sidebarViewModel?.vaultRootURL {
+            AudioRecordingView(
+                vaultURL: vaultURL,
+                onInsertText: { [viewModel] text in
+                    let df = DateFormatter()
+                    df.dateFormat = "yyyy-MM-dd HH-mm"
+                    let name = "Meeting \(df.string(from: Date()))"
+                    Task {
+                        if let url = await viewModel?.sidebarViewModel?.createNote(named: name, in: vaultURL, initialContent: text) {
+                            await MainActor.run {
+                                showMeetingMinutesSheet = false
+                                selectedNoteURL = url
+                            }
+                        }
                     }
-            }
+                },
+                compactMode: true,
+                initialMode: .meetingMinutes
+            )
         }
-        .onChange(of: showVaultPicker) { _, shouldShow in
-            #if os(macOS)
-            if shouldShow {
-                showVaultPicker = false
-                Task { @MainActor in
-                    pickVaultFolderMacOS()
+    }
+    #endif
+
+    @ViewBuilder
+    private var errorOverlay: some View {
+        if let error = appState.errorMessage {
+            errorBanner(message: error)
+                .id(error)
+                .task {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    withAnimation { appState.dismissCurrentError() }
                 }
-            }
-            #endif
         }
-        .tint(appearance.accentColor)
-        #if os(macOS)
-        .onDisappear {
-            quickNoteManager?.unregisterHotkey()
-            quickNoteManager = nil
-            viewModel?.stopCloudSync()
-        }
-        #endif
     }
 
     // MARK: - Vault Opening
@@ -528,7 +590,9 @@ struct ContentView: View {
                     newNoteName = "Note \(df.string(from: Date()))"
                     showNewNote = true
                 },
-                onExploreGraph: { showKnowledgeGraph = true }
+                onExploreGraph: { showKnowledgeGraph = true },
+                onRecordVoiceNote: { showVoiceNoteSheet = true },
+                onRecordMeetingMinutes: { showMeetingMinutesSheet = true }
             )
             #else
             QuartzEmptyState(

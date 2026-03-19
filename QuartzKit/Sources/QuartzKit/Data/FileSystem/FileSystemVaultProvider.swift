@@ -97,6 +97,19 @@ public actor FileSystemVaultProvider: VaultProviding {
         return note
     }
 
+    /// Creates a new note with initial body content (e.g. from voice transcription).
+    public func createNote(named name: String, in folder: URL, initialContent: String) async throws -> NoteDocument {
+        let base = try await createNote(named: name, in: folder)
+        let note = NoteDocument(
+            fileURL: base.fileURL,
+            frontmatter: base.frontmatter,
+            body: initialContent,
+            isDirty: false
+        )
+        try await saveNote(note)
+        return note
+    }
+
     public func deleteNote(at url: URL) async throws {
         #if os(macOS)
         try fileManager.trashItem(at: url, resultingItemURL: nil)

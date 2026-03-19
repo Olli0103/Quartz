@@ -1,5 +1,29 @@
 #if os(macOS)
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// Export format for document export (macOS metadata panel).
+enum ExportFormat: String, CaseIterable {
+    case pdf
+    case plainText
+    case markdown
+
+    var displayName: String {
+        switch self {
+        case .pdf: return String(localized: "PDF", bundle: .module)
+        case .plainText: return String(localized: "Plain Text (.txt)", bundle: .module)
+        case .markdown: return String(localized: "Markdown (.md)", bundle: .module)
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .pdf: return "doc.richtext"
+        case .plainText: return "doc.text"
+        case .markdown: return "doc.plaintext"
+        }
+    }
+}
 
 /// Right-hand metadata panel for the note editor: outline, folder path, tags (editable), export.
 struct NoteMetadataPanelView: View {
@@ -7,7 +31,7 @@ struct NoteMetadataPanelView: View {
     let content: String
     let vaultRootURL: URL?
     var onUpdateFrontmatter: ((Frontmatter) -> Void)?
-    let onExportPDF: () -> Void
+    let onExportFormat: (ExportFormat) -> Void
 
     @Environment(\.appearanceManager) private var appearance
     @State private var newTagText = ""
@@ -143,8 +167,14 @@ struct NoteMetadataPanelView: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                onExportPDF()
+            Menu {
+                ForEach(ExportFormat.allCases, id: \.self) { format in
+                    Button {
+                        onExportFormat(format)
+                    } label: {
+                        Label(format.displayName, systemImage: format.icon)
+                    }
+                }
             } label: {
                 Text(String(localized: "Export Document", bundle: .module))
                     .font(.subheadline.weight(.semibold))
@@ -153,7 +183,8 @@ struct NoteMetadataPanelView: View {
                     .background(appearance.accentColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .foregroundStyle(.white)
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(minWidth: 200, idealWidth: 240, maxWidth: 280)

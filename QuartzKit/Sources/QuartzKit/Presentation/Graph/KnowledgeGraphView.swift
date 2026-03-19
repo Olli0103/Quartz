@@ -13,12 +13,15 @@ public struct GraphNode: Identifiable, Sendable {
     public var vy: CGFloat = 0
     public var connectionCount: Int = 0
 
-    public init(id: String, title: String, url: URL, x: CGFloat = 0, y: CGFloat = 0) {
+    public init(id: String, title: String, url: URL, x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0, connectionCount: Int = 0) {
         self.id = id
         self.title = title
         self.url = url
         self.x = x
         self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.connectionCount = connectionCount
     }
 }
 

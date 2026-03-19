@@ -109,7 +109,16 @@ public struct NoteEditorView: View {
     @State private var pdfDocument: PDFFileDocument?
     @State private var showPDFExporter = false
     @State private var pdfExportFilename = "note.pdf"
+    #if os(macOS)
+    @State private var plainTextExportDocument: TextExportDocument?
+    @State private var showPlainTextExporter = false
+    @State private var plainTextExportFilename = "note.txt"
+    @State private var markdownExportDocument: TextExportDocument?
+    @State private var showMarkdownExporter = false
+    @State private var markdownExportFilename = "note.md"
+    #endif
     @State private var showSavedOverlay = false
+    @State private var isPreviewMode = false
     private let formatter = MarkdownFormatter()
     private static let favoritesKey = "quartz.favoriteNotes"
 
@@ -161,7 +170,7 @@ public struct NoteEditorView: View {
                     content: viewModel.content,
                     vaultRootURL: viewModel.vaultRootURL,
                     onUpdateFrontmatter: { viewModel.updateFrontmatter($0) },
-                    onExportPDF: { prepareAndShowPDFExport() }
+                    onExportFormat: { prepareAndShowExport(format: $0) }
                 )
             }
         }
@@ -171,6 +180,10 @@ public struct NoteEditorView: View {
     }
 
     public var body: some View {
+        editorWithOverlays
+    }
+
+    private var editorWithToolbars: some View {
         mainEditorView
         .sensoryFeedback(.success, trigger: viewModel.manualSaveCompleted)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: focusMode.isFocusModeActive)
@@ -219,12 +232,18 @@ public struct NoteEditorView: View {
         .accessibilityAction(named: String(localized: "Exit focus mode", bundle: .module)) {
             if focusMode.isFocusModeActive { focusMode.toggleFocusMode() }
         }
+    }
+
+    private var editorWithOverlays: some View {
+        editorWithToolbars
         #if os(iOS)
         .overlay(alignment: .bottom) {
-            iosFloatingToolbar
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-                .hidesInFocusMode()
+            if !isPreviewMode {
+                iosFloatingToolbar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                    .hidesInFocusMode()
+            }
         }
         #endif
         .overlay(alignment: .bottom) {
@@ -383,8 +402,29 @@ public struct NoteEditorView: View {
         ) { _ in
             pdfDocument = nil
         }
+        #if os(macOS)
+        .fileExporter(
+            isPresented: $showPlainTextExporter,
+            document: plainTextExportDocument,
+            contentType: .plainText,
+            defaultFilename: plainTextExportFilename
+        ) { _ in
+            plainTextExportDocument = nil
+        }
+        .fileExporter(
+            isPresented: $showMarkdownExporter,
+            document: markdownExportDocument,
+            contentType: UTType(filenameExtension: "md") ?? .plainText,
+            defaultFilename: markdownExportFilename
+        ) { _ in
+            markdownExportDocument = nil
+        }
+        #endif
         .task(id: viewModel.note?.fileURL) {
             await loadBacklinks()
+        }
+        .onChange(of: viewModel.note?.fileURL) { _, _ in
+            isPreviewMode = false
         }
     }
 
@@ -404,14 +444,24 @@ public struct NoteEditorView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            MarkdownTextViewRepresentable(
-                text: $viewModel.content,
-                cursorPosition: $viewModel.cursorPosition,
-                editorFontScale: appearance.editorFontScale,
-                noteURL: viewModel.note?.fileURL
-            )
-            .onDrop(of: [.image], isTargeted: nil) { providers in
-                handleImageDrop(providers)
+            if isPreviewMode {
+                MarkdownPreviewView(
+                    markdown: viewModel.content,
+                    baseURL: viewModel.note.map { $0.fileURL.deletingLastPathComponent() },
+                    fontScale: appearance.editorFontScale
+                )
+            } else {
+                MarkdownTextViewRepresentable(
+                    text: $viewModel.content,
+                    cursorPosition: $viewModel.cursorPosition,
+                    editorFontScale: appearance.editorFontScale,
+                    noteURL: viewModel.note?.fileURL
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onDrop(of: [.image], isTargeted: nil) { providers in
+                    handleImageDrop(providers)
+                }
             }
 
             if showBacklinks && !backlinks.isEmpty {
@@ -431,14 +481,28 @@ public struct NoteEditorView: View {
         }
     }
 
-    private func prepareAndShowPDFExport() {
+    #if os(macOS)
+    private func prepareAndShowExport(format: ExportFormat) {
         guard let note = viewModel.note else { return }
-        pdfExportFilename = note.displayName
-            .replacingOccurrences(of: ".md", with: "") + ".pdf"
-        let data = generatePDFData(title: note.displayName, body: viewModel.content)
-        pdfDocument = PDFFileDocument(data: data)
-        showPDFExporter = true
+        let baseName = note.displayName.replacingOccurrences(of: ".md", with: "")
+
+        switch format {
+        case .pdf:
+            pdfExportFilename = baseName + ".pdf"
+            let data = generatePDFData(title: note.displayName, body: viewModel.content)
+            pdfDocument = PDFFileDocument(data: data)
+            showPDFExporter = true
+        case .plainText:
+            plainTextExportFilename = baseName + ".txt"
+            plainTextExportDocument = TextExportDocument(content: viewModel.content)
+            showPlainTextExporter = true
+        case .markdown:
+            markdownExportFilename = baseName + ".md"
+            markdownExportDocument = TextExportDocument(content: viewModel.content)
+            showMarkdownExporter = true
+        }
     }
+    #endif
 
     private func loadBacklinks() async {
         guard let note = viewModel.note,
@@ -628,26 +692,33 @@ public struct NoteEditorView: View {
 
     private func handleImageDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first,
-              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return false }
+              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) || provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        else { return false }
 
         let vm = viewModel
         Task {
-            let data: Data? = await withCheckedContinuation { continuation in
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    continuation.resume(returning: data)
+            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                let data: Data? = await withCheckedContinuation { continuation in
+                    provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                        continuation.resume(returning: data)
+                    }
+                }
+                guard let data else { return }
+                let suggested = provider.suggestedName ?? "dropped-image"
+                let name = URL(fileURLWithPath: suggested).pathExtension.isEmpty ? "\(suggested).png" : suggested
+                let tempURL = FileManager.default.temporaryDirectory.appending(path: name)
+                try? FileManager.default.removeItem(at: tempURL)
+                try? data.write(to: tempURL)
+                await vm.importImage(from: tempURL)
+                try? FileManager.default.removeItem(at: tempURL)
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in
+                        await vm.importImage(from: url)
+                    }
                 }
             }
-            guard let data else { return }
-
-            let suggested = provider.suggestedName ?? "dropped-image"
-            let name = URL(fileURLWithPath: suggested).pathExtension.isEmpty
-                ? "\(suggested).png"
-                : suggested
-            let tempURL = FileManager.default.temporaryDirectory.appending(path: name)
-            try? FileManager.default.removeItem(at: tempURL)
-            try? data.write(to: tempURL)
-            await vm.importImage(from: tempURL)
-            try? FileManager.default.removeItem(at: tempURL)
         }
         return true
     }
@@ -751,6 +822,21 @@ public struct NoteEditorView: View {
     private var macosFloatingToolbar: some View {
         HStack(spacing: 0) {
             HStack(spacing: 8) {
+                Button {
+                    withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+                } label: {
+                    Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
+                        .font(.system(size: 14, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
+                        .frame(minWidth: 32, minHeight: 32)
+                }
+                .buttonStyle(.plain)
+                .help(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
+                Rectangle()
+                    .fill(.separator)
+                    .frame(width: 1, height: 22)
+                    .padding(.horizontal, 4)
                 formatButton(.bold, icon: "bold")
                 formatButton(.italic, icon: "italic")
                 formatButton(.link, icon: "link")
@@ -812,20 +898,9 @@ public struct NoteEditorView: View {
     #endif
 
     private func formatButton(_ action: FormattingAction, icon: String) -> some View {
-        Button {
+        EditorFormatButton(action: action, icon: icon) {
             applyFormatting(action)
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.primary)
-                #if os(iOS)
-                .frame(minWidth: 44, minHeight: 44)
-                #else
-                .frame(minWidth: 32, minHeight: 32)
-                #endif
         }
-        .buttonStyle(.plain)
     }
 
     #if os(iOS)
@@ -834,6 +909,20 @@ public struct NoteEditorView: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
+                    Button {
+                        withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+                    } label: {
+                        Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
+                            .font(.system(size: 14, weight: .medium))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isPreviewMode ? String(localized: "Edit mode", bundle: .module) : String(localized: "Preview", bundle: .module))
+                    Rectangle()
+                        .fill(.separator)
+                        .frame(width: 1, height: 24)
                     formatButton(.bold, icon: "bold")
                     formatButton(.italic, icon: "italic")
                     formatButton(.bulletList, icon: "list.bullet")
@@ -870,7 +959,7 @@ public struct NoteEditorView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
             }
             .frame(maxWidth: 300)
 
@@ -1250,6 +1339,19 @@ public struct NoteEditorView: View {
                     : String(localized: "Enter focus mode", bundle: .module))
             }
 
+            Button {
+                withAnimation(QuartzAnimation.standard) { isPreviewMode.toggle() }
+            } label: {
+                Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .accessibilityLabel(isPreviewMode
+                ? String(localized: "Edit mode", bundle: .module)
+                : String(localized: "Preview", bundle: .module))
+            .help(isPreviewMode
+                ? String(localized: "Switch to edit mode", bundle: .module)
+                : String(localized: "Preview rendered markdown", bundle: .module))
+
             // Global toolbar actions (Search Brain, Support, etc.) – after AI and Focus Mode
             if let onSearch {
                 Button {
@@ -1294,11 +1396,13 @@ public struct NoteEditorView: View {
                 }
                 .disabled(refreshDisabled)
             }
+            #if os(macOS)
             if onSearch != nil || onSupport != nil || onNewNote != nil || onRefresh != nil {
                 SettingsLink {
                     Image(systemName: "gearshape")
                 }
             }
+            #endif
 
             Button {
                 Task { await viewModel.manualSave() }
@@ -1376,7 +1480,7 @@ private struct ImageDataTransferable: Transferable {
 }
 #endif
 
-// MARK: - PDF Export Document
+// MARK: - Export Documents
 
 private struct PDFFileDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.pdf] }
@@ -1390,5 +1494,72 @@ private struct PDFFileDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct TextExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText, UTType(filenameExtension: "md")!] }
+    let content: String
+
+    init(content: String) { self.content = content }
+
+    init(configuration: ReadConfiguration) throws {
+        let data = configuration.file.regularFileContents ?? Data()
+        content = String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: content.data(using: .utf8) ?? Data())
+    }
+}
+
+// MARK: - Editor Format Button (hover + press feedback)
+
+private struct EditorFormatButton: View {
+    let action: FormattingAction
+    let icon: String
+    let onTap: () -> Void
+    @Environment(\.appearanceManager) private var appearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+    @State private var isPressed = false
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 14, weight: .medium))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(isPressed ? appearance.accentColor : .primary)
+            #if os(iOS)
+            .frame(minWidth: 44, minHeight: 44)
+            #else
+            .frame(minWidth: 32, minHeight: 32)
+            #endif
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isPressed)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isHovered)
+            #if os(macOS)
+            .onHover { isHovered = $0 }
+            #endif
+            .contentShape(Rectangle())
+            .onTapGesture { onTap() }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in isPressed = false }
+            )
+            .accessibilityLabel(action.label)
+            .help(action.shortcut.map { "\(action.label) (\($0))" } ?? action.label)
+    }
+
+    private var backgroundColor: Color {
+        if isPressed { return appearance.accentColor.opacity(0.25) }
+        #if os(macOS)
+        if isHovered { return Color.primary.opacity(0.08) }
+        #endif
+        return .clear
     }
 }

@@ -58,9 +58,10 @@ public actor TranscriptionService {
         }
     }
 
-    /// Preferred language for recognition.
+    /// Preferred language for recognition. Uses device locale for automatic language (user's primary language).
     private let locale: Locale
 
+    /// Uses device locale by default so transcription follows the user's primary language.
     public init(locale: Locale = .current) {
         self.locale = locale
     }
@@ -89,8 +90,26 @@ public actor TranscriptionService {
     /// - Parameter audioURL: Path to the audio file (.m4a, .wav, etc.)
     /// - Returns: TranscriptionResult with text and segments
     public func transcribe(audioURL: URL) async throws -> TranscriptionResult {
-        guard FileManager.default.fileExists(atPath: audioURL.path()) else {
+        let path = audioURL.path(percentEncoded: false)
+        guard FileManager.default.fileExists(atPath: path) else {
             throw TranscriptionError.fileNotFound
+        }
+
+        // Copy to temp when in cloud/sandboxed paths – Speech framework often fails to read those directly.
+        let workingURL: URL
+        if needsTempCopy(audioURL) {
+            let tempDir = FileManager.default.temporaryDirectory
+            let tempName = "transcribe-\(UUID().uuidString).m4a"
+            let tempURL = tempDir.appending(path: tempName)
+            do {
+                try FileManager.default.copyItem(at: audioURL, to: tempURL)
+            } catch {
+                throw TranscriptionError.fileNotFound
+            }
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+            workingURL = tempURL
+        } else {
+            workingURL = audioURL
         }
 
         guard let recognizer = SFSpeechRecognizer(locale: locale),
@@ -99,10 +118,10 @@ public actor TranscriptionService {
         }
 
         // Determine audio duration
-        let asset = AVURLAsset(url: audioURL)
+        let asset = AVURLAsset(url: workingURL)
         let duration = try await asset.load(.duration).seconds
 
-        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        let request = SFSpeechURLRecognitionRequest(url: workingURL)
         request.shouldReportPartialResults = false
         request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true
@@ -176,6 +195,12 @@ public actor TranscriptionService {
     }
 
     // MARK: - Private
+
+    /// Copy to temp when file is in cloud-synced or security-scoped location (Speech framework can fail there).
+    private func needsTempCopy(_ url: URL) -> Bool {
+        let path = url.path(percentEncoded: false)
+        return path.contains("/Library/CloudStorage/") || path.contains("/iCloud.")
+    }
 
     /// Thread-safe ISO 8601 formatting. Creates a new formatter per call
     /// since `ISO8601DateFormatter` is not thread-safe.

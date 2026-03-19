@@ -6,13 +6,15 @@ import AVFoundation
 @Observable
 @MainActor
 public final class AudioRecordingViewModel {
-    enum Mode: String, CaseIterable {
+    public enum Mode: String, CaseIterable {
         case transcription = "Transcription"
         case meetingMinutes = "Meeting Minutes"
     }
 
     var mode: Mode = .transcription
     var transcriptionEnabled = true
+    var minutesTemplate: MeetingMinutesTemplate = .standard
+    var customMinutesPrompt: String = ""
     var isTranscribing = false
     var transcriptionProgress: String = ""
     var errorMessage: String?
@@ -110,7 +112,13 @@ public final class AudioRecordingViewModel {
         )
 
         transcriptionProgress = String(localized: "Generating meeting minutes…", bundle: .module)
-        let minutes = try await minutesService.generateMinutes(from: audioURL)
+        let template = minutesTemplate
+        let customPrompt = customMinutesPrompt
+        let minutes = try await minutesService.generateMinutes(
+            from: audioURL,
+            template: template,
+            customPrompt: template == .custom && !customPrompt.isEmpty ? customPrompt : nil
+        )
 
         if let vaultURL {
             _ = try await minutesService.saveAsNote(minutes, vaultURL: vaultURL)
@@ -130,10 +138,19 @@ public struct AudioRecordingView: View {
 
     private let vaultURL: URL?
     private let onInsertText: (String) -> Void
+    private let compactMode: Bool
+    private let initialMode: AudioRecordingViewModel.Mode?
 
-    public init(vaultURL: URL?, onInsertText: @escaping (String) -> Void) {
+    public init(
+        vaultURL: URL?,
+        onInsertText: @escaping (String) -> Void,
+        compactMode: Bool = false,
+        initialMode: AudioRecordingViewModel.Mode? = nil
+    ) {
         self.vaultURL = vaultURL
         self.onInsertText = onInsertText
+        self.compactMode = compactMode
+        self.initialMode = initialMode
     }
 
     public var body: some View {
@@ -141,17 +158,21 @@ public struct AudioRecordingView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                waveformDisplay
-                    .padding(.bottom, 24)
+                if !compactMode {
+                    waveformDisplay
+                        .padding(.bottom, 24)
+                }
 
                 timerDisplay
-                    .padding(.bottom, 32)
+                    .padding(.bottom, compactMode ? 16 : 32)
 
                 recordingControls
-                    .padding(.bottom, 28)
+                    .padding(.bottom, compactMode ? 12 : 28)
 
-                modeSelector
-                    .padding(.bottom, 16)
+                if !compactMode {
+                    modeSelector
+                        .padding(.bottom, 16)
+                }
 
                 if viewModel.isTranscribing {
                     transcriptionStatus
@@ -190,9 +211,12 @@ public struct AudioRecordingView: View {
             }
             .onAppear {
                 viewModel.vaultURL = vaultURL
+                if let mode = initialMode {
+                    viewModel.mode = mode
+                }
             }
         }
-        .frame(minWidth: 380, minHeight: 440)
+        .frame(minWidth: compactMode ? 280 : 380, minHeight: compactMode ? 260 : 440)
     }
 
     // MARK: - Waveform
@@ -364,6 +388,23 @@ public struct AudioRecordingView: View {
                 .pickerStyle(.segmented)
                 .disabled(viewModel.recordingService.isRecording || viewModel.isTranscribing)
                 .transition(.move(edge: .top).combined(with: .opacity))
+
+                if viewModel.mode == .meetingMinutes {
+                    Picker(String(localized: "Template", bundle: .module), selection: $viewModel.minutesTemplate) {
+                        ForEach(MeetingMinutesTemplate.allCases, id: \.self) { t in
+                            Text(t.displayName).tag(t)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .disabled(viewModel.recordingService.isRecording || viewModel.isTranscribing)
+
+                    if viewModel.minutesTemplate == .custom {
+                        TextField(String(localized: "Custom system instruction…", bundle: .module), text: $viewModel.customMinutesPrompt, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(3...6)
+                            .disabled(viewModel.recordingService.isRecording || viewModel.isTranscribing)
+                    }
+                }
             }
         }
         .padding(.horizontal, 20)

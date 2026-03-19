@@ -26,8 +26,12 @@ actor MockVaultProvider: VaultProviding {
     }
 
     func createNote(named name: String, in folder: URL) async throws -> NoteDocument {
+        try await createNote(named: name, in: folder, initialContent: "")
+    }
+
+    func createNote(named name: String, in folder: URL, initialContent: String) async throws -> NoteDocument {
         let url = folder.appendingPathComponent("\(name).md")
-        let note = NoteDocument(fileURL: url, frontmatter: Frontmatter(title: name))
+        let note = NoteDocument(fileURL: url, frontmatter: Frontmatter(title: name), body: initialContent)
         notes[url] = note
 
         let node = FileNode(name: "\(name).md", url: url, nodeType: .note)

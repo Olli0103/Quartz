@@ -8,6 +8,8 @@ public struct DashboardView: View {
     let onSelectNote: (URL) -> Void
     let onNewNote: () -> Void
     let onExploreGraph: () -> Void
+    var onRecordVoiceNote: (() -> Void)? = nil
+    var onRecordMeetingMinutes: (() -> Void)? = nil
 
     private static let background = Color(hex: 0xFDFBF8)
     private static let navyButton = Color(hex: 0x1E3A5F)
@@ -17,12 +19,16 @@ public struct DashboardView: View {
         sidebarViewModel: SidebarViewModel?,
         onSelectNote: @escaping (URL) -> Void,
         onNewNote: @escaping () -> Void,
-        onExploreGraph: @escaping () -> Void
+        onExploreGraph: @escaping () -> Void,
+        onRecordVoiceNote: (() -> Void)? = nil,
+        onRecordMeetingMinutes: (() -> Void)? = nil
     ) {
         self.sidebarViewModel = sidebarViewModel
         self.onSelectNote = onSelectNote
         self.onNewNote = onNewNote
         self.onExploreGraph = onExploreGraph
+        self.onRecordVoiceNote = onRecordVoiceNote
+        self.onRecordMeetingMinutes = onRecordMeetingMinutes
     }
 
     public var body: some View {
@@ -163,7 +169,48 @@ public struct DashboardView: View {
         HStack(spacing: 20) {
             pinnedThoughtCard
             quickCaptureCard
+            if onRecordVoiceNote != nil || onRecordMeetingMinutes != nil {
+                voiceCaptureCard
+            }
         }
+    }
+
+    private var voiceCaptureCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if let onVoice = onRecordVoiceNote {
+                    Button {
+                        onVoice()
+                    } label: {
+                        Label(String(localized: "Quick Note", bundle: .module), systemImage: "mic.fill")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(QuartzColors.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let onMeeting = onRecordMeetingMinutes {
+                    Button {
+                        onMeeting()
+                    } label: {
+                        Label(String(localized: "Meeting Minutes", bundle: .module), systemImage: "person.2.fill")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(QuartzColors.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Text(String(localized: "Record voice to create a note or meeting minutes.", bundle: .module))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
+                .fill(.background)
+                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        )
     }
 
     private var pinnedThoughtCard: some View {

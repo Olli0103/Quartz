@@ -11,6 +11,21 @@ public enum SidebarFilter: String, CaseIterable, Sendable {
     case recent
 }
 
+/// Sort order for sidebar folder contents.
+public enum SidebarSortOrder: String, CaseIterable, Sendable {
+    case nameAscending = "name"
+    case dateModifiedNewest = "modified"
+    case dateCreatedNewest = "created"
+
+    public var label: String {
+        switch self {
+        case .nameAscending: String(localized: "Name (A–Z)", bundle: .module)
+        case .dateModifiedNewest: String(localized: "Date modified (newest)", bundle: .module)
+        case .dateCreatedNewest: String(localized: "Date created (newest)", bundle: .module)
+        }
+    }
+}
+
 /// ViewModel for the sidebar: loads the file tree, filters, and sorts.
 @Observable
 @MainActor
@@ -32,6 +47,19 @@ public final class SidebarViewModel {
     public var errorMessage: String?
 
     private static let favoritesKey = "quartz.favoriteNotes"
+    private static let sortOrderKey = "quartz.sidebarSortOrder"
+
+    public var sortOrder: SidebarSortOrder {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: Self.sortOrderKey),
+                  let order = SidebarSortOrder(rawValue: raw) else { return .nameAscending }
+            return order
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Self.sortOrderKey)
+            invalidateFilterCache()
+        }
+    }
 
     private let vaultProvider: any VaultProviding
     private var vaultRoot: URL?
@@ -132,6 +160,18 @@ public final class SidebarViewModel {
         }
     }
 
+    /// Creates a new note with initial content (e.g. from voice transcription). Returns the note URL.
+    public func createNote(named name: String, in folder: URL, initialContent: String) async -> URL? {
+        do {
+            let note = try await vaultProvider.createNote(named: name, in: folder, initialContent: initialContent)
+            await refresh()
+            return note.fileURL
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+            return nil
+        }
+    }
+
     /// Creates a new note from a template.
     public func createNoteFromTemplate(_ template: NoteTemplate, named name: String, in folder: URL) async {
         do {
@@ -226,8 +266,31 @@ public final class SidebarViewModel {
             result = Array(recent)
         }
 
+        result = sortNodes(result, by: sortOrder)
         cachedFilteredTree = result
         return result
+    }
+
+    private func sortNodes(_ nodes: [FileNode], by order: SidebarSortOrder) -> [FileNode] {
+        let sorted = nodes.map { node in
+            guard var children = node.children else { return node }
+            children = sortNodes(children, by: order)
+            var copy = node
+            copy.children = children
+            return copy
+        }
+        return sorted.sorted { a, b in
+            // Folders first, then sort by selected order
+            if a.isFolder != b.isFolder { return a.isFolder }
+            switch order {
+            case .nameAscending:
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            case .dateModifiedNewest:
+                return a.metadata.modifiedAt > b.metadata.modifiedAt
+            case .dateCreatedNewest:
+                return a.metadata.createdAt > b.metadata.createdAt
+            }
+        }
     }
 
     private func filterByFavorite(_ node: FileNode, favorites: Set<String>) -> FileNode? {

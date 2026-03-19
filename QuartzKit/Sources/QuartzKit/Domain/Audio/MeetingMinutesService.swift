@@ -1,5 +1,126 @@
 import Foundation
 
+// MARK: - Meeting Minutes Templates
+
+/// Predefined templates for meeting minutes with different structures and system instructions.
+public enum MeetingMinutesTemplate: String, CaseIterable, Identifiable, Sendable {
+    case standard = "standard"
+    case executive = "executive"
+    case technical = "technical"
+    case actionFocused = "actionFocused"
+    case custom = "custom"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .standard: String(localized: "Standard", bundle: .module)
+        case .executive: String(localized: "Executive Summary", bundle: .module)
+        case .technical: String(localized: "Technical", bundle: .module)
+        case .actionFocused: String(localized: "Action-Focused", bundle: .module)
+        case .custom: String(localized: "Custom", bundle: .module)
+        }
+    }
+
+    public var systemPrompt: String {
+        switch self {
+        case .standard:
+            """
+            You are a meeting minutes assistant. Analyze the following transcript and create structured meeting minutes.
+
+            Respond with ONLY the following sections in Markdown format:
+            ## Summary
+            A brief 2-3 sentence summary of the meeting.
+
+            ## Key Discussion Points
+            - Bullet points of main topics discussed
+
+            ## Decisions Made
+            - Bullet points of decisions (if any)
+
+            ## Action Items
+            - [ ] Action item with responsible person (if mentioned)
+
+            ## Open Questions
+            - Questions that were raised but not resolved (if any)
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Be concise and factual.
+            - If no decisions or action items are clear, omit those sections.
+            """
+        case .executive:
+            """
+            You are an executive assistant. Create a concise executive summary from this meeting transcript.
+
+            Respond with ONLY:
+            ## Executive Summary
+            One paragraph (3-5 sentences) capturing the essence of the meeting: key outcomes, decisions, and next steps.
+
+            ## Key Takeaways
+            - 3-5 bullet points for leadership
+
+            ## Critical Action Items
+            - [ ] Only the most important action items with owners and deadlines (if mentioned)
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Focus on business impact and strategic relevance.
+            - Omit operational details.
+            """
+        case .technical:
+            """
+            You are a technical documentation specialist. Create structured technical meeting notes from this transcript.
+
+            Respond with ONLY:
+            ## Overview
+            Brief technical context of the meeting.
+
+            ## Technical Decisions
+            - Architecture, tooling, or implementation decisions made
+
+            ## Discussion Points
+            - Technical topics discussed with relevant details
+
+            ## Action Items
+            - [ ] Technical tasks with owners (if mentioned)
+
+            ## Blockers & Dependencies
+            - Any blockers or dependencies identified
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Preserve technical terminology accurately.
+            - Include code names, versions, or specs if mentioned.
+            """
+        case .actionFocused:
+            """
+            You are a project management assistant. Create action-focused meeting notes from this transcript.
+
+            Respond with ONLY:
+            ## Summary (1-2 sentences)
+            What was decided and what happens next.
+
+            ## Action Items
+            - [ ] Action with owner and deadline (if mentioned). Use "TBD" if not specified.
+
+            ## Decisions Made
+            - Bullet list of decisions
+
+            ## Follow-up Required
+            - Items needing more discussion or input
+
+            Important:
+            - Respond in the same language as the transcript.
+            - Every action item must be clear and actionable.
+            - Prioritize by impact if possible.
+            """
+        case .custom:
+            ""
+        }
+    }
+}
+
 /// AI pipeline: Transcription → Summarization → Structured Meeting Minutes.
 ///
 /// Automatically generates meeting minutes with action items as Markdown.
@@ -21,11 +142,15 @@ public actor MeetingMinutesService {
     ///
     /// - Parameters:
     ///   - audioURL: Path to the audio file
+    ///   - template: Template for minutes structure (default: standard)
+    ///   - customPrompt: Custom system prompt when template is .custom
     ///   - meetingTitle: Optional title of the meeting
     ///   - participants: Optional list of participants
     /// - Returns: MeetingMinutes with structured Markdown
     public func generateMinutes(
         from audioURL: URL,
+        template: MeetingMinutesTemplate = .standard,
+        customPrompt: String? = nil,
         meetingTitle: String? = nil,
         participants: [String] = []
     ) async throws -> MeetingMinutes {
@@ -40,30 +165,13 @@ public actor MeetingMinutesService {
         let transcription = try await transcriptionService.transcribe(audioURL: audioURL)
 
         // 2. AI summarization
-        let systemPrompt = """
-        You are a meeting minutes assistant. Analyze the following transcript and create structured meeting minutes.
-
-        Respond with ONLY the following sections in Markdown format:
-        ## Summary
-        A brief 2-3 sentence summary of the meeting.
-
-        ## Key Discussion Points
-        - Bullet points of main topics discussed
-
-        ## Decisions Made
-        - Bullet points of decisions (if any)
-
-        ## Action Items
-        - [ ] Action item with responsible person (if mentioned)
-
-        ## Open Questions
-        - Questions that were raised but not resolved (if any)
-
-        Important:
-        - Respond in the same language as the transcript.
-        - Be concise and factual.
-        - If no decisions or action items are clear, omit those sections.
-        """
+        let systemPrompt: String
+        switch template {
+        case .custom:
+            systemPrompt = customPrompt ?? MeetingMinutesTemplate.standard.systemPrompt
+        default:
+            systemPrompt = template.systemPrompt
+        }
 
         let messages: [AIMessage] = [
             AIMessage(role: .system, content: systemPrompt),
