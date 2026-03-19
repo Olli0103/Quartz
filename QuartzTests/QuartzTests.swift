@@ -5,6 +5,8 @@
 //  Created by Posselt, Oliver on 13.03.26.
 //
 
+import Foundation
+import SwiftUI
 import Testing
 @testable import QuartzKit
 
@@ -45,7 +47,6 @@ struct ServiceContainerTests {
     func bootstrapRegistration() {
         let container = ServiceContainer.shared
         let customGate = DefaultFeatureGate()
-        customGate.isProUnlocked = true
         container.bootstrap(featureGate: customGate)
 
         let gate = container.resolveFeatureGate()

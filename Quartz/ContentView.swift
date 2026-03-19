@@ -3,6 +3,24 @@ import QuartzKit
 import UniformTypeIdentifiers
 import os
 
+/// Vault header subtitle font – larger on macOS.
+private var vaultSubtitleFont: Font {
+    #if os(macOS)
+    .subheadline
+    #else
+    .caption
+    #endif
+}
+
+/// Sidebar footer text font – larger on macOS.
+private var sidebarFooterFont: Font {
+    #if os(macOS)
+    .subheadline
+    #else
+    .caption
+    #endif
+}
+
 /// Main layout: 2-column NavigationSplitView with sidebar and editor.
 struct ContentView: View {
     @Environment(AppState.self) private var appState
@@ -17,6 +35,9 @@ struct ContentView: View {
     @State private var newNoteParent: URL?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showOnboarding = false
+    #if os(macOS)
+    @State private var showKnowledgeGraph = false
+    #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
     @State private var availableUpdate: UpdateChecker.ReleaseInfo?
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
@@ -93,6 +114,30 @@ struct ContentView: View {
                 }
             }
         }
+        #if os(macOS)
+        .sheet(isPresented: $showKnowledgeGraph) {
+            NavigationStack {
+                KnowledgeGraphView(
+                    fileTree: viewModel?.sidebarViewModel?.fileTree ?? [],
+                    currentNoteURL: viewModel?.editorViewModel?.note?.fileURL,
+                    vaultRootURL: viewModel?.sidebarViewModel?.vaultRootURL,
+                    vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+                    onSelectNote: { url in
+                        showKnowledgeGraph = false
+                        selectedNoteURL = url
+                    }
+                )
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(localized: "Done", bundle: .module)) {
+                            showKnowledgeGraph = false
+                        }
+                    }
+                }
+            }
+            .frame(minWidth: 700, minHeight: 500)
+        }
+        #endif
         .sheet(item: $vaultChatSheetItem) { item in
             VaultChatView(session: item.session)
         }
@@ -103,8 +148,11 @@ struct ContentView: View {
                 let name = newNoteName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newNoteName = ""
                 guard !name.isEmpty else { return }
+                let finalName = name.hasSuffix(".md") ? name : "\(name).md"
+                let noteURL = parent.appending(path: finalName)
                 Task {
                     await viewModel?.sidebarViewModel?.createNote(named: name, in: parent)
+                    await MainActor.run { selectedNoteURL = noteURL }
                 }
             }
             Button(String(localized: "Cancel"), role: .cancel) { newNoteName = "" }
@@ -137,7 +185,7 @@ struct ContentView: View {
             #if os(macOS)
             if shouldShow {
                 showVaultPicker = false
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     pickVaultFolderMacOS()
                 }
             }
@@ -170,20 +218,20 @@ struct ContentView: View {
     #if os(macOS)
     private func pickVaultFolderMacOS() {
         let panel = NSOpenPanel()
-        panel.title = "Open Vault Folder"
-        panel.message = "Choose an existing folder with your notes, or create a new one."
+        panel.title = String(localized: "Open Vault Folder")
+        panel.message = String(localized: "Choose an existing folder with your notes, or create a new one.")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Open"
+        panel.prompt = String(localized: "Open")
 
         panel.begin { response in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard response == .OK, let url = panel.url else { return }
 
                 guard url.startAccessingSecurityScopedResource() else {
-                    appState.showError("Unable to access the selected folder.")
+                    appState.showError(String(localized: "Unable to access the selected folder. Please try again."))
                     return
                 }
 
@@ -206,12 +254,16 @@ struct ContentView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
 
+                #if os(macOS)
+                SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL, onMapViewTap: { showKnowledgeGraph = true })
+                #else
                 SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
+                #endif
 
                 // Bottom bar: Settings
                 sidebarBottomBar
             }
-            .navigationTitle(appState.currentVault?.name ?? "Quartz")
+            .navigationTitle(appState.currentVault?.name ?? String(localized: "Quartz"))
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
@@ -272,11 +324,17 @@ struct ContentView: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(appState.currentVault?.name ?? "Quartz")
+                Text(appState.currentVault?.name ?? String(localized: "Quartz"))
                     .font(.body.weight(.bold))
                     .lineLimit(1)
-                Text(String(localized: "Personal Vault"))
-                    .font(.caption)
+                Text(
+                    #if os(macOS)
+                    String(localized: "Second Brain", bundle: .module)
+                    #else
+                    String(localized: "Personal Vault", bundle: .module)
+                    #endif
+                )
+                    .font(vaultSubtitleFont)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -298,7 +356,8 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 24)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
             .accessibilityLabel(String(localized: "Vault Options"))
             .help(String(localized: "Vault Options"))
         }
@@ -331,6 +390,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -349,6 +409,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -361,11 +422,11 @@ struct ContentView: View {
     private func cloudSyncIndicator(status: CloudSyncStatus) -> some View {
         HStack(spacing: 10) {
             Image(systemName: cloudSyncIcon(for: status))
-                .font(.caption)
+                .font(sidebarFooterFont)
                 .foregroundStyle(cloudSyncColor(for: status))
                 .symbolEffect(.pulse, isActive: status == .uploading || status == .downloading)
             Text(cloudSyncLabel(for: status))
-                .font(.caption)
+                .font(sidebarFooterFont)
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -412,11 +473,11 @@ struct ContentView: View {
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkle")
-                    .font(.caption)
+                    .font(sidebarFooterFont)
                     .foregroundStyle(QuartzColors.accent)
                     .symbolEffect(.pulse)
-                Text("Indexing notes… \(current)/\(total)")
-                    .font(.caption)
+                Text(String(format: String(localized: "Indexing notes… %lld/%lld"), Int64(current), Int64(total)))
+                    .font(sidebarFooterFont)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -433,16 +494,87 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let editorVM = viewModel?.editorViewModel {
-            NoteEditorView(viewModel: editorVM)
-                .id(editorVM.note?.fileURL)
-        } else {
+        Group {
+            if let editorVM = viewModel?.editorViewModel {
+                NoteEditorView(viewModel: editorVM)
+                    .id(editorVM.note?.fileURL)
+            } else {
+            #if os(macOS)
+            DashboardView(
+                sidebarViewModel: viewModel?.sidebarViewModel,
+                onSelectNote: { url in selectedNoteURL = url },
+                onNewNote: {
+                    newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
+                    let df = DateFormatter()
+                    df.dateFormat = "yyyy-MM-dd HH-mm"
+                    newNoteName = "Note \(df.string(from: Date()))"
+                    showNewNote = true
+                },
+                onExploreGraph: { showKnowledgeGraph = true }
+            )
+            #else
             QuartzEmptyState(
                 icon: "doc.text",
                 title: String(localized: "No Note Selected"),
                 subtitle: String(localized: "Choose a note from the sidebar to start editing.")
             )
+            #endif
+            }
         }
+        #if os(macOS)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showSearch = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.subheadline)
+                        Text(String(localized: "Search Brain…", bundle: .module))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(.quaternary))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel?.searchIndex == nil)
+
+                Button {
+                    newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
+                    let df = DateFormatter()
+                    df.dateFormat = "yyyy-MM-dd HH-mm"
+                    newNoteName = "Note \(df.string(from: Date()))"
+                    showNewNote = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(viewModel?.sidebarViewModel == nil)
+
+                Button {
+                    Task { await viewModel?.sidebarViewModel?.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(viewModel?.sidebarViewModel == nil)
+
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                }
+
+                // User avatar placeholder
+                Circle()
+                    .fill(QuartzColors.accent.opacity(0.3))
+                    .frame(width: 28, height: 28)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .font(.caption)
+                            .foregroundStyle(QuartzColors.accent)
+                    }
+            }
+        }
+        #endif
     }
 
     // MARK: - Welcome View

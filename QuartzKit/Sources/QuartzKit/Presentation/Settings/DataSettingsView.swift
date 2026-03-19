@@ -14,10 +14,10 @@ public struct DataSettingsView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label(String(localized: "Import from Apple Notes", bundle: .module), systemImage: "square.and.arrow.down")
+                    Label(String(localized: "Import Notes", bundle: .module), systemImage: "square.and.arrow.down")
                         .font(.body.weight(.medium))
 
-                    Text(String(localized: "Export your Apple Notes as files (HTML, TXT, or RTF), then import them into your vault.", bundle: .module))
+                    Text(String(localized: "Import HTML, TXT, RTF, PDF, or Markdown files from a folder into your vault.", bundle: .module))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -147,7 +147,7 @@ public struct DataSettingsView: View {
                         Text(String(localized: "Importing…", bundle: .module))
                     } else {
                         Image(systemName: "folder")
-                        Text(String(localized: "Choose Export Folder…", bundle: .module))
+                        Text(String(localized: "Choose Folder…", bundle: .module))
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -179,7 +179,7 @@ public struct DataSettingsView: View {
             importError = nil
 
             Task.detached {
-                let importer = AppleNotesImporter()
+                let importer = NotesImporter()
                 do {
                     let outcome = try await importer.importNotes(from: sourceURL, into: vaultURL)
                     await MainActor.run {

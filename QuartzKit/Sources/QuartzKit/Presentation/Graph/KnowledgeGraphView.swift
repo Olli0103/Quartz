@@ -275,19 +275,44 @@ public final class GraphViewModel {
 
 // MARK: - Knowledge Graph View
 
+/// Graph filter options matching the design.
+public enum GraphFilterOption: String, CaseIterable {
+    case all
+    case recent
+    case highPriority
+    case unlinked
+
+    var label: String {
+        switch self {
+        case .all: String(localized: "All Nodes", bundle: .module)
+        case .recent: String(localized: "Recent", bundle: .module)
+        case .highPriority: String(localized: "High Priority", bundle: .module)
+        case .unlinked: String(localized: "Unlinked", bundle: .module)
+        }
+    }
+}
+
 /// Interactive force-directed graph visualization of vault notes and their connections.
+/// Light theme with search, floating node card, and filter bar per design.
 public struct KnowledgeGraphView: View {
     @State private var viewModel = GraphViewModel()
     @State private var zoom: CGFloat = 1.0
     @State private var pan: CGSize = .zero
     @State private var dragOffset: CGSize = .zero
     @State private var hoveredNodeID: String?
+    @State private var selectedNodeID: String?
+    @State private var searchText = ""
+    @State private var activeFilter: GraphFilterOption = .all
+    @State private var lastMagnification: CGFloat = 1.0
 
     private let fileTree: [FileNode]
     private let currentNoteURL: URL?
     private let vaultRootURL: URL?
     private let vaultProvider: (any VaultProviding)?
     private let onSelectNote: ((URL) -> Void)?
+
+    /// Light cream background per design (#FDFBF8).
+    private static let graphBackgroundColor = Color(hex: 0xFDFBF8)
 
     public init(
         fileTree: [FileNode],
@@ -314,18 +339,50 @@ public struct KnowledgeGraphView: View {
             } else {
                 graphCanvas
             }
+
+            // Floating node detail card (top-right overlay)
+            if let nodeID = selectedNodeID ?? hoveredNodeID,
+               let node = viewModel.nodes.first(where: { $0.id == nodeID }) {
+                nodeDetailCard(for: node)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+
+            // Bottom filter bar
+            filterBar
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+
+            // Zoom controls (bottom-right)
+            zoomControls
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-        .navigationTitle(String(localized: "Knowledge Graph", bundle: .module))
+        .navigationTitle(String(localized: "Graph View", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 2) {
+                    Text(String(localized: "Graph View", bundle: .module))
+                        .font(.headline)
+                    if !viewModel.nodes.isEmpty {
+                        Text("\(viewModel.nodes.count) \(String(localized: "nodes", bundle: .module))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button(String(localized: "Done", bundle: .module)) {
                     // Dismiss handled by parent
                 }
             }
         }
+        .searchable(text: $searchText, prompt: Text(String(localized: "Search knowledge…", bundle: .module)))
         .task {
             await viewModel.buildGraph(
                 fileTree: fileTree,
@@ -340,18 +397,115 @@ public struct KnowledgeGraphView: View {
 
     private var graphBackground: some View {
         Rectangle()
-            .fill(
-                RadialGradient(
-                    colors: [
-                        Color.black.opacity(0.85),
-                        Color.black.opacity(0.95),
-                    ],
-                    center: .center,
-                    startRadius: 100,
-                    endRadius: 500
-                )
-            )
+            .fill(Self.graphBackgroundColor)
             .ignoresSafeArea()
+    }
+
+    // MARK: - Node Detail Card
+
+    private func nodeDetailCard(for node: GraphNode) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(localized: "ACTIVE NODE", bundle: .module))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text(node.title)
+                .font(.headline.weight(.bold))
+            Text(String(localized: "Note in your vault", bundle: .module))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(["#philosophy", "#systems"], id: \.self) { tag in
+                    Text(tag)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.gray.opacity(0.15)))
+                }
+            }
+            Button {
+                onSelectNote?(node.url)
+            } label: {
+                HStack {
+                    Text(String(localized: "Open Note", bundle: .module))
+                    Image(systemName: "arrow.right")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(QuartzColors.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .frame(maxWidth: 200, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+        )
+    }
+
+    // MARK: - Filter Bar
+
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            ForEach(GraphFilterOption.allCases, id: \.self) { option in
+                Button {
+                    withAnimation(QuartzAnimation.standard) { activeFilter = option }
+                } label: {
+                    Text(option.label)
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(activeFilter == option ? QuartzColors.accent : Color.gray.opacity(0.12))
+                        )
+                        .foregroundStyle(activeFilter == option ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        )
+    }
+
+    // MARK: - Zoom Controls
+
+    private var zoomControls: some View {
+        VStack(spacing: 8) {
+            Button {
+                withAnimation { zoom = min(5.0, zoom + 0.2) }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(.regularMaterial))
+            }
+            .buttonStyle(.plain)
+            Button {
+                withAnimation { zoom = max(0.3, zoom - 0.2) }
+            } label: {
+                Image(systemName: "minus")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(.regularMaterial))
+            }
+            .buttonStyle(.plain)
+            Button {
+                withAnimation { pan = .zero; zoom = 1.0 }
+            } label: {
+                Image(systemName: "location.fill")
+                    .font(.body.weight(.medium))
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(.regularMaterial))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Loading
@@ -359,7 +513,7 @@ public struct KnowledgeGraphView: View {
     private var loadingOverlay: some View {
         VStack(spacing: 16) {
             ProgressView()
-                .tint(.orange)
+                .tint(QuartzColors.accent)
                 .scaleEffect(1.2)
             Text(String(localized: "Building graph…", bundle: .module))
                 .font(.subheadline)
@@ -410,10 +564,10 @@ public struct KnowledgeGraphView: View {
                     let isHighlightedEdge = viewModel.currentNoteID != nil &&
                         (edge.from == viewModel.currentNoteID || edge.to == viewModel.currentNoteID)
                     let edgeColor: Color = isHighlightedEdge
-                        ? .orange.opacity(0.4)
+                        ? QuartzColors.accent.opacity(0.5)
                         : edge.isSemantic
-                            ? Color.purple.opacity(0.2)
-                            : Color.white.opacity(0.12)
+                            ? QuartzColors.canvasPurple.opacity(0.25)
+                            : Color.gray.opacity(0.25)
                     let lineWidth: CGFloat = isHighlightedEdge ? 1.5 : 0.8
 
                     context.stroke(path, with: .color(edgeColor), lineWidth: lineWidth)
@@ -437,7 +591,7 @@ public struct KnowledgeGraphView: View {
                         )
                         context.fill(
                             Circle().path(in: glowRect),
-                            with: .color(.orange.opacity(0.15))
+                            with: .color(QuartzColors.accent.opacity(0.2))
                         )
                     }
 
@@ -452,12 +606,12 @@ public struct KnowledgeGraphView: View {
                         with: .color(color)
                     )
 
-                    // Border for hovered node
-                    if node.id == hoveredNodeID {
+                    // Border for hovered/selected node
+                    if node.id == hoveredNodeID || node.id == selectedNodeID {
                         context.stroke(
                             Circle().path(in: nodeRect.insetBy(dx: -2, dy: -2)),
-                            with: .color(.white.opacity(0.6)),
-                            lineWidth: 1.5
+                            with: .color(QuartzColors.accent.opacity(0.8)),
+                            lineWidth: 2
                         )
                     }
 
@@ -465,11 +619,12 @@ public struct KnowledgeGraphView: View {
                     let showLabel = isCurrentNote ||
                         viewModel.connectedNodeIDs.contains(node.id) ||
                         node.id == hoveredNodeID ||
+                        node.id == selectedNodeID ||
                         (zoom > 1.5 && node.connectionCount > 0) ||
                         zoom > 2.5
 
                     if showLabel {
-                        let labelColor: Color = isCurrentNote ? .orange : .white.opacity(0.8)
+                        let labelColor: Color = isCurrentNote ? QuartzColors.accent : Color.primary.opacity(0.85)
                         let fontSize: CGFloat = isCurrentNote ? 11 : 9
                         context.draw(
                             Text(node.title)
@@ -496,7 +651,11 @@ public struct KnowledgeGraphView: View {
             .gesture(
                 MagnifyGesture()
                     .onChanged { value in
-                        zoom = max(0.3, min(5.0, value.magnification))
+                        zoom = max(0.3, min(5.0, zoom * value.magnification / lastMagnification))
+                        lastMagnification = value.magnification
+                    }
+                    .onEnded { _ in
+                        lastMagnification = 1.0
                     }
             )
             .onTapGesture { location in
@@ -509,7 +668,11 @@ public struct KnowledgeGraphView: View {
                     y: adjustedLocation.y
                 )
                 if let tapped = viewModel.nodeAt(point: adjustedInCanvasCoords, in: size, threshold: 20 / zoom) {
-                    onSelectNote?(tapped.url)
+                    withAnimation(QuartzAnimation.standard) {
+                        selectedNodeID = tapped.id
+                    }
+                } else {
+                    selectedNodeID = nil
                 }
             }
             #if os(macOS)
@@ -526,55 +689,6 @@ public struct KnowledgeGraphView: View {
                 }
             }
             #endif
-
-            // Legend overlay
-            graphLegend
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-
-            // Stats overlay
-            graphStats
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-    }
-
-    // MARK: - Legend
-
-    private var graphLegend: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            legendItem(color: .orange, label: String(localized: "Current Note", bundle: .module))
-            legendItem(color: QuartzColors.noteBlue, label: String(localized: "Linked Notes", bundle: .module))
-            legendItem(color: QuartzColors.canvasPurple.opacity(0.7), label: String(localized: "Other Connected", bundle: .module))
-            legendItem(color: .gray.opacity(0.5), label: String(localized: "Unlinked Notes", bundle: .module))
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-
-    private func legendItem(color: Color, label: String) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Stats
-
-    private var graphStats: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            Text("\(viewModel.nodes.count) notes")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Text("\(viewModel.edges.count) links")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

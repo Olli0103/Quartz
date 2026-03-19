@@ -1,6 +1,82 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import CoreText
+#if os(iOS)
+import PhotosUI
+#endif
+
+/// Editor UI sizes – larger on macOS for better legibility.
+private var editorBreadcrumbChevronSize: CGFloat {
+    #if os(macOS)
+    12
+    #else
+    10
+    #endif
+}
+
+private var editorMetadataIconSize: CGFloat {
+    #if os(macOS)
+    14
+    #else
+    12
+    #endif
+}
+
+private var editorStatusBarIconSize: CGFloat {
+    #if os(macOS)
+    12
+    #else
+    10
+    #endif
+}
+
+private var editorStatusBarFontSize: CGFloat {
+    #if os(macOS)
+    12
+    #else
+    11
+    #endif
+}
+
+private var editorTagBarIconSize: CGFloat {
+    #if os(macOS)
+    12
+    #else
+    11
+    #endif
+}
+
+private var editorTagBarFontSize: CGFloat {
+    #if os(macOS)
+    12
+    #else
+    11
+    #endif
+}
+
+private var editorTagRemoveIconSize: CGFloat {
+    #if os(macOS)
+    9
+    #else
+    8
+    #endif
+}
+
+private var editorBacklinkFont: Font {
+    #if os(macOS)
+    .subheadline
+    #else
+    .caption
+    #endif
+}
+
+private var editorMetadataFont: Font {
+    #if os(macOS)
+    .callout
+    #else
+    .subheadline
+    #endif
+}
 
 /// Markdown editor with liquid glass header, formatting toolbar, AI tools, and status bar.
 public struct NoteEditorView: View {
@@ -17,6 +93,13 @@ public struct NoteEditorView: View {
     @State private var showAudioRecording = false
     @State private var showKnowledgeGraph = false
     @State private var showImagePicker = false
+    #if os(iOS)
+    @State private var showImageSourceSheet = false
+    @State private var selectedImageSource: ImageSourceOption?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showCameraPicker = false
+    @State private var showDocumentScanner = false
+    #endif
     @State private var backlinks: [Backlink] = []
     @State private var linkSuggestions: [LinkSuggestionService.Suggestion] = []
     @State private var editableTitle: String = ""
@@ -38,8 +121,10 @@ public struct NoteEditorView: View {
             editorHeader
                 .hidesInFocusMode()
 
+            #if os(macOS)
             formattingBar
                 .hidesInFocusMode()
+            #endif
 
             if showFrontmatter, viewModel.note != nil {
                 FrontmatterEditorView(
@@ -90,6 +175,19 @@ public struct NoteEditorView: View {
         .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 2) {
+                    Text(String(localized: "EDITING", bundle: .module))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(QuartzColors.accent)
+                        .textCase(.uppercase)
+                    Text(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
+                        .font(.headline.weight(.bold))
+                        .lineLimit(1)
+                }
+            }
+        }
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -106,6 +204,13 @@ public struct NoteEditorView: View {
         .accessibilityAction(named: String(localized: "Exit focus mode", bundle: .module)) {
             if focusMode.isFocusModeActive { focusMode.toggleFocusMode() }
         }
+        #if os(iOS)
+        .overlay(alignment: .bottom) {
+            iosFloatingToolbar
+                .padding(.bottom, 12)
+                .hidesInFocusMode()
+        }
+        #endif
         .overlay(alignment: .bottom) {
             if showFocusModeHint {
                 Text(String(localized: "Triple-tap to exit focus mode", bundle: .module))
@@ -156,10 +261,10 @@ public struct NoteEditorView: View {
             }
         }
         .sheet(isPresented: $showChat) {
-            NoteChatView(
-                noteContent: viewModel.content,
-                noteTitle: viewModel.note?.displayName ?? "Note"
-            )
+        NoteChatView(
+            noteContent: viewModel.content,
+            noteTitle: viewModel.note?.displayName ?? String(localized: "Note", bundle: .module)
+        )
         }
         .sheet(isPresented: $showLinkSuggestions) {
             linkSuggestionSheet
@@ -212,6 +317,47 @@ public struct NoteEditorView: View {
         ) { result in
             handleImagePickerResult(result)
         }
+        #if os(iOS)
+        .sheet(isPresented: $showImageSourceSheet) {
+            ImageSourceSheet(
+                isPresented: $showImageSourceSheet,
+                selectedSource: $selectedImageSource,
+                selectedPhotoItem: $selectedPhotoItem
+            ) {
+                handleImageSourceSelected()
+            }
+        }
+        .onChange(of: selectedImageSource) { _, source in
+            guard let source else { return }
+            switch source {
+            case .files:
+                showImagePicker = true
+            case .camera:
+                showCameraPicker = true
+            case .scan:
+                showDocumentScanner = true
+            case .photoLibrary:
+                break // handled by selectedPhotoItem
+            }
+            selectedImageSource = nil
+        }
+        .fullScreenCover(isPresented: $showCameraPicker) {
+            CameraImagePicker(isPresented: $showCameraPicker) { image in
+                Task { await viewModel.importImage(image) }
+            }
+        }
+        .fullScreenCover(isPresented: $showDocumentScanner) {
+            DocumentScannerView(isPresented: $showDocumentScanner) { images in
+                Task { await handleScannedImages(images) }
+            }
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                await handlePhotoLibrarySelection(item)
+            }
+        }
+        #endif
         .fileExporter(
             isPresented: $showPDFExporter,
             document: pdfDocument,
@@ -290,7 +436,7 @@ public struct NoteEditorView: View {
                                     Image(systemName: "link")
                                         .font(.body)
                                         .foregroundStyle(QuartzColors.accent)
-                                        .frame(width: 28)
+                                        .frame(minWidth: 44, minHeight: 44)
 
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(suggestion.noteName)
@@ -347,6 +493,55 @@ public struct NoteEditorView: View {
     }
 
     // MARK: - Image Import
+
+    #if os(iOS)
+    private func handleImageSourceSelected() {
+        // Sheet dismisses itself; onChange(of: selectedImageSource) opens the appropriate picker.
+    }
+
+    private func handlePhotoLibrarySelection(_ item: PhotosPickerItem) async {
+        do {
+            guard let loaded = try await item.loadTransferable(type: ImageDataTransferable.self) else {
+                return
+            }
+            let ext = loaded.preferredExtension ?? "png"
+            let tempURL = FileManager.default.temporaryDirectory.appending(path: "photo-\(UUID().uuidString).\(ext)")
+            try loaded.data.write(to: tempURL)
+            await viewModel.importImage(from: tempURL)
+            try? FileManager.default.removeItem(at: tempURL)
+        } catch {
+            viewModel.errorMessage = error.localizedDescription
+        }
+        await MainActor.run {
+            selectedPhotoItem = nil
+            showImageSourceSheet = false
+        }
+    }
+
+    private func handleScannedImages(_ images: [UIImage]) async {
+        guard !images.isEmpty else { return }
+        #if canImport(Vision) && canImport(PencilKit)
+        let ocrService = HandwritingOCRService()
+        var allOCRText: [String] = []
+        for image in images {
+            await viewModel.importImage(image)
+            if let cgImage = image.cgImage,
+               let result = try? await ocrService.recognizeText(in: cgImage),
+               !result.fullText.isEmpty {
+                allOCRText.append(result.fullText)
+            }
+        }
+        if !allOCRText.isEmpty {
+            let text = "\n\n" + allOCRText.joined(separator: "\n\n")
+            viewModel.insertTextAtCursor(text)
+        }
+        #else
+        for image in images {
+            await viewModel.importImage(image)
+        }
+        #endif
+    }
+    #endif
 
     private func handleImagePickerResult(_ result: Result<[URL], any Error>) {
         switch result {
@@ -412,7 +607,7 @@ public struct NoteEditorView: View {
                     ForEach(Array(pathComponents.enumerated()), id: \.offset) { index, component in
                         if index > 0 {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: editorBreadcrumbChevronSize, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
                         Text(component)
@@ -465,19 +660,19 @@ public struct NoteEditorView: View {
                 HStack(spacing: 14) {
                     HStack(spacing: 5) {
                         Image(systemName: "calendar")
-                            .font(.system(size: 12))
+                            .font(.system(size: editorMetadataIconSize))
                         Text(note.frontmatter.modifiedAt, style: .relative)
                     }
 
                     if !note.frontmatter.tags.isEmpty {
                         HStack(spacing: 5) {
                             Image(systemName: "tag")
-                                .font(.system(size: 12))
+                                .font(.system(size: editorMetadataIconSize))
                             Text(note.frontmatter.tags.prefix(3).joined(separator: ", "))
                         }
                     }
                 }
-                .font(.subheadline)
+                .font(editorMetadataFont)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
@@ -520,6 +715,56 @@ public struct NoteEditorView: View {
         }
     }
 
+    #if os(iOS)
+    /// Floating pill-shaped toolbar for iPhone: B, I, bullet, link, save.
+    private var iosFloatingToolbar: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                formatButton(.bold, icon: "bold")
+                formatButton(.italic, icon: "italic")
+                formatButton(.bulletList, icon: "list.bullet")
+                formatButton(.link, icon: "link")
+            }
+            .padding(.leading, 12)
+            .padding(.vertical, 8)
+
+            Rectangle()
+                .fill(.separator)
+                .frame(width: 1, height: 24)
+                .padding(.horizontal, 8)
+
+            Button {
+                Task { await viewModel.manualSave() }
+            } label: {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(QuartzColors.accent))
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 8)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        )
+    }
+
+    private func formatButton(_ action: FormattingAction, icon: String) -> some View {
+        Button {
+            applyFormatting(action)
+        } label: {
+            Image(systemName: icon)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(minWidth: 40, minHeight: 40)
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
+
     // MARK: - Backlinks Bar
 
     private var backlinkBar: some View {
@@ -528,12 +773,12 @@ public struct NoteEditorView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     Image(systemName: "link")
-                        .font(.caption)
+                        .font(editorBacklinkFont)
                         .foregroundStyle(.secondary)
 
                     ForEach(backlinks) { backlink in
                         Text(backlink.sourceNoteName)
-                            .font(.caption.weight(.medium))
+                            .font(editorBacklinkFont.weight(.medium))
                             .foregroundStyle(QuartzColors.accent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -576,7 +821,7 @@ public struct NoteEditorView: View {
     private var tagBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "tag")
-                .font(.system(size: 11))
+                .font(.system(size: editorTagBarIconSize))
                 .foregroundStyle(.tertiary)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -584,14 +829,14 @@ public struct NoteEditorView: View {
                     ForEach(viewModel.note?.frontmatter.tags ?? [], id: \.self) { tag in
                         HStack(spacing: 3) {
                             Text("#\(tag)")
-                                .font(.caption.weight(.medium))
+                                .font(.system(size: editorTagBarFontSize, weight: .medium))
                                 .foregroundStyle(QuartzColors.accent)
 
                             Button {
                                 removeTag(tag)
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 8, weight: .bold))
+                                    .font(.system(size: editorTagRemoveIconSize, weight: .bold))
                                     .foregroundStyle(.tertiary)
                             }
                             .buttonStyle(.plain)
@@ -605,7 +850,7 @@ public struct NoteEditorView: View {
                     }
 
                     TextField(String(localized: "Add tag…", bundle: .module), text: $newTagText)
-                        .font(.caption)
+                        .font(.system(size: editorTagBarFontSize))
                         .textFieldStyle(.plain)
                         .frame(minWidth: 60, maxWidth: 120)
                         .onSubmit { addTag() }
@@ -649,7 +894,7 @@ public struct NoteEditorView: View {
         HStack(spacing: 16) {
             HStack(spacing: 5) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 10))
+                    .font(.system(size: editorStatusBarIconSize))
                     .foregroundStyle(.tertiary)
                 Text("\(viewModel.wordCount) words")
                     .monospacedDigit()
@@ -657,7 +902,7 @@ public struct NoteEditorView: View {
 
             HStack(spacing: 5) {
                 Image(systemName: "clock")
-                    .font(.system(size: 10))
+                    .font(.system(size: editorStatusBarIconSize))
                     .foregroundStyle(.tertiary)
                 Text(readingTime)
             }
@@ -675,14 +920,14 @@ public struct NoteEditorView: View {
             } else {
                 HStack(spacing: 5) {
                     Image(systemName: statusIcon)
-                        .font(.system(size: 10))
+                        .font(.system(size: editorStatusBarIconSize))
                         .foregroundStyle(statusColor)
                     Text(statusText)
                         .foregroundStyle(statusColor == .green ? QuartzColors.accent : .secondary)
                 }
             }
         }
-        .font(.system(size: 11))
+        .font(.system(size: editorStatusBarFontSize))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -807,7 +1052,13 @@ public struct NoteEditorView: View {
                 Button { showAudioRecording = true } label: {
                     Label(String(localized: "Record Audio", bundle: .module), systemImage: "mic.fill")
                 }
-                Button { showImagePicker = true } label: {
+                Button {
+                    #if os(iOS)
+                    showImageSourceSheet = true
+                    #else
+                    showImagePicker = true
+                    #endif
+                } label: {
                     Label(String(localized: "Insert Image", bundle: .module), systemImage: "photo.on.rectangle.angled")
                 }
                 Divider()
@@ -917,6 +1168,24 @@ private extension View {
         }
     }
 }
+
+// MARK: - Image Data Transferable (iOS)
+
+#if os(iOS)
+private struct ImageDataTransferable: Transferable {
+    let data: Data
+    var preferredExtension: String? {
+        if data.prefix(8) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] { return "png" }
+        if data.prefix(2) == [0xFF, 0xD8] { return "jpg" }
+        return "png"
+    }
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(importedContentType: .image) { data in
+            ImageDataTransferable(data: data)
+        }
+    }
+}
+#endif
 
 // MARK: - PDF Export Document
 

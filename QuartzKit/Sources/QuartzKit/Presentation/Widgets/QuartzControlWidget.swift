@@ -17,8 +17,8 @@ public struct QuickNoteControlWidget: ControlWidget {
                 Label(String(localized: "Quick Note", bundle: .module), systemImage: "square.and.pencil")
             }
         }
-        .displayName(String(localized: "Quick Note", bundle: .module))
-        .description(String(localized: "Create a new note instantly.", bundle: .module))
+        .displayName(LocalizedStringResource("Quick Note", bundle: .module))
+        .description(LocalizedStringResource("Create a new note instantly.", bundle: .module))
     }
 
     public init() {}
@@ -28,7 +28,7 @@ public struct QuickNoteControlWidget: ControlWidget {
 @available(iOS 18.0, *)
 public struct QuickNoteControlIntent: ControlConfigurationIntent {
     public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Quick Note")
-    public static let description = IntentDescription(stringLiteral: String(localized: "Opens Quartz for a quick note.", bundle: .module))
+    public static let description: IntentDescription = IntentDescription(stringLiteral: "Opens Quartz for a quick note.")
     public static let openAppWhenRun: Bool = true
     public static let isDiscoverable: Bool = true
 
@@ -53,8 +53,8 @@ public struct DailyNoteControlWidget: ControlWidget {
                 Label(String(localized: "Daily Note", bundle: .module), systemImage: "calendar")
             }
         }
-        .displayName(String(localized: "Daily Note", bundle: .module))
-        .description(String(localized: "Open or create today's daily note.", bundle: .module))
+        .displayName(LocalizedStringResource("Daily Note", bundle: .module))
+        .description(LocalizedStringResource("Open or create today's daily note.", bundle: .module))
     }
 
     public init() {}
@@ -64,7 +64,7 @@ public struct DailyNoteControlWidget: ControlWidget {
 @available(iOS 18.0, *)
 public struct DailyNoteControlIntent: ControlConfigurationIntent {
     public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Daily Note")
-    public static let description = IntentDescription(stringLiteral: String(localized: "Opens today's daily note.", bundle: .module))
+    public static let description: IntentDescription = IntentDescription(stringLiteral: "Opens today's daily note.")
     public static let openAppWhenRun: Bool = true
     public static let isDiscoverable: Bool = true
 

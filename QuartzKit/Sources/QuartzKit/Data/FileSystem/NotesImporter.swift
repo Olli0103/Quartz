@@ -2,12 +2,15 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(PDFKit)
+import PDFKit
+#endif
 
-/// Imports notes from exported Apple Notes files (.txt, .html, .rtf) into a Quartz vault.
+/// Imports notes from various file formats (HTML, TXT, RTF, PDF, MD) into a Quartz vault.
 ///
-/// Usage: Point at a folder containing exported Apple Notes files.
+/// Usage: Point at a folder containing exported notes from any source.
 /// Each file is converted to Markdown and placed in the vault.
-public actor AppleNotesImporter {
+public actor NotesImporter {
     private let fileManager = FileManager.default
     private let writer = CoordinatedFileWriter.shared
 
@@ -23,14 +26,14 @@ public actor AppleNotesImporter {
     /// Import all supported files from a source folder into the vault,
     /// recursively preserving the original folder structure.
     public func importNotes(from sourceFolder: URL, into vaultFolder: URL) throws -> ImportResult {
-        let supportedExtensions = Set(["txt", "html", "htm", "rtf", "md"])
+        let supportedExtensions = Set(["txt", "html", "htm", "rtf", "md", "pdf"])
 
         var imported = 0
         var skipped = 0
         var foldersCreated = 0
         var errors: [String] = []
 
-        let importRoot = vaultFolder.appending(path: "Imported Notes")
+        let importRoot = vaultFolder.appending(path: "Imported")
         if !fileManager.fileExists(atPath: importRoot.path(percentEncoded: false)) {
             try fileManager.createDirectory(at: importRoot, withIntermediateDirectories: true)
             foldersCreated += 1
@@ -86,7 +89,7 @@ public actor AppleNotesImporter {
                     let fullContent = """
                     ---
                     title: \(baseName)
-                    tags: [imported, apple-notes]
+                    tags: [imported]
                     created: \(now)
                     modified: \(now)
                     ---
@@ -106,7 +109,6 @@ public actor AppleNotesImporter {
     }
 
     /// Returns a non-colliding destination URL by appending a numeric suffix when needed.
-    /// Returns `nil` if the exact name already exists (treated as skip).
     private func resolveCollision(in folder: URL, baseName: String, ext: String) -> URL? {
         let candidate = folder.appending(path: "\(baseName).\(ext)")
         if !fileManager.fileExists(atPath: candidate.path(percentEncoded: false)) {
@@ -139,6 +141,9 @@ public actor AppleNotesImporter {
         case "rtf":
             return try convertRTFToMarkdown(fileURL)
 
+        case "pdf":
+            return try convertPDFToMarkdown(fileURL)
+
         default:
             return try String(contentsOf: fileURL, encoding: .utf8)
         }
@@ -147,7 +152,6 @@ public actor AppleNotesImporter {
     private func convertHTMLToMarkdown(_ fileURL: URL) throws -> String {
         let html = try String(contentsOf: fileURL, encoding: .utf8)
         var md = html
-        // Strip HTML tags, keeping content for common elements
         md = md.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
         md = md.replacingOccurrences(of: "<h1[^>]*>(.*?)</h1>", with: "# $1\n", options: .regularExpression)
         md = md.replacingOccurrences(of: "<h2[^>]*>(.*?)</h2>", with: "## $1\n", options: .regularExpression)
@@ -177,6 +181,25 @@ public actor AppleNotesImporter {
         return attrString.string
         #else
         return try String(contentsOf: fileURL, encoding: .utf8)
+        #endif
+    }
+
+    private func convertPDFToMarkdown(_ fileURL: URL) throws -> String {
+        #if canImport(PDFKit)
+        guard let document = PDFDocument(url: fileURL) else {
+            throw NSError(domain: "NotesImporter", code: -1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Could not open PDF file", bundle: .module)])
+        }
+        var result = ""
+        for i in 0..<document.pageCount {
+            guard let page = document.page(at: i) else { continue }
+            if let text = page.string, !text.isEmpty {
+                if i > 0 { result += "\n\n" }
+                result += text
+            }
+        }
+        return result.isEmpty ? String(localized: "[PDF contains no extractable text]", bundle: .module) : result
+        #else
+        throw NSError(domain: "NotesImporter", code: -1, userInfo: [NSLocalizedDescriptionKey: String(localized: "PDF import is not supported on this platform", bundle: .module)])
         #endif
     }
 }

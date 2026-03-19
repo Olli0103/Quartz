@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// ViewModel for the plaintext editor.
 ///
@@ -179,6 +182,27 @@ public final class NoteEditorViewModel {
             errorMessage = error.localizedDescription
         }
     }
+
+    #if canImport(UIKit)
+    /// Imports a UIImage (e.g. from camera) into the vault and inserts the Markdown link.
+    public func importImage(_ image: UIImage) async {
+        guard let note, let vaultRoot = vaultRootURL else {
+            errorMessage = String(localized: "No active note or vault.", bundle: .module)
+            return
+        }
+        let assetManager = AssetManager()
+        do {
+            let markdownLink = try await assetManager.importImage(
+                image,
+                vaultRoot: vaultRoot,
+                noteURL: note.fileURL
+            )
+            insertTextAtCursor("\n" + markdownLink + "\n")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+    #endif
 
     // MARK: - Task Management
 

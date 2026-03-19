@@ -41,6 +41,11 @@ public final class AppearanceManager {
         didSet { save() }
     }
 
+    /// Vibrant transparency (glass effect on sidebar/title bar).
+    public var vibrantTransparency: Bool {
+        didSet { save() }
+    }
+
     // MARK: - Init
 
     private let defaults: UserDefaults
@@ -49,6 +54,7 @@ public final class AppearanceManager {
         self.defaults = defaults
         self.theme = Self.loadTheme(from: defaults)
         self.editorFontScale = defaults.double(forKey: Keys.editorFontScale).clamped(to: 0.8...2.0, default: 1.0)
+        self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
     }
 
     // MARK: - Persistence
@@ -56,11 +62,13 @@ public final class AppearanceManager {
     private enum Keys {
         static let theme = "quartz.appearance.theme"
         static let editorFontScale = "quartz.appearance.editorFontScale"
+        static let vibrantTransparency = "quartz.appearance.vibrantTransparency"
     }
 
     private func save() {
         defaults.set(theme.rawValue, forKey: Keys.theme)
         defaults.set(editorFontScale, forKey: Keys.editorFontScale)
+        defaults.set(vibrantTransparency, forKey: Keys.vibrantTransparency)
     }
 
     private static func loadTheme(from defaults: UserDefaults) -> Theme {

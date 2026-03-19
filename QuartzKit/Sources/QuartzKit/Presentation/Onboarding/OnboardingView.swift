@@ -180,7 +180,7 @@ public struct OnboardingView: View {
         panel.prompt = String(localized: "Choose", bundle: .module)
 
         panel.begin { response in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard response == .OK, let url = panel.url else { return }
                 if let previous = vaultURL, previous != url {
                     previous.stopAccessingSecurityScopedResource()

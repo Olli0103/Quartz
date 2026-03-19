@@ -1,11 +1,21 @@
 import SwiftUI
 
-/// Appearance settings: theme, font size.
-/// Clean Apple design with visual theme cards.
+/// Appearance settings: theme, accent color, font size, vibrant transparency.
+/// Matches the design with large theme cards, accent swatches, and font preview.
 public struct AppearanceSettingsView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var baseBodySize: CGFloat = 17
+
+    private static let accentOptions: [(Color, String)] = [
+        (Color.blue, "Blue"),
+        (Color.red, "Red"),
+        (Color.green, "Green"),
+        (QuartzColors.accent, "Orange"),
+        (Color.purple, "Purple"),
+        (Color.pink, "Pink"),
+        (Color.gray, "Gray"),
+    ]
 
     public init() {}
 
@@ -32,20 +42,43 @@ public struct AppearanceSettingsView: View {
             }
 
             Section {
+                HStack(spacing: 12) {
+                    ForEach(Array(Self.accentOptions.enumerated()), id: \.offset) { _, item in
+                        accentSwatch(color: item.0, isSelected: item.0 == QuartzColors.accent)
+                    }
+                    Button {
+                        // Custom color – future enhancement
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().strokeBorder(Color.gray.opacity(0.3), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            } header: {
+                Text(String(localized: "Accent Color", bundle: .module))
+            }
+
+            Section {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(String(localized: "Editor Font Size", bundle: .module))
                             .font(.subheadline)
                         Spacer()
-                        Text("\(Int(appearance.editorFontScale * 100))%")
+                        Text("\(Int(baseBodySize * appearance.editorFontScale * 0.85))px")
                             .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(QuartzColors.accent)
                             .monospacedDigit()
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
                             .background(
                                 Capsule()
-                                    .fill(.fill.tertiary)
+                                    .fill(QuartzColors.accent.opacity(0.15))
                             )
                     }
 
@@ -59,23 +92,52 @@ public struct AppearanceSettingsView: View {
                     )
                     .tint(QuartzColors.accent)
 
-                    Text(String(localized: "The quick brown fox jumps over the lazy dog.", bundle: .module))
-                        .font(.system(size: baseBodySize * appearance.editorFontScale))
+                    Text(String(localized: "The quick brown fox jumps over the lazy dog. Quartz makes note-taking effortless and beautiful.", bundle: .module))
+                        .font(.system(size: baseBodySize * appearance.editorFontScale * 0.85))
                         .foregroundStyle(.secondary)
-                        .padding(12)
+                        .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(.fill.quaternary)
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(.fill.quaternary.opacity(0.5))
                         )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 2, dash: [8]))
+                        }
                         .animation(reduceMotion ? .default : QuartzAnimation.fontScale, value: appearance.editorFontScale)
                 }
             } header: {
                 Text(String(localized: "Editor", bundle: .module))
             }
+
+            Section {
+                Toggle(isOn: Binding(
+                    get: { appearance.vibrantTransparency },
+                    set: { appearance.vibrantTransparency = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "Vibrant Transparency", bundle: .module))
+                        Text(String(localized: "Apply a glass effect to sidebar and title bar", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(QuartzColors.accent)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "Appearance", bundle: .module))
+    }
+
+    private func accentSwatch(color: Color, isSelected: Bool) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: 32, height: 32)
+            .overlay {
+                Circle()
+                    .strokeBorder(isSelected ? QuartzColors.accent : .clear, lineWidth: 3)
+            }
     }
 }
 

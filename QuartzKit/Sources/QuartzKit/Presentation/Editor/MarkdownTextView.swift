@@ -30,6 +30,7 @@ public class MarkdownUITextView: UITextView {
         autocapitalizationType = .sentences
         allowsEditingTextAttributes = false
         backgroundColor = .clear
+        isEditable = true
         delegate = self
     }
 
@@ -40,13 +41,31 @@ public class MarkdownUITextView: UITextView {
         _rawMarkdown = markdown
         let sel = selectedRange
         text = markdown
-        undoManager?.disableUndoRegistration()
+        // On iOS: apply tables in next run loop to avoid NSUndoManager crash
+        // when replaceCharacters runs in same transaction as text=.
+        #if canImport(UIKit)
         highlighter.applyHighlighting(
             to: textStorage,
             baseFont: font ?? .preferredFont(forTextStyle: .body),
-            noteURL: noteURL
+            noteURL: noteURL,
+            applyTables: false
         )
-        undoManager?.enableUndoRegistration()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.isUpdating else { return }
+            self.isUpdating = true
+            defer { self.isUpdating = false }
+            let s = self.selectedRange
+            self.highlighter.applyTableAttachmentsOnly(
+                to: self.textStorage,
+                baseFont: self.font ?? .preferredFont(forTextStyle: .body)
+            )
+            let maxLen = self.textStorage.length
+            let loc = min(s.location, maxLen)
+            let len = min(s.length, maxLen - loc)
+            self.selectedRange = NSRange(location: loc, length: len)
+        }
+        #endif
         let maxLen = textStorage.length
         let loc = min(sel.location, maxLen)
         let len = min(sel.length, maxLen - loc)
@@ -85,19 +104,18 @@ extension MarkdownUITextView: UITextViewDelegate {
         let item = DispatchWorkItem { [weak self] in
             guard let self, !self.isUpdating else { return }
             self.isUpdating = true
+            defer { self.isUpdating = false }
             let sel = self.selectedRange
-            self.undoManager?.disableUndoRegistration()
+            // No undoManager manipulation on iOS – avoids crash with table attachments.
             self.highlighter.applyHighlighting(
                 to: self.textStorage,
                 baseFont: self.font ?? .preferredFont(forTextStyle: .body),
                 noteURL: self.noteURL
             )
-            self.undoManager?.enableUndoRegistration()
             let maxLen = self.textStorage.length
             let loc = min(sel.location, maxLen)
             let len = min(sel.length, maxLen - loc)
             self.selectedRange = NSRange(location: loc, length: len)
-            self.isUpdating = false
         }
         highlightWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
@@ -137,6 +155,7 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
 
         uiView.onTextChange = { [weak uiView] newText in
             guard uiView?.isUpdating != true else { return }
+            context.coordinator.lastContentFromEditor = newText
             self.text = newText
         }
         uiView.onSelectionChange = { newRange in
@@ -147,13 +166,20 @@ public struct MarkdownTextViewRepresentable: UIViewRepresentable {
         let newFont = UIFont.systemFont(ofSize: baseSize * editorFontScale)
         if uiView.font != newFont { uiView.font = newFont }
 
+        // Only apply external updates (load, format bar). Skip when the change came from our own editor
+        // to avoid overwriting user input when SwiftUI delivers stale binding values.
+        if text == context.coordinator.lastContentFromEditor {
+            return
+        }
         if uiView.rawMarkdown != text {
             uiView.setMarkdown(text)
+            context.coordinator.lastContentFromEditor = text
         }
     }
 
     public final class Coordinator {
         weak var textView: MarkdownUITextView?
+        var lastContentFromEditor: String?
     }
 }
 
@@ -210,14 +236,14 @@ public class MarkdownNSTextView: NSTextView {
         defer { isUpdating = false }
         _rawMarkdown = markdown
         let prevRanges = selectedRanges
-        string = markdown
         undoManager?.disableUndoRegistration()
+        defer { undoManager?.enableUndoRegistration() }
+        string = markdown
         highlighter.applyHighlighting(
             to: textStorage!,
             baseFont: font ?? .systemFont(ofSize: NSFont.systemFontSize),
             noteURL: noteURL
         )
-        undoManager?.enableUndoRegistration()
         let maxLen = textStorage?.length ?? 0
         let clamped = prevRanges.compactMap { rv -> NSValue? in
             let r = rv.rangeValue
@@ -274,14 +300,15 @@ public class MarkdownNSTextView: NSTextView {
         let item = DispatchWorkItem { [weak self] in
             guard let self, !self.isUpdating else { return }
             self.isUpdating = true
+            defer { self.isUpdating = false }
             let sel = self.selectedRanges
             self.undoManager?.disableUndoRegistration()
+            defer { self.undoManager?.enableUndoRegistration() }
             self.highlighter.applyHighlighting(
                 to: self.textStorage!,
                 baseFont: self.font ?? .systemFont(ofSize: NSFont.systemFontSize),
                 noteURL: self.noteURL
             )
-            self.undoManager?.enableUndoRegistration()
             let maxLen = self.textStorage?.length ?? 0
             let clamped = sel.compactMap { rv -> NSValue? in
                 let r = rv.rangeValue
@@ -292,7 +319,6 @@ public class MarkdownNSTextView: NSTextView {
             self.selectedRanges = clamped.isEmpty
                 ? [NSValue(range: NSRange(location: maxLen, length: 0))]
                 : clamped
-            self.isUpdating = false
         }
         highlightWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
@@ -399,13 +425,15 @@ struct MarkdownSyntaxHighlighter: Sendable {
     typealias PlatformFont = UIFont
     typealias PlatformColor = UIColor
     typealias PlatformImage = UIImage
+    /// Gold/orange accent for markdown syntax (#, -, >) per design.
+    private static let syntaxAccentColor = UIColor(red: 0.91, green: 0.64, blue: 0.23, alpha: 1.0)
     #elseif canImport(AppKit)
     typealias PlatformFont = NSFont
     typealias PlatformColor = NSColor
     typealias PlatformImage = NSImage
     #endif
 
-    func applyHighlighting(to storage: NSTextStorage, baseFont: PlatformFont, noteURL: URL? = nil) {
+    func applyHighlighting(to storage: NSTextStorage, baseFont: PlatformFont, noteURL: URL? = nil, applyTables: Bool = true) {
         let text = storage.string
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
         guard fullRange.length > 0 else { return }
@@ -435,7 +463,9 @@ struct MarkdownSyntaxHighlighter: Sendable {
         applyInlinePatterns(to: storage, text: nsText, fullRange: fullRange, baseFont: baseFont)
 
         // Table and image attachments replace text, so they must run last (in reverse order).
-        applyTableAttachments(to: storage, text: nsText, baseFont: baseFont)
+        if applyTables {
+            applyTableAttachments(to: storage, text: nsText, baseFont: baseFont)
+        }
         if let noteURL {
             applyImageAttachments(to: storage, text: nsText, noteURL: noteURL)
         }
@@ -467,7 +497,7 @@ struct MarkdownSyntaxHighlighter: Sendable {
             let prefixLen = line.distance(from: line.startIndex, to: line.firstIndex(of: "#")!) + match.0.count
             let prefixRange = NSRange(location: range.location, length: min(prefixLen, range.length))
             #if canImport(UIKit)
-            storage.addAttribute(.foregroundColor, value: UIColor.tertiaryLabel, range: prefixRange)
+            storage.addAttribute(.foregroundColor, value: Self.syntaxAccentColor, range: prefixRange)
             #elseif canImport(AppKit)
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: prefixRange)
             #endif
@@ -502,7 +532,7 @@ struct MarkdownSyntaxHighlighter: Sendable {
                 let offset = line.count - trimmed.count
                 let prefixRange = NSRange(location: range.location + offset, length: min(prefix.count, range.length - offset))
                 #if canImport(UIKit)
-                storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: prefixRange)
+                storage.addAttribute(.foregroundColor, value: Self.syntaxAccentColor, range: prefixRange)
                 #elseif canImport(AppKit)
                 storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: prefixRange)
                 #endif
@@ -514,7 +544,7 @@ struct MarkdownSyntaxHighlighter: Sendable {
             let offset = line.count - trimmed.count
             let prefixRange = NSRange(location: range.location + offset, length: min(numMatch.0.count, range.length - offset))
             #if canImport(UIKit)
-            storage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: prefixRange)
+            storage.addAttribute(.foregroundColor, value: Self.syntaxAccentColor, range: prefixRange)
             #elseif canImport(AppKit)
             storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: prefixRange)
             #endif
@@ -662,6 +692,12 @@ struct MarkdownSyntaxHighlighter: Sendable {
             rows.append(cells)
         }
         return rows
+    }
+
+    /// Applies only table attachments. Used on iOS when deferring to avoid NSUndoManager crash.
+    func applyTableAttachmentsOnly(to storage: NSTextStorage, baseFont: PlatformFont) {
+        let text = storage.string as NSString
+        applyTableAttachments(to: storage, text: text, baseFont: baseFont)
     }
 
     /// Finds Markdown table blocks and replaces them with rendered table attachments.

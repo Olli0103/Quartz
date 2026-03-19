@@ -3635,6 +3635,17 @@
         }
       }
     },
+    "Create a new note instantly.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create a new note instantly." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Erstelle sofort eine neue Notiz." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Créer une nouvelle note instantanément." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Crear una nueva nota al instante." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Crea una nuova nota all'istante." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "立即创建新笔记。" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すぐに新しいノートを作成。" } }
+      }
+    },
     "Quick Note": {
       "localizations": {
         "en": {
@@ -7083,6 +7094,39 @@
             "value": "サイドバーを切り替え"
           }
         }
+      }
+    },
+    "Open or create today's daily note.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open or create today's daily note." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Öffne oder erstelle die heutige Tagesnotiz." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir ou créer la note du jour." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir o crear la nota del día." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apri o crea la nota del giorno." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开或创建今日笔记。" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日のデイリーノートを開くまたは作成。" } }
+      }
+    },
+    "Opens Quartz for a quick note.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opens Quartz for a quick note." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Öffnet Quartz für eine Schnellnotiz." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvre Quartz pour une note rapide." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abre Quartz para una nota rápida." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apre Quartz per una nota rapida." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开 Quartz 进行快速笔记。" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Quartzを開いてクイックノートを作成。" } }
+      }
+    },
+    "Opens today's daily note.": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opens today's daily note." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Öffnet die heutige Tagesnotiz." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvre la note du jour." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abre la nota del día." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apre la nota del giorno." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开今日笔记。" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日のデイリーノートを開く。" } }
       }
     },
     "Daily Note": {

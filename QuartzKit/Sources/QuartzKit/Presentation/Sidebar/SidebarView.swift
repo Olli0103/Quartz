@@ -1,9 +1,37 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Section header font – larger on macOS.
+private var sidebarSectionFont: Font {
+    #if os(macOS)
+    .callout.weight(.bold)
+    #else
+    .subheadline.weight(.bold)
+    #endif
+}
+
+/// New Note button icon size – larger on macOS.
+private var newNoteButtonIconSize: CGFloat {
+    #if os(macOS)
+    17
+    #else
+    15
+    #endif
+}
+
+/// Quick access / folder icon size – larger on macOS.
+private var sidebarIconSize: CGFloat {
+    #if os(macOS)
+    22
+    #else
+    20
+    #endif
+}
+
 public struct SidebarView: View {
     @Bindable var viewModel: SidebarViewModel
     @Binding var selectedNoteURL: URL?
+    var onMapViewTap: (() -> Void)?
     @State private var showNewFolderDialog = false
     @State private var showNewNoteDialog = false
     @State private var newItemName: String = ""
@@ -16,9 +44,10 @@ public struct SidebarView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedTemplate: NoteTemplate = .blank
 
-    public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>) {
+    public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>, onMapViewTap: (() -> Void)? = nil) {
         self.viewModel = viewModel
         self._selectedNoteURL = selectedNoteURL
+        self.onMapViewTap = onMapViewTap
     }
 
     public var body: some View {
@@ -36,6 +65,10 @@ public struct SidebarView: View {
                 }
 
                 foldersSection
+
+                #if os(macOS)
+                mapViewAndTrashSection
+                #endif
 
                 if !viewModel.isLoading && viewModel.fileTree.isEmpty {
                     emptyState
@@ -124,6 +157,16 @@ public struct SidebarView: View {
 
     // MARK: - New Note Button
 
+    private static let navyButton = Color(hex: 0x1E3A5F)
+
+    private var newNoteButtonFill: some ShapeStyle {
+        #if os(macOS)
+        Self.navyButton
+        #else
+        QuartzColors.accent.gradient
+        #endif
+    }
+
     private var newNoteButton: some View {
         Menu {
             ForEach(NoteTemplate.allCases, id: \.rawValue) { template in
@@ -141,7 +184,7 @@ public struct SidebarView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: newNoteButtonIconSize, weight: .bold))
                 Text(String(localized: "New Note", bundle: .module))
                     .font(.body.weight(.semibold))
             }
@@ -149,8 +192,8 @@ public struct SidebarView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(QuartzColors.accent.gradient)
-                    .shadow(color: QuartzColors.accent.opacity(0.3), radius: 8, y: 3)
+                    .fill(newNoteButtonFill)
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
             )
             .foregroundStyle(.white)
         }
@@ -187,7 +230,7 @@ public struct SidebarView: View {
             )
         } header: {
             Text(String(localized: "Quick Access", bundle: .module))
-                .font(.subheadline.weight(.bold))
+                .font(sidebarSectionFont)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -202,8 +245,9 @@ public struct SidebarView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
+                    .font(.system(size: sidebarIconSize, weight: .medium))
                     .foregroundStyle(iconColor)
-                    .frame(width: 20)
+                    .frame(width: sidebarIconSize + 4)
                 Text(label)
                     .font(.body)
                 Spacer()
@@ -246,7 +290,7 @@ public struct SidebarView: View {
         } header: {
             HStack {
                 Text(String(localized: "Tags", bundle: .module))
-                    .font(.subheadline.weight(.bold))
+                    .font(sidebarSectionFont)
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
                     .tracking(0.5)
@@ -271,12 +315,34 @@ public struct SidebarView: View {
             }
         } header: {
             Text(String(localized: "Folders", bundle: .module))
-                .font(.subheadline.weight(.bold))
+                .font(sidebarSectionFont)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
         }
     }
+
+    // MARK: - Map View & Trash (macOS)
+
+    #if os(macOS)
+    private var mapViewAndTrashSection: some View {
+        Section {
+            Button {
+                onMapViewTap?()
+            } label: {
+                Label(String(localized: "Map View", bundle: .module), systemImage: "map")
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                // Trash – future: show deleted notes
+            } label: {
+                Label(String(localized: "Trash", bundle: .module), systemImage: "trash")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    #endif
 
     // MARK: - Empty State
 

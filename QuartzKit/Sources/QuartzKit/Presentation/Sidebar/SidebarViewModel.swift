@@ -253,6 +253,12 @@ public final class SidebarViewModel {
         return result
     }
 
+    /// Recent notes sorted by modification date (from full tree, not filtered).
+    public func recentNotes(limit: Int = 10) -> [FileNode] {
+        let all = collectFlatNotes(from: fileTree)
+        return Array(all.sorted { $0.metadata.modifiedAt > $1.metadata.modifiedAt }.prefix(limit))
+    }
+
     private func collectFlatNotes(from nodes: [FileNode]) -> [FileNode] {
         var result: [FileNode] = []
         for node in nodes {

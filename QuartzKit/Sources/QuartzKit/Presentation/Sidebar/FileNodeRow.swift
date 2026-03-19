@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// Sidebar row icon size – larger on macOS.
+private var fileNodeIconSize: CGFloat {
+    #if os(macOS)
+    18
+    #else
+    15
+    #endif
+}
+
+/// Sidebar row metadata font – larger on macOS.
+private var fileNodeMetadataFont: Font {
+    #if os(macOS)
+    .subheadline
+    #else
+    .caption
+    #endif
+}
+
 /// Single row in the sidebar for a FileNode.
 public struct FileNodeRow: View {
     public let node: FileNode
@@ -17,18 +35,20 @@ public struct FileNodeRow: View {
 
                 if node.isNote {
                     Text(node.metadata.modifiedAt, style: .relative)
-                        .font(.caption)
+                        .font(fileNodeMetadataFont)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
         } icon: {
             Image(systemName: iconName)
-                .font(.body)
+                .font(.system(size: fileNodeIconSize, weight: .medium))
                 .foregroundStyle(iconColor)
-                .frame(width: 22)
+                .frame(width: fileNodeIconSize + 6)
         }
         .padding(.vertical, 3)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }

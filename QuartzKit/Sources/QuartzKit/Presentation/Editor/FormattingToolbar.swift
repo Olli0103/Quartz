@@ -91,6 +91,31 @@ public enum MarkdownSyntax: Sendable {
 
 // MARK: - Formatting Toolbar View
 
+/// Icon and divider sizes – larger on macOS for better legibility.
+private var formatBarIconSize: CGFloat {
+    #if os(macOS)
+    17
+    #else
+    14
+    #endif
+}
+
+private var formatBarIconWeight: Font.Weight {
+    #if os(macOS)
+    .semibold
+    #else
+    .medium
+    #endif
+}
+
+private var formatBarDividerHeight: CGFloat {
+    #if os(macOS)
+    22
+    #else
+    18
+    #endif
+}
+
 public struct FormattingToolbar: View {
     let onAction: (FormattingAction) -> Void
 
@@ -116,7 +141,7 @@ public struct FormattingToolbar: View {
 
                 Rectangle()
                     .fill(.separator)
-                    .frame(width: 1, height: 18)
+                    .frame(width: 1, height: formatBarDividerHeight)
                     .padding(.horizontal, 4)
 
                 Menu {
@@ -127,9 +152,9 @@ public struct FormattingToolbar: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: formatBarIconSize, weight: formatBarIconWeight))
                         .foregroundStyle(.secondary)
-                        .frame(width: 34, height: 28)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .menuStyle(.borderlessButton)
                 .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
@@ -137,7 +162,7 @@ public struct FormattingToolbar: View {
             }
             .padding(.horizontal, 10)
         }
-        .frame(height: 36)
+        .frame(minHeight: 44)
     }
 }
 
@@ -150,9 +175,9 @@ private struct FormatButton: View {
 
     var body: some View {
         Image(systemName: action.icon)
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: formatBarIconSize, weight: formatBarIconWeight))
             .foregroundStyle(isPressed ? QuartzColors.accent : isHovered ? .primary : .secondary)
-            .frame(width: 34, height: 28)
+            .frame(minWidth: 44, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(backgroundColor)
