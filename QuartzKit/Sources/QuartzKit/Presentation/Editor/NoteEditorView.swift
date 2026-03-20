@@ -109,6 +109,8 @@ public struct NoteEditorView: View {
     @State private var pdfDocument: PDFFileDocument?
     @State private var showPDFExporter = false
     @State private var pdfExportFilename = "note.pdf"
+    /// Set after a successful export to present system Quick Look (PDF / text / Markdown).
+    @State private var quickLookPreviewURL: URL?
     #if os(macOS)
     @State private var plainTextExportDocument: TextExportDocument?
     @State private var showPlainTextExporter = false
@@ -447,7 +449,10 @@ public struct NoteEditorView: View {
             document: pdfDocument,
             contentType: .pdf,
             defaultFilename: pdfExportFilename
-        ) { _ in
+        ) { result in
+            if case .success(let url) = result {
+                quickLookPreviewURL = url
+            }
             pdfDocument = nil
         }
         #if os(macOS)
@@ -456,7 +461,10 @@ public struct NoteEditorView: View {
             document: plainTextExportDocument,
             contentType: .plainText,
             defaultFilename: plainTextExportFilename
-        ) { _ in
+        ) { result in
+            if case .success(let url) = result {
+                quickLookPreviewURL = url
+            }
             plainTextExportDocument = nil
         }
         .fileExporter(
@@ -464,15 +472,20 @@ public struct NoteEditorView: View {
             document: markdownExportDocument,
             contentType: UTType(filenameExtension: "md") ?? .plainText,
             defaultFilename: markdownExportFilename
-        ) { _ in
+        ) { result in
+            if case .success(let url) = result {
+                quickLookPreviewURL = url
+            }
             markdownExportDocument = nil
         }
         #endif
+        .quartzQuickLookPreview($quickLookPreviewURL)
         .task(id: viewModel.note?.fileURL) {
             await loadBacklinks()
         }
         .onChange(of: viewModel.note?.fileURL) { _, _ in
             isPreviewMode = false
+            quickLookPreviewURL = nil
         }
         .overlay {
             if showCommandPalette {
