@@ -6,6 +6,7 @@ public struct FrontmatterEditorView: View {
     @Binding var frontmatter: Frontmatter
     @Environment(\.layoutDirection) private var layoutDirection
     @Environment(\.appearanceManager) private var appearance
+    @ScaledMetric(relativeTo: .caption) private var tagFlowSpacing: CGFloat = 6
     @State private var isExpanded: Bool = false
     @State private var newTag: String = ""
     @State private var newCustomKey: String = ""
@@ -48,7 +49,9 @@ public struct FrontmatterEditorView: View {
                         Text(summaryText)
                             .font(.caption2)
                             .foregroundStyle(.quaternary)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.85)
+                            .multilineTextAlignment(.trailing)
                     }
                 }
                 .foregroundStyle(.secondary)
@@ -75,7 +78,7 @@ public struct FrontmatterEditorView: View {
 
                     // Tags
                     LabeledField(label: String(localized: "Tags", bundle: .module)) {
-                        FlowLayout(spacing: 6, layoutDirection: layoutDirection) {
+                        FlowLayout(spacing: tagFlowSpacing, layoutDirection: layoutDirection) {
                             ForEach(frontmatter.tags, id: \.self) { tag in
                                 HStack(spacing: 4) {
                                     QuartzTagBadge(text: tag)

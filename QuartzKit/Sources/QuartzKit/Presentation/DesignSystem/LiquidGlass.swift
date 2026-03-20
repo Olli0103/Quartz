@@ -681,6 +681,9 @@ public struct QuartzTagBadge: View {
     public var isSelected: Bool = false
     public var showHash: Bool = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .caption) private var horizontalPadding: CGFloat = 8
+    @ScaledMetric(relativeTo: .caption) private var verticalPadding: CGFloat = 6
+    @ScaledMetric(relativeTo: .caption) private var cornerRadius: CGFloat = 14
 
     public init(text: String, isSelected: Bool = false, showHash: Bool = true) {
         self.text = text
@@ -691,20 +694,23 @@ public struct QuartzTagBadge: View {
     private var tagColor: Color { QuartzColors.tagColor(for: text) }
 
     public var body: some View {
-        HStack(spacing: 3) {
+        HStack(alignment: .center, spacing: 3) {
             if showHash {
                 Text("#")
-                    .fontWeight(.bold)
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(isSelected ? .white : tagColor)
             }
             Text(text)
+                .font(.caption)
                 .foregroundStyle(isSelected ? .white : .primary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .minimumScaleFactor(0.85)
         }
-        .font(.caption)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
         .background {
-            Capsule()
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(isSelected ? tagColor : tagColor.opacity(0.12))
                 .shadow(color: isSelected ? tagColor.opacity(0.3) : .clear, radius: 4, y: 2)
         }

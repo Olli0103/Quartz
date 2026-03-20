@@ -70,6 +70,7 @@ public struct SidebarView: View {
     @State private var dragExpandedFolderURLs: Set<URL> = []
     /// Insertion indicator: (parentURL, index) for "drop between" visual.
     @State private var insertionIndicator: (parent: URL, index: Int)?
+    @ScaledMetric(relativeTo: .caption) private var tagsChipRowVerticalPadding: CGFloat = 4
 
     private static let sidebarListRowInsets = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
 
@@ -498,7 +499,7 @@ public struct SidebarView: View {
             .padding(.bottom, Self.sectionHeaderBottomPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
                     ForEach(viewModel.tagInfos.prefix(12)) { tag in
                         Button {
                             QuartzFeedback.selection()
@@ -511,8 +512,9 @@ public struct SidebarView: View {
                         .buttonStyle(QuartzBounceButtonStyle())
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, tagsChipRowVerticalPadding)
             }
+            .frame(minHeight: 44)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)

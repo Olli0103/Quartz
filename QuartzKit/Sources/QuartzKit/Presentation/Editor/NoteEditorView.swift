@@ -22,46 +22,6 @@ private var editorMetadataIconSize: CGFloat {
     #endif
 }
 
-private var editorStatusBarIconSize: CGFloat {
-    #if os(macOS)
-    12
-    #else
-    10
-    #endif
-}
-
-private var editorStatusBarFontSize: CGFloat {
-    #if os(macOS)
-    12
-    #else
-    11
-    #endif
-}
-
-private var editorTagBarIconSize: CGFloat {
-    #if os(macOS)
-    12
-    #else
-    11
-    #endif
-}
-
-private var editorTagBarFontSize: CGFloat {
-    #if os(macOS)
-    12
-    #else
-    11
-    #endif
-}
-
-private var editorTagRemoveIconSize: CGFloat {
-    #if os(macOS)
-    9
-    #else
-    8
-    #endif
-}
-
 private var editorBacklinkFont: Font {
     #if os(macOS)
     .subheadline
@@ -85,6 +45,10 @@ public struct NoteEditorView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// iOS tag bar only; metrics still declared on all platforms so `tagBar` type-checks everywhere.
+    @ScaledMetric(relativeTo: .caption) private var tagBarPillHPadding: CGFloat = 8
+    @ScaledMetric(relativeTo: .caption) private var tagBarPillVPadding: CGFloat = 4
+    @ScaledMetric(relativeTo: .caption) private var tagBarVerticalInset: CGFloat = 5
     @State private var showFocusModeHint = false
     @State private var showAITools = false
     @State private var showChat = false
@@ -1010,31 +974,33 @@ public struct NoteEditorView: View {
     // MARK: - Tag Bar
 
     private var tagBar: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             Image(systemName: "tag")
-                .font(.system(size: editorTagBarIconSize))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(.tertiary)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(alignment: .center, spacing: 6) {
                     ForEach(viewModel.note?.frontmatter.tags ?? [], id: \.self) { tag in
-                        HStack(spacing: 3) {
+                        HStack(alignment: .center, spacing: 3) {
                             Text("#\(tag)")
-                                .font(.system(size: editorTagBarFontSize, weight: .medium))
+                                .font(.caption.weight(.medium))
                                 .foregroundStyle(QuartzColors.accent)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
 
                             Button {
                                 QuartzFeedback.selection()
                                 removeTag(tag)
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: editorTagRemoveIconSize, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(.tertiary)
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, tagBarPillHPadding)
+                        .padding(.vertical, tagBarPillVPadding)
                         .background(
                             Capsule()
                                 .fill(QuartzColors.accent.opacity(0.1))
@@ -1042,15 +1008,18 @@ public struct NoteEditorView: View {
                     }
 
                     TextField(String(localized: "Add tag…", bundle: .module), text: $newTagText)
-                        .font(.system(size: editorTagBarFontSize))
+                        .font(.caption)
                         .textFieldStyle(.plain)
-                        .frame(minWidth: 60, maxWidth: 120)
+                        .lineLimit(1)
+                        .frame(minWidth: 60, maxWidth: 140)
                         .onSubmit { addTag() }
                 }
+                .padding(.vertical, 2)
             }
+            .frame(minHeight: 44)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 5)
+        .padding(.vertical, tagBarVerticalInset)
         .background {
             Rectangle()
                 .fill(.bar)
@@ -1087,7 +1056,6 @@ public struct NoteEditorView: View {
         HStack(spacing: 16) {
             HStack(spacing: 5) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: editorStatusBarIconSize))
                     .foregroundStyle(.tertiary)
                 Text("\(viewModel.wordCount) words")
                     .monospacedDigit()
@@ -1095,7 +1063,6 @@ public struct NoteEditorView: View {
 
             HStack(spacing: 5) {
                 Image(systemName: "clock")
-                    .font(.system(size: editorStatusBarIconSize))
                     .foregroundStyle(.tertiary)
                 Text(readingTime)
             }
@@ -1108,19 +1075,19 @@ public struct NoteEditorView: View {
                         .foregroundStyle(.red)
                     Text(error)
                         .foregroundStyle(.red)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
                 }
             } else {
                 HStack(spacing: 5) {
                     Image(systemName: statusIcon)
-                        .font(.system(size: editorStatusBarIconSize))
                         .foregroundStyle(statusColor)
                     Text(statusText)
                         .foregroundStyle(statusColor == .green ? QuartzColors.accent : .secondary)
                 }
             }
         }
-        .font(.system(size: editorStatusBarFontSize))
+        .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
