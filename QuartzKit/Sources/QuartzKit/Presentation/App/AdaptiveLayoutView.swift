@@ -140,6 +140,8 @@ public struct StageManagerModifier: ViewModifier {
             appState.pendingCommand = .newNote
         case "daily":
             appState.pendingCommand = .dailyNote
+        case "scan":
+            appState.pendingOpenDocumentScanner = true
         default:
             break
         }

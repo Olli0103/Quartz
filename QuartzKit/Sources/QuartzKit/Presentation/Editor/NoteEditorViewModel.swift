@@ -48,6 +48,9 @@ public final class NoteEditorViewModel {
     /// The view should prompt: reload (discard local) or keep editing (save overwrites).
     public var externalModificationDetected: Bool = false
 
+    /// Set by the app shell when a widget / Control Center requests the document scanner.
+    public var requestDocumentScannerPresentation: Bool = false
+
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
     private var autosaveTask: Task<Void, Never>?
@@ -86,6 +89,20 @@ public final class NoteEditorViewModel {
     /// Clears the external modification flag. Call when user chooses to keep editing (save will overwrite).
     public func dismissExternalModificationWarning() {
         externalModificationDetected = false
+    }
+
+    /// Snapshot of the note body on disk (for merge UI). Does not mutate editor state.
+    public func diskBodySnapshot() async -> String? {
+        guard let url = note?.fileURL else { return nil }
+        guard let doc = try? await vaultProvider.readNote(at: url) else { return nil }
+        return doc.body
+    }
+
+    /// Applies merged text from the conflict sheet, saves, and clears the external-edit flag.
+    public func applyMergedContentResolvingExternalEdit(_ merged: String) async {
+        content = merged
+        externalModificationDetected = false
+        await save(force: true)
     }
 
     /// Saves the current note immediately.

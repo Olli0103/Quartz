@@ -26,6 +26,7 @@ struct ContentView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ContentViewModel?
     @State private var selectedNoteURL: URL?
     @State private var showVaultPicker = false
@@ -52,12 +53,54 @@ struct ContentView: View {
 
     private static let onboardingCompletedKey = "quartz.hasCompletedOnboarding"
 
+    /// Widget / Control Center intents stash URLs and flags in the App Group before the app foregrounds.
+    private func consumePendingWidgetDeepLinks() {
+        let d = UserDefaults(suiteName: "group.app.quartz.shared")
+        if d?.bool(forKey: "pendingDocumentScanner") == true {
+            d?.removeObject(forKey: "pendingDocumentScanner")
+            #if os(iOS)
+            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            #endif
+        }
+        guard let link = d?.string(forKey: "pendingDeepLink") else { return }
+        d?.removeObject(forKey: "pendingDeepLink")
+        if let url = URL(string: link), url.scheme == "quartz", url.host() == "note" {
+            applyPendingOpenNoteDeepLink(url)
+            return
+        }
+        switch link {
+        case "quartz://new":
+            appState.pendingCommand = .newNote
+        case "quartz://daily":
+            appState.pendingCommand = .dailyNote
+        case "quartz://scan":
+            #if os(iOS)
+            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            #endif
+        default:
+            break
+        }
+    }
+
+    /// Resolves `quartz://note/...` from widgets / App Intents (see `OpenNoteIntent`).
+    private func applyPendingOpenNoteDeepLink(_ url: URL) {
+        let path = url.pathComponents.dropFirst().joined(separator: "/")
+        guard !path.isEmpty,
+              let vaultRoot = appState.currentVault?.rootURL else { return }
+        let noteURL = vaultRoot.appending(path: path)
+        guard noteURL.standardizedFileURL.path()
+            .hasPrefix(vaultRoot.standardizedFileURL.path()) else { return }
+        guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else { return }
+        selectedNoteURL = noteURL
+    }
+
     private var mainLayout: some View {
         AdaptiveLayoutView(columnVisibility: focusMode.isFocusModeActive ? .constant(.detailOnly) : $columnVisibility) {
             sidebarColumn
         } detail: {
             detailColumn
         }
+        .stageManagerSupport(appState: appState)
     }
 
     var body: some View {
@@ -149,6 +192,19 @@ struct ContentView: View {
                 }
             }
             availableUpdate = await UpdateChecker.shared.checkForUpdate()
+            consumePendingWidgetDeepLinks()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                consumePendingWidgetDeepLinks()
+            }
+        }
+        .onChange(of: appState.pendingOpenDocumentScanner) { _, pending in
+            guard pending else { return }
+            appState.pendingOpenDocumentScanner = false
+            #if os(iOS)
+            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            #endif
         }
         .onChange(of: selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)

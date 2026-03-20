@@ -76,4 +76,38 @@ public struct DailyNoteControlIntent: ControlConfigurationIntent {
         return .result()
     }
 }
+
+// MARK: - Document Scanner (Camera) Control
+
+/// Control Center control: opens Quartz straight into the document camera / scanner flow.
+@available(iOS 18.0, *)
+public struct DocumentScannerControlWidget: ControlWidget {
+    public var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "app.quartz.docscanner") {
+            ControlWidgetButton(action: DocumentScannerControlIntent()) {
+                Label(String(localized: "Scan Document", bundle: .module), systemImage: "doc.viewfinder")
+            }
+        }
+        .displayName(LocalizedStringResource("Scan Document", bundle: .module))
+        .description(LocalizedStringResource("Capture pages with the camera and send them to Quartz.", bundle: .module))
+    }
+
+    public init() {}
+}
+
+@available(iOS 18.0, *)
+public struct DocumentScannerControlIntent: ControlConfigurationIntent {
+    public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Scan Document")
+    public static let description: IntentDescription = IntentDescription(stringLiteral: "Opens the document scanner in Quartz.")
+    public static let openAppWhenRun: Bool = true
+    public static let isDiscoverable: Bool = true
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult {
+        // `ContentView.consumePendingWidgetDeepLinks` reads this flag first (avoid duplicating `quartz://scan`).
+        UserDefaults(suiteName: "group.app.quartz.shared")?.set(true, forKey: "pendingDocumentScanner")
+        return .result()
+    }
+}
 #endif

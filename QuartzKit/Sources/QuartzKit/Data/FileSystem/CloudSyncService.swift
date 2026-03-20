@@ -236,6 +236,13 @@ public actor CloudSyncService {
         try resolveConflictKeepingVersion(at: url, version: cloudVersion)
     }
 
+    /// Writes merged file contents, then marks the sync conflict resolved (keeps current after write).
+    public func resolveConflictWritingMergedContent(at url: URL, mergedUTF8: String) async throws {
+        let data = Data(mergedUTF8.utf8)
+        try await coordinatedWrite(data: data, to: url)
+        try resolveConflictKeepingCurrent(at: url)
+    }
+
     // MARK: - Ubiquity Container
 
     public static func ubiquityContainerURL() -> URL? {

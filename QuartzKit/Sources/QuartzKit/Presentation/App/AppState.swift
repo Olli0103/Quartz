@@ -65,5 +65,8 @@ public final class AppState {
     /// Consumers should reset to `.none` after handling.
     public var pendingCommand: CommandAction = .none
 
+    /// Set by deep links (`quartz://scan`) to present the document scanner when a note is active.
+    public var pendingOpenDocumentScanner: Bool = false
+
     public init() {}
 }

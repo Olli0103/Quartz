@@ -1,6 +1,9 @@
 #if canImport(WidgetKit)
 import WidgetKit
 import SwiftUI
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 // MARK: - Latest Note Widget
 
@@ -317,6 +320,236 @@ public struct PinnedNotesWidgetView: View {
             Spacer()
         }
         .padding()
+    }
+}
+
+// MARK: - Recent Notes (medium, interactive)
+
+/// One row in the Recent Notes widget (path is relative to vault root).
+public struct RecentNoteItem: Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let relativePath: String
+    public let modified: Date
+
+    public init(id: String, title: String, relativePath: String, modified: Date) {
+        self.id = id
+        self.title = title
+        self.relativePath = relativePath
+        self.modified = modified
+    }
+}
+
+/// Timeline entry: up to three most recently modified Markdown files.
+public struct RecentNotesEntry: TimelineEntry, Sendable {
+    public let date: Date
+    public let notes: [RecentNoteItem]
+
+    public init(date: Date, notes: [RecentNoteItem]) {
+        self.date = date
+        self.notes = notes
+    }
+
+    nonisolated(unsafe) public static let placeholder = RecentNotesEntry(
+        date: .now,
+        notes: [
+            RecentNoteItem(id: "1", title: String(localized: "Meeting Notes", bundle: .module), relativePath: "Meeting.md", modified: .now),
+            RecentNoteItem(id: "2", title: String(localized: "Ideas", bundle: .module), relativePath: "Ideas.md", modified: .now),
+            RecentNoteItem(id: "3", title: String(localized: "Journal", bundle: .module), relativePath: "Journal.md", modified: .now),
+        ]
+    )
+}
+
+/// Provider for the Recent Notes home screen widget.
+public struct RecentNotesProvider: TimelineProvider {
+    public init() {}
+
+    public func placeholder(in context: Context) -> RecentNotesEntry {
+        .placeholder
+    }
+
+    public func getSnapshot(in context: Context, completion: @escaping (RecentNotesEntry) -> Void) {
+        completion(.placeholder)
+    }
+
+    public func getTimeline(in context: Context, completion: @escaping (Timeline<RecentNotesEntry>) -> Void) {
+        let entry: RecentNotesEntry
+        let d = UserDefaults(suiteName: "group.app.quartz.shared")
+        if let vaultRoot = d?.url(forKey: "activeVaultURL") ?? d?.url(forKey: "defaultVaultRoot") {
+            let notes = Self.findRecentNotes(in: vaultRoot, limit: 3)
+            entry = RecentNotesEntry(date: .now, notes: notes)
+        } else {
+            entry = RecentNotesEntry(date: .now, notes: [])
+        }
+        completion(Timeline(entries: [entry], policy: .atEnd))
+    }
+
+    private static func relativePath(vaultRoot: URL, fileURL: URL) -> String {
+        let v = vaultRoot.standardizedFileURL.path(percentEncoded: false)
+        let f = fileURL.standardizedFileURL.path(percentEncoded: false)
+        guard f.hasPrefix(v) else { return fileURL.lastPathComponent }
+        var rel = String(f.dropFirst(v.count))
+        if rel.hasPrefix("/") { rel.removeFirst() }
+        return rel
+    }
+
+    private static func findRecentNotes(in vaultRoot: URL, limit: Int) -> [RecentNoteItem] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: vaultRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var scored: [(url: URL, date: Date)] = []
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension.lowercased() == "md" else { continue }
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modified = values.contentModificationDate else { continue }
+            scored.append((fileURL, modified))
+        }
+        scored.sort { $0.date > $1.date }
+        return scored.prefix(limit).map { pair in
+            let rel = relativePath(vaultRoot: vaultRoot, fileURL: pair.url)
+            let title = pair.url.deletingPathExtension().lastPathComponent
+            return RecentNoteItem(id: rel, title: title, relativePath: rel, modified: pair.date)
+        }
+    }
+}
+
+/// Medium home screen widget: three recent notes + new note (interactive on iOS 17+).
+@available(iOS 17.0, macOS 14.0, *)
+public struct RecentNotesWidgetView: View {
+    let entry: RecentNotesEntry
+    @Environment(\.widgetFamily) private var family
+
+    public init(entry: RecentNotesEntry) {
+        self.entry = entry
+    }
+
+    public var body: some View {
+        Group {
+            switch family {
+            case .systemMedium:
+                mediumLayout
+            default:
+                VStack(alignment: .leading) {
+                    Text(String(localized: "Recent Notes", bundle: .module))
+                        .font(.caption.bold())
+                    Text(entry.notes.first?.title ?? "—")
+                        .font(.callout)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .padding()
+            }
+        }
+        .containerBackground(for: .widget) {
+            ContainerRelativeShape()
+                .fill(QuartzColors.accent.opacity(0.07))
+                .overlay {
+                    ContainerRelativeShape()
+                        .strokeBorder(QuartzColors.accent.opacity(0.25), lineWidth: 1)
+                }
+        }
+    }
+
+    private var mediumLayout: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(QuartzColors.accent)
+                    Text(String(localized: "Recent Notes", bundle: .module))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                if entry.notes.isEmpty {
+                    Text(String(localized: "No notes yet — tap + to create one.", bundle: .module))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(entry.notes) { note in
+                            #if canImport(AppIntents)
+                            Button(intent: OpenNoteIntent(relativePath: note.relativePath)) {
+                                noteRowLabel(note)
+                            }
+                            .buttonStyle(.plain)
+                            #else
+                            Link(destination: noteDeepLink(note)) {
+                                noteRowLabel(note)
+                            }
+                            #endif
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            #if canImport(AppIntents)
+            Button(intent: CreateNoteIntent()) {
+                ZStack {
+                    Circle()
+                        .fill(QuartzColors.accent.gradient)
+                        .frame(width: 44, height: 44)
+                        .shadow(color: QuartzColors.accent.opacity(0.35), radius: 6, y: 3)
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .buttonStyle(.plain)
+            #else
+            Link(destination: URL(string: "quartz://new")!) {
+                ZStack {
+                    Circle()
+                        .fill(QuartzColors.accent.gradient)
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            #endif
+        }
+        .padding(12)
+    }
+
+    private func noteDeepLink(_ note: RecentNoteItem) -> URL {
+        var url = URL(string: "quartz://note")!
+        for segment in note.relativePath.split(separator: "/") where !segment.isEmpty {
+            url = url.appendingPathComponent(String(segment))
+        }
+        return url
+    }
+
+    private func noteRowLabel(_ note: RecentNoteItem) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Image(systemName: "doc.text.fill")
+                .font(.caption2)
+                .foregroundStyle(QuartzColors.noteBlue)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(note.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(note.modified.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.quaternary)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
     }
 }
 #endif

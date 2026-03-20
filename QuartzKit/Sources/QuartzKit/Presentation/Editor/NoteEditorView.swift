@@ -119,7 +119,8 @@ public struct NoteEditorView: View {
     @State private var showSavedOverlay = false
     @State private var isPreviewMode = false
     @State private var showCommandPalette = false
-    @State private var showExternalModificationAlert = false
+    @State private var showExternalModificationSheet = false
+    @State private var diskBodyForMerge = ""
     private let formatter = MarkdownFormatter()
     private static let favoritesKey = "quartz.favoriteNotes"
 
@@ -467,21 +468,42 @@ public struct NoteEditorView: View {
             }
         }
         .animation(QuartzAnimation.content, value: showCommandPalette)
-        .alert(
-            String(localized: "File Modified Externally", bundle: .module),
-            isPresented: $showExternalModificationAlert
-        ) {
-            Button(String(localized: "Reload", bundle: .module), role: .destructive) {
-                Task { await viewModel.reloadFromDisk() }
-            }
-            Button(String(localized: "Keep Editing", bundle: .module)) {
-                viewModel.dismissExternalModificationWarning()
-            }
-        } message: {
-            Text(String(localized: "This note was modified by another app or device. Reload to discard your changes, or keep editing to overwrite.", bundle: .module))
+        .sheet(isPresented: $showExternalModificationSheet) {
+            ExternalModificationMergeView(
+                localText: viewModel.content,
+                diskText: diskBodyForMerge,
+                onMerge: { merged in
+                    Task { await viewModel.applyMergedContentResolvingExternalEdit(merged) }
+                },
+                onReloadDisk: {
+                    Task { await viewModel.reloadFromDisk() }
+                },
+                onDismissKeepEditing: {
+                    viewModel.dismissExternalModificationWarning()
+                }
+            )
+            #if os(macOS)
+            .frame(minWidth: 560, minHeight: 480)
+            #endif
         }
         .onChange(of: viewModel.externalModificationDetected) { _, detected in
-            if detected { showExternalModificationAlert = true }
+            if detected {
+                Task {
+                    let disk = await viewModel.diskBodySnapshot() ?? ""
+                    await MainActor.run {
+                        diskBodyForMerge = disk
+                        showExternalModificationSheet = true
+                    }
+                }
+            }
+        }
+        .onChange(of: viewModel.requestDocumentScannerPresentation) { _, shouldShow in
+            #if os(iOS)
+            if shouldShow, viewModel.note != nil {
+                showDocumentScanner = true
+                viewModel.requestDocumentScannerPresentation = false
+            }
+            #endif
         }
     }
 
