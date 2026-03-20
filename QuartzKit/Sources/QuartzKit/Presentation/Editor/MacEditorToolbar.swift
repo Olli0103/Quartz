@@ -10,55 +10,47 @@ struct MacEditorToolbar: View {
     let onImagePick: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Button {
-                    onPreviewToggle()
-                } label: {
-                    Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
-                        .font(.system(size: 14, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
-                        .contentTransition(.interpolate)
-                        .frame(minWidth: 32, minHeight: 32)
-                }
-                .buttonStyle(.plain)
-                .help(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
-                Rectangle()
-                    .fill(.separator)
-                    .frame(width: 1, height: 22)
-                    .padding(.horizontal, 4)
+        HStack(spacing: 4) {
+            Button {
+                onPreviewToggle()
+            } label: {
+                Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
+                    .font(.body)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
+                    .contentTransition(.interpolate)
+                    .frame(minWidth: 28, minHeight: 28)
+            }
+            .buttonStyle(.borderless)
+            .help(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
+
+            toolbarDivider
+
+            HStack(spacing: 2) {
                 formatButton(.bold, icon: "bold")
                 formatButton(.italic, icon: "italic")
                 formatButton(.link, icon: "link")
             }
-            .padding(.leading, 16)
-            .padding(.vertical, 8)
 
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 22)
-                .padding(.horizontal, 8)
+            toolbarDivider
 
-            HStack(spacing: 8) {
+            HStack(spacing: 2) {
                 formatButton(.bulletList, icon: "list.bullet")
                 Button {
                     onImagePick()
                 } label: {
                     Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.body)
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.primary)
-                        .frame(minWidth: 32, minHeight: 32)
+                        .frame(minWidth: 28, minHeight: 28)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .help(String(localized: "Insert Image", bundle: .module))
                 formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
             }
 
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 22)
-                .padding(.horizontal, 8)
+            toolbarDivider
 
             Menu {
                 ForEach([FormattingAction.table, .codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
@@ -68,14 +60,23 @@ struct MacEditorToolbar: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.body)
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
-                    .frame(minWidth: 32, minHeight: 32)
+                    .frame(minWidth: 28, minHeight: 28)
             }
             .menuStyle(.borderlessButton)
-            .padding(.trailing, 16)
+            .help(String(localized: "More formatting options", bundle: .module))
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+    }
+
+    private var toolbarDivider: some View {
+        Rectangle()
+            .fill(.separator)
+            .frame(width: 1, height: 18)
+            .padding(.horizontal, 3)
     }
 
     private func formatButton(_ action: FormattingAction, icon: String) -> some View {

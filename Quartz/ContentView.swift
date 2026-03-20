@@ -737,18 +737,11 @@ struct ContentView: View {
                         QuartzFeedback.primaryAction()
                         showSearch = true
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.subheadline)
-                            Text(String(localized: "Search Brain…"))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(.quaternary))
+                        Label(String(localized: "Search Brain…"), systemImage: "magnifyingglass")
+                            .labelStyle(.iconOnly)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
+                    .help(String(localized: "Search notes"))
                     .disabled(viewModel?.searchIndex == nil)
 
                     Button {

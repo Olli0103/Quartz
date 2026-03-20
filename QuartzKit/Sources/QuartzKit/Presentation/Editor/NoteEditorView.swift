@@ -1237,6 +1237,7 @@ public struct NoteEditorView: View {
                 ? String(localized: "Exit focus mode", bundle: .module)
                 : String(localized: "Enter focus mode", bundle: .module))
 
+            #if os(iOS) || os(visionOS)
             Button {
                 QuartzFeedback.toggle()
                 withPreviewTransition { isPreviewMode.toggle() }
@@ -1251,6 +1252,7 @@ public struct NoteEditorView: View {
             .help(isPreviewMode
                 ? String(localized: "Switch to edit mode", bundle: .module)
                 : String(localized: "Preview rendered markdown", bundle: .module))
+            #endif
 
             // Global toolbar actions (Search Brain, etc.) – after AI and Focus Mode
             if let onSearch {
@@ -1258,6 +1260,10 @@ public struct NoteEditorView: View {
                     QuartzFeedback.primaryAction()
                     onSearch()
                 } label: {
+                    #if os(macOS)
+                    Label(String(localized: "Search Brain…", bundle: .module), systemImage: "magnifyingglass")
+                        .labelStyle(.iconOnly)
+                    #else
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.subheadline)
@@ -1268,6 +1274,7 @@ public struct NoteEditorView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Capsule().fill(.quaternary))
+                    #endif
                 }
                 .buttonStyle(.plain)
                 .disabled(searchDisabled)
@@ -1422,13 +1429,17 @@ struct EditorFormatButton: View {
 
     var body: some View {
         Image(systemName: icon)
+            #if os(iOS)
             .font(.system(size: 14, weight: .medium))
+            #else
+            .font(.callout.weight(.medium))
+            #endif
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(isPressed ? appearance.accentColor : .primary)
             #if os(iOS)
             .frame(minWidth: 44, minHeight: 44)
             #else
-            .frame(minWidth: 32, minHeight: 32)
+            .frame(minWidth: 28, minHeight: 28)
             #endif
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
