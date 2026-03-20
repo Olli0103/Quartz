@@ -150,11 +150,20 @@ public struct QuartzLiquidGlassModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         if enabled {
+            #if os(visionOS)
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(.regularMaterial)
+                }
+                .glassBackgroundEffect()
+            #else
             content
                 .background {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .fill(.ultraThinMaterial)
                 }
+            #endif
         } else {
             content
         }
@@ -162,6 +171,20 @@ public struct QuartzLiquidGlassModifier: ViewModifier {
 }
 
 public extension View {
+    /// Ultra-thin material on iOS/macOS; on visionOS uses regular material + `glassBackgroundEffect()` for floating chrome.
+    func quartzFloatingUltraThinSurface(cornerRadius: CGFloat = 12) -> some View {
+        #if os(visionOS)
+        self
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.regularMaterial)
+            }
+            .glassBackgroundEffect()
+        #else
+        self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        #endif
+    }
+
     func quartzLiquidGlass(enabled: Bool, cornerRadius: CGFloat = 20) -> some View {
         modifier(QuartzLiquidGlassModifier(enabled: enabled, cornerRadius: cornerRadius))
     }
@@ -195,6 +218,16 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
+        #if os(visionOS)
+        content
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(visionMaterialShapeStyle)
+            }
+            .modifier(VisionFloatingGlassModifier(layer: layer))
+            .shadow(color: shadowRadius > 0 ? .black.opacity(layer == .floating ? 0.08 : 0.06) : .clear, radius: shadowRadius, y: shadowRadius / 4)
+            .zIndex(layer == .floating ? 10 : 0)
+        #else
         content
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -202,7 +235,18 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
             }
             .shadow(color: shadowRadius > 0 ? .black.opacity(layer == .floating ? 0.08 : 0.06) : .clear, radius: shadowRadius, y: shadowRadius / 4)
             .zIndex(layer == .floating ? 10 : 0)
+        #endif
     }
+
+    #if os(visionOS)
+    private var visionMaterialShapeStyle: AnyShapeStyle {
+        switch (layer, preferRegularMaterial) {
+        case (.floating, _): return AnyShapeStyle(.regularMaterial)
+        case (.sidebar, true): return AnyShapeStyle(.regularMaterial)
+        case (.sidebar, false): return AnyShapeStyle(.regularMaterial)
+        }
+    }
+    #endif
 
     private var materialForLayer: some ShapeStyle {
         switch (layer, preferRegularMaterial) {
@@ -213,13 +257,35 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
     }
 }
 
+#if os(visionOS)
+/// Applies `glassBackgroundEffect()` for floating chrome only (spatial HIG).
+private struct VisionFloatingGlassModifier: ViewModifier {
+    let layer: QuartzMaterialLayer
+
+    func body(content: Content) -> some View {
+        if layer == .floating {
+            content.glassBackgroundEffect()
+        } else {
+            content
+        }
+    }
+}
+#endif
+
 /// Circular material for icon buttons (44×44pt HIG compliant).
 public struct QuartzMaterialCircleModifier: ViewModifier {
     public init() {}
 
     public func body(content: Content) -> some View {
+        #if os(visionOS)
+        content
+            .frame(minWidth: QuartzHIG.minTouchTarget, minHeight: QuartzHIG.minTouchTarget)
+            .background(Circle().fill(.regularMaterial))
+            .glassBackgroundEffect()
+        #else
         content
             .background(Circle().fill(.regularMaterial))
+        #endif
     }
 }
 
@@ -231,6 +297,16 @@ public struct GlassBackground: ViewModifier {
     var shadowRadius: CGFloat
 
     public func body(content: Content) -> some View {
+        #if os(visionOS)
+        content
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.regularMaterial)
+                    .opacity(opacity)
+                    .shadow(color: .black.opacity(0.06), radius: shadowRadius, y: shadowRadius / 3)
+            }
+            .glassBackgroundEffect()
+        #else
         content
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -238,6 +314,7 @@ public struct GlassBackground: ViewModifier {
                     .opacity(opacity)
                     .shadow(color: .black.opacity(0.06), radius: shadowRadius, y: shadowRadius / 3)
             }
+        #endif
     }
 }
 

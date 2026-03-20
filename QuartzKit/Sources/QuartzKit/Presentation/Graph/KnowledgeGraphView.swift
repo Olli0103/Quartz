@@ -547,7 +547,7 @@ public struct KnowledgeGraphView: View {
         }
         .padding(16)
         .frame(maxWidth: 200, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .quartzFloatingUltraThinSurface(cornerRadius: 16)
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)

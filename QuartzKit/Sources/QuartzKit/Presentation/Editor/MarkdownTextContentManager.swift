@@ -5,27 +5,16 @@ import UIKit
 import AppKit
 #endif
 
-// MARK: - TextKit 2 Markdown Content Manager (Scaffolding)
+// MARK: - TextKit 2 Markdown Content Manager
 
-/// Custom `NSTextContentStorage` subclass that provides the architectural foundation
-/// for AST-driven markdown layout in TextKit 2.
+/// Custom `NSTextContentStorage` subclass for AST-driven markdown in TextKit 2.
 ///
-/// **Purpose:** The current `MarkdownTextView` uses legacy `NSTextStorage.setAttributes`
-/// mutations. For 50,000+ word documents, TextKit 2's native line-fragment invalidation
-/// and element-based layout will scale better. This class lays the groundwork.
+/// `MarkdownTextView` wires this as the document’s `NSTextContentManager`, with an
+/// `NSTextLayoutManager` and `NSTextContainer`. Syntax highlighting applies attributes
+/// inside `performMarkdownEdit` / `performEditingTransaction` so layout invalidation stays coherent.
 ///
-/// **Not yet wired to the live editor** – the existing `MarkdownTextView` remains
-/// the production implementation. This scaffolding will be integrated when:
-/// 1. AST parsing is moved into `performEditingTransaction` blocks
-/// 2. `textLayoutManager(_:textLayoutFragmentFor:in:)` is implemented for custom
-///    markdown element rendering
-/// 3. Line-fragment invalidation replaces full-range attribute application
-///
-/// **Architecture:**
-/// - Subclasses `NSTextContentStorage` (concrete `NSTextContentManager` implementation)
-/// - Uses `performEditingTransaction` for all content mutations (TextKit 2 requirement)
-/// - Provides hooks for `MarkdownASTHighlighter` integration
-/// - Defines the contract for AST-to-layout translation
+/// **Architecture:** Subclasses `NSTextContentStorage`; use `performMarkdownEdit` for
+/// attribute passes from `MarkdownASTHighlighter` instead of raw `beginEditing`/`endEditing`.
 public final class MarkdownTextContentManager: NSTextContentStorage {
 
     // MARK: - Configuration

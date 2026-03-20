@@ -53,7 +53,10 @@ public struct CommandPaletteView: View {
                         }
                 }
                 .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                #if os(visionOS)
+                .frame(minHeight: QuartzHIG.minTouchTarget)
+                #endif
+                .quartzFloatingUltraThinSurface(cornerRadius: 12)
 
                 if !searchResults.isEmpty {
                     ScrollViewReader { proxy in
@@ -76,7 +79,7 @@ public struct CommandPaletteView: View {
                             proxy.scrollTo(newIndex, anchor: .center)
                         }
                     }
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .quartzFloatingUltraThinSurface(cornerRadius: 12)
                     .padding(.top, 8)
                 }
             }
@@ -246,6 +249,9 @@ private struct CommandPaletteRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            #if os(visionOS)
+            .frame(minHeight: QuartzHIG.minTouchTarget)
+            #endif
             .background(isSelected ? Color.accentColor : Color.clear)
             .contentShape(Rectangle())
         }
