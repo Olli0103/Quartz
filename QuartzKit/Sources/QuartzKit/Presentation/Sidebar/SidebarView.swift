@@ -723,6 +723,7 @@ private struct SidebarTreeNode: View {
     let viewModel: SidebarViewModel
 
     @State private var isExpanded: Bool = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isDropTarget: Bool { dropTargetURL == node.url }
     private var isDragExpanded: Bool { node.isFolder && dragExpandedFolderURLs.contains(node.url) }
@@ -795,7 +796,7 @@ private struct SidebarTreeNode: View {
             .draggable(SidebarItemTransferable(url: node.url))
             .contextMenu { folderContextMenu(for: node) }
             .animation(QuartzAnimation.standard, value: isDropTarget)
-            .animation(QuartzAnimation.content, value: effectiveExpanded)
+            .animation(reduceMotion ? .linear(duration: 0.001) : QuartzAnimation.folderExpand, value: effectiveExpanded)
         } else if node.isFolder {
             folderRow
                 .padding(.horizontal, 4)

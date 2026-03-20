@@ -84,6 +84,7 @@ public struct NoteEditorView: View {
     var embeddingService: VectorEmbeddingService?
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showFocusModeHint = false
     @State private var showAITools = false
     @State private var showChat = false
@@ -153,6 +154,22 @@ public struct NoteEditorView: View {
         self.refreshDisabled = refreshDisabled
     }
 
+    private func withPreviewTransition(_ updates: () -> Void) {
+        if reduceMotion {
+            updates()
+        } else {
+            withAnimation(QuartzAnimation.previewEditToggle, updates)
+        }
+    }
+
+    private func withFocusChromeTransition(_ updates: () -> Void) {
+        if reduceMotion {
+            updates()
+        } else {
+            withAnimation(QuartzAnimation.focusChrome, updates)
+        }
+    }
+
     @ViewBuilder
     private var mainEditorView: some View {
         #if os(macOS)
@@ -201,7 +218,7 @@ public struct NoteEditorView: View {
                     isPreviewMode: isPreviewMode,
                     onPreviewToggle: {
                         QuartzFeedback.toggle()
-                        withAnimation(.bouncy) { isPreviewMode.toggle() }
+                        withPreviewTransition { isPreviewMode.toggle() }
                     },
                     onFormatting: applyFormatting,
                     onImagePick: { showImagePicker = true }
@@ -257,7 +274,7 @@ public struct NoteEditorView: View {
                     isPreviewMode: isPreviewMode,
                     onPreviewToggle: {
                         QuartzFeedback.toggle()
-                        withAnimation(.bouncy) { isPreviewMode.toggle() }
+                        withPreviewTransition { isPreviewMode.toggle() }
                     },
                     onFormatting: applyFormatting,
                     onImagePick: { showImageSourceSheet = true },
@@ -297,10 +314,10 @@ public struct NoteEditorView: View {
         }
         .onChange(of: focusMode.isFocusModeActive) { _, isActive in
             if isActive {
-                withAnimation(QuartzAnimation.standard) { showFocusModeHint = true }
+                withFocusChromeTransition { showFocusModeHint = true }
                 Task {
                     try? await Task.sleep(for: .seconds(3))
-                    withAnimation(QuartzAnimation.standard) { showFocusModeHint = false }
+                    withFocusChromeTransition { showFocusModeHint = false }
                 }
             } else {
                 showFocusModeHint = false
@@ -531,25 +548,28 @@ public struct NoteEditorView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            if isPreviewMode {
-                MarkdownPreviewView(
-                    markdown: viewModel.content,
-                    baseURL: viewModel.note.map { $0.fileURL.deletingLastPathComponent() },
-                    fontScale: appearance.editorFontScale
-                )
-            } else {
-                MarkdownTextViewRepresentable(
-                    text: $viewModel.content,
-                    cursorPosition: $viewModel.cursorPosition,
-                    editorFontScale: appearance.editorFontScale,
-                    noteURL: viewModel.note?.fileURL
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .onDrop(of: [.image], isTargeted: nil) { providers in
-                    handleImageDrop(providers)
+            Group {
+                if isPreviewMode {
+                    MarkdownPreviewView(
+                        markdown: viewModel.content,
+                        baseURL: viewModel.note.map { $0.fileURL.deletingLastPathComponent() },
+                        fontScale: appearance.editorFontScale
+                    )
+                } else {
+                    MarkdownTextViewRepresentable(
+                        text: $viewModel.content,
+                        cursorPosition: $viewModel.cursorPosition,
+                        editorFontScale: appearance.editorFontScale,
+                        noteURL: viewModel.note?.fileURL
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.image], isTargeted: nil) { providers in
+                        handleImageDrop(providers)
+                    }
                 }
             }
+            .animation(reduceMotion ? .linear(duration: 0.001) : QuartzAnimation.previewEditToggle, value: isPreviewMode)
 
             if showBacklinks && !backlinks.isEmpty {
                 backlinkBar
@@ -1196,12 +1216,13 @@ public struct NoteEditorView: View {
 
             Button {
                 QuartzFeedback.toggle()
-                withAnimation(.bouncy) {
+                withFocusChromeTransition {
                     focusMode.toggleFocusMode()
                 }
             } label: {
                 Image(systemName: focusMode.isFocusModeActive ? "eye.slash.fill" : "eye.fill")
                     .symbolRenderingMode(.hierarchical)
+                    .contentTransition(.interpolate)
             }
             #if os(macOS)
             .focusable()
@@ -1216,10 +1237,11 @@ public struct NoteEditorView: View {
 
             Button {
                 QuartzFeedback.toggle()
-                withAnimation(.bouncy) { isPreviewMode.toggle() }
+                withPreviewTransition { isPreviewMode.toggle() }
             } label: {
                 Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                     .symbolRenderingMode(.hierarchical)
+                    .contentTransition(.interpolate)
             }
             .accessibilityLabel(isPreviewMode
                 ? String(localized: "Edit mode", bundle: .module)

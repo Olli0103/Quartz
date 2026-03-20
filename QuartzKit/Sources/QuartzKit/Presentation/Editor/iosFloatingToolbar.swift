@@ -14,12 +14,13 @@ struct IosEditorToolbar: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     Button {
-                        withAnimation(.bouncy) { onPreviewToggle() }
+                        onPreviewToggle()
                     } label: {
                         Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
                             .font(.system(size: 14, weight: .medium))
                             .symbolRenderingMode(.hierarchical)
                             .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
+                            .contentTransition(.interpolate)
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)

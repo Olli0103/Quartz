@@ -87,4 +87,15 @@ public enum QuartzAnimation {
     /// Error/status messages.
     /// response: 0.4, dampingFraction: 0.8
     public static let status: Animation = .spring(response: 0.4, dampingFraction: 0.8)
+
+    // MARK: - Phase-style state transitions (interruptible)
+
+    /// Sidebar folder disclosure expand/collapse — smooth, not flashy.
+    public static let folderExpand: Animation = .smooth(duration: 0.32)
+
+    /// Preview vs edit mode toggle (toolbar + content swap) — snappy, restrained.
+    public static let previewEditToggle: Animation = .snappy(duration: 0.28)
+
+    /// Focus mode button and hint chrome — light spring.
+    public static let focusChrome: Animation = .spring(response: 0.3, dampingFraction: 0.86)
 }
