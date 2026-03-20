@@ -255,6 +255,37 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             }
         }
 
+        // MARK: - Newline Interception for List Continuation
+
+        private let listContinuation = MarkdownListContinuation()
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText newText: String) -> Bool {
+            // Only intercept newline insertions
+            guard newText == "\n" else { return true }
+
+            let currentText = textView.text ?? ""
+            let cursorPos = range.location
+
+            // Check if list continuation applies
+            guard let result = listContinuation.handleNewline(in: currentText, cursorPosition: cursorPos) else {
+                return true // No list marker, allow normal newline
+            }
+
+            // Apply the continuation result
+            textView.text = result.newText
+            text = result.newText
+
+            // Set cursor position
+            if let newPosition = textView.position(from: textView.beginningOfDocument, offset: result.newCursorPosition) {
+                textView.selectedTextRange = textView.textRange(from: newPosition, to: newPosition)
+            }
+
+            updateCursorPosition(from: textView)
+            scheduleHighlight(text: result.newText, textView: textView)
+
+            return false // We handled the newline
+        }
+
         func textViewDidChange(_ textView: UITextView) {
             text = textView.text
             updateCursorPosition(from: textView)
@@ -427,6 +458,35 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
                     ], range: r)
                 }
             }
+        }
+
+        // MARK: - Newline Interception for List Continuation
+
+        private let listContinuation = MarkdownListContinuation()
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            // Only intercept newline insertions
+            guard let newText = replacementString, newText == "\n" else { return true }
+
+            let currentText = textView.string
+            let cursorPos = affectedCharRange.location
+
+            // Check if list continuation applies
+            guard let result = listContinuation.handleNewline(in: currentText, cursorPosition: cursorPos) else {
+                return true // No list marker, allow normal newline
+            }
+
+            // Apply the continuation result
+            textView.string = result.newText
+            text = result.newText
+
+            // Set cursor position
+            textView.setSelectedRange(NSRange(location: result.newCursorPosition, length: 0))
+
+            updateCursorPosition(from: textView)
+            scheduleHighlight(text: result.newText, textView: textView)
+
+            return false // We handled the newline
         }
 
         func textDidChange(_ notification: Notification) {

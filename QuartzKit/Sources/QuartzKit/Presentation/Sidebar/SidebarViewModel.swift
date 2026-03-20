@@ -214,7 +214,9 @@ public final class SidebarViewModel {
     }
 
     /// Moves an item to a new parent folder.
-    public func move(at sourceURL: URL, to destinationFolder: URL) async {
+    /// - Returns: `true` if the move succeeded, `false` if it failed.
+    @discardableResult
+    public func move(at sourceURL: URL, to destinationFolder: URL) async -> Bool {
         do {
             let folderUseCase = FolderManagementUseCase(vaultProvider: vaultProvider)
             let newURL = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
@@ -226,8 +228,10 @@ public final class SidebarViewModel {
                     userInfo: ["old": sourceURL, "new": newURL]
                 )
             }
+            return true
         } catch {
             errorMessage = userFacingMessage(for: error)
+            return false
         }
     }
 

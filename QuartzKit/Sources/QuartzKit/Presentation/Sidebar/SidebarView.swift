@@ -61,7 +61,6 @@ public struct SidebarView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedTemplate: NoteTemplate = .blank
     @State private var dropTargetURL: URL?
-    @State private var dropPosition: DropPosition = .inside
     @State private var moveSourceURL: URL?
     @State private var showMoveToFolderSheet = false
     @ScaledMetric(relativeTo: .caption) private var tagsChipRowVerticalPadding: CGFloat = 4
@@ -107,7 +106,6 @@ public struct SidebarView: View {
                         nodes: viewModel.filteredTree,
                         selectedNoteURL: $selectedNoteURL,
                         dropTargetURL: $dropTargetURL,
-                        dropPosition: $dropPosition,
                         appearance: appearance,
                         onDrop: { urls, folder in handleDrop(urls: urls, onto: folder) },
                         onDropSuccess: { QuartzFeedback.success() },
@@ -697,21 +695,37 @@ public struct SidebarView: View {
 
         guard !validURLs.isEmpty else { return false }
 
-        // Provide haptic feedback for successful drop initiation
+        // Provide haptic feedback for drop initiation
         QuartzFeedback.selection()
 
-        // Batch move all valid items
+        // Batch move all valid items and track results
         Task {
             var successCount = 0
+            var failureCount = 0
+
             for sourceURL in validURLs {
-                await viewModel.move(at: sourceURL, to: folder.url)
-                successCount += 1
+                let success = await viewModel.move(at: sourceURL, to: folder.url)
+                if success {
+                    successCount += 1
+                } else {
+                    failureCount += 1
+                }
             }
 
-            // Provide success feedback after all moves complete
-            if successCount > 0 {
-                await MainActor.run {
+            await MainActor.run {
+                if successCount > 0 && failureCount == 0 {
+                    // All moves succeeded
                     QuartzFeedback.success()
+                } else if successCount > 0 && failureCount > 0 {
+                    // Partial success - some items moved, some failed
+                    QuartzFeedback.warning()
+                    viewModel.errorMessage = String(
+                        localized: "Moved \(successCount) item(s), but \(failureCount) failed.",
+                        bundle: .module
+                    )
+                } else {
+                    // All moves failed - error already set by viewModel.move()
+                    QuartzFeedback.destructive()
                 }
             }
         }
@@ -726,7 +740,6 @@ private struct SidebarOutlineView: View {
     let nodes: [FileNode]
     @Binding var selectedNoteURL: URL?
     @Binding var dropTargetURL: URL?
-    @Binding var dropPosition: DropPosition
     let appearance: AppearanceManager
     let onDrop: ([URL], FileNode) -> Bool
     let onDropSuccess: () -> Void
@@ -744,7 +757,6 @@ private struct SidebarOutlineView: View {
                 node: node,
                 selectedNoteURL: $selectedNoteURL,
                 dropTargetURL: $dropTargetURL,
-                dropPosition: $dropPosition,
                 appearance: appearance,
                 onDrop: onDrop,
                 onDropSuccess: onDropSuccess,
@@ -766,7 +778,6 @@ private struct SidebarOutlineRow: View {
     let node: FileNode
     @Binding var selectedNoteURL: URL?
     @Binding var dropTargetURL: URL?
-    @Binding var dropPosition: DropPosition
     let appearance: AppearanceManager
     let onDrop: ([URL], FileNode) -> Bool
     let onDropSuccess: () -> Void
@@ -783,7 +794,7 @@ private struct SidebarOutlineRow: View {
     @Environment(\.openWindow) private var openWindow
     #endif
 
-    private var isDropTarget: Bool { dropTargetURL == node.url && dropPosition == .inside }
+    private var isDropTarget: Bool { dropTargetURL == node.url }
 
     var body: some View {
         rowContent
@@ -797,7 +808,6 @@ private struct SidebarOutlineRow: View {
             .modifier(SidebarFolderDropModifier(
                 node: node,
                 dropTargetURL: $dropTargetURL,
-                dropPosition: $dropPosition,
                 onDrop: onDrop,
                 onDropSuccess: onDropSuccess
             ))
@@ -969,36 +979,18 @@ private struct SidebarNoteAccessibilityModifier: ViewModifier {
 private struct SidebarFolderDropModifier: ViewModifier {
     let node: FileNode
     @Binding var dropTargetURL: URL?
-    @Binding var dropPosition: DropPosition
     let onDrop: ([URL], FileNode) -> Bool
     let onDropSuccess: () -> Void
 
     func body(content: Content) -> some View {
         if node.isFolder {
+            // Folders accept drops directly into them
             content
-                .overlay(alignment: .top) {
-                    // Insertion gap indicator (before)
-                    if dropTargetURL == node.url && dropPosition == .before {
-                        InsertionGapIndicator()
-                            .offset(y: -4)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    // Insertion gap indicator (after)
-                    if dropTargetURL == node.url && dropPosition == .after {
-                        InsertionGapIndicator()
-                            .offset(y: 4)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                }
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: dropTargetURL)
-                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: dropPosition)
                 .dropDestination(for: SidebarItemTransferable.self) { items, location in
                     // Ensure state is always cleared on drop completion
                     defer {
                         dropTargetURL = nil
-                        dropPosition = .inside
                     }
                     let moved = onDrop(items.map(\.url), node)
                     if moved { onDropSuccess() }
@@ -1006,36 +998,18 @@ private struct SidebarFolderDropModifier: ViewModifier {
                 } isTargeted: { targeted in
                     if targeted {
                         dropTargetURL = node.url
-                        dropPosition = .inside
                     } else if dropTargetURL == node.url {
                         // Clear state when no longer targeted (including cancelled drags)
                         dropTargetURL = nil
-                        dropPosition = .inside
                     }
                 }
         } else {
-            // For notes, allow drop to move items to the note's parent folder
+            // Notes accept drops to move items to the note's parent folder
             content
-                .overlay(alignment: .top) {
-                    if dropTargetURL == node.url && dropPosition == .before {
-                        InsertionGapIndicator()
-                            .offset(y: -4)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    if dropTargetURL == node.url && dropPosition == .after {
-                        InsertionGapIndicator()
-                            .offset(y: 4)
-                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                    }
-                }
                 .animation(.spring(response: 0.2, dampingFraction: 0.8), value: dropTargetURL)
-                .animation(.spring(response: 0.2, dampingFraction: 0.8), value: dropPosition)
                 .dropDestination(for: SidebarItemTransferable.self) { items, _ in
                     defer {
                         dropTargetURL = nil
-                        dropPosition = .inside
                     }
                     // For notes, create a virtual folder node representing the parent directory
                     let parentURL = node.url.deletingLastPathComponent()
@@ -1050,40 +1024,12 @@ private struct SidebarFolderDropModifier: ViewModifier {
                 } isTargeted: { targeted in
                     if targeted {
                         dropTargetURL = node.url
-                        dropPosition = .inside
                     } else if dropTargetURL == node.url {
                         dropTargetURL = nil
-                        dropPosition = .inside
                     }
                 }
         }
     }
-}
-
-/// Visual indicator showing the insertion point during drag operations.
-private struct InsertionGapIndicator: View {
-    @Environment(\.appearanceManager) private var appearance
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(appearance.accentColor)
-                .frame(width: 6, height: 6)
-            Rectangle()
-                .fill(appearance.accentColor)
-                .frame(height: 2)
-        }
-        .padding(.horizontal, 4)
-        .transition(.opacity.combined(with: .scale(scale: 0.8)))
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: true)
-    }
-}
-
-/// Position of the drop target relative to the item.
-enum DropPosition: Sendable {
-    case before
-    case inside
-    case after
 }
 
 // MARK: - New Note primary CTA (press animation)
