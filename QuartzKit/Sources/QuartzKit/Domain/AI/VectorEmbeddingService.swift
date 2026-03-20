@@ -70,17 +70,17 @@ public actor VectorEmbeddingService {
             return
         }
 
-        let data = try Data(contentsOf: indexURL, options: .mappedIfSafe)
+        let data = try CoordinatedFileWriter.shared.read(from: indexURL)
         index = try Self.decodeBinary(data)
     }
 
     /// Saves the embedding index to disk (binary format).
     public func saveIndex() throws {
         let dir = indexURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try CoordinatedFileWriter.shared.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let data = Self.encodeBinary(index)
-        try data.write(to: indexURL, options: .atomic)
+        try CoordinatedFileWriter.shared.write(data, to: indexURL)
     }
 
     // MARK: - Binary Serialization

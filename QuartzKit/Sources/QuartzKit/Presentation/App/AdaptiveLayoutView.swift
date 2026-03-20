@@ -111,6 +111,8 @@ public struct KeyboardShortcutCommands: Commands {
 public struct StageManagerModifier: ViewModifier {
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     var appState: AppState
+    /// Must match ``ContentView``’s selection so `onOpenURL` opens the same note as sidebar / widgets / Handoff.
+    var selectedNoteURL: Binding<URL?>
 
     public func body(content: Content) -> some View {
         content
@@ -124,12 +126,7 @@ public struct StageManagerModifier: ViewModifier {
         switch url.host() {
         case "note":
             guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, appState: appState) else { return }
-            Task { @MainActor in
-                let provider = FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
-                if let note = try? await provider.readNote(at: noteURL) {
-                    appState.selectedNote = note
-                }
-            }
+            selectedNoteURL.wrappedValue = noteURL
         case "new":
             appState.pendingCommand = .newNote
         case "daily":
@@ -143,8 +140,8 @@ public struct StageManagerModifier: ViewModifier {
 }
 
 extension View {
-    /// Enables Stage Manager support.
-    public func stageManagerSupport(appState: AppState) -> some View {
-        modifier(StageManagerModifier(appState: appState))
+    /// Enables Stage Manager support and routes `quartz://` deep links into the editor selection.
+    public func stageManagerSupport(appState: AppState, selectedNoteURL: Binding<URL?>) -> some View {
+        modifier(StageManagerModifier(appState: appState, selectedNoteURL: selectedNoteURL))
     }
 }

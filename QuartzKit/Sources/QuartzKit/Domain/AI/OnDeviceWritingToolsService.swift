@@ -223,13 +223,17 @@ public actor OnDeviceWritingToolsService {
     // MARK: - AI Provider Path
 
     /// Uses the provider only when it is configured and expected to work: API-key providers need a key;
-    /// **Ollama** must respond on the configured base URL (selected is not the same as reachable).
+    /// **Ollama** must be reachable (cached probe or live check when unknown).
     private func isSelectedProviderUsableForWritingTools() async -> Bool {
         let registry = await AIProviderRegistry.shared
         guard let provider = await registry.selectedProvider else { return false }
         guard provider.isConfigured else { return false }
         if provider.id == "ollama" {
-            return await provider.checkConnection()
+            switch provider.reachability {
+            case .reachable: return true
+            case .unreachable: return false
+            case .unknown: return await provider.checkConnection()
+            }
         }
         return true
     }

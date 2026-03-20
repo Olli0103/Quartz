@@ -268,3 +268,79 @@ struct FrontmatterTests {
     }
 }
 
+// MARK: - FavoriteNoteStorage
+
+@Suite("FavoriteNoteStorage")
+struct FavoriteNoteStorageTests {
+    @Test("Storage keys differ for same filename in different folders")
+    func distinctNestedPaths() {
+        let vault = URL(fileURLWithPath: "/tmp/quartz-vault")
+        let a = URL(fileURLWithPath: "/tmp/quartz-vault/projects/a.md")
+        let b = URL(fileURLWithPath: "/tmp/quartz-vault/archive/a.md")
+        let ka = FavoriteNoteStorage.storageKey(fileURL: a, vaultRoot: vault)
+        let kb = FavoriteNoteStorage.storageKey(fileURL: b, vaultRoot: vault)
+        #expect(ka != nil)
+        #expect(kb != nil)
+        #expect(ka != kb)
+    }
+
+    @Test("Storage key is nil when file is outside vault")
+    func outsideVault() {
+        let vault = URL(fileURLWithPath: "/tmp/vault-a")
+        let file = URL(fileURLWithPath: "/tmp/vault-b/note.md")
+        #expect(FavoriteNoteStorage.storageKey(fileURL: file, vaultRoot: vault) == nil)
+    }
+
+    @Test("New-format key matches isFavorite; legacy only when unique name in tree")
+    func isFavoriteLogic() {
+        let vault = URL(fileURLWithPath: "/vault")
+        let urlA = URL(fileURLWithPath: "/vault/x/a.md")
+        let urlB = URL(fileURLWithPath: "/vault/y/a.md")
+        let keyA = FavoriteNoteStorage.storageKey(fileURL: urlA, vaultRoot: vault)!
+        let tree = [
+            FileNode(name: "x", url: URL(fileURLWithPath: "/vault/x"), nodeType: .folder, children: [
+                FileNode(name: "a.md", url: urlA, nodeType: .note)
+            ]),
+            FileNode(name: "y", url: URL(fileURLWithPath: "/vault/y"), nodeType: .folder, children: [
+                FileNode(name: "a.md", url: urlB, nodeType: .note)
+            ])
+        ]
+        #expect(
+            FavoriteNoteStorage.isFavorite(
+                fileURL: urlA,
+                vaultRoot: vault,
+                storedKeys: [keyA],
+                fileTree: tree
+            )
+        )
+        #expect(
+            !FavoriteNoteStorage.isFavorite(
+                fileURL: urlB,
+                vaultRoot: vault,
+                storedKeys: [keyA],
+                fileTree: tree
+            )
+        )
+        // Ambiguous legacy "a.md" — must not match either note.
+        #expect(
+            !FavoriteNoteStorage.isFavorite(
+                fileURL: urlA,
+                vaultRoot: vault,
+                storedKeys: ["a.md"],
+                fileTree: tree
+            )
+        )
+        let singleNoteTree = [
+            FileNode(name: "a.md", url: urlA, nodeType: .note)
+        ]
+        #expect(
+            FavoriteNoteStorage.isFavorite(
+                fileURL: urlA,
+                vaultRoot: vault,
+                storedKeys: ["a.md"],
+                fileTree: singleNoteTree
+            )
+        )
+    }
+}
+

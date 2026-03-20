@@ -34,6 +34,7 @@ public actor DashboardBriefingService {
         let modelID = await providerRegistry.selectedModelID
 
         guard let provider, provider.isConfigured else { return nil }
+        if provider.id == "ollama", provider.reachability == .unreachable { return nil }
         guard !recentNoteContents.isEmpty else { return nil }
 
         let contextLimit = 8_000

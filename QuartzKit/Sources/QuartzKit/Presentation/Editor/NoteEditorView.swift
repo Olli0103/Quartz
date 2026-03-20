@@ -89,7 +89,6 @@ public struct NoteEditorView: View {
     @State private var showExternalModificationSheet = false
     @State private var diskBodyForMerge = ""
     private let formatter = MarkdownFormatter()
-    private static let favoritesKey = "quartz.favoriteNotes"
 
     /// Optional callbacks for global toolbar actions (Search Brain, New Note, Refresh).
     /// When provided, these appear after AI and Focus Mode, before Save and Share.
@@ -233,6 +232,12 @@ public struct NoteEditorView: View {
 
     private var editorWithOverlays: some View {
         editorWithToolbars
+        .onReceive(NotificationCenter.default.publisher(for: .quartzFavoritesDidChange)) { _ in
+            refreshFavoriteState(for: viewModel.note?.fileURL)
+        }
+        .onChange(of: viewModel.fileTree) { _, _ in
+            refreshFavoriteState(for: viewModel.note?.fileURL)
+        }
         #if os(iOS)
         .overlay(alignment: .bottom) {
             if !isPreviewMode {
@@ -848,13 +853,11 @@ public struct NoteEditorView: View {
                     .textFieldStyle(.plain)
                     .onAppear {
                         editableTitle = note.displayName
-                        isFavorite = Self.checkFavorite(note.fileURL)
+                        refreshFavoriteState(for: note.fileURL)
                     }
                     .onChange(of: viewModel.note?.fileURL) { _, _ in
                         editableTitle = viewModel.note?.displayName ?? ""
-                        if let url = viewModel.note?.fileURL {
-                            isFavorite = Self.checkFavorite(url)
-                        }
+                        refreshFavoriteState(for: viewModel.note?.fileURL)
                     }
                     .onSubmit {
                         viewModel.renameNote(to: editableTitle)
@@ -952,23 +955,25 @@ public struct NoteEditorView: View {
 
     // MARK: - Favorites
 
-    private static func checkFavorite(_ url: URL) -> Bool {
-        let favs = UserDefaults.standard.stringArray(forKey: favoritesKey) ?? []
-        return favs.contains(url.lastPathComponent)
+    private func refreshFavoriteState(for url: URL?) {
+        guard let url else {
+            isFavorite = false
+            return
+        }
+        isFavorite = FavoriteNoteStorage.isFavorite(
+            fileURL: url,
+            vaultRoot: viewModel.vaultRootURL,
+            storedKeys: FavoriteNoteStorage.readStoredKeys(),
+            fileTree: viewModel.fileTree
+        )
     }
 
     private func toggleFavorite(for url: URL) {
-        var favs = UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? []
-        let key = url.lastPathComponent
-        if favs.contains(key) {
-            favs.removeAll { $0 == key }
-            isFavorite = false
-        } else {
-            favs.append(key)
-            isFavorite = true
-        }
-        UserDefaults.standard.set(favs, forKey: Self.favoritesKey)
-        NotificationCenter.default.post(name: .quartzFavoritesDidChange, object: nil)
+        isFavorite = FavoriteNoteStorage.toggleFavorite(
+            fileURL: url,
+            vaultRoot: viewModel.vaultRootURL,
+            fileTree: viewModel.fileTree
+        )
     }
 
     // MARK: - Tag Bar
@@ -1121,7 +1126,7 @@ public struct NoteEditorView: View {
     private var statusText: String {
         if viewModel.isSaving { return String(localized: "Saving…", bundle: .module) }
         if viewModel.isDirty { return String(localized: "Edited", bundle: .module) }
-        return String(localized: "Synced", bundle: .module)
+        return String(localized: "Saved", bundle: .module)
     }
 
     private func exportAsPDF() {

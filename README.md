@@ -36,7 +36,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 |---|---|
 | **📝 Beautiful Markdown** | Raw markdown editing with syntax highlighting. Textual-powered preview with math, tables, code blocks. Export to PDF. |
 | **🧠 Second Brain** | Wiki-links, backlinks, tags, full-text search. Interactive knowledge graph. |
-| **🤖 AI-Powered** | Chat with notes or your entire vault. Summarize, rewrite, proofread. 5 providers + Ollama. |
+| **🤖 AI-Powered** | Chat with notes or your entire vault. Summarize, rewrite, proofread. 5 providers including Ollama. |
 | **🎙️ Audio & Transcription** | Record, transcribe on-device, auto-generate meeting minutes. |
 | **✍️ Handwriting (iPad)** | PencilKit drawings with OCR — searchable handwriting. |
 | **🔒 Privacy First** | Face ID / Touch ID lock. Optional AES-256 vault encryption. |
@@ -71,7 +71,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 - **Knowledge Graph** — Interactive force-directed graph (macOS)
 
 ### AI Integration
-Bring your own API key. 5 providers supported:
+Bring your own API key where required. **Five** providers are supported, **including Ollama** for local models:
 
 | Provider | Models |
 |---------|--------|

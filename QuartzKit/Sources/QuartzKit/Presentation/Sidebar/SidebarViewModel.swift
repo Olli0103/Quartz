@@ -52,7 +52,6 @@ public final class SidebarViewModel {
     public var isLoading: Bool = false
     public var errorMessage: String?
 
-    private static let favoritesKey = "quartz.favoriteNotes"
     private static let sortOrderKey = "quartz.sidebarSortOrder"
 
     public var sortOrder: SidebarSortOrder {
@@ -80,27 +79,24 @@ public final class SidebarViewModel {
 
     public var favoriteURLs: Set<String> {
         if let cached = _favoriteURLs { return cached }
-        let set = Set(UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? [])
+        let set = FavoriteNoteStorage.readStoredKeys()
         _favoriteURLs = set
         return set
     }
 
     public func isFavorite(_ url: URL) -> Bool {
-        favoriteURLs.contains(url.lastPathComponent)
+        FavoriteNoteStorage.isFavorite(
+            fileURL: url,
+            vaultRoot: vaultRoot,
+            storedKeys: favoriteURLs,
+            fileTree: fileTree
+        )
     }
 
     public func toggleFavorite(_ url: URL) {
-        var favs = UserDefaults.standard.stringArray(forKey: Self.favoritesKey) ?? []
-        let key = url.lastPathComponent
-        if favs.contains(key) {
-            favs.removeAll { $0 == key }
-        } else {
-            favs.append(key)
-        }
-        UserDefaults.standard.set(favs, forKey: Self.favoritesKey)
-        _favoriteURLs = Set(favs)
+        _ = FavoriteNoteStorage.toggleFavorite(fileURL: url, vaultRoot: vaultRoot, fileTree: fileTree)
+        _favoriteURLs = nil
         invalidateFilterCache()
-        NotificationCenter.default.post(name: .quartzFavoritesDidChange, object: nil)
     }
 
     private var favoritesObserver: Any?
@@ -347,7 +343,13 @@ public final class SidebarViewModel {
 
     private func filterByFavorite(_ node: FileNode, favorites: Set<String>) -> FileNode? {
         if node.isNote {
-            return favorites.contains(node.url.lastPathComponent) ? node : nil
+            guard let root = vaultRoot else { return nil }
+            return FavoriteNoteStorage.isFavorite(
+                fileURL: node.url,
+                vaultRoot: root,
+                storedKeys: favorites,
+                fileTree: fileTree
+            ) ? node : nil
         }
         if node.isFolder, let children = node.children {
             let filtered = children.compactMap { filterByFavorite($0, favorites: favorites) }

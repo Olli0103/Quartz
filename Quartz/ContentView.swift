@@ -94,7 +94,7 @@ struct ContentView: View {
         } detail: {
             detailColumn
         }
-        .stageManagerSupport(appState: appState)
+        .stageManagerSupport(appState: appState, selectedNoteURL: $selectedNoteURL)
     }
 
     var body: some View {
@@ -858,8 +858,8 @@ struct ContentView: View {
             // Old bookmarks created with readonly scope will fail here.
             let testFile = url.appending(path: ".quartz-write-test")
             do {
-                try Data().write(to: testFile, options: .atomic)
-                try? FileManager.default.removeItem(at: testFile)
+                try CoordinatedFileWriter.shared.write(Data(), to: testFile)
+                try? CoordinatedFileWriter.shared.removeItem(at: testFile)
             } catch {
                 url.stopAccessingSecurityScopedResource()
                 clearBookmark()

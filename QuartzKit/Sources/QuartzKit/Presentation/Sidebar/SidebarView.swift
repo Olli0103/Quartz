@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 /// Transferable for sidebar drag & drop. Multiple representations for cross-platform reliability.
 private struct SidebarItemTransferable: Transferable, Codable {
@@ -225,11 +228,11 @@ public struct SidebarView: View {
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
         }
         .confirmationDialog(
-            String(localized: "Delete this item?", bundle: .module),
+            String(localized: "Move to Trash?", bundle: .module),
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button(String(localized: "Delete", bundle: .module), role: .destructive) {
+            Button(String(localized: "Move to Trash", bundle: .module), role: .destructive) {
                 guard let url = pendingDeleteURL else { return }
                 if pendingDeleteIsNote, selectedNoteURL == url { selectedNoteURL = nil }
                 QuartzFeedback.destructive()
@@ -238,7 +241,7 @@ public struct SidebarView: View {
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { pendingDeleteURL = nil }
         } message: {
-            Text(String(localized: "This action cannot be undone.", bundle: .module))
+            Text(String(localized: "The item will be moved to Trash. You can restore it from Trash later.", bundle: .module))
         }
         .alert(
             String(localized: "Error", bundle: .module),
@@ -594,6 +597,12 @@ public struct SidebarView: View {
     }
 
     #if os(macOS)
+    /// Deleted notes go to the system Trash on macOS; surface that in the product UI.
+    private func openUserTrashInFinder() {
+        guard let trashURL = FileManager.default.urls(for: .trashDirectory, in: .userDomainMask).first else { return }
+        NSWorkspace.shared.open(trashURL)
+    }
+
     private var mapViewAndTrashSection: some View {
         VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
             Button { onMapViewTap?() } label: {
@@ -605,7 +614,10 @@ public struct SidebarView: View {
             }
             .buttonStyle(.plain)
 
-            Button {} label: {
+            Button {
+                QuartzFeedback.selection()
+                openUserTrashInFinder()
+            } label: {
                 Label(String(localized: "Trash", bundle: .module), systemImage: "trash")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
@@ -613,6 +625,7 @@ public struct SidebarView: View {
                     .frame(minHeight: QuartzHIG.minTouchTarget)
             }
             .buttonStyle(.plain)
+            .help(String(localized: "Open Trash in Finder to view or restore deleted items.", bundle: .module))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)

@@ -29,9 +29,6 @@ public final class AppState {
         currentVault = newVault
     }
 
-    /// Currently selected note in the editor (set via deep linking).
-    public var selectedNote: NoteDocument?
-
     /// Error message for the user (shows the first entry in the queue).
     public var errorMessage: String? {
         get { errorQueue.first }

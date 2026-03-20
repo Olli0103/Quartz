@@ -5,14 +5,24 @@ import os
 
 // MARK: - AI Provider Protocol
 
+/// Last-known connectivity to the provider endpoint (distinct from having credentials / URL set).
+public enum AIProviderReachability: Sendable, Equatable {
+    /// No probe yet (e.g. Ollama not tested this session).
+    case unknown
+    case reachable
+    case unreachable
+}
+
 /// Adapter pattern: each AI provider implements this protocol.
 public protocol AIProvider: Sendable {
     /// Unique identifier for the provider.
     var id: String { get }
     /// Display name.
     var displayName: String { get }
-    /// Whether an API key is configured.
+    /// Whether credentials or endpoint settings are present (not whether the network responds).
     var isConfigured: Bool { get }
+    /// Whether the remote endpoint was reachable at the last check. API-key providers default to `.reachable` when configured.
+    var reachability: AIProviderReachability { get }
     /// Available models.
     var availableModels: [AIModel] { get }
 
@@ -28,6 +38,11 @@ public protocol AIProvider: Sendable {
 }
 
 public extension AIProvider {
+    /// Default: treat key-based configuration as usable; network is not preflighted.
+    var reachability: AIProviderReachability {
+        isConfigured ? .reachable : .unreachable
+    }
+
     func checkConnection() async -> Bool {
         guard isConfigured else { return false }
         do {
@@ -232,6 +247,7 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
 
     public static func setBaseURL(_ url: URL) {
         UserDefaults.standard.set(url.absoluteString, forKey: urlDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.reachabilityKey)
     }
 
     /// Returns the currently stored base URL string for UI display.
@@ -239,7 +255,28 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
         UserDefaults.standard.string(forKey: urlDefaultsKey) ?? defaultBaseURL.absoluteString
     }
 
+    private static let reachabilityKey = "ollamaReachabilityState"
+
+    /// A base URL is configured (default localhost counts).
     public var isConfigured: Bool { true }
+
+    public var reachability: AIProviderReachability {
+        switch UserDefaults.standard.string(forKey: Self.reachabilityKey) {
+        case "reachable": return .reachable
+        case "unreachable": return .unreachable
+        default: return .unknown
+        }
+    }
+
+    private static func persistReachability(_ state: AIProviderReachability) {
+        let raw: String
+        switch state {
+        case .unknown: raw = "unknown"
+        case .reachable: raw = "reachable"
+        case .unreachable: raw = "unreachable"
+        }
+        UserDefaults.standard.set(raw, forKey: Self.reachabilityKey)
+    }
 
     public var availableModels: [AIModel] {
         [
@@ -257,8 +294,11 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
         request.httpMethod = "GET"
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+            Self.persistReachability(ok ? .reachable : .unreachable)
+            return ok
         } catch {
+            Self.persistReachability(.unreachable)
             return false
         }
     }
@@ -492,6 +532,11 @@ public final class AIProviderRegistry: @unchecked Sendable {
 
     public var configuredProviders: [any AIProvider] {
         providers.filter(\.isConfigured)
+    }
+
+    /// Providers with settings in place and not known to be offline (Ollama server must be reachable when last probed).
+    public var providersReadyForUse: [any AIProvider] {
+        providers.filter { $0.isConfigured && $0.reachability != .unreachable }
     }
 
     /// All models for a provider: built-in + user-defined.

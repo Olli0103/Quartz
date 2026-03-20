@@ -44,6 +44,19 @@ public struct GraphEdge: Identifiable, Sendable {
 
 // MARK: - Graph View Model
 
+/// Bounds graph build and layout cost for large vaults.
+public enum GraphLayoutPolicy: Sendable {
+    /// Maximum notes included in one graph build (I/O + layout scale with this).
+    public static let maxNodesPerGraph = 280
+    /// Skip semantic AI edges above this count (avoids O(n) embedding similarity work).
+    public static let semanticLinkingMaxNodes = 200
+
+    static func layoutIterations(forNodeCount n: Int) -> Int {
+        guard n > 1 else { return 0 }
+        return min(96, max(24, 30_000 / max(n, 8)))
+    }
+}
+
 @Observable
 @MainActor
 public final class GraphViewModel {
@@ -51,6 +64,8 @@ public final class GraphViewModel {
     public var edges: [GraphEdge] = []
     public var isLoading = true
     public var currentNoteID: String?
+    /// Non-nil when the vault had more notes than ``GraphLayoutPolicy/maxNodesPerGraph`` and the graph was capped.
+    public var graphTruncationNote: String?
 
     private let linkExtractor = WikiLinkExtractor()
     private var nodeIndex: [String: Int] = [:]
@@ -69,11 +84,20 @@ public final class GraphViewModel {
         semanticAutoLinkingEnabled: Bool = true
     ) async {
         isLoading = true
+        graphTruncationNote = nil
 
-        let allNotes = collectNotes(from: fileTree)
-        guard !allNotes.isEmpty else {
+        let collected = collectNotes(from: fileTree)
+        guard !collected.isEmpty else {
             isLoading = false
             return
+        }
+
+        let allNotes = selectNotesForGraph(collected, limit: GraphLayoutPolicy.maxNodesPerGraph, currentNoteURL: currentNoteURL)
+        if collected.count > allNotes.count {
+            graphTruncationNote = String(
+                localized: "Showing \(allNotes.count) of \(collected.count) notes (most recently edited). Open the graph from a note to keep it in view.",
+                bundle: .module
+            )
         }
 
         let noteURLs = allNotes.map(\.url)
@@ -108,21 +132,24 @@ public final class GraphViewModel {
         var builtEdges: [GraphEdge] = []
         var nameToID: [String: String] = [:]
         var urlToTags: [URL: [String]] = [:]
+        var urlToLinks: [URL: [WikiLink]] = [:]
 
         if let provider = vaultProvider {
-            await withTaskGroup(of: (URL, [String]).self) { group in
+            await withTaskGroup(of: (URL, [String], [WikiLink]).self) { group in
                 for note in allNotes {
-                    group.addTask {
+                    group.addTask { [linkExtractor] in
                         do {
                             let doc = try await provider.readNote(at: note.url)
-                            return (note.url, doc.frontmatter.tags)
+                            let links = linkExtractor.extractLinks(from: doc.body)
+                            return (note.url, doc.frontmatter.tags, links)
                         } catch {
-                            return (note.url, [])
+                            return (note.url, [], [])
                         }
                     }
                 }
-                for await (url, tags) in group {
+                for await (url, tags, links) in group {
                     urlToTags[url] = tags
+                    urlToLinks[url] = links
                 }
             }
         }
@@ -150,30 +177,17 @@ public final class GraphViewModel {
 
         var edgeSet = Set<String>()
 
-        if let provider = vaultProvider {
-            await withTaskGroup(of: (String, [WikiLink]).self) { group in
-                for note in allNotes {
-                    let nodeID = note.url.absoluteString
-                    group.addTask { [linkExtractor] in
-                        do {
-                            let doc = try await provider.readNote(at: note.url)
-                            let links = linkExtractor.extractLinks(from: doc.body)
-                            return (nodeID, links)
-                        } catch {
-                            return (nodeID, [])
-                        }
-                    }
-                }
-
-                for await (sourceID, links) in group {
-                    for link in links {
-                        let targetName = link.target.lowercased()
-                        if let targetID = nameToID[targetName] {
-                            let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
-                            if !edgeSet.contains(edgeKey) {
-                                edgeSet.insert(edgeKey)
-                                builtEdges.append(GraphEdge(from: sourceID, to: targetID))
-                            }
+        if vaultProvider != nil {
+            for note in allNotes {
+                let sourceID = note.url.absoluteString
+                let links = urlToLinks[note.url] ?? []
+                for link in links {
+                    let targetName = link.target.lowercased()
+                    if let targetID = nameToID[targetName] {
+                        let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
+                        if !edgeSet.contains(edgeKey) {
+                            edgeSet.insert(edgeKey)
+                            builtEdges.append(GraphEdge(from: sourceID, to: targetID))
                         }
                     }
                 }
@@ -181,7 +195,10 @@ public final class GraphViewModel {
         }
 
         // AI-assisted semantic linking: add edges between semantically similar notes (when enabled)
-        if semanticAutoLinkingEnabled, let embedding = embeddingService, let root = vaultRootURL {
+        if semanticAutoLinkingEnabled,
+           allNotes.count <= GraphLayoutPolicy.semanticLinkingMaxNodes,
+           let embedding = embeddingService,
+           let root = vaultRootURL {
             var stableIDToNodeID: [UUID: String] = [:]
             for note in allNotes {
                 let sid = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
@@ -253,29 +270,51 @@ public final class GraphViewModel {
     // MARK: - Force-Directed Layout
 
     /// Runs a simplified force-directed layout to position nodes.
-    public func layoutGraph(iterations: Int = 120) {
+    /// Uses spatial hashing for repulsion (neighboring grid cells) so large graphs stay responsive; iterations scale down with node count.
+    public func layoutGraph(iterations: Int? = nil) {
         guard nodes.count > 1 else { return }
 
+        let iterations = iterations ?? GraphLayoutPolicy.layoutIterations(forNodeCount: nodes.count)
+        guard iterations > 0 else { return }
+
+        let n = nodes.count
         let repulsionStrength: CGFloat = 6000
         let attractionStrength: CGFloat = 0.008
         let damping: CGFloat = 0.85
         let centerGravity: CGFloat = 0.01
+        let cellSize = max(36, min(130, 2200 / sqrt(CGFloat(max(n, 2)))))
 
         for _ in 0..<iterations {
-            // Repulsion between all pairs (Coulomb's law)
-            for i in 0..<nodes.count {
-                for j in (i + 1)..<nodes.count {
-                    let dx = nodes[i].x - nodes[j].x
-                    let dy = nodes[i].y - nodes[j].y
-                    let distSq = dx * dx + dy * dy
-                    let dist = max(sqrt(distSq), 1)
-                    let force = repulsionStrength / (dist * dist)
-                    let fx = (dx / dist) * force
-                    let fy = (dy / dist) * force
-                    nodes[i].vx += fx
-                    nodes[i].vy += fy
-                    nodes[j].vx -= fx
-                    nodes[j].vy -= fy
+            // Repulsion: only between nodes in the same or adjacent grid cells (avoids O(n²) all-pairs).
+            var buckets: [String: [Int]] = [:]
+            buckets.reserveCapacity(n)
+            for i in 0..<n {
+                let gx = Int(floor(nodes[i].x / cellSize))
+                let gy = Int(floor(nodes[i].y / cellSize))
+                let key = "\(gx),\(gy)"
+                buckets[key, default: []].append(i)
+            }
+
+            for i in 0..<n {
+                let gx = Int(floor(nodes[i].x / cellSize))
+                let gy = Int(floor(nodes[i].y / cellSize))
+                for dx in -1...1 {
+                    for dy in -1...1 {
+                        let key = "\(gx + dx),\(gy + dy)"
+                        guard let bucket = buckets[key] else { continue }
+                        for j in bucket where j > i {
+                            let dxn = nodes[i].x - nodes[j].x
+                            let dyn = nodes[i].y - nodes[j].y
+                            let dist = max(sqrt(dxn * dxn + dyn * dyn), 1)
+                            let force = repulsionStrength / (dist * dist)
+                            let fx = (dxn / dist) * force
+                            let fy = (dyn / dist) * force
+                            nodes[i].vx += fx
+                            nodes[i].vy += fy
+                            nodes[j].vx -= fx
+                            nodes[j].vy -= fy
+                        }
+                    }
                 }
             }
 
@@ -362,6 +401,20 @@ public final class GraphViewModel {
             if let children = node.children {
                 result.append(contentsOf: collectNotes(from: children))
             }
+        }
+        return result
+    }
+
+    /// Caps graph size for performance; always includes `currentNoteURL` when present.
+    private func selectNotesForGraph(_ notes: [FileNode], limit: Int, currentNoteURL: URL?) -> [FileNode] {
+        guard notes.count > limit else { return notes }
+        let sorted = notes.sorted { $0.metadata.modifiedAt > $1.metadata.modifiedAt }
+        var result = Array(sorted.prefix(limit))
+        if let cur = currentNoteURL,
+           !result.contains(where: { $0.url == cur }),
+           let currentNode = notes.first(where: { $0.url == cur }) {
+            result.removeLast()
+            result.append(currentNode)
         }
         return result
     }
@@ -482,6 +535,13 @@ public struct KnowledgeGraphView: View {
                         Text("\(viewModel.nodes.count) \(String(localized: "nodes", bundle: .module))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    if let note = viewModel.graphTruncationNote {
+                        Text(note)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
                     }
                 }
             }

@@ -186,7 +186,7 @@ public actor CloudSyncService {
         }
 
         let cloudURL = cloudVersion.url
-        let cloudData = try? Data(contentsOf: cloudURL)
+        let cloudData = try? await coordinatedRead(at: cloudURL)
         let cloudContent = cloudData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         let cloudModified = cloudVersion.modificationDate
 

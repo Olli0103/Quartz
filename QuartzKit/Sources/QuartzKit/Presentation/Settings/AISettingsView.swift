@@ -53,6 +53,7 @@ public struct AISettingsView: View {
         .task {
             await loadCustomModels()
             loadOllamaURLFromStorage()
+            await probeOllamaReachabilityOnAppear()
         }
         .onChange(of: registry.selectedProviderID) { _, newValue in
             connectionTestResult = nil
@@ -71,12 +72,8 @@ public struct AISettingsView: View {
                 ForEach(registry.providers, id: \.id) { provider in
                     HStack {
                         Text(provider.displayName)
-                        if provider.isConfigured {
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.caption)
-                        }
+                        Spacer()
+                        providerPickerTrailingStatus(provider)
                     }
                     .tag(provider.id)
                 }
@@ -97,12 +94,20 @@ public struct AISettingsView: View {
             ForEach(registry.providers, id: \.id) { provider in
                 if provider.id == "ollama" {
                     LabeledContent {
-                        Text(String(localized: "Local", bundle: .module))
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(Color.green.opacity(0.15)))
+                        HStack(spacing: 8) {
+                            Text(String(localized: "Local", bundle: .module))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.green.opacity(0.15)))
+                            Text(ollamaEndpointStatusLabel)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(ollamaEndpointStatusColor)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(ollamaEndpointStatusColor.opacity(0.12)))
+                        }
                     } label: {
                         Label(provider.displayName, systemImage: "desktopcomputer")
                     }
@@ -373,6 +378,65 @@ public struct AISettingsView: View {
 
     private func loadOllamaURLFromStorage() {
         ollamaURL = OllamaProvider.getStoredBaseURLString()
+    }
+
+    /// Last connection test in this session, else persisted reachability from `OllamaProvider`.
+    private func resolvedOllamaReachability() -> AIProviderReachability {
+        if let c = ollamaConnected {
+            return c ? .reachable : .unreachable
+        }
+        if let ollama = registry.providers.first(where: { $0.id == "ollama" }) {
+            return ollama.reachability
+        }
+        return .unknown
+    }
+
+    private var ollamaEndpointStatusLabel: String {
+        switch resolvedOllamaReachability() {
+        case .reachable: return String(localized: "Online", bundle: .module)
+        case .unreachable: return String(localized: "Offline", bundle: .module)
+        case .unknown: return String(localized: "Not tested", bundle: .module)
+        }
+    }
+
+    private var ollamaEndpointStatusColor: Color {
+        switch resolvedOllamaReachability() {
+        case .reachable: return .green
+        case .unreachable: return .orange
+        case .unknown: return .secondary
+        }
+    }
+
+    @ViewBuilder
+    private func providerPickerTrailingStatus(_ provider: any AIProvider) -> some View {
+        if provider.id == "ollama" {
+            switch resolvedOllamaReachability() {
+            case .reachable:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            case .unreachable:
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+            case .unknown:
+                Image(systemName: "circle.dashed")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+            }
+        } else if provider.isConfigured {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        }
+    }
+
+    private func probeOllamaReachabilityOnAppear() async {
+        guard let ollama = registry.providers.first(where: { $0.id == "ollama" }) as? OllamaProvider else { return }
+        let ok = await ollama.checkConnection()
+        await MainActor.run {
+            ollamaConnected = ok
+        }
     }
 
     private func addCustomModel() {

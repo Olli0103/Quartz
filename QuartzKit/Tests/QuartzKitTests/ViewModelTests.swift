@@ -352,7 +352,6 @@ struct AppStateTests {
     func initialState() {
         let state = AppState()
         #expect(state.currentVault == nil)
-        #expect(state.selectedNote == nil)
         #expect(state.errorMessage == nil)
         #expect(state.pendingCommand == .none)
     }

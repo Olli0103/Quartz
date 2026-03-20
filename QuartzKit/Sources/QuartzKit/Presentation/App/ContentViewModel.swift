@@ -264,7 +264,7 @@ public final class ContentViewModel {
                     continue
                 }
 
-                let content = try? String(contentsOf: url, encoding: .utf8)
+                let content = try? CoordinatedFileWriter.shared.readString(from: url)
                 if let content, !content.isEmpty {
                     try? await embedding.indexNote(noteID: stableID, content: content)
                 }

@@ -24,7 +24,6 @@ public struct DashboardView: View {
     @State private var togglingTaskID: UUID?
     @State private var taskToggledSuccessfully = false
 
-    private static let background = Color(hex: 0xFDFBF8)
     private static let navyButton = Color(hex: 0x1E3A5F)
     private static let cardRadius: CGFloat = 20
 
@@ -62,7 +61,7 @@ public struct DashboardView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Self.background)
+        .background(QuartzColors.sidebarBackground)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sensoryFeedback(.success, trigger: taskToggledSuccessfully)
         .task {

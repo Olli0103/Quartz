@@ -39,6 +39,15 @@ public struct CoordinatedFileWriter: Sendable {
         return data
     }
 
+    /// Reads file contents as text (UTF-8 by default) using coordinated access.
+    public func readString(from url: URL, encoding: String.Encoding = .utf8) throws -> String {
+        let data = try read(from: url)
+        guard let text = String(data: data, encoding: encoding) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return text
+    }
+
     /// Writes data to a URL in a coordinated manner.
     ///
     /// Uses `NSFileCoordinator` to ensure that iCloud Drive

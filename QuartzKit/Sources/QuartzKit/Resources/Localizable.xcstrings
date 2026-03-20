@@ -1197,6 +1197,52 @@
         }
       }
     },
+    "Open Trash in Finder to view or restore deleted items.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Trash in Finder to view or restore deleted items."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papierkorb im Finder öffnen, um gelöschte Objekte anzuzeigen oder wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la Corbeille dans le Finder pour afficher ou restaurer les éléments supprimés."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la papelera en el Finder para ver o restaurar elementos eliminados."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri il Cestino nel Finder per vedere o ripristinare gli elementi eliminati."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中打开废纸篓以查看或恢复已删除的项目。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除した項目を表示または復元するには、Finderでゴミ箱を開きます。"
+          }
+        }
+      }
+    },
     "Folder": {
       "localizations": {
         "en": {
@@ -1841,6 +1887,144 @@
         }
       }
     },
+    "Move to Trash": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Trash"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Papierkorb legen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à la corbeille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a la papelera"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta nel Cestino"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到废纸篓"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に移動"
+          }
+        }
+      }
+    },
+    "Move to Trash?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Trash?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Papierkorb legen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à la corbeille ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Mover a la papelera?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostare nel Cestino?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到废纸篓？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に移動しますか？"
+          }
+        }
+      }
+    },
+    "The item will be moved to Trash. You can restore it from Trash later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The item will be moved to Trash. You can restore it from Trash later."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Eintrag wird in den Papierkorb gelegt. Du kannst ihn später aus dem Papierkorb wiederherstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’élément sera déplacé dans la Corbeille. Vous pourrez le restaurer depuis la Corbeille."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El elemento se moverá a la papelera. Puedes restaurarlo desde la papelera."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’elemento verrà spostato nel Cestino. Puoi ripristinarlo dal Cestino."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目将被移到废纸篓。之后可以从废纸篓恢复。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目はゴミ箱に移動されます。あとからゴミ箱から復元できます。"
+          }
+        }
+      }
+    },
     "Move to folder": {
       "localizations": {
         "en": {
@@ -1859,6 +2043,39 @@
             "value": "Move to folder…"
           }
         }
+      }
+    },
+    "Offline": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Offline" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Offline" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Hors ligne" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sin conexión" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Offline" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "离线" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフライン" } }
+      }
+    },
+    "Online": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Online" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Online" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "En ligne" } },
+        "es": { "stringUnit": { "state": "translated", "value": "En línea" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Online" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在线" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オンライン" } }
+      }
+    },
+    "Not tested": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not tested" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nicht getestet" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Non testé" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Sin probar" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Non testato" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未测试" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未テスト" } }
       }
     },
     "Notes (root)": {
