@@ -66,9 +66,17 @@ public struct FileNodeRow: View {
 
     private var accessibilityDescription: String {
         var parts = [displayName]
-        parts.append(node.isFolder
-            ? String(localized: "Folder", bundle: .module)
-            : String(localized: "Note", bundle: .module))
+        switch node.nodeType {
+        case .folder:
+            parts.append(String(localized: "Folder", bundle: .module))
+        case .note:
+            parts.append(String(localized: "Note", bundle: .module))
+            parts.append(relativeTimeString(from: node.metadata.modifiedAt))
+        case .asset:
+            parts.append(String(localized: "Attachment", bundle: .module))
+        case .canvas:
+            parts.append(String(localized: "Canvas", bundle: .module))
+        }
         return parts.joined(separator: ", ")
     }
 

@@ -911,6 +911,28 @@ public struct NoteEditorView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 14)
+                .accessibilityCustomActions {
+                    Button(
+                        isFavorite
+                            ? String(localized: "Remove from Favorites", bundle: .module)
+                            : String(localized: "Add to Favorites", bundle: .module)
+                    ) {
+                        QuartzFeedback.selection()
+                        toggleFavorite(for: note.fileURL)
+                    }
+                    Button(String(localized: "Save note", bundle: .module)) {
+                        QuartzFeedback.primaryAction()
+                        Task { await viewModel.manualSave() }
+                    }
+                    Button(
+                        isPreviewMode
+                            ? String(localized: "Switch to edit mode", bundle: .module)
+                            : String(localized: "Preview rendered markdown", bundle: .module)
+                    ) {
+                        QuartzFeedback.toggle()
+                        withPreviewTransition { isPreviewMode.toggle() }
+                    }
+                }
             }
 
             Divider()

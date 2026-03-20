@@ -727,6 +727,10 @@ private struct SidebarTreeNode: View {
     let viewModel: SidebarViewModel
 
     @State private var isExpanded: Bool = true
+    @Environment(AppState.self) private var appState
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isDropTarget: Bool { dropTargetURL == node.url }
@@ -799,6 +803,7 @@ private struct SidebarTreeNode: View {
             }
             .draggable(SidebarItemTransferable(url: node.url))
             .contextMenu { folderContextMenu(for: node) }
+            .accessibilityCustomActions { folderAccessibilityCustomActions(for: node) }
             .animation(QuartzAnimation.standard, value: isDropTarget)
             .animation(reduceMotion ? .linear(duration: 0.001) : QuartzAnimation.folderExpand, value: effectiveExpanded)
         } else if node.isFolder {
@@ -826,8 +831,9 @@ private struct SidebarTreeNode: View {
                     if targeted { dropTargetURL = node.url }
                     else if dropTargetURL == node.url { dropTargetURL = nil }
                 }
-                .draggable(SidebarItemTransferable(url: node.url))
-                .contextMenu { folderContextMenu(for: node) }
+            .draggable(SidebarItemTransferable(url: node.url))
+            .contextMenu { folderContextMenu(for: node) }
+            .accessibilityCustomActions { folderAccessibilityCustomActions(for: node) }
         } else if node.isNote {
             Button {
                 onSelectNote(node.url)
@@ -853,6 +859,7 @@ private struct SidebarTreeNode: View {
                 }
             }
             .contextMenu { noteContextMenu(for: node) }
+            .accessibilityCustomActions { noteAccessibilityCustomActions(for: node) }
         } else {
             FileNodeRow(node: node)
         }
@@ -921,6 +928,46 @@ private struct SidebarTreeNode: View {
             onDeleteNote(node.url)
         } label: {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
+        }
+    }
+
+    @ViewBuilder
+    private func noteAccessibilityCustomActions(for node: FileNode) -> some View {
+        #if os(macOS)
+        if appState.currentVault != nil {
+            Button(String(localized: "Open in New Window", bundle: .module)) {
+                openWindow(value: node.url)
+            }
+        }
+        #endif
+        Button(
+            viewModel.isFavorite(node.url)
+                ? String(localized: "Remove from Favorites", bundle: .module)
+                : String(localized: "Add to Favorites", bundle: .module)
+        ) {
+            viewModel.toggleFavorite(node.url)
+        }
+        Button(String(localized: "Move to folder…", bundle: .module)) {
+            onMoveToFolder(node.url)
+        }
+        Button(String(localized: "Delete", bundle: .module)) {
+            onDeleteNote(node.url)
+        }
+    }
+
+    @ViewBuilder
+    private func folderAccessibilityCustomActions(for node: FileNode) -> some View {
+        Button(String(localized: "New Note", bundle: .module)) {
+            onNewNote(node.url)
+        }
+        Button(String(localized: "New Folder", bundle: .module)) {
+            onNewFolder(node.url)
+        }
+        Button(String(localized: "Move to folder…", bundle: .module)) {
+            onMoveToFolder(node.url)
+        }
+        Button(String(localized: "Delete", bundle: .module)) {
+            onDeleteFolder(node.url)
         }
     }
 }
