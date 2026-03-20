@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Central animation constants for consistent timing values throughout the app.
 ///
+/// Tactile feedback for primary actions lives in ``QuartzFeedback``.
+///
 /// Uses modern iOS 17+ `.bouncy` and `.smooth` where appropriate for fluid,
 /// interruptible physics. Falls back to spring for compatibility.
 public enum QuartzAnimation {

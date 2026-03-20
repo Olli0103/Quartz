@@ -53,7 +53,6 @@ public struct SidebarView: View {
     @State private var showNewNoteDialog = false
     @State private var newItemName: String = ""
     @State private var newItemParent: URL?
-    @State private var deletionTrigger: Bool = false
     @State private var showDeleteConfirmation = false
     @State private var pendingDeleteURL: URL?
     @State private var pendingDeleteIsNote = false
@@ -67,9 +66,6 @@ public struct SidebarView: View {
     @State private var dragExpandedFolderURLs: Set<URL> = []
     /// Insertion indicator: (parentURL, index) for "drop between" visual.
     @State private var insertionIndicator: (parent: URL, index: Int)?
-    /// Triggers sensory feedback when a drop succeeds.
-    @State private var dropSuccessTrigger = 0
-
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>, onMapViewTap: (() -> Void)? = nil) {
         self.viewModel = viewModel
         self._selectedNoteURL = selectedNoteURL
@@ -137,6 +133,7 @@ public struct SidebarView: View {
                 let name = newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newItemName = ""
                 guard !name.isEmpty else { return }
+                QuartzFeedback.primaryAction()
                 Task { await viewModel.createFolder(named: name, in: parent) }
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }
@@ -149,6 +146,7 @@ public struct SidebarView: View {
                 let template = selectedTemplate
                 newItemName = ""
                 guard !name.isEmpty else { return }
+                QuartzFeedback.primaryAction()
                 Task {
                     if template == .blank {
                         await viewModel.createNote(named: name, in: parent)
@@ -169,7 +167,7 @@ public struct SidebarView: View {
             Button(String(localized: "Delete", bundle: .module), role: .destructive) {
                 guard let url = pendingDeleteURL else { return }
                 if pendingDeleteIsNote, selectedNoteURL == url { selectedNoteURL = nil }
-                deletionTrigger.toggle()
+                QuartzFeedback.destructive()
                 Task { await viewModel.delete(at: url) }
                 pendingDeleteURL = nil
             }
@@ -188,9 +186,6 @@ public struct SidebarView: View {
         } message: {
             if let msg = viewModel.errorMessage { Text(msg) }
         }
-        .sensoryFeedback(.selection, trigger: viewModel.selectedTag)
-        .sensoryFeedback(.warning, trigger: deletionTrigger)
-        .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.6), trigger: dropSuccessTrigger)
         .task { viewModel.collectTags() }
         .sheet(isPresented: $showMoveToFolderSheet) { moveToFolderSheet }
     }
@@ -201,6 +196,7 @@ public struct SidebarView: View {
                 if let root = viewModel.vaultRootURL, let source = moveSourceURL {
                     if source.deletingLastPathComponent() != root {
                         Button {
+                            QuartzFeedback.primaryAction()
                             Task { await viewModel.move(at: source, to: root) }
                             moveSourceURL = nil
                             showMoveToFolderSheet = false
@@ -210,6 +206,7 @@ public struct SidebarView: View {
                     }
                     ForEach(collectValidMoveDestinations(from: viewModel.fileTree, sourceURL: source, root: root), id: \.url) { folder in
                         Button {
+                            QuartzFeedback.primaryAction()
                             Task { await viewModel.move(at: source, to: folder.url) }
                             moveSourceURL = nil
                             showMoveToFolderSheet = false
@@ -284,6 +281,7 @@ public struct SidebarView: View {
         Menu {
             ForEach(NoteTemplate.allCases, id: \.rawValue) { template in
                 Button {
+                    QuartzFeedback.primaryAction()
                     if let root = viewModel.vaultRootURL {
                         newItemParent = root
                         newItemName = generateNoteName()
@@ -348,6 +346,7 @@ public struct SidebarView: View {
     #if os(macOS)
     private var dashboardRow: some View {
         Button {
+            QuartzFeedback.selection()
             selectedNoteURL = nil
         } label: {
             HStack(spacing: 10) {
@@ -379,6 +378,7 @@ public struct SidebarView: View {
 
     private func quickAccessRow(icon: String, iconColor: Color, label: String, filter: SidebarFilter) -> some View {
         Button {
+            QuartzFeedback.selection()
             withAnimation(QuartzAnimation.standard) {
                 viewModel.activeFilter = filter
             }
@@ -424,6 +424,7 @@ public struct SidebarView: View {
                 Spacer()
                 if viewModel.selectedTag != nil {
                     Button(String(localized: "Clear", bundle: .module)) {
+                        QuartzFeedback.selection()
                         withAnimation { viewModel.selectedTag = nil }
                     }
                     .font(.caption)
@@ -436,6 +437,7 @@ public struct SidebarView: View {
                 HStack(spacing: 8) {
                     ForEach(viewModel.tagInfos.prefix(12)) { tag in
                         Button {
+                            QuartzFeedback.selection()
                             withAnimation(QuartzAnimation.standard) {
                                 viewModel.selectedTag = viewModel.selectedTag == tag.name ? nil : tag.name
                             }
@@ -468,7 +470,7 @@ public struct SidebarView: View {
                         insertionIndicator: $insertionIndicator,
                         appearance: appearance,
                         onDrop: { urls, folder in handleDrop(urls: urls, onto: folder) },
-                        onDropSuccess: { dropSuccessTrigger += 1 },
+                        onDropSuccess: { QuartzFeedback.success() },
                         onSelectNote: { selectedNoteURL = $0 },
                         onDeleteNote: {
                             pendingDeleteURL = $0
@@ -481,16 +483,19 @@ public struct SidebarView: View {
                             showDeleteConfirmation = true
                         },
                         onNewNote: {
+                            QuartzFeedback.primaryAction()
                             newItemParent = $0
                             newItemName = generateNoteName()
                             showNewNoteDialog = true
                         },
                         onNewFolder: {
+                            QuartzFeedback.primaryAction()
                             newItemParent = $0
                             newItemName = ""
                             showNewFolderDialog = true
                         },
                         onMoveToFolder: {
+                            QuartzFeedback.primaryAction()
                             moveSourceURL = $0
                             showMoveToFolderSheet = true
                         },
@@ -525,6 +530,7 @@ public struct SidebarView: View {
                 }
                 Divider()
                 Button {
+                    QuartzFeedback.primaryAction()
                     if let root = viewModel.vaultRootURL {
                         newItemParent = root
                         newItemName = ""
@@ -567,7 +573,7 @@ public struct SidebarView: View {
                 Task { await viewModel.move(at: sourceURL, to: root) }
                 moved = true
             }
-            if moved { dropSuccessTrigger += 1 }
+            if moved { QuartzFeedback.success() }
             return moved
         } isTargeted: { targeted in
             dropTargetURL = targeted ? viewModel.vaultRootURL : (dropTargetURL == viewModel.vaultRootURL ? nil : dropTargetURL)

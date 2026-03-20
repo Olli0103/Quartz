@@ -111,7 +111,12 @@ struct ContentView: View {
         bodyWithTask
             .sheet(isPresented: $showOnboarding) { onboardingSheet }
             #if os(iOS)
-            .sheet(isPresented: $showVaultPicker) { VaultPickerView { openVault($0) } }
+            .sheet(isPresented: $showVaultPicker) {
+                VaultPickerView { vault in
+                    QuartzFeedback.success()
+                    openVault(vault)
+                }
+            }
             .sheet(isPresented: $showSettings) { SettingsView() }
             #endif
             .sheet(isPresented: $showSearch) { searchSheet }
@@ -233,6 +238,7 @@ struct ContentView: View {
                 UserDefaults.standard.set(true, forKey: ContentView.onboardingCompletedKey)
                 showOnboarding = false
                 persistBookmark(for: vault.rootURL, vaultName: vault.name)
+                QuartzFeedback.success()
                 openVault(vault)
             }
         }
@@ -372,6 +378,7 @@ struct ContentView: View {
 
                 let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
                 persistBookmark(for: url, vaultName: vault.name)
+                QuartzFeedback.success()
                 openVault(vault)
             }
         }
@@ -403,6 +410,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     toolbarIconButton(icon: "magnifyingglass") {
+                        QuartzFeedback.primaryAction()
                         showSearch = true
                     }
                     .accessibilityLabel(String(localized: "Search"))
@@ -410,6 +418,7 @@ struct ContentView: View {
                     .disabled(viewModel?.searchIndex == nil)
 
                     toolbarIconButton(icon: "brain.head.profile") {
+                        QuartzFeedback.primaryAction()
                         if let session = viewModel?.createVaultChatSession() {
                             vaultChatSheetItem = VaultChatSheetItem(session: session)
                         }
@@ -419,6 +428,7 @@ struct ContentView: View {
                     .disabled(viewModel?.embeddingService == nil)
 
                     toolbarIconButton(icon: "folder.badge.plus") {
+                        QuartzFeedback.primaryAction()
                         showVaultPicker = true
                     }
                     .accessibilityLabel(String(localized: "Open Vault"))
@@ -479,11 +489,13 @@ struct ContentView: View {
 
             Menu {
                 Button {
+                    QuartzFeedback.primaryAction()
                     showVaultPicker = true
                 } label: {
                     Label(String(localized: "Open Existing Vault"), systemImage: "folder")
                 }
                 Button {
+                    QuartzFeedback.primaryAction()
                     showOnboarding = true
                 } label: {
                     Label(String(localized: "Create New Vault…"), systemImage: "plus.rectangle.on.folder")
@@ -692,6 +704,7 @@ struct ContentView: View {
             if viewModel?.editorViewModel == nil {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
+                        QuartzFeedback.primaryAction()
                         showSearch = true
                     } label: {
                         HStack(spacing: 8) {
@@ -709,6 +722,7 @@ struct ContentView: View {
                     .disabled(viewModel?.searchIndex == nil)
 
                     Button {
+                        QuartzFeedback.primaryAction()
                         newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
                         let df = DateFormatter()
                         df.dateFormat = "yyyy-MM-dd HH-mm"
@@ -720,6 +734,7 @@ struct ContentView: View {
                     .disabled(viewModel?.sidebarViewModel == nil)
 
                     Button {
+                        QuartzFeedback.primaryAction()
                         Task { await viewModel?.sidebarViewModel?.refresh() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -758,12 +773,14 @@ struct ContentView: View {
             .slideUp()
 
             QuartzButton(String(localized: "Open Vault"), icon: "folder.badge.plus") {
+                QuartzFeedback.primaryAction()
                 showVaultPicker = true
             }
             .padding(.horizontal, 40)
             .slideUp(delay: 0.15)
 
             Button {
+                QuartzFeedback.primaryAction()
                 showOnboarding = true
             } label: {
                 HStack(spacing: 6) {
@@ -874,6 +891,7 @@ struct ContentView: View {
                     .lineLimit(2)
                 Spacer()
                 Button {
+                    QuartzFeedback.selection()
                     withAnimation { appState.dismissCurrentError() }
                 } label: {
                     Image(systemName: "xmark.circle.fill")

@@ -24,6 +24,7 @@ public struct FrontmatterEditorView: View {
         VStack(spacing: 0) {
             // Toggle Header
             Button {
+                QuartzFeedback.toggle()
                 withAnimation(QuartzAnimation.standard) {
                     isExpanded.toggle()
                 }
@@ -79,6 +80,7 @@ public struct FrontmatterEditorView: View {
                                 HStack(spacing: 4) {
                                     QuartzTagBadge(text: tag)
                                     Button {
+                                        QuartzFeedback.selection()
                                         frontmatter.tags.removeAll { $0 == tag }
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
@@ -99,7 +101,9 @@ public struct FrontmatterEditorView: View {
                                     .frame(minWidth: 100)
                                     .onSubmit { addTag() }
 
-                                Button { addTag() } label: {
+                                Button {
+                                    addTag()
+                                } label: {
                                     Image(systemName: "plus.circle.fill")
                                         .foregroundStyle(appearance.accentColor)
                                         .frame(minWidth: 44, minHeight: 44)
@@ -157,7 +161,9 @@ public struct FrontmatterEditorView: View {
                             .focused($focusedField, equals: .customValue)
                             .onSubmit { addCustomField(); focusedField = .customKey }
                             .textFieldStyle(.roundedBorder)
-                        Button { addCustomField() } label: {
+                        Button {
+                            addCustomField()
+                        } label: {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(QuartzColors.accent)
                                 .frame(minWidth: 44, minHeight: 44)
@@ -194,6 +200,7 @@ public struct FrontmatterEditorView: View {
             .replacingOccurrences(of: "\n", with: "")
             .replacingOccurrences(of: ",", with: "")
         guard !tag.isEmpty, tag.count <= 50, !frontmatter.tags.contains(tag) else { return }
+        QuartzFeedback.selection()
         frontmatter.tags.append(tag)
         newTag = ""
     }
@@ -203,6 +210,7 @@ public struct FrontmatterEditorView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ":", with: "")
         guard !key.isEmpty, key.count <= 50 else { return }
+        QuartzFeedback.primaryAction()
         frontmatter.customFields[key] = newCustomValue
         newCustomKey = ""
         newCustomValue = ""

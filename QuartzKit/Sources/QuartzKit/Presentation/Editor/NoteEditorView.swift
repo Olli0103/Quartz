@@ -179,9 +179,8 @@ public struct NoteEditorView: View {
 
     private var editorWithToolbars: some View {
         mainEditorView
-        .sensoryFeedback(.success, trigger: viewModel.manualSaveCompleted)
-        .sensoryFeedback(.impact(flexibility: .soft), trigger: focusMode.isFocusModeActive)
         .onChange(of: viewModel.manualSaveCompleted) { _, _ in
+            QuartzFeedback.success()
             withAnimation(.easeInOut(duration: 0.2)) { showSavedOverlay = true }
             Task {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -200,7 +199,10 @@ public struct NoteEditorView: View {
             ToolbarItemGroup(placement: .principal) {
                 MacEditorToolbar(
                     isPreviewMode: isPreviewMode,
-                    onPreviewToggle: { withAnimation(.bouncy) { isPreviewMode.toggle() } },
+                    onPreviewToggle: {
+                        QuartzFeedback.toggle()
+                        withAnimation(.bouncy) { isPreviewMode.toggle() }
+                    },
                     onFormatting: applyFormatting,
                     onImagePick: { showImagePicker = true }
                 )
@@ -253,10 +255,16 @@ public struct NoteEditorView: View {
             if !isPreviewMode {
                 IosEditorToolbar(
                     isPreviewMode: isPreviewMode,
-                    onPreviewToggle: { withAnimation(.bouncy) { isPreviewMode.toggle() } },
+                    onPreviewToggle: {
+                        QuartzFeedback.toggle()
+                        withAnimation(.bouncy) { isPreviewMode.toggle() }
+                    },
                     onFormatting: applyFormatting,
                     onImagePick: { showImageSourceSheet = true },
-                    onSave: { Task { await viewModel.manualSave() } }
+                    onSave: {
+                        QuartzFeedback.primaryAction()
+                        Task { await viewModel.manualSave() }
+                    }
                 )
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
@@ -605,6 +613,7 @@ public struct NoteEditorView: View {
     }
 
     private func applyLinkSuggestion(_ suggestion: LinkSuggestionService.Suggestion) {
+        QuartzFeedback.primaryAction()
         let wikiLink = "[[\(suggestion.noteName)]]"
         let nsContent = viewModel.content as NSString
         let nsRange = NSRange(suggestion.matchRange, in: viewModel.content)
@@ -855,6 +864,7 @@ public struct NoteEditorView: View {
                     }
 
                     Button {
+                        QuartzFeedback.selection()
                         toggleFavorite(for: note.fileURL)
                     } label: {
                         Image(systemName: isFavorite ? "star.fill" : "star")
@@ -955,6 +965,7 @@ public struct NoteEditorView: View {
                                 .foregroundStyle(QuartzColors.accent)
 
                             Button {
+                                QuartzFeedback.selection()
                                 removeTag(tag)
                             } label: {
                                 Image(systemName: "xmark")
@@ -998,6 +1009,7 @@ public struct NoteEditorView: View {
             newTagText = ""
             return
         }
+        QuartzFeedback.selection()
         var fm = viewModel.note?.frontmatter ?? Frontmatter()
         fm.tags.append(tag)
         viewModel.updateFrontmatter(fm)
@@ -1088,6 +1100,7 @@ public struct NoteEditorView: View {
 
     private func exportAsPDF() {
         guard let note = viewModel.note else { return }
+        QuartzFeedback.primaryAction()
         let data = viewModel.generatePDFData(title: note.displayName, body: viewModel.content)
         pdfDocument = PDFFileDocument(data: data)
         pdfExportFilename = note.displayName
@@ -1100,16 +1113,26 @@ public struct NoteEditorView: View {
     private var toolbarActions: some View {
         HStack(spacing: 8) {
             Menu {
-                Button { showAITools = true } label: {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    showAITools = true
+                } label: {
                     Label(String(localized: "Writing Tools (Apple Intelligence)", bundle: .module), systemImage: "wand.and.stars")
                 }
-                Button { showChat = true } label: {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    showChat = true
+                } label: {
                     Label(String(localized: "Chat with Note", bundle: .module), systemImage: "bubble.left.and.bubble.right")
                 }
-                Button { showAudioRecording = true } label: {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    showAudioRecording = true
+                } label: {
                     Label(String(localized: "Record Audio", bundle: .module), systemImage: "mic.fill")
                 }
                 Button {
+                    QuartzFeedback.primaryAction()
                     #if os(iOS)
                     showImageSourceSheet = true
                     #else
@@ -1120,12 +1143,14 @@ public struct NoteEditorView: View {
                 }
                 Divider()
                 Button {
+                    QuartzFeedback.primaryAction()
                     loadLinkSuggestions()
                     showLinkSuggestions = true
                 } label: {
                     Label(String(localized: "Suggest Links", bundle: .module), systemImage: "link.badge.plus")
                 }
                 Button {
+                    QuartzFeedback.toggle()
                     withAnimation(QuartzAnimation.standard) { showFrontmatter.toggle() }
                 } label: {
                     Label(
@@ -1136,6 +1161,7 @@ public struct NoteEditorView: View {
                     )
                 }
             Button {
+                QuartzFeedback.toggle()
                 withAnimation(QuartzAnimation.standard) { showBacklinks.toggle() }
             } label: {
                 Label(
@@ -1146,12 +1172,15 @@ public struct NoteEditorView: View {
                 )
             }
             Button {
+                QuartzFeedback.primaryAction()
                 showKnowledgeGraph = true
             } label: {
                 Label(String(localized: "Knowledge Graph", bundle: .module), systemImage: "circle.hexagongrid")
             }
             Divider()
-            Button { exportAsPDF() } label: {
+            Button {
+                exportAsPDF()
+            } label: {
                 Label(String(localized: "Export as PDF", bundle: .module), systemImage: "doc.richtext")
             }
         } label: {
@@ -1162,6 +1191,7 @@ public struct NoteEditorView: View {
             .help(String(localized: "AI writing tools, link suggestions, frontmatter, backlinks, knowledge graph, PDF export", bundle: .module))
 
             Button {
+                QuartzFeedback.toggle()
                 withAnimation(.bouncy) {
                     focusMode.toggleFocusMode()
                 }
@@ -1181,6 +1211,7 @@ public struct NoteEditorView: View {
                 : String(localized: "Enter focus mode", bundle: .module))
 
             Button {
+                QuartzFeedback.toggle()
                 withAnimation(.bouncy) { isPreviewMode.toggle() }
             } label: {
                 Image(systemName: isPreviewMode ? "pencil" : "doc.richtext")
@@ -1196,6 +1227,7 @@ public struct NoteEditorView: View {
             // Global toolbar actions (Search Brain, etc.) – after AI and Focus Mode
             if let onSearch {
                 Button {
+                    QuartzFeedback.primaryAction()
                     onSearch()
                 } label: {
                     HStack(spacing: 8) {
@@ -1215,6 +1247,7 @@ public struct NoteEditorView: View {
             }
             if let onNewNote {
                 Button {
+                    QuartzFeedback.primaryAction()
                     onNewNote()
                 } label: {
                     Image(systemName: "plus")
@@ -1223,6 +1256,7 @@ public struct NoteEditorView: View {
             }
             if let onRefresh {
                 Button {
+                    QuartzFeedback.primaryAction()
                     onRefresh()
                 } label: {
                     Image(systemName: "arrow.clockwise")
@@ -1238,6 +1272,7 @@ public struct NoteEditorView: View {
             #endif
 
             Button {
+                QuartzFeedback.primaryAction()
                 Task { await viewModel.manualSave() }
             } label: {
                 Image(systemName: "externaldrive")
