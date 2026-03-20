@@ -123,15 +123,7 @@ public struct StageManagerModifier: ViewModifier {
         guard url.scheme == "quartz" else { return }
         switch url.host() {
         case "note":
-            // quartz://note/<filename> → open note
-            let path = url.pathComponents.dropFirst().joined(separator: "/")
-            guard !path.isEmpty,
-                  let vaultRoot = appState.currentVault?.rootURL else { return }
-            let noteURL = vaultRoot.appending(path: path)
-            // Security: Ensure the resolved URL stays within the vault root
-            guard noteURL.standardizedFileURL.path()
-                    .hasPrefix(vaultRoot.standardizedFileURL.path()) else { return }
-            guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else { return }
+            guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, appState: appState) else { return }
             Task { @MainActor in
                 let provider = FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
                 if let note = try? await provider.readNote(at: noteURL) {

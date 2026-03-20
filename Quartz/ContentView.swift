@@ -82,15 +82,9 @@ struct ContentView: View {
         }
     }
 
-    /// Resolves `quartz://note/...` from widgets / App Intents (see `OpenNoteIntent`).
+    /// Resolves `quartz://note/...` from widgets / App Intents / Handoff (see `OpenNoteIntent`, `QuartzUserActivity`).
     private func applyPendingOpenNoteDeepLink(_ url: URL) {
-        let path = url.pathComponents.dropFirst().joined(separator: "/")
-        guard !path.isEmpty,
-              let vaultRoot = appState.currentVault?.rootURL else { return }
-        let noteURL = vaultRoot.appending(path: path)
-        guard noteURL.standardizedFileURL.path()
-            .hasPrefix(vaultRoot.standardizedFileURL.path()) else { return }
-        guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else { return }
+        guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, appState: appState) else { return }
         selectedNoteURL = noteURL
     }
 
@@ -186,6 +180,25 @@ struct ContentView: View {
     private var bodyWithTask: some View {
         mainLayout
         .quartzAmbientShellBackground()
+        .userActivity(QuartzUserActivity.openNoteActivityType, element: selectedNoteURL) { noteURL, activity in
+            guard let vaultRoot = appState.currentVault?.rootURL else {
+                activity.isEligibleForHandoff = false
+                activity.isEligibleForSearch = false
+                return
+            }
+            let title = viewModel?.editorViewModel?.note?.displayName
+                ?? noteURL.deletingPathExtension().lastPathComponent
+            QuartzUserActivity.configureOpenNoteActivity(
+                activity,
+                noteURL: noteURL,
+                displayTitle: title,
+                vaultRoot: vaultRoot
+            )
+        }
+        .onContinueUserActivity(QuartzUserActivity.openNoteActivityType) { activity in
+            guard let link = QuartzUserActivity.quartzDeepLink(from: activity) else { return }
+            applyPendingOpenNoteDeepLink(link)
+        }
         .task {
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)
