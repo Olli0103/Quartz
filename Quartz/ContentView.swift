@@ -185,6 +185,7 @@ struct ContentView: View {
 
     private var bodyWithTask: some View {
         mainLayout
+        .quartzAmbientShellBackground()
         .task {
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)

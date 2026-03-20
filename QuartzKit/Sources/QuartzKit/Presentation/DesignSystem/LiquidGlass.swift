@@ -126,6 +126,133 @@ public extension Color {
     }
 }
 
+// MARK: - Ambient mesh depth (static; no animation)
+
+/// Preset intensity for ``QuartzAmbientMeshBackground`` — shared by onboarding, app shell, and editor chrome.
+public enum QuartzAmbientMeshStyle: Sendable {
+    /// Onboarding hero (matches historical onboarding richness).
+    case onboarding
+    /// Behind the main `NavigationSplitView` — subtle.
+    case shell
+    /// Editor title / breadcrumb strip only — very subtle.
+    case editorChrome
+}
+
+/// Reusable mesh-backed ambient depth. Uses a calm linear gradient when Reduce Motion is on, or on visionOS (avoids competing with system glass).
+public struct QuartzAmbientMeshBackground: View {
+    public var style: QuartzAmbientMeshStyle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(style: QuartzAmbientMeshStyle) {
+        self.style = style
+    }
+
+    public var body: some View {
+        Group {
+            if reduceMotion {
+                reduceMotionGradient
+            } else {
+                #if os(visionOS)
+                reduceMotionGradient
+                #else
+                meshGradient
+                #endif
+            }
+        }
+        .background(.background)
+    }
+
+    private var reduceMotionGradient: some View {
+        let stops = gradientStops(for: style)
+        return LinearGradient(colors: stops, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var meshGradient: some View {
+        MeshGradient(
+            width: 3,
+            height: 3,
+            points: [
+                [0, 0], [0.5, 0], [1, 0],
+                [0, 0.5], [0.5, 0.5], [1, 0.5],
+                [0, 1], [0.5, 1], [1, 1],
+            ],
+            colors: meshColors(for: style)
+        )
+    }
+
+    private func gradientStops(for style: QuartzAmbientMeshStyle) -> [Color] {
+        switch style {
+        case .onboarding:
+            return [
+                QuartzColors.folderYellow.opacity(0.15),
+                QuartzColors.noteBlue.opacity(0.1),
+                QuartzColors.canvasPurple.opacity(0.12),
+            ]
+        case .shell:
+            return [
+                QuartzColors.folderYellow.opacity(0.065),
+                QuartzColors.noteBlue.opacity(0.045),
+                QuartzColors.canvasPurple.opacity(0.055),
+            ]
+        case .editorChrome:
+            return [
+                QuartzColors.folderYellow.opacity(0.04),
+                QuartzColors.noteBlue.opacity(0.03),
+                QuartzColors.canvasPurple.opacity(0.035),
+            ]
+        }
+    }
+
+    private func meshColors(for style: QuartzAmbientMeshStyle) -> [Color] {
+        let (y, b, p): (Double, Double, Double)
+        switch style {
+        case .onboarding:
+            (y, b, p) = (0.15, 0.1, 0.12)
+        case .shell:
+            (y, b, p) = (0.065, 0.045, 0.055)
+        case .editorChrome:
+            (y, b, p) = (0.04, 0.03, 0.035)
+        }
+        return [
+            .clear,
+            QuartzColors.folderYellow.opacity(y),
+            .clear,
+            QuartzColors.noteBlue.opacity(b),
+            QuartzColors.canvasPurple.opacity(p),
+            QuartzColors.noteBlue.opacity(b),
+            .clear,
+            QuartzColors.folderYellow.opacity(y),
+            .clear,
+        ]
+    }
+}
+
+public extension View {
+    /// Subtle ambient mesh (or gradient) behind content, edge-to-edge — for the main app shell.
+    func quartzAmbientShellBackground() -> some View {
+        background {
+            QuartzAmbientMeshBackground(style: .shell)
+                .ignoresSafeArea()
+        }
+    }
+
+    /// Mesh under material for a chrome strip (e.g. editor header). Does not add animated effects.
+    func quartzAmbientGlassBackground(style: QuartzAmbientMeshStyle, cornerRadius: CGFloat = 0) -> some View {
+        background {
+            ZStack {
+                QuartzAmbientMeshBackground(style: style)
+                if cornerRadius > 0 {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                } else {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Layered Depth (iOS 18 / macOS 15)
 
 /// Layered depth for Liquid Glass: floating elements have higher z-index and stronger blur.
@@ -203,7 +330,7 @@ public extension View {
 // MARK: - Material Background (iOS 18 / macOS 15)
 
 /// Production-ready material using `.ultraThinMaterial`, `.thinMaterial`, `.regularMaterial`.
-/// Optional subtle MeshGradient overlay for depth when available.
+/// For full-window depth, see ``QuartzAmbientMeshBackground`` / ``View/quartzAmbientShellBackground()``.
 public struct QuartzMaterialBackgroundModifier: ViewModifier {
     var cornerRadius: CGFloat
     var shadowRadius: CGFloat

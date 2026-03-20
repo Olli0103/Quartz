@@ -54,7 +54,7 @@ public struct OnboardingView: View {
     // MARK: - Background
 
     private var backgroundGradient: some View {
-        MeshGradientBackground()
+        QuartzAmbientMeshBackground(style: .onboarding)
             .ignoresSafeArea()
     }
 
@@ -418,40 +418,3 @@ private enum OnboardingStep: Equatable {
     case creating
 }
 
-// MARK: - Mesh Gradient Background
-
-private struct MeshGradientBackground: View {
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
-
-    var body: some View {
-        if reduceMotion {
-            LinearGradient(
-                colors: [
-                    QuartzColors.folderYellow.opacity(0.15),
-                    QuartzColors.noteBlue.opacity(0.1),
-                    QuartzColors.canvasPurple.opacity(0.12),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .background(.background)
-        } else {
-            MeshGradient(width: 3, height: 3, points: [
-                [0, 0], [0.5, 0], [1, 0],
-                [0, 0.5], [0.5, 0.5], [1, 0.5],
-                [0, 1], [0.5, 1], [1, 1]
-            ], colors: [
-                .clear,
-                QuartzColors.folderYellow.opacity(0.15),
-                .clear,
-                QuartzColors.noteBlue.opacity(0.1),
-                QuartzColors.canvasPurple.opacity(0.12),
-                QuartzColors.noteBlue.opacity(0.1),
-                .clear,
-                QuartzColors.folderYellow.opacity(0.15),
-                .clear
-            ])
-            .background(.background)
-        }
-    }
-}

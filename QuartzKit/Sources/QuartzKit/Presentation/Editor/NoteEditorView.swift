@@ -883,7 +883,11 @@ public struct NoteEditorView: View {
             Divider()
                 .overlay(QuartzColors.accent.opacity(0.1))
         }
+        #if os(visionOS)
         .quartzMaterialBackground(cornerRadius: 0)
+        #else
+        .quartzAmbientGlassBackground(style: .editorChrome, cornerRadius: 0)
+        #endif
     }
 
     private func breadcrumbComponents(for note: NoteDocument) -> [String] {
