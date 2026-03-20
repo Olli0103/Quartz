@@ -27,7 +27,7 @@ private func relativeTimeString(from date: Date) -> String {
     return formatter.localizedString(for: date, relativeTo: Date())
 }
 
-/// Single row in the sidebar for a FileNode.
+/// Single row in the sidebar for a FileNode (embedded in `SidebarTreeNode` within the sidebar `List`).
 public struct FileNodeRow: View {
     public let node: FileNode
     @Environment(\.appearanceManager) private var appearance

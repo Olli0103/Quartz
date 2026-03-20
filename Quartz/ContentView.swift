@@ -397,6 +397,7 @@ struct ContentView: View {
                     .padding(.vertical, 10)
 
                 #if os(macOS)
+                // Sidebar uses a `List` with `.sidebar` style (see QuartzKit `SidebarView`).
                 SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL, onMapViewTap: { showKnowledgeGraph = true })
                 #else
                 SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)

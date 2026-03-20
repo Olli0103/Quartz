@@ -66,6 +66,9 @@ public struct SidebarView: View {
     @State private var dragExpandedFolderURLs: Set<URL> = []
     /// Insertion indicator: (parentURL, index) for "drop between" visual.
     @State private var insertionIndicator: (parent: URL, index: Int)?
+
+    private static let sidebarListRowInsets = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+
     public init(viewModel: SidebarViewModel, selectedNoteURL: Binding<URL?>, onMapViewTap: (() -> Void)? = nil) {
         self.viewModel = viewModel
         self._selectedNoteURL = selectedNoteURL
@@ -73,33 +76,90 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
+        List {
+            Section {
                 newNoteButton
-                    .padding(.horizontal, 16)
+                    .listRowInsets(Self.sidebarListRowInsets)
+                    .listRowBackground(Color.clear)
+            }
 
+            Section {
                 quickAccessSection
-                    .padding(.horizontal, 16)
+                    .listRowInsets(Self.sidebarListRowInsets)
+                    .listRowBackground(Color.clear)
+            }
 
-                if !viewModel.tagInfos.isEmpty {
+            if !viewModel.tagInfos.isEmpty {
+                Section {
                     tagsSection
-                        .padding(.horizontal, 16)
-                }
-
-                foldersSectionContent
-
-                #if os(macOS)
-                mapViewAndTrashSection
-                    .padding(.horizontal, 16)
-                #endif
-
-                if !viewModel.isLoading && viewModel.fileTree.isEmpty {
-                    emptyState
-                        .padding(.horizontal, 16)
+                        .listRowInsets(Self.sidebarListRowInsets)
+                        .listRowBackground(Color.clear)
                 }
             }
-            .padding(.bottom, 16)
+
+            if !viewModel.fileTree.isEmpty {
+                Section {
+                    SidebarTreeView(
+                        nodes: viewModel.filteredTree,
+                        selectedNoteURL: $selectedNoteURL,
+                        dropTargetURL: $dropTargetURL,
+                        dragExpandedFolderURLs: $dragExpandedFolderURLs,
+                        insertionIndicator: $insertionIndicator,
+                        appearance: appearance,
+                        onDrop: { urls, folder in handleDrop(urls: urls, onto: folder) },
+                        onDropSuccess: { QuartzFeedback.success() },
+                        onSelectNote: { selectedNoteURL = $0 },
+                        onDeleteNote: {
+                            pendingDeleteURL = $0
+                            pendingDeleteIsNote = true
+                            showDeleteConfirmation = true
+                        },
+                        onDeleteFolder: {
+                            pendingDeleteURL = $0
+                            pendingDeleteIsNote = false
+                            showDeleteConfirmation = true
+                        },
+                        onNewNote: {
+                            QuartzFeedback.primaryAction()
+                            newItemParent = $0
+                            newItemName = generateNoteName()
+                            showNewNoteDialog = true
+                        },
+                        onNewFolder: {
+                            QuartzFeedback.primaryAction()
+                            newItemParent = $0
+                            newItemName = ""
+                            showNewFolderDialog = true
+                        },
+                        onMoveToFolder: {
+                            QuartzFeedback.primaryAction()
+                            moveSourceURL = $0
+                            showMoveToFolderSheet = true
+                        },
+                        vaultRootURL: viewModel.vaultRootURL,
+                        viewModel: viewModel
+                    )
+                } header: {
+                    foldersSectionHeader
+                }
+            } else if !viewModel.isLoading {
+                Section {
+                    emptyState
+                        .listRowInsets(Self.sidebarListRowInsets)
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            #if os(macOS)
+            Section {
+                mapViewAndTrashSection
+                    .listRowInsets(Self.sidebarListRowInsets)
+                    .listRowBackground(Color.clear)
+            }
+            #endif
         }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 68)
@@ -456,59 +516,6 @@ public struct SidebarView: View {
 
     // MARK: - Folders Section (ADA Drag & Drop)
 
-    private var foldersSectionContent: some View {
-        Group {
-            if !viewModel.fileTree.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    foldersSectionHeader
-
-                    SidebarTreeView(
-                        nodes: viewModel.filteredTree,
-                        selectedNoteURL: $selectedNoteURL,
-                        dropTargetURL: $dropTargetURL,
-                        dragExpandedFolderURLs: $dragExpandedFolderURLs,
-                        insertionIndicator: $insertionIndicator,
-                        appearance: appearance,
-                        onDrop: { urls, folder in handleDrop(urls: urls, onto: folder) },
-                        onDropSuccess: { QuartzFeedback.success() },
-                        onSelectNote: { selectedNoteURL = $0 },
-                        onDeleteNote: {
-                            pendingDeleteURL = $0
-                            pendingDeleteIsNote = true
-                            showDeleteConfirmation = true
-                        },
-                        onDeleteFolder: {
-                            pendingDeleteURL = $0
-                            pendingDeleteIsNote = false
-                            showDeleteConfirmation = true
-                        },
-                        onNewNote: {
-                            QuartzFeedback.primaryAction()
-                            newItemParent = $0
-                            newItemName = generateNoteName()
-                            showNewNoteDialog = true
-                        },
-                        onNewFolder: {
-                            QuartzFeedback.primaryAction()
-                            newItemParent = $0
-                            newItemName = ""
-                            showNewFolderDialog = true
-                        },
-                        onMoveToFolder: {
-                            QuartzFeedback.primaryAction()
-                            moveSourceURL = $0
-                            showMoveToFolderSheet = true
-                        },
-                        vaultRootURL: viewModel.vaultRootURL,
-                        viewModel: viewModel
-                    )
-                    .padding(.horizontal, 8)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
     private var foldersSectionHeader: some View {
         HStack {
             Text(String(localized: "Folders", bundle: .module))
@@ -659,8 +666,8 @@ private struct SidebarTreeView: View {
     let viewModel: SidebarViewModel
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+        ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+            VStack(alignment: .leading, spacing: 0) {
                 if let root = vaultRootURL, let ind = insertionIndicator, ind.parent == root, ind.index == index {
                     Rectangle()
                         .fill(appearance.accentColor)
@@ -689,6 +696,8 @@ private struct SidebarTreeView: View {
                     viewModel: viewModel
                 )
             }
+            .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 8))
+            .listRowBackground(Color.clear)
         }
     }
 }
@@ -878,6 +887,15 @@ private struct SidebarTreeNode: View {
 
     @ViewBuilder
     private func noteContextMenu(for node: FileNode) -> some View {
+        #if os(macOS)
+        Button {
+            // TODO: Scene isolation — route `node.url` to a new window when multi-window note routing is implemented.
+        } label: {
+            Label(String(localized: "Open in New Window", bundle: .module), systemImage: "macwindow")
+        }
+        .disabled(true)
+        Divider()
+        #endif
         Button {
             viewModel.toggleFavorite(node.url)
         } label: {

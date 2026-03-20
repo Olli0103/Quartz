@@ -4,6 +4,8 @@ import SwiftUI
 ///
 /// - iPhone: Single-column navigation
 /// - iPad / Mac: Sidebar + Detail (editor)
+///
+/// The sidebar column uses a native ``List`` with `.sidebar` style in ``SidebarView``.
 public struct AdaptiveLayoutView<Sidebar: View, Detail: View>: View {
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar

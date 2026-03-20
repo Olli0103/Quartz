@@ -26,7 +26,7 @@ public enum SidebarSortOrder: String, CaseIterable, Sendable {
     }
 }
 
-/// ViewModel for the sidebar: loads the file tree, filters, and sorts.
+/// ViewModel for the sidebar: loads the file tree, filters, and sorts. The column shell is a `List` in `SidebarView`.
 @Observable
 @MainActor
 public final class SidebarViewModel {
