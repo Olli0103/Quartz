@@ -51,6 +51,11 @@ public final class AppearanceManager {
         didSet { save() }
     }
 
+    /// Whether to show the dashboard when no note is selected (macOS only).
+    public var showDashboardOnLaunch: Bool {
+        didSet { save() }
+    }
+
     /// Resolved accent color for tinting the app.
     public var accentColor: Color {
         Color(hex: accentColorHex)
@@ -66,6 +71,7 @@ public final class AppearanceManager {
         self.editorFontScale = defaults.double(forKey: Keys.editorFontScale).clamped(to: 0.8...2.0, default: 1.0)
         self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
         self.accentColorHex = UInt(defaults.integer(forKey: Keys.accentColorHex)).clamped(to: 1...0xFFFFFF, default: 0xF2994A)
+        self.showDashboardOnLaunch = defaults.object(forKey: Keys.showDashboardOnLaunch) as? Bool ?? true
     }
 
     // MARK: - Persistence
@@ -75,6 +81,7 @@ public final class AppearanceManager {
         static let editorFontScale = "quartz.appearance.editorFontScale"
         static let vibrantTransparency = "quartz.appearance.vibrantTransparency"
         static let accentColorHex = "quartz.appearance.accentColorHex"
+        static let showDashboardOnLaunch = "quartz.appearance.showDashboardOnLaunch"
     }
 
     private func save() {
@@ -82,6 +89,7 @@ public final class AppearanceManager {
         defaults.set(editorFontScale, forKey: Keys.editorFontScale)
         defaults.set(vibrantTransparency, forKey: Keys.vibrantTransparency)
         defaults.set(Int(accentColorHex), forKey: Keys.accentColorHex)
+        defaults.set(showDashboardOnLaunch, forKey: Keys.showDashboardOnLaunch)
     }
 
     private static func loadTheme(from defaults: UserDefaults) -> Theme {

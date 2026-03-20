@@ -132,6 +132,25 @@ public struct AppearanceSettingsView: View {
                 }
                 .tint(appearance.accentColor)
             }
+
+            #if os(macOS)
+            Section {
+                Toggle(isOn: Binding(
+                    get: { appearance.showDashboardOnLaunch },
+                    set: { appearance.showDashboardOnLaunch = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "Show Dashboard", bundle: .module))
+                        Text(String(localized: "Display the command center when no note is selected", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(appearance.accentColor)
+            } header: {
+                Text(String(localized: "Dashboard", bundle: .module))
+            }
+            #endif
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "Appearance", bundle: .module))

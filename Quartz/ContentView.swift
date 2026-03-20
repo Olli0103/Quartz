@@ -797,21 +797,29 @@ struct ContentView: View {
                 .id(editorVM.note?.fileURL)
             } else {
             #if os(macOS)
-            DashboardView(
-                sidebarViewModel: viewModel?.sidebarViewModel,
-                vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
-                onSelectNote: { url in selectedNoteURL = url },
-                onNewNote: {
-                    newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
-                    let df = DateFormatter()
-                    df.dateFormat = "yyyy-MM-dd HH-mm"
-                    newNoteName = "Note \(df.string(from: Date()))"
-                    showNewNote = true
-                },
-                onExploreGraph: { showKnowledgeGraph = true },
-                onRecordVoiceNote: { showVoiceNoteSheet = true },
-                onRecordMeetingMinutes: { showMeetingMinutesSheet = true }
-            )
+            if appearance.showDashboardOnLaunch {
+                DashboardView(
+                    sidebarViewModel: viewModel?.sidebarViewModel,
+                    vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
+                    onSelectNote: { url in selectedNoteURL = url },
+                    onNewNote: {
+                        newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
+                        let df = DateFormatter()
+                        df.dateFormat = "yyyy-MM-dd HH-mm"
+                        newNoteName = "Note \(df.string(from: Date()))"
+                        showNewNote = true
+                    },
+                    onExploreGraph: { showKnowledgeGraph = true },
+                    onRecordVoiceNote: { showVoiceNoteSheet = true },
+                    onRecordMeetingMinutes: { showMeetingMinutesSheet = true }
+                )
+            } else {
+                QuartzEmptyState(
+                    icon: "doc.text",
+                    title: String(localized: "No Note Selected"),
+                    subtitle: String(localized: "Choose a note from the sidebar to start editing.")
+                )
+            }
             #else
             QuartzEmptyState(
                 icon: "doc.text",
