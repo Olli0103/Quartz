@@ -132,15 +132,27 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         let textChanged = uiView.text != text
         if textChanged {
-            // Preserve selection only when replacing text programmatically
-            let sel = uiView.selectedTextRange
+            // When text changes programmatically, apply the new text
             uiView.text = text
-            // Only restore selection if the new text length allows it
-            if let sel, let start = sel.start as UITextPosition?,
-               uiView.offset(from: uiView.beginningOfDocument, to: start) <= text.count {
-                uiView.selectedTextRange = sel
+        }
+
+        // Apply cursor position from binding (enables state restoration)
+        // Only do this when text hasn't changed to avoid fighting with user edits
+        if !textChanged {
+            let currentRange = uiView.selectedRange
+            if currentRange.location != cursorPosition.location || currentRange.length != cursorPosition.length {
+                // Validate the cursor position is within bounds
+                let textLength = (uiView.text ?? "").count
+                if cursorPosition.location <= textLength &&
+                   cursorPosition.location + cursorPosition.length <= textLength {
+                    if let start = uiView.position(from: uiView.beginningOfDocument, offset: cursorPosition.location),
+                       let end = uiView.position(from: start, offset: cursorPosition.length) {
+                        uiView.selectedTextRange = uiView.textRange(from: start, to: end)
+                    }
+                }
             }
         }
+
         let scaledBaseFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: baseFontSize * editorFontScale))
         context.coordinator.baseFontSize = scaledBaseFont.pointSize
         context.coordinator.editorFontScale = editorFontScale
@@ -207,7 +219,8 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             }
         }
 
-        /// Applies syntax highlighting inside a TextKit 2 editing transaction (no legacy `beginEditing`/`endEditing` on the hot path).
+        /// Applies syntax highlighting inside a TextKit 2 editing transaction.
+        /// Uses targeted span application to minimize layout churn.
         private static func applySpans(
             _ spans: [HighlightSpan],
             to textView: UITextView,
@@ -218,39 +231,47 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             let storageLength = storage.length
             guard storageLength > 0 else { return }
 
-            let updateRange: NSRange
-            if spans.isEmpty {
-                updateRange = NSRange(location: 0, length: storageLength)
-            } else {
-                var minLoc = storageLength
-                var maxEnd = 0
-                for span in spans {
-                    let r = span.range
-                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-                    minLoc = min(minLoc, r.location)
-                    maxEnd = max(maxEnd, r.location + r.length)
-                }
-                if minLoc <= maxEnd {
-                    updateRange = NSRange(location: minLoc, length: maxEnd - minLoc)
-                } else {
-                    updateRange = NSRange(location: 0, length: storageLength)
-                }
-            }
+            // Default attributes for non-highlighted text
+            let defaultAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: baseFontSize),
+                .foregroundColor: UIColor.label
+            ]
 
             contentManager.performMarkdownEdit {
-                storage.setAttributes([
-                    .font: UIFont.systemFont(ofSize: baseFontSize),
-                    .foregroundColor: UIColor.label
-                ], range: updateRange)
-                for span in spans {
+                // If no spans, just reset the whole document to defaults
+                if spans.isEmpty {
+                    storage.setAttributes(defaultAttrs, range: NSRange(location: 0, length: storageLength))
+                    return
+                }
+
+                // For incremental highlighting, set attributes span by span
+                // This avoids a wide reset that causes layout churn
+                var lastEnd = 0
+                for span in spans.sorted(by: { $0.range.location < $1.range.location }) {
                     let r = span.range
                     guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-                    storage.addAttributes([
+
+                    // Fill gap before this span with default attributes
+                    if r.location > lastEnd {
+                        let gapRange = NSRange(location: lastEnd, length: r.location - lastEnd)
+                        storage.setAttributes(defaultAttrs, range: gapRange)
+                    }
+
+                    // Apply span attributes
+                    storage.setAttributes([
                         .font: span.font,
                         .foregroundColor: span.color ?? .label,
                         .backgroundColor: span.backgroundColor ?? .clear,
                         .strikethroughStyle: span.strikethrough ? 1 : 0
                     ], range: r)
+
+                    lastEnd = r.location + r.length
+                }
+
+                // Fill any remaining gap after the last span
+                if lastEnd < storageLength {
+                    let gapRange = NSRange(location: lastEnd, length: storageLength - lastEnd)
+                    storage.setAttributes(defaultAttrs, range: gapRange)
                 }
             }
         }
@@ -363,17 +384,23 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView else { return }
         let textChanged = textView.string != text
         if textChanged {
-            let sel = textView.selectedRange()
             textView.string = text
-            // Only restore selection if within valid range
-            if sel.location <= text.count {
-                let validRange = NSRange(
-                    location: min(sel.location, text.count),
-                    length: min(sel.length, text.count - min(sel.location, text.count))
-                )
-                textView.setSelectedRange(validRange)
+        }
+
+        // Apply cursor position from binding (enables state restoration)
+        // Only do this when text hasn't changed to avoid fighting with user edits
+        if !textChanged {
+            let currentRange = textView.selectedRange()
+            if currentRange.location != cursorPosition.location || currentRange.length != cursorPosition.length {
+                // Validate the cursor position is within bounds
+                let textLength = textView.string.count
+                if cursorPosition.location <= textLength &&
+                   cursorPosition.location + cursorPosition.length <= textLength {
+                    textView.setSelectedRange(cursorPosition)
+                }
             }
         }
+
         context.coordinator.baseFontSize = baseFontSize * editorFontScale
         if let cm = context.coordinator.contentManager {
             cm.baseFontSize = baseFontSize * editorFontScale
@@ -413,6 +440,8 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
             }
         }
 
+        /// Applies syntax highlighting inside a TextKit 2 editing transaction.
+        /// Uses targeted span application to minimize layout churn.
         private static func applySpans(
             _ spans: [HighlightSpan],
             to textView: NSTextView,
@@ -423,39 +452,47 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
             let storageLength = storage.length
             guard storageLength > 0 else { return }
 
-            let updateRange: NSRange
-            if spans.isEmpty {
-                updateRange = NSRange(location: 0, length: storageLength)
-            } else {
-                var minLoc = storageLength
-                var maxEnd = 0
-                for span in spans {
-                    let r = span.range
-                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-                    minLoc = min(minLoc, r.location)
-                    maxEnd = max(maxEnd, r.location + r.length)
-                }
-                if minLoc <= maxEnd {
-                    updateRange = NSRange(location: minLoc, length: maxEnd - minLoc)
-                } else {
-                    updateRange = NSRange(location: 0, length: storageLength)
-                }
-            }
+            // Default attributes for non-highlighted text
+            let defaultAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: baseFontSize),
+                .foregroundColor: NSColor.labelColor
+            ]
 
             contentManager.performMarkdownEdit {
-                storage.setAttributes([
-                    .font: NSFont.systemFont(ofSize: baseFontSize),
-                    .foregroundColor: NSColor.labelColor
-                ], range: updateRange)
-                for span in spans {
+                // If no spans, just reset the whole document to defaults
+                if spans.isEmpty {
+                    storage.setAttributes(defaultAttrs, range: NSRange(location: 0, length: storageLength))
+                    return
+                }
+
+                // For incremental highlighting, set attributes span by span
+                // This avoids a wide reset that causes layout churn
+                var lastEnd = 0
+                for span in spans.sorted(by: { $0.range.location < $1.range.location }) {
                     let r = span.range
                     guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-                    storage.addAttributes([
+
+                    // Fill gap before this span with default attributes
+                    if r.location > lastEnd {
+                        let gapRange = NSRange(location: lastEnd, length: r.location - lastEnd)
+                        storage.setAttributes(defaultAttrs, range: gapRange)
+                    }
+
+                    // Apply span attributes
+                    storage.setAttributes([
                         .font: span.font,
                         .foregroundColor: span.color ?? .labelColor,
                         .backgroundColor: span.backgroundColor ?? .clear,
                         .strikethroughStyle: span.strikethrough ? 1 : 0
                     ], range: r)
+
+                    lastEnd = r.location + r.length
+                }
+
+                // Fill any remaining gap after the last span
+                if lastEnd < storageLength {
+                    let gapRange = NSRange(location: lastEnd, length: storageLength - lastEnd)
+                    storage.setAttributes(defaultAttrs, range: gapRange)
                 }
             }
         }

@@ -586,7 +586,8 @@ public struct NoteEditorView: View {
                     }
                 }
             }
-            .animation(reduceMotion ? .linear(duration: 0.001) : QuartzAnimation.previewEditToggle, value: isPreviewMode)
+            // No animation on content swap — instant transition feels calmer than
+            // animating between completely different view hierarchies
 
             if showBacklinks && !backlinks.isEmpty {
                 backlinkBar
