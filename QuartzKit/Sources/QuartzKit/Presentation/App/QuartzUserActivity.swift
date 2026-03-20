@@ -33,10 +33,10 @@ public enum QuartzUserActivity {
     }
 
     /// Validates `quartz://note/...` and returns the on-disk note URL when the file exists under the open vault.
-    public static func resolveNoteFileURL(fromQuartzDeepLink url: URL, appState: AppState) -> URL? {
+    public static func resolveNoteFileURL(fromQuartzDeepLink url: URL, vaultRoot: URL?) -> URL? {
         guard url.scheme == "quartz", url.host() == "note" else { return nil }
         let path = url.pathComponents.dropFirst().joined(separator: "/")
-        guard !path.isEmpty, let vaultRoot = appState.currentVault?.rootURL else { return nil }
+        guard !path.isEmpty, let vaultRoot else { return nil }
         let noteURL = vaultRoot.appending(path: path)
         guard noteURL.standardizedFileURL.path().hasPrefix(vaultRoot.standardizedFileURL.path()) else { return nil }
         guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else { return nil }
@@ -63,7 +63,9 @@ public enum QuartzUserActivity {
             UserInfoKey.deepLink: deepLink.absoluteString,
             UserInfoKey.noteTitle: displayTitle
         ])
-        activity.webpageURL = deepLink
+        // Do not set `webpageURL` to `quartz://…` — NSUserActivity only accepts valid web (http/https)
+        // URLs there; newer OS versions throw from `setWebpageURL:`. Continuity uses `userInfo` above.
+        activity.webpageURL = nil
         activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = false
         activity.needsSave = false
@@ -74,6 +76,7 @@ public enum QuartzUserActivity {
         if let s = activity.userInfo?[UserInfoKey.deepLink] as? String, let u = URL(string: s) {
             return u
         }
-        return activity.webpageURL
+        guard let w = activity.webpageURL, w.scheme == "http" || w.scheme == "https" else { return nil }
+        return w
     }
 }

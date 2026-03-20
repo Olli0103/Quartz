@@ -74,8 +74,7 @@ public final class MarkdownTextContentManager: NSTextContentStorage {
     /// Computes the bounding range of the paragraph containing the given location.
     /// Use for incremental invalidation: only re-apply AST attributes to this range.
     public func boundingRangeForParagraph(containing location: Int) -> NSRange? {
-        let str = attributedString.string
-        guard !str.isEmpty else { return nil }
+        guard let str = attributedString?.string, !str.isEmpty else { return nil }
         let nsString = str as NSString
         let safeLoc = min(location, nsString.length - 1)
         let lineRange = nsString.lineRange(for: NSRange(location: safeLoc, length: 0))
@@ -85,8 +84,7 @@ public final class MarkdownTextContentManager: NSTextContentStorage {
     /// Computes the union of paragraph ranges that intersect the given range.
     /// Use when the edited region spans multiple paragraphs.
     public func boundingRangeForParagraphs(intersecting range: NSRange) -> NSRange? {
-        let str = attributedString.string
-        guard !str.isEmpty else { return nil }
+        guard let str = attributedString?.string, !str.isEmpty else { return nil }
         let nsString = str as NSString
         var start = range.location
         var end = range.location + range.length

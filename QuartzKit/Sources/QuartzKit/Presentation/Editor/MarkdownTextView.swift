@@ -75,7 +75,7 @@ private enum MarkdownTextKit2Stack {
     static func wireTextKit2(contentManager: MarkdownTextContentManager) -> (NSTextLayoutManager, NSTextContainer) {
         let layoutManager = NSTextLayoutManager()
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        layoutManager.addTextContainer(container)
+        layoutManager.textContainer = container
         contentManager.addTextLayoutManager(layoutManager)
         return (layoutManager, container)
     }
@@ -198,7 +198,7 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             baseFontSize: CGFloat,
             contentManager: MarkdownTextContentManager
         ) {
-            guard let storage = textView.textStorage else { return }
+            let storage = textView.textStorage
             let storageLength = storage.length
             guard storageLength > 0 else { return }
 
@@ -262,6 +262,7 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
 // MARK: - macOS (NSTextView + TextKit 2)
 
 #if os(macOS)
+@MainActor
 private struct MarkdownTextView_macOS: NSViewRepresentable {
     @Binding var text: String
     @Binding var cursorPosition: NSRange
@@ -320,6 +321,7 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
         context.coordinator.scheduleHighlight(text: text, textView: textView)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         @Binding var cursorPosition: NSRange

@@ -25,16 +25,17 @@ public struct CreateNoteIntent: AppIntent {
     /// Opens Quartz so you can continue editing the new note (ideal for Home Screen actions).
     public static let openAppWhenRun: Bool = true
 
-    @Parameter(title: "Title", default: "", description: "File name for the note (without .md); leave empty for a timestamped Quick Note")
+    @Parameter(title: "Title", description: "File name for the note (without .md); leave empty for a timestamped Quick Note", default: "")
     public var noteTitle: String
 
-    @Parameter(title: "Content", default: "", description: "Initial note body (Markdown)")
+    @Parameter(title: "Content", description: "Initial note body (Markdown)", default: "")
     public var noteContent: String
 
     public init() {}
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let vaultRoot = await MainActor.run({ sharedVaultRootURL() }) else {
+        let vaultRoot = await MainActor.run { sharedVaultRootURL() }
+        guard let vaultRoot else {
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured. Open Quartz and choose a vault first.", bundle: .module)))
         }
         let provider = await MainActor.run { bootstrapAndResolveProvider() }
@@ -75,7 +76,8 @@ public struct AppendToNoteIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let vaultRoot = await MainActor.run({ sharedVaultRootURL() }) else {
+        let vaultRoot = await MainActor.run { sharedVaultRootURL() }
+        guard let vaultRoot else {
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured.", bundle: .module)))
         }
         let provider = await MainActor.run { bootstrapAndResolveProvider() }
@@ -91,6 +93,12 @@ public struct AppendToNoteIntent: AppIntent {
     }
 
     private static func findNoteURL(named name: String, in vaultRoot: URL) async throws -> URL? {
+        await Task.detached {
+            Self.findNoteURLSync(named: name, in: vaultRoot)
+        }.value
+    }
+
+    private nonisolated static func findNoteURLSync(named name: String, in vaultRoot: URL) -> URL? {
         let base = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { return nil }
         let withoutExt = base.hasSuffix(".md") ? String(base.dropLast(3)) : base
@@ -121,7 +129,8 @@ public struct SearchVaultIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let vaultRoot = await MainActor.run({ sharedVaultRootURL() }) else {
+        let vaultRoot = await MainActor.run { sharedVaultRootURL() }
+        guard let vaultRoot else {
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured.", bundle: .module)))
         }
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -132,31 +141,35 @@ public struct SearchVaultIntent: AppIntent {
         if matches.isEmpty {
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "No notes matched “\(query)”.", bundle: .module)))
         }
-        let lines = matches.map(\.lastPathComponent).joined(separator: "\n")
+        let lines = matches.map(\URL.lastPathComponent).joined(separator: "\n")
         return .result(dialog: IntentDialog(stringLiteral: lines))
     }
 
     private nonisolated static func searchMarkdownFiles(in vaultRoot: URL, query: String, limit: Int) async -> [URL] {
         await Task.detached(priority: .utility) {
-            let fm = FileManager.default
-            guard let enumerator = fm.enumerator(at: vaultRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
-            var results: [(URL, Int)] = []
-            let needle = query
-            for case let fileURL as URL in enumerator {
-                guard fileURL.pathExtension.lowercased() == "md" else { continue }
-                let name = fileURL.lastPathComponent.lowercased()
-                var score = 0
-                if name.contains(needle) { score += 2 }
-                if let data = try? Data(contentsOf: fileURL), let s = String(data: data, encoding: .utf8) {
-                    if s.lowercased().contains(needle) { score += 1 }
-                }
-                if score > 0 {
-                    results.append((fileURL, score))
-                }
-            }
-            results.sort { $0.1 > $1.1 }
-            return Array(results.prefix(limit).map(\.0))
+            Self.searchMarkdownFilesSync(in: vaultRoot, query: query, limit: limit)
         }.value
+    }
+
+    private nonisolated static func searchMarkdownFilesSync(in vaultRoot: URL, query: String, limit: Int) -> [URL] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: vaultRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+        var results: [(URL, Int)] = []
+        let needle = query
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension.lowercased() == "md" else { continue }
+            let name = fileURL.lastPathComponent.lowercased()
+            var score = 0
+            if name.contains(needle) { score += 2 }
+            if let data = try? Data(contentsOf: fileURL), let s = String(data: data, encoding: .utf8) {
+                if s.lowercased().contains(needle) { score += 1 }
+            }
+            if score > 0 {
+                results.append((fileURL, score))
+            }
+        }
+        results.sort { $0.1 > $1.1 }
+        return Array(results.prefix(limit).map(\.0))
     }
 }
 
@@ -203,12 +216,13 @@ public struct DailyNoteIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let vaultRoot = await MainActor.run({ sharedVaultRootURL() }) else {
+        let vaultRoot = await MainActor.run { sharedVaultRootURL() }
+        guard let vaultRoot else {
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "No vault configured.", bundle: .module)))
         }
         let templateService = VaultTemplateService()
         do {
-            let url = try templateService.createDailyNote(in: vaultRoot)
+            let url = try await templateService.createDailyNote(in: vaultRoot)
             return .result(dialog: IntentDialog(stringLiteral: String(localized: "Daily note ready: \(url.lastPathComponent)", bundle: .module)))
         } catch {
             return .result(dialog: IntentDialog(stringLiteral: error.localizedDescription))
@@ -220,53 +234,52 @@ public struct DailyNoteIntent: AppIntent {
 
 @available(iOS 16.0, macOS 13.0, *)
 public struct QuartzShortcutsProvider: AppShortcutsProvider {
+    @AppShortcutsBuilder
     public static var appShortcuts: [AppShortcut] {
-        [
-            AppShortcut(
-                intent: CreateNoteIntent(),
-                phrases: [
-                    "Create a note in \(.applicationName)",
-                    "New note in \(.applicationName)",
-                ],
-                shortTitle: "New Note",
-                systemImageName: "square.and.pencil"
-            ),
-            AppShortcut(
-                intent: AppendToNoteIntent(),
-                phrases: [
-                    "Append to a note in \(.applicationName)",
-                    "Add text to note in \(.applicationName)",
-                ],
-                shortTitle: "Append to Note",
-                systemImageName: "text.badge.plus"
-            ),
-            AppShortcut(
-                intent: SearchVaultIntent(),
-                phrases: [
-                    "Search my vault in \(.applicationName)",
-                    "Find notes in \(.applicationName)",
-                ],
-                shortTitle: "Search Vault",
-                systemImageName: "magnifyingglass"
-            ),
-            AppShortcut(
-                intent: DailyNoteIntent(),
-                phrases: [
-                    "Open daily note in \(.applicationName)",
-                    "Today's note in \(.applicationName)",
-                ],
-                shortTitle: "Daily Note",
-                systemImageName: "calendar"
-            ),
-            AppShortcut(
-                intent: OpenNoteIntent(),
-                phrases: [
-                    "Open a note in \(.applicationName)",
-                ],
-                shortTitle: "Open Note",
-                systemImageName: "doc.text"
-            ),
-        ]
+        AppShortcut(
+            intent: CreateNoteIntent(),
+            phrases: [
+                "Create a note in \(.applicationName)",
+                "New note in \(.applicationName)",
+            ],
+            shortTitle: "New Note",
+            systemImageName: "square.and.pencil"
+        )
+        AppShortcut(
+            intent: AppendToNoteIntent(),
+            phrases: [
+                "Append to a note in \(.applicationName)",
+                "Add text to note in \(.applicationName)",
+            ],
+            shortTitle: "Append to Note",
+            systemImageName: "text.badge.plus"
+        )
+        AppShortcut(
+            intent: SearchVaultIntent(),
+            phrases: [
+                "Search my vault in \(.applicationName)",
+                "Find notes in \(.applicationName)",
+            ],
+            shortTitle: "Search Vault",
+            systemImageName: "magnifyingglass"
+        )
+        AppShortcut(
+            intent: DailyNoteIntent(),
+            phrases: [
+                "Open daily note in \(.applicationName)",
+                "Today's note in \(.applicationName)",
+            ],
+            shortTitle: "Daily Note",
+            systemImageName: "calendar"
+        )
+        AppShortcut(
+            intent: OpenNoteIntent(),
+            phrases: [
+                "Open a note in \(.applicationName)",
+            ],
+            shortTitle: "Open Note",
+            systemImageName: "doc.text"
+        )
     }
 }
 #endif

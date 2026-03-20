@@ -351,8 +351,10 @@ public struct ConflictListResolverView: View {
                     .tag(index)
                 }
             }
+            #if os(iOS)
             .tabViewStyle(.page(indexDisplayMode: .automatic))
             .indexViewStyle(.page(backgroundDisplayMode: .automatic))
+            #endif
         }
     }
 }

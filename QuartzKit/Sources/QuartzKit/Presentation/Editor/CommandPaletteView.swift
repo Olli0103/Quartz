@@ -92,7 +92,9 @@ public struct CommandPaletteView: View {
             updateResults(for: query)
             isSearchFocused = true
         }
+        #if os(macOS)
         .onExitCommand { dismiss() }
+        #endif
         .onKeyPress(.upArrow) {
             selectedIndex = max(0, selectedIndex - 1)
             return .handled

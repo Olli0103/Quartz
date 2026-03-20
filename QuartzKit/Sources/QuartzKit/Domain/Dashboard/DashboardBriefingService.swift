@@ -8,11 +8,11 @@ private let briefingCacheDuration: TimeInterval = 4 * 60 * 60 // 4 hours
 public actor DashboardBriefingService {
     private let providerRegistry: AIProviderRegistry
 
-    private static var sharedCachedBriefing: String?
-    private static var sharedCachedAt: Date?
-    private static var sharedCachedVaultKey: String?
+    nonisolated(unsafe) private static var sharedCachedBriefing: String?
+    nonisolated(unsafe) private static var sharedCachedAt: Date?
+    nonisolated(unsafe) private static var sharedCachedVaultKey: String?
 
-    public init(providerRegistry: AIProviderRegistry = .shared) {
+    public init(providerRegistry: AIProviderRegistry) {
         self.providerRegistry = providerRegistry
     }
 

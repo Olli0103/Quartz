@@ -252,7 +252,8 @@ public final class NoteEditorViewModel {
         stopFileWatching()
         let watcher = FileWatcher(url: url)
         fileWatchTask = Task { [weak self] in
-            for await event in watcher.startWatching() {
+            let stream = await watcher.startWatching()
+            for await event in stream {
                 guard !Task.isCancelled, let self else { return }
                 switch event {
                 case .modified(let changedURL):

@@ -33,8 +33,20 @@ public struct DashboardTaskItem: Identifiable, Sendable {
 
 /// Parses `- [ ]` and `- [x]` task items from markdown note bodies.
 public enum TaskItemParser: Sendable {
-    /// Regex for GFM task list: `- [ ]` or `- [x]` or `- [X]` followed by task text.
-    private static let taskPattern = #/- \[([ xX])\]\s*(.+)/
+    /// Returns checkbox marker (` `, `x`, or `X`) and task text after `]`, or nil if not a GFM task line.
+    private static func parseTaskLine(_ trimmed: String) -> (marker: Character, taskText: String)? {
+        let prefix = "- ["
+        guard trimmed.hasPrefix(prefix) else { return nil }
+        var rest = trimmed.dropFirst(prefix.count)
+        guard let marker = rest.first, marker == " " || marker == "x" || marker == "X" else { return nil }
+        rest = rest.dropFirst()
+        guard rest.first == "]" else { return nil }
+        rest = rest.dropFirst()
+        while let c = rest.first, c.isWhitespace { rest = rest.dropFirst() }
+        let taskText = String(rest)
+        guard !taskText.isEmpty else { return nil }
+        return (marker, taskText)
+    }
 
     /// Extracts open (unchecked) task items from the given body.
     public static func parseOpenTasks(from body: String, noteURL: URL, noteTitle: String) -> [DashboardTaskItem] {
@@ -42,21 +54,17 @@ public enum TaskItemParser: Sendable {
         let lines = body.components(separatedBy: .newlines)
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let match = trimmed.firstMatch(of: taskPattern) {
-                let checked = String(match.1)
-                let isCompleted = checked.lowercased() == "x"
-                guard !isCompleted else { continue }
-                let taskText = String(match.2).trimmingCharacters(in: .whitespaces)
-                guard !taskText.isEmpty else { continue }
-                items.append(DashboardTaskItem(
-                    text: taskText,
-                    isCompleted: false,
-                    noteURL: noteURL,
-                    noteTitle: noteTitle,
-                    lineNumber: index + 1,
-                    lineContent: line
-                ))
-            }
+            guard let (marker, taskText) = parseTaskLine(trimmed) else { continue }
+            let isCompleted = marker != " "
+            guard !isCompleted else { continue }
+            items.append(DashboardTaskItem(
+                text: taskText,
+                isCompleted: false,
+                noteURL: noteURL,
+                noteTitle: noteTitle,
+                lineNumber: index + 1,
+                lineContent: line
+            ))
         }
         return items
     }

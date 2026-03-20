@@ -84,7 +84,7 @@ struct ContentView: View {
 
     /// Resolves `quartz://note/...` from widgets / App Intents / Handoff (see `OpenNoteIntent`, `QuartzUserActivity`).
     private func applyPendingOpenNoteDeepLink(_ url: URL) {
-        guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, appState: appState) else { return }
+        guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, vaultRoot: appState.currentVault?.rootURL) else { return }
         selectedNoteURL = noteURL
     }
 
@@ -463,6 +463,7 @@ struct ContentView: View {
                     .help(String(localized: "AI chat across all notes"))
                     .disabled(viewModel?.embeddingService == nil)
 
+                    #if os(iOS)
                     toolbarIconButton(icon: "folder.badge.plus") {
                         QuartzFeedback.primaryAction()
                         showVaultPicker = true
@@ -470,7 +471,6 @@ struct ContentView: View {
                     .accessibilityLabel(String(localized: "Open Vault"))
                     .help(String(localized: "Open or create vault"))
 
-                    #if os(iOS)
                     toolbarIconButton(icon: "gearshape") {
                         showSettings = true
                     }
@@ -537,11 +537,24 @@ struct ContentView: View {
                     Label(String(localized: "Create New Vault…"), systemImage: "plus.rectangle.on.folder")
                 }
             } label: {
-                Image(systemName: "folder.badge.plus")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(appearance.accentColor)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary.opacity(0.75))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .quartzFloatingUltraThinSurface(cornerRadius: 12)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(appearance.accentColor.opacity(0.22), lineWidth: 1)
+                }
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
             .accessibilityLabel(String(localized: "Vault Options"))

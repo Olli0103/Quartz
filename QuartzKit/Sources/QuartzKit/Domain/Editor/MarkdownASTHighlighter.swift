@@ -40,32 +40,40 @@ private func sourceRangeToNSRange(_ range: SourceRange, in source: String) -> NS
 }
 
 /// Attribute application record for a range.
-struct HighlightSpan: Sendable {
-    let range: NSRange
-    let font: PlatformFont
-    let color: PlatformColor?
-    let traits: FontTraits
-    let backgroundColor: PlatformColor?
-    let strikethrough: Bool
+public struct HighlightSpan: @unchecked Sendable {
+    public let range: NSRange
+    public let font: PlatformFont
+    public let color: PlatformColor?
+    public let traits: FontTraits
+    public let backgroundColor: PlatformColor?
+    public let strikethrough: Bool
 }
 
 #if canImport(UIKit)
-typealias PlatformFont = UIFont
-typealias PlatformColor = UIColor
+public typealias PlatformFont = UIFont
+public typealias PlatformColor = UIColor
 #elseif canImport(AppKit)
-typealias PlatformFont = NSFont
-typealias PlatformColor = NSColor
+public typealias PlatformFont = NSFont
+public typealias PlatformColor = NSColor
 #endif
 
 #if canImport(UIKit)
-struct FontTraits {
-    var bold: Bool
-    var italic: Bool
+public struct FontTraits: Sendable {
+    public var bold: Bool
+    public var italic: Bool
+    public init(bold: Bool, italic: Bool) {
+        self.bold = bold
+        self.italic = italic
+    }
 }
 #elseif canImport(AppKit)
-struct FontTraits {
-    var bold: Bool
-    var italic: Bool
+public struct FontTraits: Sendable {
+    public var bold: Bool
+    public var italic: Bool
+    public init(bold: Bool, italic: Bool) {
+        self.bold = bold
+        self.italic = italic
+    }
 }
 #endif
 

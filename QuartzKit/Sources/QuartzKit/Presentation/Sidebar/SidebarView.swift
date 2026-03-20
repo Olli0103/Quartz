@@ -30,12 +30,10 @@ private var sidebarSectionFont: Font {
     #endif
 }
 
-private var newNoteButtonIconSize: CGFloat {
-    #if os(macOS)
-    17
-    #else
-    15
-    #endif
+private enum NewNoteCTA {
+    static let cornerRadius: CGFloat = 18
+    static let minHeight: CGFloat = 54
+    static let plusSize: CGFloat = 21
 }
 
 private var sidebarIconSize: CGFloat {
@@ -74,6 +72,9 @@ public struct SidebarView: View {
     /// Insertion indicator: (parentURL, index) for "drop between" visual.
     @State private var insertionIndicator: (parent: URL, index: Int)?
     @ScaledMetric(relativeTo: .caption) private var tagsChipRowVerticalPadding: CGFloat = 4
+    #if os(macOS)
+    @State private var newNoteButtonHovered = false
+    #endif
 
     private static let sidebarListRowInsets = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
 
@@ -84,13 +85,15 @@ public struct SidebarView: View {
     }
 
     public var body: some View {
-        List {
-            Section {
-                newNoteButton
-                    .listRowInsets(Self.sidebarListRowInsets)
-                    .listRowBackground(Color.clear)
-            }
+        VStack(spacing: 0) {
+            // CTA lives *outside* the List: macOS sidebar `List` rows collapse `Menu` labels to a lone SF Symbol.
+            newNoteButton
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
 
+            List {
             Section {
                 quickAccessSection
                     .listRowInsets(Self.sidebarListRowInsets)
@@ -165,16 +168,17 @@ public struct SidebarView: View {
                     .listRowBackground(Color.clear)
             }
             #endif
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            #if os(macOS)
+            .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes, tags…", bundle: .module)))
+            #endif
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 68)
         }
-        #endif
-        #if os(macOS)
-        .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes, tags…", bundle: .module)))
         #endif
         .onChange(of: searchQuery) { _, newValue in
             searchDebounceTask?.cancel()
@@ -333,17 +337,7 @@ public struct SidebarView: View {
     }
     #endif
 
-    // MARK: - New Note Button (44pt HIG)
-
-    private static let navyButton = Color(hex: 0x1E3A5F)
-
-    private var newNoteButtonFill: some ShapeStyle {
-        #if os(macOS)
-        Self.navyButton
-        #else
-        appearance.accentColor.gradient
-        #endif
-    }
+    // MARK: - New Note (primary CTA — liquid glass + accent)
 
     private var newNoteButton: some View {
         Menu {
@@ -361,23 +355,66 @@ public struct SidebarView: View {
                 }
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 14) {
                 Image(systemName: "plus")
-                    .font(.system(size: newNoteButtonIconSize, weight: .bold))
+                    .font(.system(size: NewNoteCTA.plusSize, weight: .bold))
                 Text(String(localized: "New Note", bundle: .module))
-                    .font(.body.weight(.semibold))
+                    .font(.title3.weight(.semibold))
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 13, weight: .bold))
+                    .opacity(0.92)
             }
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: QuartzHIG.minTouchTarget)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(newNoteButtonFill)
-                    .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-            )
             .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 17)
+            .frame(minHeight: NewNoteCTA.minHeight)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: NewNoteCTA.cornerRadius, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    appearance.accentColor,
+                                    appearance.accentColor.opacity(0.68),
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    RoundedRectangle(cornerRadius: NewNoteCTA.cornerRadius, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(appearance.vibrantTransparency ? 0.45 : 0.28)
+                    RoundedRectangle(cornerRadius: NewNoteCTA.cornerRadius, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.5),
+                                    .white.opacity(0.08),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                        .blendMode(.overlay)
+                    RoundedRectangle(cornerRadius: NewNoteCTA.cornerRadius, style: .continuous)
+                        .strokeBorder(appearance.accentColor.opacity(0.55), lineWidth: 1)
+                }
+            }
+            .shadow(color: appearance.accentColor.opacity(0.4), radius: 20, y: 9)
+            .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(NewNoteCTAMenuButtonStyle())
+        #if os(macOS)
+        .scaleEffect(newNoteButtonHovered ? 1.014 : 1.0)
+        .animation(.spring(response: 0.4, dampingFraction: 0.78), value: newNoteButtonHovered)
+        .onHover { newNoteButtonHovered = $0 }
+        #endif
+        .accessibilityLabel(String(localized: "New Note", bundle: .module))
     }
 
     private func generateNoteName() -> String {
@@ -598,9 +635,11 @@ public struct SidebarView: View {
 
     #if os(macOS)
     /// Deleted notes go to the system Trash on macOS; surface that in the product UI.
+    /// Sandboxed apps cannot open `~/.Trash` with `NSWorkspace.open` — the system shows a permission alert.
+    /// Activating Finder lets the user open Trash from the sidebar.
     private func openUserTrashInFinder() {
-        guard let trashURL = FileManager.default.urls(for: .trashDirectory, in: .userDomainMask).first else { return }
-        NSWorkspace.shared.open(trashURL)
+        guard let finderURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.finder") else { return }
+        NSWorkspace.shared.open(finderURL)
     }
 
     private var mapViewAndTrashSection: some View {
@@ -625,7 +664,7 @@ public struct SidebarView: View {
                     .frame(minHeight: QuartzHIG.minTouchTarget)
             }
             .buttonStyle(.plain)
-            .help(String(localized: "Open Trash in Finder to view or restore deleted items.", bundle: .module))
+            .help(String(localized: "Opens Finder. Click Trash in the sidebar to view deleted items.", bundle: .module))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
@@ -818,7 +857,6 @@ private struct SidebarTreeNode: View {
             }
             .draggable(SidebarItemTransferable(url: node.url))
             .contextMenu { folderContextMenu(for: node) }
-            .accessibilityCustomActions { folderAccessibilityCustomActions(for: node) }
             .animation(QuartzAnimation.standard, value: isDropTarget)
             .animation(reduceMotion ? .linear(duration: 0.001) : QuartzAnimation.folderExpand, value: effectiveExpanded)
         } else if node.isFolder {
@@ -848,7 +886,6 @@ private struct SidebarTreeNode: View {
                 }
             .draggable(SidebarItemTransferable(url: node.url))
             .contextMenu { folderContextMenu(for: node) }
-            .accessibilityCustomActions { folderAccessibilityCustomActions(for: node) }
         } else if node.isNote {
             Button {
                 onSelectNote(node.url)
@@ -874,7 +911,6 @@ private struct SidebarTreeNode: View {
                 }
             }
             .contextMenu { noteContextMenu(for: node) }
-            .accessibilityCustomActions { noteAccessibilityCustomActions(for: node) }
         } else {
             FileNodeRow(node: node)
         }
@@ -945,44 +981,15 @@ private struct SidebarTreeNode: View {
             Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
         }
     }
+}
 
-    @ViewBuilder
-    private func noteAccessibilityCustomActions(for node: FileNode) -> some View {
-        #if os(macOS)
-        if appState.currentVault != nil {
-            Button(String(localized: "Open in New Window", bundle: .module)) {
-                openWindow(value: node.url.standardizedFileURL)
-            }
-        }
-        #endif
-        Button(
-            viewModel.isFavorite(node.url)
-                ? String(localized: "Remove from Favorites", bundle: .module)
-                : String(localized: "Add to Favorites", bundle: .module)
-        ) {
-            viewModel.toggleFavorite(node.url)
-        }
-        Button(String(localized: "Move to folder…", bundle: .module)) {
-            onMoveToFolder(node.url)
-        }
-        Button(String(localized: "Delete note", bundle: .module)) {
-            onDeleteNote(node.url)
-        }
-    }
+// MARK: - New Note primary CTA (press animation)
 
-    @ViewBuilder
-    private func folderAccessibilityCustomActions(for node: FileNode) -> some View {
-        Button(String(localized: "New Note", bundle: .module)) {
-            onNewNote(node.url)
-        }
-        Button(String(localized: "New Folder", bundle: .module)) {
-            onNewFolder(node.url)
-        }
-        Button(String(localized: "Move to folder…", bundle: .module)) {
-            onMoveToFolder(node.url)
-        }
-        Button(String(localized: "Delete folder", bundle: .module)) {
-            onDeleteFolder(node.url)
-        }
+private struct NewNoteCTAMenuButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.982 : 1.0)
+            .brightness(configuration.isPressed ? -0.05 : 0)
+            .animation(.spring(response: 0.28, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }

@@ -424,7 +424,7 @@ public struct DashboardView: View {
         }
 
         briefingLoading = true
-        let service = DashboardBriefingService()
+        let service = DashboardBriefingService(providerRegistry: AIProviderRegistry.shared)
         do {
             briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents, vaultRoot: vaultRoot)
         } catch {

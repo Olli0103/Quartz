@@ -125,7 +125,7 @@ public struct StageManagerModifier: ViewModifier {
         guard url.scheme == "quartz" else { return }
         switch url.host() {
         case "note":
-            guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, appState: appState) else { return }
+            guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, vaultRoot: appState.currentVault?.rootURL) else { return }
             selectedNoteURL.wrappedValue = noteURL
         case "new":
             appState.pendingCommand = .newNote

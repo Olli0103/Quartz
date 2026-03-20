@@ -1197,48 +1197,48 @@
         }
       }
     },
-    "Open Trash in Finder to view or restore deleted items.": {
+    "Opens Finder. Click Trash in the sidebar to view deleted items.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Trash in Finder to view or restore deleted items."
+            "value": "Opens Finder. Click Trash in the sidebar to view deleted items."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Papierkorb im Finder öffnen, um gelöschte Objekte anzuzeigen oder wiederherzustellen."
+            "value": "Öffnet den Finder. Klicke in der Seitenleiste auf Papierkorb, um gelöschte Objekte anzuzeigen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir la Corbeille dans le Finder pour afficher ou restaurer les éléments supprimés."
+            "value": "Ouvre le Finder. Cliquez sur Corbeille dans la barre latérale pour afficher les éléments supprimés."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir la papelera en el Finder para ver o restaurar elementos eliminados."
+            "value": "Abre el Finder. Haz clic en Papelera en la barra lateral para ver elementos eliminados."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri il Cestino nel Finder per vedere o ripristinare gli elementi eliminati."
+            "value": "Apre il Finder. Fai clic su Cestino nella barra laterale per vedere gli elementi eliminati."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Finder 中打开废纸篓以查看或恢复已删除的项目。"
+            "value": "打开 Finder。在边栏中点按废纸篓可查看已删除的项目。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除した項目を表示または復元するには、Finderでゴミ箱を開きます。"
+            "value": "Finder を開きます。サイドバーのゴミ箱をクリックすると削除した項目を表示できます。"
           }
         }
       }
