@@ -268,24 +268,3 @@ struct FrontmatterTests {
     }
 }
 
-// MARK: - Feature Tests
-
-@Suite("Feature")
-struct FeatureTests {
-    @Test("All features are covered")
-    func allFeatures() {
-        #expect(Feature.allCases.count == 13)
-    }
-
-    @Test("Feature has rawValue")
-    func rawValues() {
-        #expect(Feature.markdownEditor.rawValue == "markdownEditor")
-        #expect(Feature.aiChat.rawValue == "aiChat")
-        #expect(Feature.speakerDiarization.rawValue == "speakerDiarization")
-    }
-
-    @Test("FeatureTier values")
-    func tiers() {
-        #expect(FeatureTier.free.rawValue == "free")
-    }
-}

@@ -14,7 +14,6 @@ public final class ServiceContainer {
 
     private var vaultProvider: (any VaultProviding)?
     private var frontmatterParser: (any FrontmatterParsing)?
-    private var featureGate: (any FeatureGating)?
     private var isBootstrapped = false
 
     /// Creates a new container. Use `shared` for production;
@@ -27,12 +26,10 @@ public final class ServiceContainer {
     /// before services are resolved.
     public func bootstrap(
         vaultProvider: (any VaultProviding)? = nil,
-        frontmatterParser: (any FrontmatterParsing)? = nil,
-        featureGate: (any FeatureGating)? = nil
+        frontmatterParser: (any FrontmatterParsing)? = nil
     ) {
         if let vaultProvider { self.vaultProvider = vaultProvider }
         if let frontmatterParser { self.frontmatterParser = frontmatterParser }
-        if let featureGate { self.featureGate = featureGate }
         isBootstrapped = true
     }
 
@@ -40,7 +37,6 @@ public final class ServiceContainer {
     public func reset() {
         vaultProvider = nil
         frontmatterParser = nil
-        featureGate = nil
         isBootstrapped = false
     }
 
@@ -52,10 +48,6 @@ public final class ServiceContainer {
 
     public func register(frontmatterParser: any FrontmatterParsing) {
         self.frontmatterParser = frontmatterParser
-    }
-
-    public func register(featureGate: any FeatureGating) {
-        self.featureGate = featureGate
     }
 
     // MARK: - Resolution
@@ -77,14 +69,5 @@ public final class ServiceContainer {
         let parser = FrontmatterParser()
         self.frontmatterParser = parser
         return parser
-    }
-
-    public func resolveFeatureGate() -> any FeatureGating {
-        if let gate = featureGate {
-            return gate
-        }
-        let gate = DefaultFeatureGate()
-        self.featureGate = gate
-        return gate
     }
 }

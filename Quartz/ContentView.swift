@@ -43,7 +43,6 @@ struct ContentView: View {
     @State private var showMeetingMinutesSheet = false
     #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
-    @State private var showSupport = false
     @State private var showConflictResolver = false
     @State private var availableUpdate: UpdateChecker.ReleaseInfo?
     @ScaledMetric(relativeTo: .largeTitle) private var welcomeIconSize: CGFloat = 64
@@ -73,7 +72,6 @@ struct ContentView: View {
             .sheet(isPresented: $showSettings) { SettingsView() }
             #endif
             .sheet(isPresented: $showSearch) { searchSheet }
-            .sheet(isPresented: $showSupport) { SupportView() }
             #if os(macOS)
             .sheet(isPresented: $showKnowledgeGraph) { knowledgeGraphSheet }
             #endif
@@ -355,12 +353,6 @@ struct ContentView: View {
                     .help(String(localized: "Search notes"))
                     .disabled(viewModel?.searchIndex == nil)
 
-                    toolbarIconButton(icon: "cup.and.saucer") {
-                        showSupport = true
-                    }
-                    .accessibilityLabel(String(localized: "Support My Work"))
-                    .help(String(localized: "Support the project"))
-
                     toolbarIconButton(icon: "brain.head.profile") {
                         if let session = viewModel?.createVaultChatSession() {
                             vaultChatSheetItem = VaultChatSheetItem(session: session)
@@ -598,7 +590,6 @@ struct ContentView: View {
                     viewModel: editorVM,
                     embeddingService: viewModel?.embeddingService,
                     onSearch: { showSearch = true },
-                    onSupport: { showSupport = true },
                     onNewNote: {
                         newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL
                         let df = DateFormatter()
@@ -660,13 +651,6 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel?.searchIndex == nil)
-
-                    Button {
-                        showSupport = true
-                    } label: {
-                        Image(systemName: "cup.and.saucer")
-                    }
-                    .help(String(localized: "Support the project"))
 
                     Button {
                         newNoteParent = viewModel?.sidebarViewModel?.vaultRootURL

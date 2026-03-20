@@ -33,24 +33,13 @@ struct ServiceContainerTests {
         #expect(parser is FrontmatterParser)
     }
 
-    @Test("resolveFeatureGate returns gate")
-    @MainActor
-    func resolveFeatureGate() {
-        let container = ServiceContainer.shared
-        let gate = container.resolveFeatureGate()
-        // Should return some implementation of FeatureGating
-        #expect(gate.isEnabled(.markdownEditor))
-    }
-
-    @Test("bootstrap registers custom services")
+    @Test("bootstrap registers custom frontmatter parser")
     @MainActor
     func bootstrapRegistration() {
-        let container = ServiceContainer.shared
-        let customGate = DefaultFeatureGate()
-        container.bootstrap(featureGate: customGate)
-
-        let gate = container.resolveFeatureGate()
-        #expect(gate.isEnabled(.aiChat))
+        let container = ServiceContainer()
+        let parser = FrontmatterParser()
+        container.bootstrap(frontmatterParser: parser)
+        #expect(container.resolveFrontmatterParser() is FrontmatterParser)
     }
 }
 
@@ -132,15 +121,3 @@ struct FocusModeManagerTests {
     }
 }
 
-// MARK: - Open-Source Feature Gate Tests
-
-@Suite("FeatureGate (Open-Source)")
-struct OpenSourceFeatureGateTests {
-    @Test("All features are enabled – no Pro gating")
-    func allFeaturesEnabled() {
-        let gate = DefaultFeatureGate()
-        for feature in Feature.allCases {
-            #expect(gate.isEnabled(feature), "Feature \(feature) should be enabled")
-        }
-    }
-}

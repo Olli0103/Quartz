@@ -94,8 +94,8 @@ Quartz/
 ├── QuartzKit/                      # 🔓 MIT-lizenziertes Swift Package (gesamte Logik)
 │   ├── Sources/QuartzKit/
 │   │   ├── Domain/
-│   │   │   ├── Models/             # FileNode, NoteDocument, VaultConfig, Frontmatter, Feature
-│   │   │   ├── Protocols/          # VaultProviding, MarkdownParsing, AIProviding, FeatureGating
+│   │   │   ├── Models/             # FileNode, NoteDocument, VaultConfig, Frontmatter
+│   │   │   ├── Protocols/          # VaultProviding, MarkdownParsing, AIProviding
 │   │   │   └── UseCases/           # CreateNote, SearchVault, LinkSuggestion, VaultChat, etc.
 │   │   ├── Data/
 │   │   │   ├── FileSystem/         # FileSystemVaultProvider, CloudSyncService, AssetManager
@@ -115,8 +115,6 @@ Quartz/
 │   │       └── Widgets/            # Widget definitions (WidgetKit extension target)
 │   └── Tests/
 │
-├── QuartzPro/                      # ⚠️ LEGACY – no longer used (kept for reference)
-│
 ├── Extensions/                     # App Extensions (future)
 │   ├── ShareExtension/
 │   └── WidgetExtension/
@@ -134,10 +132,7 @@ Quartz/
 | QuartzKit (Swift Package) | MIT |
 | Quartz App | MIT |
 
-**Finanzierung durch Community:**
-- GitHub Sponsors
-- Ko-fi / Buy Me a Coffee
-- Optional: App Store Version als "Pay what you want" (kostenlos + Tip Jar)
+**Finanzierung:** App Store als **Paid Upfront** (einmaliger Kauf, voller Funktionsumfang). Zusätzlich GitHub Sponsors für Community-Support.
 
 ### 2.3 Repository-Strategie
 
@@ -154,23 +149,9 @@ quartz (öffentlich, GitHub)     ←  MIT-Lizenz
 - Community-Contributors stellen PRs direkt gegen das Hauptrepo.
 - Releases über GitHub Releases + optional App Store.
 
-### 2.4 Feature-Flag-System
+### 2.4 Paid-upfront product
 
-Das Feature-Flag-System bleibt erhalten für Runtime-Checks und zukünftige Erweiterbarkeit. **Alle Features sind frei** – es gibt keine Pro-Einschränkungen.
-
-```swift
-enum Feature: String, CaseIterable, Codable {
-    case markdownEditor, focusMode, typewriterMode
-    case biDirectionalLinks, tagSystem, fullTextSearch
-    case aiChat, aiSummarize, vaultSearch
-    case audioRecording, transcription, meetingMinutes, speakerDiarization
-}
-
-// Alle Features sind .free – DefaultFeatureGate gibt immer true zurück
-protocol FeatureGating: Sendable {
-    func isEnabled(_ feature: Feature) -> Bool
-}
-```
+Es gibt **kein Feature-Gating**, keine In-App-Käufe und keine Abos: Nach dem App-Store-Kauf ist die App vollständig nutzbar (AI, Graph, Biometrie, etc.).
 
 ---
 

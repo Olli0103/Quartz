@@ -7,7 +7,6 @@ struct QuartzApp: App {
     @State private var appearanceManager = AppearanceManager()
     @State private var focusModeManager = FocusModeManager()
     @AppStorage("quartz.appLockEnabled") private var appLockEnabled = false
-    private let featureGate = DefaultFeatureGate()
     private let biometricAuthService = BiometricAuthService()
 
     var body: some Scene {
@@ -22,13 +21,12 @@ struct QuartzApp: App {
                 }
             }
             .environment(appState)
-            .environment(\.featureGate, featureGate)
             .environment(\.appearanceManager, appearanceManager)
             .environment(\.focusModeManager, focusModeManager)
             .preferredColorScheme(appearanceManager.theme.colorScheme)
             .tint(appearanceManager.accentColor)
             .task {
-                ServiceContainer.shared.bootstrap(featureGate: featureGate)
+                ServiceContainer.shared.bootstrap()
             }
         }
         .commands {
@@ -51,7 +49,6 @@ struct QuartzApp: App {
                 .environment(appState)
                 .environment(\.appearanceManager, appearanceManager)
                 .environment(\.focusModeManager, focusModeManager)
-                .environment(\.featureGate, featureGate)
         }
         #endif
     }

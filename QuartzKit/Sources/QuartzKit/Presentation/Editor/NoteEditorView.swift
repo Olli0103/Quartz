@@ -123,10 +123,9 @@ public struct NoteEditorView: View {
     private let formatter = MarkdownFormatter()
     private static let favoritesKey = "quartz.favoriteNotes"
 
-    /// Optional callbacks for global toolbar actions (Search Brain, Support, New Note, Refresh).
+    /// Optional callbacks for global toolbar actions (Search Brain, New Note, Refresh).
     /// When provided, these appear after AI and Focus Mode, before Save and Share.
     var onSearch: (() -> Void)? = nil
-    var onSupport: (() -> Void)? = nil
     var onNewNote: (() -> Void)? = nil
     var onRefresh: (() -> Void)? = nil
     var searchDisabled: Bool = false
@@ -137,7 +136,6 @@ public struct NoteEditorView: View {
         viewModel: NoteEditorViewModel,
         embeddingService: VectorEmbeddingService? = nil,
         onSearch: (() -> Void)? = nil,
-        onSupport: (() -> Void)? = nil,
         onNewNote: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         searchDisabled: Bool = false,
@@ -147,7 +145,6 @@ public struct NoteEditorView: View {
         self.viewModel = viewModel
         self.embeddingService = embeddingService
         self.onSearch = onSearch
-        self.onSupport = onSupport
         self.onNewNote = onNewNote
         self.onRefresh = onRefresh
         self.searchDisabled = searchDisabled
@@ -1174,7 +1171,7 @@ public struct NoteEditorView: View {
                 ? String(localized: "Switch to edit mode", bundle: .module)
                 : String(localized: "Preview rendered markdown", bundle: .module))
 
-            // Global toolbar actions (Search Brain, Support, etc.) – after AI and Focus Mode
+            // Global toolbar actions (Search Brain, etc.) – after AI and Focus Mode
             if let onSearch {
                 Button {
                     onSearch()
@@ -1194,14 +1191,6 @@ public struct NoteEditorView: View {
                 .disabled(searchDisabled)
                 .help(String(localized: "Search notes", bundle: .module))
             }
-            if let onSupport {
-                Button {
-                    onSupport()
-                } label: {
-                    Image(systemName: "cup.and.saucer")
-                }
-                .help(String(localized: "Support the project", bundle: .module))
-            }
             if let onNewNote {
                 Button {
                     onNewNote()
@@ -1219,7 +1208,7 @@ public struct NoteEditorView: View {
                 .disabled(refreshDisabled)
             }
             #if os(macOS)
-            if onSearch != nil || onSupport != nil || onNewNote != nil || onRefresh != nil {
+            if onSearch != nil || onNewNote != nil || onRefresh != nil {
                 SettingsLink {
                     Image(systemName: "gearshape")
                 }
