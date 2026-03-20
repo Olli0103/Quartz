@@ -166,11 +166,8 @@ struct ContentView: View {
             }
             .overlay(alignment: .top) { errorOverlay }
             .onChange(of: showVaultPicker) { _, shouldShow in
-                #if os(macOS)
-                if shouldShow {
-                    showVaultPicker = false
-                    Task { @MainActor in pickVaultFolderMacOS() }
-                }
+                #if !os(macOS)
+                _ = shouldShow
                 #endif
             }
             .tint(appearance.accentColor)
@@ -392,14 +389,22 @@ struct ContentView: View {
     }
 
     #if os(macOS)
+    private func presentOpenVaultFlow() {
+        pickVaultFolderMacOS()
+    }
+
+    private func presentCreateVaultFlow() {
+        createVaultFolderMacOS()
+    }
+
     private func pickVaultFolderMacOS() {
         let panel = NSOpenPanel()
         panel.title = String(localized: "Open Vault Folder")
-        panel.message = String(localized: "Choose an existing folder with your notes, or create a new one.")
+        panel.message = String(localized: "Choose an existing folder with your notes.")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
+        panel.canCreateDirectories = false
         panel.prompt = String(localized: "Open")
 
         panel.begin { response in
@@ -410,6 +415,38 @@ struct ContentView: View {
                     appState.showError(String(localized: "Unable to access the selected folder. Please try again."))
                     return
                 }
+
+                let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
+                persistBookmark(for: url, vaultName: vault.name)
+                QuartzFeedback.success()
+                openVault(vault)
+            }
+        }
+    }
+
+    private func createVaultFolderMacOS() {
+        let panel = NSSavePanel()
+        panel.title = String(localized: "Create Vault")
+        panel.message = String(localized: "Choose where to create your Quartz vault folder.")
+        panel.prompt = String(localized: "Create")
+        panel.nameFieldStringValue = String(localized: "Quartz Vault")
+        panel.canCreateDirectories = true
+        panel.showsTagField = false
+        panel.treatsFilePackagesAsDirectories = true
+        panel.isExtensionHidden = true
+
+        panel.begin { response in
+            Task { @MainActor in
+                guard response == .OK, let url = panel.url else { return }
+
+                do {
+                    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                } catch {
+                    appState.showError(String(localized: "Could not create the vault folder."))
+                    return
+                }
+
+                _ = url.startAccessingSecurityScopedResource()
 
                 let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
                 persistBookmark(for: url, vaultName: vault.name)
@@ -526,13 +563,21 @@ struct ContentView: View {
             Menu {
                 Button {
                     QuartzFeedback.primaryAction()
+                    #if os(macOS)
+                    presentOpenVaultFlow()
+                    #else
                     showVaultPicker = true
+                    #endif
                 } label: {
                     Label(String(localized: "Open Existing Vault"), systemImage: "folder")
                 }
                 Button {
                     QuartzFeedback.primaryAction()
+                    #if os(macOS)
+                    presentCreateVaultFlow()
+                    #else
                     showOnboarding = true
+                    #endif
                 } label: {
                     Label(String(localized: "Create New Vault…"), systemImage: "plus.rectangle.on.folder")
                 }
@@ -816,14 +861,22 @@ struct ContentView: View {
 
             QuartzButton(String(localized: "Open Vault"), icon: "folder.badge.plus") {
                 QuartzFeedback.primaryAction()
+                #if os(macOS)
+                presentOpenVaultFlow()
+                #else
                 showVaultPicker = true
+                #endif
             }
             .padding(.horizontal, 40)
             .slideUp(delay: 0.15)
 
             Button {
                 QuartzFeedback.primaryAction()
+                #if os(macOS)
+                presentCreateVaultFlow()
+                #else
                 showOnboarding = true
+                #endif
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.rectangle.on.folder")

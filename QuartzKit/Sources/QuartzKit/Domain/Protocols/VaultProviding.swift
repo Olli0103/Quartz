@@ -19,7 +19,7 @@ public protocol VaultProviding: Actor {
     /// Creates a new note with initial body content (e.g. from voice transcription).
     func createNote(named name: String, in folder: URL, initialContent: String) async throws -> NoteDocument
 
-    /// Deletes a note (moves to trash).
+    /// Deletes a note or folder by moving it into the vault-local hidden trash.
     func deleteNote(at url: URL) async throws
 
     /// Renames a file or folder.
