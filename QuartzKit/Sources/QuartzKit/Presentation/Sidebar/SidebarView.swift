@@ -48,7 +48,11 @@ public struct SidebarView: View {
     @Bindable var viewModel: SidebarViewModel
     @Binding var selectedNoteURL: URL?
     var onMapViewTap: (() -> Void)?
+    @Environment(AppState.self) private var appState
     @Environment(\.appearanceManager) private var appearance
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @State private var showNewFolderDialog = false
     @State private var showNewNoteDialog = false
     @State private var newItemName: String = ""
@@ -890,11 +894,11 @@ private struct SidebarTreeNode: View {
     private func noteContextMenu(for node: FileNode) -> some View {
         #if os(macOS)
         Button {
-            // TODO: Scene isolation — route `node.url` to a new window when multi-window note routing is implemented.
+            openWindow(value: node.url)
         } label: {
             Label(String(localized: "Open in New Window", bundle: .module), systemImage: "macwindow")
         }
-        .disabled(true)
+        .disabled(appState.currentVault == nil)
         Divider()
         #endif
         Button {
