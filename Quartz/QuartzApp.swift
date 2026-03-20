@@ -77,6 +77,12 @@ private struct NoteWindowRoot: View {
     @State private var editorVM: NoteEditorViewModel?
     @State private var loadError: String?
 
+    /// Handoff element only when the secondary editor finished loading successfully (mirrors main-window eligibility).
+    private var handoffNoteElementURL: URL? {
+        guard loadError == nil, editorVM != nil, let url = noteURL else { return nil }
+        return url
+    }
+
     var body: some View {
         Group {
             if let err = loadError {
@@ -109,7 +115,21 @@ private struct NoteWindowRoot: View {
             }
         }
         .quartzAmbientShellBackground()
-        .task(id: noteURL) {
+        .userActivity(QuartzUserActivity.openNoteActivityType, element: handoffNoteElementURL) { activeFileURL, activity in
+            guard let vaultRoot = appState.currentVault?.rootURL else {
+                activity.isEligibleForHandoff = false
+                activity.isEligibleForSearch = false
+                return
+            }
+            let title = editorVM?.note?.displayName ?? activeFileURL.deletingPathExtension().lastPathComponent
+            QuartzUserActivity.configureOpenNoteActivity(
+                activity,
+                noteURL: activeFileURL,
+                displayTitle: title,
+                vaultRoot: vaultRoot
+            )
+        }
+        .task(id: (noteURL, appState.currentVault?.id)) {
             await loadEditorIfNeeded()
         }
     }

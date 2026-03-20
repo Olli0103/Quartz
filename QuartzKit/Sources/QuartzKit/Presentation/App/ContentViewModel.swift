@@ -128,6 +128,27 @@ public final class ContentViewModel {
         )
     }
 
+    /// Resolves a stable vault note ID (embeddings / vault chat sources) to the note’s file URL.
+    public func urlForVaultNote(stableID: UUID) -> URL? {
+        guard let vaultRoot = currentVaultRootURL,
+              let tree = sidebarViewModel?.fileTree else { return nil }
+        return Self.urlForNoteFile(stableID: stableID, nodes: tree, vaultRoot: vaultRoot)
+    }
+
+    private static func urlForNoteFile(stableID: UUID, nodes: [FileNode], vaultRoot: URL) -> URL? {
+        for node in nodes {
+            if node.isNote {
+                let id = VectorEmbeddingService.stableNoteID(for: node.url, vaultRoot: vaultRoot)
+                if id == stableID { return node.url }
+            }
+            if let children = node.children,
+               let url = urlForNoteFile(stableID: stableID, nodes: children, vaultRoot: vaultRoot) {
+                return url
+            }
+        }
+        return nil
+    }
+
     /// Re-indexes every note in the vault. Can be triggered from the UI.
     public func reindexVault() {
         guard let tree = sidebarViewModel?.fileTree,

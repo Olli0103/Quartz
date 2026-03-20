@@ -4,32 +4,36 @@ import Foundation
 private let briefingCacheDuration: TimeInterval = 4 * 60 * 60 // 4 hours
 
 /// Generates an AI-powered weekly briefing from recent vault notes.
-/// Caches results for 4 hours to avoid regenerating on every view appear.
+/// Caches results for 4 hours per vault (process-wide) so reopening the Dashboard does not discard the cache.
 public actor DashboardBriefingService {
-    private let vaultProvider: any VaultProviding
     private let providerRegistry: AIProviderRegistry
-    private var cachedBriefing: String?
-    private var cachedAt: Date?
 
-    public init(
-        vaultProvider: any VaultProviding,
-        providerRegistry: AIProviderRegistry = .shared
-    ) {
-        self.vaultProvider = vaultProvider
+    private static var sharedCachedBriefing: String?
+    private static var sharedCachedAt: Date?
+    private static var sharedCachedVaultKey: String?
+
+    public init(providerRegistry: AIProviderRegistry = .shared) {
         self.providerRegistry = providerRegistry
     }
 
     /// Generates a brief summary of recent work for the morning command center.
-    /// Returns cached briefing if within 4 hours; otherwise generates and caches.
-    /// Returns nil if no AI provider is configured or no notes to summarize.
-    public func generateWeeklyBriefing(recentNoteContents: [(title: String, body: String)]) async throws -> String? {
-        if let cached = cachedBriefing, let at = cachedAt, Date().timeIntervalSince(at) < briefingCacheDuration {
+    /// Returns cached briefing if within 4 hours for the same vault; otherwise generates and caches.
+    /// Returns nil if no usable AI provider or no notes to summarize.
+    public func generateWeeklyBriefing(
+        recentNoteContents: [(title: String, body: String)],
+        vaultRoot: URL
+    ) async throws -> String? {
+        let vaultKey = vaultRoot.standardizedFileURL.path(percentEncoded: false)
+        if let cached = Self.sharedCachedBriefing,
+           let at = Self.sharedCachedAt,
+           Self.sharedCachedVaultKey == vaultKey,
+           Date().timeIntervalSince(at) < briefingCacheDuration {
             return cached
         }
         let provider = await providerRegistry.selectedProvider
         let modelID = await providerRegistry.selectedModelID
 
-        guard let provider else { return nil }
+        guard let provider, provider.isConfigured else { return nil }
         guard !recentNoteContents.isEmpty else { return nil }
 
         let contextLimit = 8_000
@@ -68,8 +72,9 @@ public actor DashboardBriefingService {
             model: modelID,
             temperature: 0.4
         )
-        cachedBriefing = response.content
-        cachedAt = Date()
+        Self.sharedCachedBriefing = response.content
+        Self.sharedCachedAt = Date()
+        Self.sharedCachedVaultKey = vaultKey
         return response.content
     }
 }

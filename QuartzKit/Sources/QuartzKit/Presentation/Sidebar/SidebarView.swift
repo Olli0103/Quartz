@@ -903,7 +903,7 @@ private struct SidebarTreeNode: View {
     private func noteContextMenu(for node: FileNode) -> some View {
         #if os(macOS)
         Button {
-            openWindow(value: node.url)
+            openWindow(value: node.url.standardizedFileURL)
         } label: {
             Label(String(localized: "Open in New Window", bundle: .module), systemImage: "macwindow")
         }
@@ -938,7 +938,7 @@ private struct SidebarTreeNode: View {
         #if os(macOS)
         if appState.currentVault != nil {
             Button(String(localized: "Open in New Window", bundle: .module)) {
-                openWindow(value: node.url)
+                openWindow(value: node.url.standardizedFileURL)
             }
         }
         #endif
@@ -952,7 +952,7 @@ private struct SidebarTreeNode: View {
         Button(String(localized: "Move to folder…", bundle: .module)) {
             onMoveToFolder(node.url)
         }
-        Button(String(localized: "Delete", bundle: .module)) {
+        Button(String(localized: "Delete note", bundle: .module)) {
             onDeleteNote(node.url)
         }
     }
@@ -968,7 +968,7 @@ private struct SidebarTreeNode: View {
         Button(String(localized: "Move to folder…", bundle: .module)) {
             onMoveToFolder(node.url)
         }
-        Button(String(localized: "Delete", bundle: .module)) {
+        Button(String(localized: "Delete folder", bundle: .module)) {
             onDeleteFolder(node.url)
         }
     }

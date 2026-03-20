@@ -66,7 +66,7 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Creates a directory in a coordinated manner.
-    public func createDirectory(at url: URL) throws {
+    public func createDirectory(at url: URL, withIntermediateDirectories: Bool = true) throws {
         var coordinatorError: NSError?
         var writeError: NSError?
 
@@ -79,7 +79,7 @@ public struct CoordinatedFileWriter: Sendable {
             do {
                 try FileManager.default.createDirectory(
                     at: actualURL,
-                    withIntermediateDirectories: true
+                    withIntermediateDirectories: withIntermediateDirectories
                 )
             } catch {
                 writeError = error as NSError
@@ -87,6 +87,54 @@ public struct CoordinatedFileWriter: Sendable {
         }
 
         if let error = coordinatorError ?? writeError {
+            throw error
+        }
+    }
+
+    /// Moves a file or directory using coordinated access (iCloud-safe rename / trash moves).
+    public func moveItem(from sourceURL: URL, to destinationURL: URL) throws {
+        var coordinatorError: NSError?
+        var moveError: NSError?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(
+            readingItemAt: sourceURL,
+            options: [],
+            writingItemAt: destinationURL,
+            options: .forReplacing,
+            error: &coordinatorError
+        ) { actualSource, actualDestination in
+            do {
+                try FileManager.default.moveItem(at: actualSource, to: actualDestination)
+            } catch {
+                moveError = error as NSError
+            }
+        }
+
+        if let error = coordinatorError ?? moveError {
+            throw error
+        }
+    }
+
+    /// Moves an item to the system Trash using coordinated access (macOS / supported platforms).
+    public func moveItemToTrash(at url: URL) throws {
+        var coordinatorError: NSError?
+        var opError: NSError?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(
+            writingItemAt: url,
+            options: [],
+            error: &coordinatorError
+        ) { actualURL in
+            do {
+                try FileManager.default.trashItem(at: actualURL, resultingItemURL: nil)
+            } catch {
+                opError = error as NSError
+            }
+        }
+
+        if let error = coordinatorError ?? opError {
             throw error
         }
     }

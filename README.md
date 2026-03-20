@@ -18,7 +18,7 @@
 
 ## Why Quartz?
 
-**Quartz** is a native, open-source note-taking app for **iOS**, **iPadOS**, and **macOS** that gives you the best of all worlds:
+**Quartz** is a native, open-source note-taking app for **iOS**, **iPadOS**, **macOS**, and **visionOS** that gives you the best of all worlds:
 
 - **Apple Notes simplicity** — Clean, familiar interface. No learning curve.
 - **Obsidian power** — Wiki-links, backlinks, tags, knowledge graphs. Your second brain.
@@ -42,6 +42,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 | **🔒 Privacy First** | Face ID / Touch ID lock. Optional AES-256 vault encryption. |
 | **☁️ iCloud Ready** | Sync across devices. Conflict resolution. Download-on-demand. |
 | **🌍 Localized** | English, German, French, Spanish, Italian, Chinese, Japanese. |
+| **Apple-native** | Spotlight, Handoff, Quick Look, multi-window notes on Mac, accessibility polish. |
 
 ---
 
@@ -57,6 +58,7 @@ Your notes live as **plain Markdown files** in any folder you choose. No vendor 
 - Auto-save, word count, reading time
 - Keyboard shortcuts (⌘B, ⌘I, ⌘K, etc.)
 - PDF export & system share sheet
+- **macOS** — Editor formatting in the window toolbar; open a note in a **new window** from the sidebar
 
 ### Organization
 - **Vault-based** — Each vault is a folder. Use iCloud, Dropbox, or local storage.
@@ -97,9 +99,13 @@ Bring your own API key. 5 providers supported:
 - **Mac Quick Note** — Global hotkey (⌥⌘N) for instant capture
 - **Widgets** — Lock Screen, Home Screen, Control Center
 - **App Intents** — Siri Shortcuts
+- **Spotlight** — Vault notes indexed for system search (title, tags, excerpt, path)
+- **Handoff** — Resume the current note session on another device
+- **Quick Look** — Preview exported PDFs and files after save (iOS & macOS)
+- **Accessibility** — VoiceOver custom actions on sidebar rows; Dynamic Type–friendly tags and chrome
 
 ### Design
-- **Liquid Glass** — Glassmorphism with iOS 26+ / macOS 26+ native support
+- **Liquid Glass** — Glassmorphism with native materials on current iOS, iPadOS, and macOS
 - **Themes** — Light, Dark, System
 - **Accent colors** — Blue, Red, Green, Orange, Purple, Pink, Gray
 - **Animations** — Spring transitions, reduce-motion support
@@ -128,6 +134,8 @@ Bring your own API key. 5 providers supported:
 - **Protocol-first DI** — `ServiceContainer`
 - **Filesystem as source of truth** — No database. Each note = `.md` file.
 
+For maintainers, platform integration milestones and validation notes live in [`docs/Quartz_ADA_Final_Mile_Implementation_Plan.md`](docs/Quartz_ADA_Final_Mile_Implementation_Plan.md).
+
 ---
 
 ## Requirements
@@ -136,6 +144,7 @@ Bring your own API key. 5 providers supported:
 |----------|---------|
 | iOS / iPadOS | 18.0 |
 | macOS | 15.0 (Sequoia) |
+| visionOS | 2.0 |
 | Xcode | 16.0+ |
 | Swift | 6.0 |
 
@@ -189,8 +198,7 @@ Contributions are welcome.
 
 Quartz is free and open source. If it helps you, consider supporting development:
 
-- **[GitHub Sponsors](https://github.com/sponsors/Olli0103)** — Monthly support
-- **In-app support** — One-time tips or subscription (Bronze, Silver, Gold)
+- **[GitHub Sponsors](https://github.com/sponsors/Olli0103)** — Monthly or one-time support
 - **Star the repo** — Helps others discover Quartz
 
 ---

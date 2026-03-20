@@ -11,7 +11,7 @@ extension View {
 }
 #else
 extension View {
-    /// Quick Look is unavailable on this platform; no-op.
+    /// Quick Look is unavailable on this platform (e.g. visionOS); no-op.
     public func quartzQuickLookPreview(_ item: Binding<URL?>) -> some View {
         self
     }

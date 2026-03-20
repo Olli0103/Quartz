@@ -6,11 +6,11 @@ import UIKit
 import AppKit
 #endif
 
-/// On-Device AI Service via Apple Intelligence APIs.
+/// On-device writing tools using Natural Language, spell checking, and optional configured AI providers.
 ///
-/// Provides summarization, rewriting, and tone adjustment
-/// directly on-device – no internet required.
-public actor AppleIntelligenceService {
+/// This is **not** Apple’s branded “Apple Intelligence” / Foundation Models APIs; it composes
+/// system NLP and text-checking primitives with your chosen provider when configured.
+public actor OnDeviceWritingToolsService {
     public enum AIAction: String, CaseIterable, Sendable {
         case summarize = "summarize"
         case rewrite = "rewrite"
@@ -63,7 +63,11 @@ public actor AppleIntelligenceService {
 
         public var errorDescription: String? {
             switch self {
-            case .notAvailable: String(localized: "Apple Intelligence is not available on this device.", bundle: .module)
+            case .notAvailable:
+                String(
+                    localized: "Writing tools require iOS 18.1, iPadOS 18.1, or macOS 15.1 or later.",
+                    bundle: .module
+                )
             case .processingFailed(let msg): String(localized: "AI processing failed: \(msg)", bundle: .module)
             case .featureUnavailable(let msg): msg
             case .emptyInput: String(localized: "No text provided for AI processing.", bundle: .module)
@@ -88,10 +92,8 @@ public actor AppleIntelligenceService {
 
     public init() {}
 
-    /// Checks whether Apple Intelligence is available.
+    /// Minimum OS version for the bundled writing-tools pipeline (matches availability checks below).
     public var isAvailable: Bool {
-        // Apple Intelligence is available from iOS 18.1 / macOS 15.1
-        // and only on supported devices (A17 Pro+, M1+)
         if #available(iOS 18.1, macOS 15.1, *) {
             return true
         }
@@ -129,7 +131,7 @@ public actor AppleIntelligenceService {
             throw AIError.notAvailable
         }
 
-        let processedText = try await performAppleIntelligence(
+        let processedText = try await performWritingTools(
             action: action,
             text: text,
             tone: tone,
@@ -161,18 +163,45 @@ public actor AppleIntelligenceService {
 
     // MARK: - Private
 
-    private func performAppleIntelligence(
+    private func performWritingTools(
         action: AIAction,
         text: String,
         tone: Tone?,
         contextChunks: [String] = []
     ) async throws -> String {
-        // Prefer configured AI provider for all actions.
-        // Fall back to on-device NLP when no provider is available.
-        if await hasAIProvider() {
-            return try await performWithAIProvider(action: action, text: text, tone: tone, contextChunks: contextChunks)
+        let useProvider = await isSelectedProviderUsableForWritingTools()
+
+        if useProvider {
+            do {
+                return try await performWithAIProvider(
+                    action: action,
+                    text: text,
+                    tone: tone,
+                    contextChunks: contextChunks
+                )
+            } catch {
+                if Self.supportsOnDeviceFallback(for: action) {
+                    return try await onDeviceProcessingWithoutProvider(action: action, text: text)
+                }
+                throw error
+            }
         }
 
+        return try await onDeviceProcessingWithoutProvider(action: action, text: text)
+    }
+
+    /// Actions that can degrade to Natural Language / spell-check when the provider path fails or is skipped.
+    private static func supportsOnDeviceFallback(for action: AIAction) -> Bool {
+        switch action {
+        case .summarize, .proofread, .makeConcise: true
+        case .rewrite, .makeDetailed: false
+        }
+    }
+
+    private func onDeviceProcessingWithoutProvider(
+        action: AIAction,
+        text: String
+    ) async throws -> String {
         switch action {
         case .summarize:
             return summarizeTextOnDevice(text)
@@ -193,9 +222,16 @@ public actor AppleIntelligenceService {
 
     // MARK: - AI Provider Path
 
-    private func hasAIProvider() async -> Bool {
+    /// Uses the provider only when it is configured and expected to work: API-key providers need a key;
+    /// **Ollama** must respond on the configured base URL (selected is not the same as reachable).
+    private func isSelectedProviderUsableForWritingTools() async -> Bool {
         let registry = await AIProviderRegistry.shared
-        return await registry.selectedProvider != nil
+        guard let provider = await registry.selectedProvider else { return false }
+        guard provider.isConfigured else { return false }
+        if provider.id == "ollama" {
+            return await provider.checkConnection()
+        }
+        return true
     }
 
     private func performWithAIProvider(

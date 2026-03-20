@@ -1143,7 +1143,7 @@ public struct NoteEditorView: View {
                     QuartzFeedback.primaryAction()
                     showAITools = true
                 } label: {
-                    Label(String(localized: "Writing Tools (Apple Intelligence)", bundle: .module), systemImage: "wand.and.stars")
+                    Label(String(localized: "Writing Tools", bundle: .module), systemImage: "wand.and.stars")
                 }
                 Button {
                     QuartzFeedback.primaryAction()
@@ -1214,7 +1214,7 @@ public struct NoteEditorView: View {
                     .symbolRenderingMode(.hierarchical)
             }
             .accessibilityLabel(String(localized: "AI & Tools", bundle: .module))
-            .help(String(localized: "AI writing tools, link suggestions, frontmatter, backlinks, knowledge graph, PDF export", bundle: .module))
+            .help(String(localized: "Writing tools, link suggestions, frontmatter, backlinks, graph (wiki-links and semantic links), PDF export", bundle: .module))
 
             Button {
                 QuartzFeedback.toggle()

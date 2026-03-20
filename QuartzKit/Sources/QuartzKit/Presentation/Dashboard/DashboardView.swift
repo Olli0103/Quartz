@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// **Architecture:**
 /// - **AI Morning Briefing:** Uses `DashboardBriefingService` to summarize recent notes via AI provider
-/// - **Action Items:** Parses `- [ ]` from all vault notes via `TaskItemParser`
+/// - **Action Items:** Parses `- [ ]` from recently edited notes (see load scope) via `TaskItemParser`
 /// - **Jump Back In:** Rich cards for recent notes using `.ultraThinMaterial`
 public struct DashboardView: View {
     let sidebarViewModel: SidebarViewModel?
@@ -95,6 +95,9 @@ public struct DashboardView: View {
                     .foregroundStyle(QuartzColors.accent)
                     .textCase(.uppercase)
             }
+            Text(String(localized: "Summarizes excerpts from your most recently edited notes. Cached up to 4 hours per vault.", bundle: .module))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
 
             if briefingLoading {
                 HStack(spacing: 12) {
@@ -114,7 +117,7 @@ public struct DashboardView: View {
                     .lineSpacing(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(String(localized: "Configure an AI provider in Settings to get a personalized summary of your recent work.", bundle: .module))
+                Text(String(localized: "Configure an AI provider in Settings to summarize excerpts from your most recently edited notes.", bundle: .module))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,6 +150,9 @@ public struct DashboardView: View {
                         .background(Capsule().fill(.quaternary))
                 }
             }
+            Text(String(localized: "Open tasks from notes you edited recently (up to 15 files).", bundle: .module))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
 
             if actionItemsLoading {
                 ProgressView()
@@ -218,17 +224,8 @@ public struct DashboardView: View {
 
     private var jumpBackInSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(String(localized: "Jump Back In", bundle: .module))
-                    .font(.headline)
-                Spacer()
-                Button(String(localized: "View all", bundle: .module)) {
-                    // Could navigate to All Notes filter
-                }
-                .font(.subheadline)
-                .foregroundStyle(QuartzColors.accent)
-                .buttonStyle(.plain)
-            }
+            Text(String(localized: "Jump Back In", bundle: .module))
+                .font(.headline)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
@@ -266,7 +263,7 @@ public struct DashboardView: View {
                     .textCase(.uppercase)
                 Text(String(localized: "Brain Garden", bundle: .module))
                     .font(.title2.weight(.bold))
-                Text("\(nodeCount) " + String(localized: "connected nodes", bundle: .module) + ". " + String(localized: "Your mental network is growing.", bundle: .module))
+                Text(String(format: String(localized: "%lld notes in vault. Explore wiki-links and semantic links from on-device embeddings.", bundle: .module), nodeCount))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.85))
                 Spacer(minLength: 12)
@@ -402,7 +399,7 @@ public struct DashboardView: View {
     // MARK: - Data Loading
 
     private func loadDashboardData() async {
-        guard let provider = vaultProvider, let vm = sidebarViewModel else { return }
+        guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else { return }
 
         let recent = vm.recentNotes(limit: 15)
         guard !recent.isEmpty else { return }
@@ -415,7 +412,7 @@ public struct DashboardView: View {
         actionItems = allTasks
         actionItemsLoading = false
 
-        // Load briefing context and generate (cached 4h by DashboardBriefingService)
+        // Load briefing context and generate (cached 4h per vault, process-wide)
         var contents: [(title: String, body: String)] = []
         for note in recent.prefix(10) {
             do {
@@ -428,9 +425,9 @@ public struct DashboardView: View {
         }
 
         briefingLoading = true
-        let service = DashboardBriefingService(vaultProvider: provider)
+        let service = DashboardBriefingService()
         do {
-            briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents)
+            briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents, vaultRoot: vaultRoot)
         } catch {
             briefing = nil
         }

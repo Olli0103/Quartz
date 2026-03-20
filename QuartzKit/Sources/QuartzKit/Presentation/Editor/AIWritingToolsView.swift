@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Sheet/popover that provides AI writing tools (summarize, rewrite, proofread).
-/// Uses on-device AppleIntelligenceService with optional Vault Memory (RAG) context.
+/// Uses ``OnDeviceWritingToolsService`` with optional Vault Memory (RAG) context.
 public struct AIWritingToolsView: View {
     let selectedText: String
     let embeddingService: VectorEmbeddingService?
@@ -10,16 +10,16 @@ public struct AIWritingToolsView: View {
     let onApply: @Sendable (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private typealias AIAction = AppleIntelligenceService.AIAction
-    private typealias Tone = AppleIntelligenceService.Tone
+    private typealias AIAction = OnDeviceWritingToolsService.AIAction
+    private typealias Tone = OnDeviceWritingToolsService.Tone
 
     @State private var result: String?
     @State private var isProcessing = false
     @State private var errorMessage: String?
-    @State private var selectedAction: AppleIntelligenceService.AIAction = .summarize
-    @State private var selectedTone: AppleIntelligenceService.Tone = .professional
+    @State private var selectedAction: OnDeviceWritingToolsService.AIAction = .summarize
+    @State private var selectedTone: OnDeviceWritingToolsService.Tone = .professional
 
-    private let aiService = AppleIntelligenceService()
+    private let aiService = OnDeviceWritingToolsService()
 
     public init(
         selectedText: String,
@@ -75,7 +75,7 @@ public struct AIWritingToolsView: View {
 
                 bottomBar
             }
-            .navigationTitle(String(localized: "Apple Intelligence Writing Tools", bundle: .module))
+            .navigationTitle(String(localized: "Quartz Writing Tools", bundle: .module))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

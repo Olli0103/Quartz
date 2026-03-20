@@ -117,7 +117,13 @@ struct ContentView: View {
             #if os(macOS)
             .sheet(isPresented: $showKnowledgeGraph) { knowledgeGraphSheet }
             #endif
-            .sheet(item: $vaultChatSheetItem) { VaultChatView(session: $0.session) }
+            .sheet(item: $vaultChatSheetItem) { item in
+                VaultChatView(session: item.session) { noteID in
+                    guard let url = viewModel?.urlForVaultNote(stableID: noteID) else { return }
+                    selectedNoteURL = url
+                    vaultChatSheetItem = nil
+                }
+            }
             .sheet(isPresented: $showConflictResolver) {
                 if let urls = viewModel?.conflictingFileURLs, !urls.isEmpty {
                     ConflictListResolverView(fileURLs: urls) {

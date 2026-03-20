@@ -1917,6 +1917,236 @@
         }
       }
     },
+    "Delete note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete note"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notiz löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer la note"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar nota"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina nota"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除笔记"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモを削除"
+          }
+        }
+      }
+    },
+    "Delete folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete folder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le dossier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar carpeta"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina cartella"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除文件夹"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを削除"
+          }
+        }
+      }
+    },
+    "%lld notes in vault. Explore wiki-links and semantic links from on-device embeddings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notes in vault. Explore wiki-links and semantic links from on-device embeddings."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Notizen im Tresor. Wiki-Links und semantische Verbindungen aus lokalen Embeddings erkunden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notes dans le coffre. Explorez les liens wiki et les liens sémantiques à partir d’embeddings sur l’appareil."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notas en la bóveda. Explora enlaces wiki y enlaces semánticos desde embeddings en el dispositivo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld note nel vault. Esplora wiki-link e collegamenti semantici da embedding on-device."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保险库中有 %lld 条笔记。探索维基链接与基于设备嵌入的语义链接。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボールトにノートが %lld 件。ウィキリンクとオンデバイス埋め込みのセマンティックリンクを探索。"
+          }
+        }
+      }
+    },
+    "When enabled, the graph adds dashed semantic links between embedding-based related notes. Uses on-device embeddings only.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, the graph adds dashed semantic links between embedding-based related notes. Uses on-device embeddings only."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aktiviert, ergänzt der Graph gestrichelte semantische Verbindungen zwischen einbettungsbasiert verwandten Notizen. Nutzt nur lokale Embeddings."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque cette option est activée, le graphe ajoute des liens sémantiques en pointillés entre des notes apparentées par embeddings. Utilise uniquement des embeddings sur l’appareil."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, el grafo añade enlaces semánticos discontinuos entre notas relacionadas por embeddings. Usa solo embeddings en el dispositivo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivato, il grafo aggiunge collegamenti semantici tratteggiati tra note correlate tramite embedding. Usa solo embedding on-device."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，图谱会在基于嵌入的关联笔记之间添加虚线语义链接。仅使用设备端嵌入。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、グラフは埋め込みに基づく関連ノート間に破線のセマンティックリンクを追加します。オンデバイス埋め込みのみを使用します。"
+          }
+        }
+      }
+    },
+    "Writing tools, link suggestions, frontmatter, backlinks, graph (wiki-links and semantic links), PDF export": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Writing tools, link suggestions, frontmatter, backlinks, graph (wiki-links and semantic links), PDF export"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreibtools, Linkvorschläge, Frontmatter, Backlinks, Graph (Wiki-Links und semantische Links), PDF-Export"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils d’écriture, suggestions de liens, frontmatter, backlinks, graphe (liens wiki et liens sémantiques), export PDF"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de escritura, sugerencias de enlaces, frontmatter, backlinks, grafo (enlaces wiki y semánticos), exportar PDF"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti di scrittura, suggerimenti di collegamenti, frontmatter, backlinks, grafo (wiki-link e collegamenti semantici), esportazione PDF"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写作工具、链接建议、前言、反向链接、图谱（维基链接与语义链接）、导出 PDF"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライティングツール、リンク提案、フロントマター、バックリンク、グラフ（ウィキリンクとセマンティックリンク）、PDF 書き出し"
+          }
+        }
+      }
+    },
     "Bold": {
       "localizations": {
         "en": {
@@ -5148,48 +5378,140 @@
         }
       }
     },
-    "Apple Intelligence is not available on this device.": {
+    "Writing tools require iOS 18.1, iPadOS 18.1, or macOS 15.1 or later.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence is not available on this device."
+            "value": "Writing tools require iOS 18.1, iPadOS 18.1, or macOS 15.1 or later."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence ist auf diesem Gerät nicht verfügbar."
+            "value": "Für die Schreibtools wird iOS 18.1, iPadOS 18.1 oder macOS 15.1 oder neuer benötigt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence n'est pas disponible sur cet appareil."
+            "value": "Les outils d’écriture requièrent iOS 18.1, iPadOS 18.1 ou macOS 15.1 ou une version ultérieure."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence no está disponible en este dispositivo."
+            "value": "Las herramientas de escritura requieren iOS 18.1, iPadOS 18.1 o macOS 15.1 o posterior."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence non è disponibile su questo dispositivo."
+            "value": "Gli strumenti di scrittura richiedono iOS 18.1, iPadOS 18.1 o macOS 15.1 o versioni successive."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence 在此设备上不可用。"
+            "value": "写作工具需要 iOS 18.1、iPadOS 18.1 或 macOS 15.1 或更高版本。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligenceはこのデバイスでは利用できません。"
+            "value": "書き込みツールを使うには、iOS 18.1、iPadOS 18.1、または macOS 15.1 以降が必要です。"
+          }
+        }
+      }
+    },
+    "Quartz Writing Tools": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quartz Writing Tools"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quartz-Schreibtools"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils d’écriture Quartz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de escritura de Quartz"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti di scrittura Quartz"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quartz 写作工具"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quartz ライティングツール"
+          }
+        }
+      }
+    },
+    "Writing Tools": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Writing Tools"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreibtools"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils d’écriture"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de escritura"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti di scrittura"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写作工具"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライティングツール"
           }
         }
       }
@@ -9365,6 +9687,144 @@
           "stringUnit": {
             "state": "translated",
             "value": "デイリーノート準備完了：%@"
+          }
+        }
+      }
+    },
+    "Summarizes excerpts from your most recently edited notes. Cached up to 4 hours per vault.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarizes excerpts from your most recently edited notes. Cached up to 4 hours per vault."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fasst Auszüge aus Ihren zuletzt bearbeiteten Notizen zusammen. Pro Tresor bis zu 4 Stunden zwischengespeichert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résume des extraits de vos notes modifiées récemment. Mis en cache jusqu’à 4 heures par coffre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume extractos de tus notas editadas recientemente. Se guarda en caché hasta 4 horas por bóveda."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riassume estratti dalle note modificate di recente. Memorizzato in cache fino a 4 ore per vault."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "总结您最近编辑的笔记摘录。每个资料库最多缓存 4 小时。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近編集したノートの抜粋を要約します。ボールトごとに最大4時間キャッシュされます。"
+          }
+        }
+      }
+    },
+    "Configure an AI provider in Settings to summarize excerpts from your most recently edited notes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure an AI provider in Settings to summarize excerpts from your most recently edited notes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurieren Sie in den Einstellungen einen KI-Anbieter, um Auszüge aus Ihren zuletzt bearbeiteten Notizen zusammenzufassen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurez un fournisseur d’IA dans Réglages pour résumer des extraits de vos notes modifiées récemment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura un proveedor de IA en Ajustes para resumir extractos de tus notas editadas recientemente."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura un provider IA in Impostazioni per riassumere estratti dalle note modificate di recente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中配置 AI 提供方，以总结最近编辑的笔记摘录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定で AI プロバイダーを構成し、最近編集したノートの抜粋を要約します。"
+          }
+        }
+      }
+    },
+    "Open tasks from notes you edited recently (up to 15 files).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open tasks from notes you edited recently (up to 15 files)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offene Aufgaben aus Notizen, die Sie kürzlich bearbeitet haben (bis zu 15 Dateien)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tâches ouvertes issues des notes récemment modifiées (jusqu’à 15 fichiers)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tareas abiertas de notas editadas recientemente (hasta 15 archivos)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attività aperte dalle note modificate di recente (fino a 15 file)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自您最近编辑的笔记的待办任务（最多 15 个文件）。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近編集したノートからの未完了タスク（最大15ファイル）。"
           }
         }
       }

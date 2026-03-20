@@ -716,6 +716,7 @@ public struct QuartzTagBadge: View {
         }
         .scaleEffect(isSelected ? 1.05 : 1.0)
         .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isSelected)
+        .accessibilityLabel(showHash ? "#\(text)" : text)
     }
 }
 

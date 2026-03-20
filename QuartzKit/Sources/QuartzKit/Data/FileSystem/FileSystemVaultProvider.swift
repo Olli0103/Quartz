@@ -19,7 +19,7 @@ public actor FileSystemVaultProvider: VaultProviding {
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
         vaultRoot = root
         #if !os(macOS)
-        purgeTrashOlderThan30Days(at: root)
+        await purgeTrashOlderThan30Days(at: root)
         #endif
         // Move heavy recursive I/O off the actor to avoid blocking other actor calls.
         // FileManager.default is used inside the closure instead of capturing the
@@ -112,13 +112,17 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func deleteNote(at url: URL) async throws {
         #if os(macOS)
-        try fileManager.trashItem(at: url, resultingItemURL: nil)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.moveItemToTrash(at: url)
+        }.value
         #else
         // Use cached vault root; fall back to parent directory if not yet set.
         // Single coordinated move for atomicity — avoids multi-step race with iCloud sync.
         let root = vaultRoot ?? url.deletingLastPathComponent()
         let trashFolder = root.appending(path: ".trash")
-        try fileManager.createDirectory(at: trashFolder, withIntermediateDirectories: true)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.createDirectory(at: trashFolder, withIntermediateDirectories: true)
+        }.value
         let baseName = url.deletingPathExtension().lastPathComponent
         let ext = url.pathExtension
         var dest = trashFolder.appending(path: url.lastPathComponent)
@@ -129,7 +133,9 @@ public actor FileSystemVaultProvider: VaultProviding {
             dest = trashFolder.appending(path: uniqueName)
             counter += 1
         }
-        try fileManager.moveItem(at: url, to: dest)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.moveItem(from: url, to: dest)
+        }.value
         #endif
     }
 
@@ -146,7 +152,9 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard !fileManager.fileExists(atPath: newURL.path(percentEncoded: false)) else {
             throw FileSystemError.fileAlreadyExists(newURL)
         }
-        try fileManager.moveItem(at: url, to: newURL)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.moveItem(from: url, to: newURL)
+        }.value
         return newURL
     }
 
@@ -169,7 +177,9 @@ public actor FileSystemVaultProvider: VaultProviding {
                 .hasPrefix(parent.resolvingSymlinksInPath().standardizedFileURL.path()) else {
             throw FileSystemError.invalidName(name)
         }
-        try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: false)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.createDirectory(at: folderURL, withIntermediateDirectories: false)
+        }.value
         return folderURL
     }
 
@@ -179,23 +189,29 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
             throw FileSystemError.fileNotFound(url)
         }
-        return try Data(contentsOf: url)
+        return try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.read(from: url)
+        }.value
     }
 
     private func coordinatedWrite(data: Data, to url: URL) async throws {
         // Create parent directory if needed (e.g. for new notes in new folders)
         let parent = url.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: parent.path(percentEncoded: false)) {
-            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+            try await Task.detached(priority: .userInitiated) {
+                try CoordinatedFileWriter.shared.createDirectory(at: parent, withIntermediateDirectories: true)
+            }.value
         }
-        try data.write(to: url, options: .atomic)
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.write(data, to: url)
+        }.value
     }
 
     // MARK: - Trash Purge
 
     /// Permanently deletes items in .trash that are older than 30 days.
     /// Only used on iOS where we maintain a vault .trash folder; macOS uses system Trash.
-    private func purgeTrashOlderThan30Days(at root: URL) {
+    private func purgeTrashOlderThan30Days(at root: URL) async {
         let trashURL = root.appending(path: ".trash")
         guard fileManager.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return }
         let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
@@ -207,7 +223,9 @@ public actor FileSystemVaultProvider: VaultProviding {
         for item in contents {
             guard let modDate = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
                   modDate < cutoff else { continue }
-            try? fileManager.removeItem(at: item)
+            try? await Task.detached(priority: .utility) {
+                try CoordinatedFileWriter.shared.removeItem(at: item)
+            }.value
         }
     }
 

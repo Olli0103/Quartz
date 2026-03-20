@@ -491,7 +491,7 @@ public struct AISettingsView: View {
         } header: {
             Text(String(localized: "Knowledge Graph", bundle: .module))
         } footer: {
-            Text(String(localized: "When enabled, the graph view uses AI-powered embeddings to show dashed connections between semantically related notes.", bundle: .module))
+            Text(String(localized: "When enabled, the graph adds dashed semantic links between embedding-based related notes. Uses on-device embeddings only.", bundle: .module))
         }
     }
 
