@@ -181,6 +181,8 @@ public struct DashboardView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(togglingTaskID == item.id)
+                            .accessibilityLabel(String(localized: "Complete task", bundle: .module))
+                            .accessibilityHint(String(localized: "Double tap to mark as done", bundle: .module))
 
                             Button {
                                 QuartzFeedback.selection()
@@ -204,6 +206,8 @@ public struct DashboardView: View {
                                 }
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(item.text)
+                            .accessibilityHint(String(localized: "From \(item.noteTitle). Double tap to open note.", bundle: .module))
                         }
                         .padding(12)
                         .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -280,6 +284,8 @@ public struct DashboardView: View {
                         .background(Capsule().fill(.white))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "Explore knowledge graph", bundle: .module))
+                .accessibilityHint(String(localized: "\(nodeCount) notes in vault", bundle: .module))
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -398,6 +404,8 @@ public struct DashboardView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "Capture a Spark", bundle: .module))
+        .accessibilityHint(String(localized: "Double tap to create a new quick note", bundle: .module))
     }
 
     // MARK: - Data Loading

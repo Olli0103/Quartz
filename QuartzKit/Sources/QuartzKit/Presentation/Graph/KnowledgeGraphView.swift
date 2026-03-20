@@ -604,6 +604,7 @@ public struct KnowledgeGraphView: View {
                 .foregroundStyle(QuartzColors.accent)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Open \(node.title)", bundle: .module))
         }
         .padding(16)
         .frame(maxWidth: 200, alignment: .leading)
@@ -613,6 +614,11 @@ public struct KnowledgeGraphView: View {
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "Selected note: \(node.title)", bundle: .module))
+        .accessibilityHint(node.tags.isEmpty
+            ? String(localized: "Double tap Open Note to view", bundle: .module)
+            : String(localized: "Tags: \(node.tags.prefix(3).joined(separator: ", ")). Double tap Open Note to view", bundle: .module))
     }
 
     // MARK: - Filter Bar
@@ -640,6 +646,11 @@ public struct KnowledgeGraphView: View {
                 .foregroundStyle(isSelected ? .white : .primary)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(option.label)
+        .accessibilityHint(isSelected
+            ? String(localized: "Currently selected", bundle: .module)
+            : String(localized: "Double tap to filter", bundle: .module))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - Zoom Controls
@@ -656,6 +667,7 @@ public struct KnowledgeGraphView: View {
                     .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Zoom in", bundle: .module))
             Button {
                 withAnimation { zoom = max(0.3, zoom - 0.2) }
             } label: {
@@ -666,6 +678,7 @@ public struct KnowledgeGraphView: View {
                     .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Zoom out", bundle: .module))
             Button {
                 withAnimation { pan = .zero; zoom = 1.0 }
             } label: {
@@ -676,6 +689,7 @@ public struct KnowledgeGraphView: View {
                     .quartzMaterialCircle()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Reset view", bundle: .module))
         }
     }
 
@@ -867,5 +881,41 @@ public struct KnowledgeGraphView: View {
             }
             #endif
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(graphAccessibilityLabel)
+        .accessibilityHint(String(localized: "Use the node list below for VoiceOver navigation", bundle: .module))
+        .accessibilityRepresentation {
+            // Provide a list-based alternative for VoiceOver users
+            List(viewModel.nodes) { node in
+                Button {
+                    selectedNodeID = node.id
+                    onSelectNote?(node.url)
+                } label: {
+                    VStack(alignment: .leading) {
+                        Text(node.title)
+                        if node.connectionCount > 0 {
+                            Text(String(localized: "\(node.connectionCount) connections", bundle: .module))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityLabel(node.title)
+                .accessibilityHint(node.connectionCount > 0
+                    ? String(localized: "\(node.connectionCount) connections. Double tap to open.", bundle: .module)
+                    : String(localized: "No connections. Double tap to open.", bundle: .module))
+            }
+        }
+    }
+
+    private var graphAccessibilityLabel: String {
+        let nodeCount = viewModel.nodes.count
+        let edgeCount = viewModel.edges.count
+        if let currentID = viewModel.currentNoteID,
+           let currentNode = viewModel.nodes.first(where: { $0.id == currentID }) {
+            let connectedCount = viewModel.connectedNodeIDs.count
+            return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections. Current note: \(currentNode.title) with \(connectedCount) linked notes.", bundle: .module)
+        }
+        return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections.", bundle: .module)
     }
 }
