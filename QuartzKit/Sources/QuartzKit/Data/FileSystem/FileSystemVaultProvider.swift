@@ -7,6 +7,7 @@ import Foundation
 public actor FileSystemVaultProvider: VaultProviding {
     private let fileManager = FileManager.default
     private let frontmatterParser: any FrontmatterParsing
+    private let trashService = VaultTrashService()
     /// Cached vault root URL, set when loadFileTree is called.
     private var vaultRoot: URL?
 
@@ -18,9 +19,7 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func loadFileTree(at root: URL) async throws -> [FileNode] {
         vaultRoot = root
-        #if !os(macOS)
         await purgeTrashOlderThan30Days(at: root)
-        #endif
         // Move heavy recursive I/O off the actor to avoid blocking other actor calls.
         // FileManager.default is used inside the closure instead of capturing the
         // actor's instance (FileManager is not Sendable in Swift 6).
@@ -111,32 +110,10 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func deleteNote(at url: URL) async throws {
-        #if os(macOS)
+        let root = resolveVaultRoot(for: url)
         try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.moveItemToTrash(at: url)
+            try trashService.moveItemToTrash(url, in: root)
         }.value
-        #else
-        // Use cached vault root; fall back to parent directory if not yet set.
-        // Single coordinated move for atomicity — avoids multi-step race with iCloud sync.
-        let root = vaultRoot ?? url.deletingLastPathComponent()
-        let trashFolder = root.appending(path: ".trash")
-        try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.createDirectory(at: trashFolder, withIntermediateDirectories: true)
-        }.value
-        let baseName = url.deletingPathExtension().lastPathComponent
-        let ext = url.pathExtension
-        var dest = trashFolder.appending(path: url.lastPathComponent)
-        // Unique destination to avoid overwriting previously trashed items
-        var counter = 1
-        while fileManager.fileExists(atPath: dest.path(percentEncoded: false)) {
-            let uniqueName = ext.isEmpty ? "\(baseName)-\(counter)" : "\(baseName)-\(counter).\(ext)"
-            dest = trashFolder.appending(path: uniqueName)
-            counter += 1
-        }
-        try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.moveItem(from: url, to: dest)
-        }.value
-        #endif
     }
 
     public func rename(at url: URL, to newName: String) async throws -> URL {
@@ -209,24 +186,19 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     // MARK: - Trash Purge
 
-    /// Permanently deletes items in .trash that are older than 30 days.
-    /// Only used on iOS where we maintain a vault .trash folder; macOS uses system Trash.
+    /// Permanently deletes items in the hidden vault trash that are older than 30 days.
     private func purgeTrashOlderThan30Days(at root: URL) async {
-        let trashURL = root.appending(path: ".trash")
-        guard fileManager.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return }
-        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: trashURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: []
-        ) else { return }
-        for item in contents {
-            guard let modDate = (try? item.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  modDate < cutoff else { continue }
-            try? await Task.detached(priority: .utility) {
-                try CoordinatedFileWriter.shared.removeItem(at: item)
+        do {
+            try await Task.detached(priority: .utility) {
+                try trashService.purgeExpiredItems(in: root)
             }.value
+        } catch {
+            // Best-effort housekeeping; never block vault loading because trash cleanup failed.
         }
+    }
+
+    private func resolveVaultRoot(for url: URL) -> URL {
+        vaultRoot ?? url.deletingLastPathComponent()
     }
 
     // MARK: - Private
