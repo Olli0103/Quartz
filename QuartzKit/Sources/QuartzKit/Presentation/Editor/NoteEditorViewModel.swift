@@ -118,6 +118,7 @@ public final class NoteEditorViewModel {
         currentNote.frontmatter.modifiedAt = .now
 
         do {
+            let savedURL = currentNote.fileURL
             try await vaultProvider.saveNote(currentNote)
             note = currentNote
             // Only clear dirty flag if content hasn't changed since snapshot
@@ -125,6 +126,7 @@ public final class NoteEditorViewModel {
                 isDirty = false
             }
             errorMessage = nil
+            NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
         } catch {
             errorMessage = error.localizedDescription
             scheduleAutosave()

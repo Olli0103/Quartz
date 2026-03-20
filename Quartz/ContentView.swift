@@ -230,6 +230,21 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .quartzReindexRequested)) { _ in
             viewModel?.reindexVault()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzNoteSaved)) { output in
+            if let url = output.object as? URL {
+                viewModel?.spotlightIndexNote(at: url)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzSpotlightNotesRemoved)) { output in
+            if let urls = output.userInfo?["urls"] as? [URL] {
+                viewModel?.spotlightRemoveNotes(at: urls)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzSpotlightNoteRelocated)) { output in
+            guard let oldURL = output.userInfo?["old"] as? URL,
+                  let newURL = output.userInfo?["new"] as? URL else { return }
+            viewModel?.spotlightRelocateNote(from: oldURL, to: newURL)
+        }
     }
 
     @ViewBuilder

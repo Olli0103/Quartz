@@ -3,6 +3,12 @@ import SwiftUI
 public extension Notification.Name {
     static let quartzFavoritesDidChange = Notification.Name("quartzFavoritesDidChange")
     static let quartzReindexRequested = Notification.Name("quartzReindexRequested")
+    /// Posted with `object` set to the saved note’s file `URL` (Core Spotlight incremental index).
+    static let quartzNoteSaved = Notification.Name("quartzNoteSaved")
+    /// `userInfo["urls"]` is `[URL]` of markdown files removed from disk (Spotlight deletion).
+    static let quartzSpotlightNotesRemoved = Notification.Name("quartzSpotlightNotesRemoved")
+    /// `userInfo["old"]` and `["new"]` are file `URL`s after rename or move.
+    static let quartzSpotlightNoteRelocated = Notification.Name("quartzSpotlightNoteRelocated")
 }
 
 public enum SidebarFilter: String, CaseIterable, Sendable {
@@ -186,8 +192,15 @@ public final class SidebarViewModel {
     /// Renames an item.
     public func rename(at url: URL, to newName: String) async {
         do {
-            _ = try await vaultProvider.rename(at: url, to: newName)
+            let newURL = try await vaultProvider.rename(at: url, to: newName)
             await refresh()
+            if newURL != url {
+                NotificationCenter.default.post(
+                    name: .quartzSpotlightNoteRelocated,
+                    object: nil,
+                    userInfo: ["old": url, "new": newURL]
+                )
+            }
         } catch {
             errorMessage = userFacingMessage(for: error)
         }
@@ -197,8 +210,15 @@ public final class SidebarViewModel {
     public func move(at sourceURL: URL, to destinationFolder: URL) async {
         do {
             let folderUseCase = FolderManagementUseCase(vaultProvider: vaultProvider)
-            _ = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
+            let newURL = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
             await refresh()
+            if newURL != sourceURL {
+                NotificationCenter.default.post(
+                    name: .quartzSpotlightNoteRelocated,
+                    object: nil,
+                    userInfo: ["old": sourceURL, "new": newURL]
+                )
+            }
         } catch {
             errorMessage = userFacingMessage(for: error)
         }
@@ -207,11 +227,43 @@ public final class SidebarViewModel {
     /// Deletes an item.
     public func delete(at url: URL) async {
         do {
+            let removed = Self.markdownFileURLsUnder(url)
             try await vaultProvider.deleteNote(at: url)
             await refresh()
+            if !removed.isEmpty {
+                NotificationCenter.default.post(
+                    name: .quartzSpotlightNotesRemoved,
+                    object: nil,
+                    userInfo: ["urls": removed]
+                )
+            }
         } catch {
             errorMessage = userFacingMessage(for: error)
         }
+    }
+
+    /// Markdown files affected by deleting `url` (single note or folder), before the delete runs.
+    private static func markdownFileURLsUnder(_ url: URL) -> [URL] {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDir) else {
+            return []
+        }
+        if !isDir.boolValue {
+            return url.pathExtension.lowercased() == "md" ? [url] : []
+        }
+        var urls: [URL] = []
+        if let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let fileURL as URL in enumerator {
+                if fileURL.pathExtension.lowercased() == "md" {
+                    urls.append(fileURL)
+                }
+            }
+        }
+        return urls
     }
 
     /// Collects tags from the file tree.

@@ -10,6 +10,8 @@ public final class ContentViewModel {
     public var sidebarViewModel: SidebarViewModel?
     public var editorViewModel: NoteEditorViewModel?
     public var searchIndex: VaultSearchIndex?
+    /// Core Spotlight indexer (system search); separate from in-app ``searchIndex``.
+    private var spotlightIndexer: QuartzSpotlightIndexer?
     public var embeddingService: VectorEmbeddingService?
     public var cloudSyncStatus: CloudSyncStatus = .notApplicable
     /// URLs of files with unresolved iCloud sync conflicts. Used to present ConflictResolverView.
@@ -45,12 +47,21 @@ public final class ContentViewModel {
         let index = VaultSearchIndex(vaultProvider: provider)
         searchIndex = index
 
+        spotlightIndexer = QuartzSpotlightIndexer(vaultProvider: provider)
+
         let embedding = VectorEmbeddingService(vaultURL: vault.rootURL)
         embeddingService = embedding
 
         Task {
             await viewModel.loadTree(at: vault.rootURL)
             await index.indexFromPreloadedTree(viewModel.fileTree)
+            if let root = currentVaultRootURL {
+                await spotlightIndexer?.removeAllInDomain()
+                await spotlightIndexer?.indexAllNotes(
+                    urls: Self.collectNoteURLs(from: viewModel.fileTree),
+                    vaultRoot: root
+                )
+            }
             try? await embedding.loadIndex()
             indexAllNotes(in: viewModel.fileTree, vaultRoot: vault.rootURL, embedding: embedding)
         }
@@ -120,9 +131,47 @@ public final class ContentViewModel {
     /// Re-indexes every note in the vault. Can be triggered from the UI.
     public func reindexVault() {
         guard let tree = sidebarViewModel?.fileTree,
-              let vaultRoot = currentVaultRootURL,
-              let embedding = embeddingService else { return }
-        indexAllNotes(in: tree, vaultRoot: vaultRoot, embedding: embedding)
+              let vaultRoot = currentVaultRootURL else { return }
+        if let embedding = embeddingService {
+            indexAllNotes(in: tree, vaultRoot: vaultRoot, embedding: embedding)
+        }
+        Task {
+            await spotlightIndexer?.removeAllInDomain()
+            await spotlightIndexer?.indexAllNotes(urls: Self.collectNoteURLs(from: tree), vaultRoot: vaultRoot)
+        }
+    }
+
+    // MARK: - Core Spotlight
+
+    /// Called when a note file is saved (autosave or explicit).
+    public func spotlightIndexNote(at url: URL) {
+        guard let vaultRoot = currentVaultRootURL else { return }
+        Task {
+            await spotlightIndexer?.indexNote(at: url, vaultRoot: vaultRoot)
+        }
+    }
+
+    /// Removes Spotlight entries for deleted markdown files.
+    public func spotlightRemoveNotes(at urls: [URL]) {
+        Task {
+            for url in urls {
+                await spotlightIndexer?.removeNote(fileURL: url)
+            }
+        }
+    }
+
+    /// Updates Spotlight when a note file moves on disk.
+    public func spotlightRelocateNote(from oldURL: URL, to newURL: URL) {
+        guard let vaultRoot = currentVaultRootURL else { return }
+        Task { @MainActor in
+            // Single markdown file: update one Spotlight entry. Folder moves change many paths — reindex the vault.
+            if newURL.pathExtension.lowercased() == "md" {
+                await spotlightIndexer?.relocate(from: oldURL, to: newURL, vaultRoot: vaultRoot)
+            } else if let tree = sidebarViewModel?.fileTree {
+                await spotlightIndexer?.removeAllInDomain()
+                await spotlightIndexer?.indexAllNotes(urls: Self.collectNoteURLs(from: tree), vaultRoot: vaultRoot)
+            }
+        }
     }
 
     // MARK: - Note Indexing

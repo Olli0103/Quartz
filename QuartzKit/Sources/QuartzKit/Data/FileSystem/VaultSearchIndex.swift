@@ -5,6 +5,7 @@ import os
 ///
 /// Built when opening the vault and incrementally updated
 /// on changes. Searches frontmatter + body.
+/// System-wide discovery uses ``QuartzSpotlightIndexer`` (Core Spotlight), not this type.
 public actor VaultSearchIndex {
     /// Indexed entry for a note.
     private struct IndexEntry: Sendable {
