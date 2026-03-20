@@ -2,6 +2,9 @@ import SwiftUI
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Security settings: App Lock via biometric authentication.
 public struct SecuritySettingsView: View {
@@ -18,6 +21,12 @@ public struct SecuritySettingsView: View {
                     Text(String(localized: "Require App Lock", bundle: .module))
                 }
                 .disabled(!biometryAvailable)
+                .onChange(of: appLockEnabled) { _, newValue in
+                    triggerToggleHaptic(enabled: newValue)
+                }
+                #if os(iOS)
+                .sensoryFeedback(.selection, trigger: appLockEnabled)
+                #endif
             } header: {
                 Text(String(localized: "Authentication", bundle: .module))
             } footer: {
@@ -47,6 +56,13 @@ public struct SecuritySettingsView: View {
         case .opticID: "Optic ID"
         @unknown default: "biometric authentication"
         }
+        #endif
+    }
+
+    private func triggerToggleHaptic(enabled: Bool) {
+        #if os(iOS)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
         #endif
     }
 }

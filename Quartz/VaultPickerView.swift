@@ -38,6 +38,7 @@ struct VaultPickerView: View {
                 if let lastVaultName = UserDefaults.standard.string(forKey: "quartz.lastVault.name"),
                    UserDefaults.standard.data(forKey: "quartz.lastVault.bookmark") != nil {
                     Button {
+                        QuartzFeedback.selection()
                         restoreLastVault()
                     } label: {
                         HStack(spacing: 12) {
@@ -83,6 +84,7 @@ struct VaultPickerView: View {
                     }
 
                     Button {
+                        QuartzFeedback.selection()
                         showCreateNameSheet = true
                     } label: {
                         HStack(spacing: 6) {

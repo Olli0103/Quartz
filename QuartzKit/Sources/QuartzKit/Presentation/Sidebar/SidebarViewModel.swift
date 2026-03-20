@@ -37,7 +37,10 @@ public enum SidebarSortOrder: String, CaseIterable, Sendable {
 @MainActor
 public final class SidebarViewModel {
     public var fileTree: [FileNode] = [] {
-        didSet { invalidateFilterCache() }
+        didSet {
+            invalidateFilterCache()
+            invalidateTagCache()
+        }
     }
     public var searchText: String = "" {
         didSet { invalidateFilterCache() }
@@ -48,19 +51,26 @@ public final class SidebarViewModel {
     public var activeFilter: SidebarFilter = .all {
         didSet { invalidateFilterCache() }
     }
-    public var tagInfos: [TagInfo] = []
+    public private(set) var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
 
     private static let sortOrderKey = "quartz.sidebarSortOrder"
+    private var cachedSortOrder: SidebarSortOrder?
 
     public var sortOrder: SidebarSortOrder {
         get {
+            if let cached = cachedSortOrder { return cached }
             guard let raw = UserDefaults.standard.string(forKey: Self.sortOrderKey),
-                  let order = SidebarSortOrder(rawValue: raw) else { return .nameAscending }
+                  let order = SidebarSortOrder(rawValue: raw) else {
+                cachedSortOrder = .nameAscending
+                return .nameAscending
+            }
+            cachedSortOrder = order
             return order
         }
         set {
+            cachedSortOrder = newValue
             UserDefaults.standard.set(newValue.rawValue, forKey: Self.sortOrderKey)
             invalidateFilterCache()
         }
@@ -71,6 +81,7 @@ public final class SidebarViewModel {
     private var cachedFilteredTree: [FileNode]?
     private var cachedFlatNotes: [FileNode]?
     private var _favoriteURLs: Set<String>?
+    private var tagCacheValid: Bool = false
 
     /// Public access to the vault root URL.
     public var vaultRootURL: URL? { vaultRoot }
@@ -262,13 +273,22 @@ public final class SidebarViewModel {
         return urls
     }
 
-    /// Collects tags from the file tree.
+    /// Collects tags from the file tree. Uses caching to avoid redundant traversals.
     public func collectTags() {
+        guard !tagCacheValid else { return }
+
         var tagCounts: [String: Int] = [:]
         collectTagsFromNodes(fileTree, into: &tagCounts)
         tagInfos = tagCounts
             .map { TagInfo(name: $0.key, count: $0.value) }
             .sorted { $0.count > $1.count }
+        tagCacheValid = true
+    }
+
+    /// Invalidates the tag cache, forcing recollection on next access.
+    private func invalidateTagCache() {
+        tagCacheValid = false
+        tagInfos = []
     }
 
     private func collectTagsFromNodes(_ nodes: [FileNode], into counts: inout [String: Int]) {

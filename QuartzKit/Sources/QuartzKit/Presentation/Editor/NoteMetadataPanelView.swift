@@ -187,8 +187,8 @@ struct NoteMetadataPanelView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .frame(minWidth: 200, idealWidth: 240, maxWidth: 280)
-        .quartzMaterialBackground(cornerRadius: 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.regularMaterial)
     }
 
     /// Hierarchical outline number: 1., 1.1., 2., 2.1. for h1, h2, h3...

@@ -1,0 +1,187 @@
+{
+  "identifier" : "C8A8E2F1-1234-5678-ABCD-1234567890AB",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "99.99",
+      "familyShareable" : true,
+      "internalID" : "LIFETIME_001",
+      "localizations" : [
+        {
+          "description" : "Unlock all features forever with a one-time purchase",
+          "displayName" : "Quartz Lifetime",
+          "locale" : "en_US"
+        },
+        {
+          "description" : "Schalte alle Funktionen für immer frei mit einem einmaligen Kauf",
+          "displayName" : "Quartz Lifetime",
+          "locale" : "de_DE"
+        }
+      ],
+      "productID" : "com.quartz.lifetime",
+      "referenceName" : "Quartz Lifetime",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "1234567890",
+    "_developerTeamID" : "XXXXXXXXXX",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "QUARTZ_PRO_GROUP",
+      "localizations" : [
+
+      ],
+      "name" : "Quartz Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+            {
+              "internalID" : "PROMO_50OFF",
+              "offerID" : "quartz_pro_50off",
+              "numberOfPeriods" : 1,
+              "paymentMode" : "payAsYouGo",
+              "referenceName" : "50% Off First Month",
+              "subscriptionPeriod" : "P1M",
+              "displayPrice" : "2.49"
+            }
+          ],
+          "codeOffers" : [
+            {
+              "eligibility" : [
+                "new"
+              ],
+              "internalID" : "CODE_QUARTZPRO50",
+              "isStackable" : false,
+              "numberOfPeriods" : 1,
+              "paymentMode" : "free",
+              "referenceName" : "QUARTZPRO50 - 1 Month Free",
+              "subscriptionPeriod" : "P1M"
+            }
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "MONTHLY_001",
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "INTRO_FREE_WEEK",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1W"
+          },
+          "localizations" : [
+            {
+              "description" : "Full access to all Quartz Pro features",
+              "displayName" : "Quartz Pro Monthly",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "Voller Zugang zu allen Quartz Pro Funktionen",
+              "displayName" : "Quartz Pro Monatlich",
+              "locale" : "de_DE"
+            }
+          ],
+          "productID" : "com.quartz.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Quartz Pro Monthly",
+          "subscriptionGroupID" : "QUARTZ_PRO_GROUP",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "39.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "YEARLY_001",
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "INTRO_FREE_MONTH",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Full access to all Quartz Pro features - save 33%",
+              "displayName" : "Quartz Pro Yearly",
+              "locale" : "en_US"
+            },
+            {
+              "description" : "Voller Zugang zu allen Quartz Pro Funktionen - spare 33%",
+              "displayName" : "Quartz Pro Jährlich",
+              "locale" : "de_DE"
+            }
+          ],
+          "productID" : "com.quartz.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Quartz Pro Yearly",
+          "subscriptionGroupID" : "QUARTZ_PRO_GROUP",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

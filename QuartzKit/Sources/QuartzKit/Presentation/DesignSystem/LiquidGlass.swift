@@ -758,7 +758,10 @@ public struct QuartzButton: View {
     }
 
     public var body: some View {
-        Button(action: action) {
+        Button {
+            QuartzFeedback.primaryAction()
+            action()
+        } label: {
             HStack(spacing: 8) {
                 if let icon {
                     Image(systemName: icon)

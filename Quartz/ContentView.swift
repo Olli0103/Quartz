@@ -29,6 +29,17 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ContentViewModel?
     @State private var selectedNoteURL: URL?
+
+    // MARK: - State Restoration
+    /// Persists the selected note path relative to the vault root across app restarts.
+    @SceneStorage("quartz.selectedNotePath") private var restoredNotePath: String?
+    /// Persists cursor position (location) for state restoration.
+    @SceneStorage("quartz.cursorLocation") private var restoredCursorLocation: Int = 0
+    /// Persists cursor selection length for state restoration.
+    @SceneStorage("quartz.cursorLength") private var restoredCursorLength: Int = 0
+    /// Persists scroll offset for state restoration.
+    @SceneStorage("quartz.scrollOffset") private var restoredScrollOffset: Double = 0
+
     @State private var showVaultPicker = false
     @State private var showSettings = false
     @State private var showSearch = false
@@ -220,6 +231,10 @@ struct ContentView: View {
             if phase == .active {
                 consumePendingWidgetDeepLinks()
             }
+            // Save state when going to background
+            if phase == .background || phase == .inactive {
+                saveStateForRestoration()
+            }
         }
         .onChange(of: appState.pendingOpenDocumentScanner) { _, pending in
             guard pending else { return }
@@ -230,6 +245,14 @@ struct ContentView: View {
         }
         .onChange(of: selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)
+            // Update restored path for state restoration
+            if let url = newURL, let vaultRoot = appState.currentVault?.rootURL {
+                let relativePath = url.path(percentEncoded: false)
+                    .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
+                restoredNotePath = relativePath
+            } else {
+                restoredNotePath = nil
+            }
         }
         .onChange(of: appState.pendingCommand) { _, command in
             guard command != .none else { return }
@@ -386,6 +409,13 @@ struct ContentView: View {
         quickNoteManager = QuickNoteManager(vaultRoot: vault.rootURL)
         quickNoteManager?.registerHotkey()
         #endif
+
+        // Restore previously selected note after vault loads
+        Task { @MainActor in
+            // Wait for sidebar to finish loading
+            try? await Task.sleep(for: .milliseconds(200))
+            restoreSelectedNoteIfNeeded()
+        }
     }
 
     #if os(macOS)
@@ -971,6 +1001,43 @@ struct ContentView: View {
         } catch {
             Logger(subsystem: "com.quartz", category: "VaultPicker")
                 .error("Failed to persist vault bookmark: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - State Restoration
+
+    /// Saves editor state for restoration across app restarts.
+    private func saveStateForRestoration() {
+        guard let editorVM = viewModel?.editorViewModel else { return }
+        restoredCursorLocation = editorVM.cursorPosition.location
+        restoredCursorLength = editorVM.cursorPosition.length
+        // Note: scrollOffset would need to be tracked in the editor view
+    }
+
+    /// Restores the previously selected note after vault is loaded.
+    private func restoreSelectedNoteIfNeeded() {
+        guard let vaultRoot = appState.currentVault?.rootURL,
+              let relativePath = restoredNotePath,
+              !relativePath.isEmpty else { return }
+
+        let noteURL = vaultRoot.appending(path: relativePath)
+        guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else {
+            // Note no longer exists, clear restored path
+            restoredNotePath = nil
+            return
+        }
+
+        selectedNoteURL = noteURL
+
+        // Restore cursor position after a brief delay to allow editor to load
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            if let editorVM = viewModel?.editorViewModel {
+                editorVM.cursorPosition = NSRange(
+                    location: restoredCursorLocation,
+                    length: restoredCursorLength
+                )
+            }
         }
     }
 

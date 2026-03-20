@@ -159,6 +159,7 @@ public struct OnboardingView: View {
                 #endif
 
                 Button(String(localized: "Back", bundle: .module)) {
+                    QuartzFeedback.selection()
                     currentStep = .welcome
                 }
                 .foregroundStyle(.secondary)
@@ -258,6 +259,7 @@ public struct OnboardingView: View {
                 }
 
                 Button(String(localized: "Back", bundle: .module)) {
+                    QuartzFeedback.selection()
                     currentStep = .chooseFolder
                 }
                 .foregroundStyle(.secondary)
@@ -320,6 +322,7 @@ public struct OnboardingView: View {
         let isSelected = selectedTemplate == template
 
         return Button {
+            QuartzFeedback.selection()
             withAnimation(reduceMotion ? .default : QuartzAnimation.content) {
                 selectedTemplate = template
             }

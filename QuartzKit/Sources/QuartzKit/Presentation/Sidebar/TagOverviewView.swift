@@ -29,6 +29,7 @@ public struct TagOverviewView: View {
             } else {
                 ForEach(tags) { tag in
                     Button {
+                        QuartzFeedback.selection()
                         withAnimation(QuartzAnimation.standard) {
                             if selectedTag == tag.name {
                                 selectedTag = nil
@@ -79,6 +80,7 @@ public struct TagOverviewView: View {
                 Spacer()
                 if selectedTag != nil {
                     Button(String(localized: "Clear", bundle: .module)) {
+                        QuartzFeedback.selection()
                         withAnimation { selectedTag = nil }
                     }
                     .font(.caption)

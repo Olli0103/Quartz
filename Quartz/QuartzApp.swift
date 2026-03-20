@@ -9,6 +9,28 @@ struct QuartzApp: App {
     @AppStorage("quartz.appLockEnabled") private var appLockEnabled = false
     private let biometricAuthService = BiometricAuthService()
 
+    /// Returns true if the app was launched with UI testing flags.
+    private static var isUITesting: Bool {
+        CommandLine.arguments.contains("--uitesting")
+    }
+
+    init() {
+        // Reset state for UI testing to ensure a clean slate
+        if Self.isUITesting {
+            Self.resetUITestingState()
+        }
+    }
+
+    /// Clears persisted state for UI testing.
+    private static func resetUITestingState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "quartz.hasCompletedOnboarding")
+        defaults.removeObject(forKey: "quartz.lastVault.bookmark")
+        defaults.removeObject(forKey: "quartz.lastVault.name")
+        defaults.removeObject(forKey: "quartz.appLockEnabled")
+        defaults.synchronize()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {

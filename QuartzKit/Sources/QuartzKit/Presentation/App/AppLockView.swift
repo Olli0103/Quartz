@@ -2,6 +2,9 @@ import SwiftUI
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// App lock screen: Shows a biometric prompt at app launch.
 ///
@@ -111,6 +114,10 @@ public struct AppLockView<Content: View>: View {
 
         switch result {
         case .success:
+            #if os(iOS)
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.success)
+            #endif
             withAnimation {
                 isUnlocked = true
             }
@@ -121,5 +128,18 @@ public struct AppLockView<Content: View>: View {
         }
 
         isAuthenticating = false
+    }
+}
+
+// MARK: - Sensory Feedback Extension
+
+extension AppLockView {
+    /// Trigger success haptic on unlock (called from view modifiers)
+    @MainActor
+    fileprivate func triggerUnlockHaptic() {
+        #if os(iOS)
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        #endif
     }
 }

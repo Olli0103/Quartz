@@ -118,15 +118,28 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
+
+        // Enable system Writing Tools (iOS 18.1+)
+        if #available(iOS 18.1, *) {
+            textView.writingToolsBehavior = .complete
+            textView.allowsEditingTextAttributes = true
+        }
+
         context.coordinator.textView = textView
         return textView
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        if uiView.text != text {
+        let textChanged = uiView.text != text
+        if textChanged {
+            // Preserve selection only when replacing text programmatically
             let sel = uiView.selectedTextRange
             uiView.text = text
-            uiView.selectedTextRange = sel
+            // Only restore selection if the new text length allows it
+            if let sel, let start = sel.start as UITextPosition?,
+               uiView.offset(from: uiView.beginningOfDocument, to: start) <= text.count {
+                uiView.selectedTextRange = sel
+            }
         }
         let scaledBaseFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: baseFontSize * editorFontScale))
         context.coordinator.baseFontSize = scaledBaseFont.pointSize
@@ -136,7 +149,10 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             cm.baseFontSize = scaledBaseFont.pointSize
             cm.fontScale = editorFontScale
         }
-        context.coordinator.scheduleHighlight(text: text, textView: uiView)
+        // Only re-highlight when text actually changed
+        if textChanged {
+            context.coordinator.scheduleHighlight(text: text, textView: uiView)
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
@@ -296,6 +312,12 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
+        // Enable system Writing Tools (macOS 15.1+)
+        if #available(macOS 15.1, *) {
+            textView.writingToolsBehavior = .complete
+        }
+        // NSTextView is rich text by default, no need for allowsEditingTextAttributes
+
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -308,17 +330,28 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
-        if textView.string != text {
+        let textChanged = textView.string != text
+        if textChanged {
             let sel = textView.selectedRange()
             textView.string = text
-            textView.setSelectedRange(sel)
+            // Only restore selection if within valid range
+            if sel.location <= text.count {
+                let validRange = NSRange(
+                    location: min(sel.location, text.count),
+                    length: min(sel.length, text.count - min(sel.location, text.count))
+                )
+                textView.setSelectedRange(validRange)
+            }
         }
         context.coordinator.baseFontSize = baseFontSize * editorFontScale
         if let cm = context.coordinator.contentManager {
             cm.baseFontSize = baseFontSize * editorFontScale
             cm.fontScale = editorFontScale
         }
-        context.coordinator.scheduleHighlight(text: text, textView: textView)
+        // Only re-highlight when text actually changed
+        if textChanged {
+            context.coordinator.scheduleHighlight(text: text, textView: textView)
+        }
     }
 
     @MainActor

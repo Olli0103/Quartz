@@ -22,7 +22,9 @@ public struct FileMetadata: Codable, Hashable, Sendable {
 
 /// A node in the vault file tree (folder or file).
 public struct FileNode: Identifiable, Hashable, Sendable {
-    public let id: UUID
+    /// Stable identifier derived from the file URL to ensure SwiftUI can correctly
+    /// diff the tree across refreshes (e.g., after drag-and-drop moves).
+    public var id: String { url.absoluteString }
     public var name: String
     public var url: URL
     public var nodeType: NodeType
@@ -31,7 +33,6 @@ public struct FileNode: Identifiable, Hashable, Sendable {
     public var frontmatter: Frontmatter?
 
     public init(
-        id: UUID = UUID(),
         name: String,
         url: URL,
         nodeType: NodeType,
@@ -39,7 +40,6 @@ public struct FileNode: Identifiable, Hashable, Sendable {
         metadata: FileMetadata = FileMetadata(),
         frontmatter: Frontmatter? = nil
     ) {
-        self.id = id
         self.name = name
         self.url = url
         self.nodeType = nodeType

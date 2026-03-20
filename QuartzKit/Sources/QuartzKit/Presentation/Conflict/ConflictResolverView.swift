@@ -149,12 +149,20 @@ public struct ConflictResolverView: View {
                 let service = CloudSyncService()
                 try await service.resolveConflictWritingMergedContent(at: fileURL, mergedUTF8: mergedText)
                 await MainActor.run {
+                    #if os(iOS)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
+                    #endif
                     isResolving = false
                     onResolved()
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
+                    #if os(iOS)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.error)
+                    #endif
                     isResolving = false
                     errorMessage = error.localizedDescription
                 }
@@ -288,12 +296,20 @@ public struct ConflictResolverView: View {
                     try service.resolveConflictKeepingCurrent(at: fileURL)
                 }
                 await MainActor.run {
+                    #if os(iOS)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
+                    #endif
                     isResolving = false
                     onResolved()
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
+                    #if os(iOS)
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.error)
+                    #endif
                     isResolving = false
                     errorMessage = error.localizedDescription
                 }

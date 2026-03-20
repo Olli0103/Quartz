@@ -195,7 +195,10 @@ private struct FormatButton: View {
             .animation(.easeOut(duration: 0.1), value: isPressed)
             .animation(.easeInOut(duration: 0.15), value: isHovered)
             .onHover { hovering in isHovered = hovering }
-            .onTapGesture { onTap() }
+            .onTapGesture {
+                QuartzFeedback.selection()
+                onTap()
+            }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in isPressed = true }

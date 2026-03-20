@@ -111,9 +111,10 @@ public final class NoteEditorViewModel {
         guard var currentNote = note, (isDirty || force), !isSaving else { return }
 
         isSaving = true
-        // Snapshot content before async gap to prevent race condition:
+        // Snapshot content and cursor before async gap to prevent race condition:
         // user may type while save is in flight.
         let contentSnapshot = content
+        let cursorSnapshot = cursorPosition
         currentNote.body = contentSnapshot
         currentNote.frontmatter.modifiedAt = .now
 
@@ -124,6 +125,10 @@ public final class NoteEditorViewModel {
             // Only clear dirty flag if content hasn't changed since snapshot
             if content == contentSnapshot {
                 isDirty = false
+                // Restore cursor position if it was displaced during save
+                if cursorPosition != cursorSnapshot && content == contentSnapshot {
+                    cursorPosition = cursorSnapshot
+                }
             }
             errorMessage = nil
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)

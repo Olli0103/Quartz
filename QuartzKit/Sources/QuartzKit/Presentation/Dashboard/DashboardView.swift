@@ -170,6 +170,7 @@ public struct DashboardView: View {
                     ForEach(actionItems.prefix(10)) { item in
                         HStack(alignment: .top, spacing: 12) {
                             Button {
+                                QuartzFeedback.toggle()
                                 toggleTask(item)
                             } label: {
                                 Image(systemName: "circle")
@@ -182,6 +183,7 @@ public struct DashboardView: View {
                             .disabled(togglingTaskID == item.id)
 
                             Button {
+                                QuartzFeedback.selection()
                                 onSelectNote(item.noteURL)
                             } label: {
                                 HStack(alignment: .top, spacing: 12) {
@@ -267,6 +269,7 @@ public struct DashboardView: View {
                     .foregroundStyle(.white.opacity(0.85))
                 Spacer(minLength: 12)
                 Button {
+                    QuartzFeedback.primaryAction()
                     onExploreGraph()
                 } label: {
                     Text(String(localized: "Explore Graph", bundle: .module))
@@ -326,6 +329,7 @@ public struct DashboardView: View {
             HStack(spacing: 12) {
                 if let onVoice = onRecordVoiceNote {
                     Button {
+                        QuartzFeedback.primaryAction()
                         onVoice()
                     } label: {
                         Label(String(localized: "Quick Note", bundle: .module), systemImage: "mic.fill")
@@ -336,6 +340,7 @@ public struct DashboardView: View {
                 }
                 if let onMeeting = onRecordMeetingMinutes {
                     Button {
+                        QuartzFeedback.primaryAction()
                         onMeeting()
                     } label: {
                         Label(String(localized: "Meeting Minutes", bundle: .module), systemImage: "person.2.fill")
@@ -460,7 +465,10 @@ private struct JumpBackInCard: View {
     private static let iconColors: [Color] = [QuartzColors.accent, QuartzColors.noteBlue, QuartzColors.canvasPurple]
 
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            QuartzFeedback.selection()
+            onTap()
+        } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     let colorIndex = abs(note.id.hashValue) % Self.iconColors.count

@@ -220,6 +220,7 @@ public struct AudioRecordingView: View {
     private var compactPillView: some View {
         HStack(spacing: 16) {
             Button {
+                QuartzFeedback.selection()
                 withAnimation(QuartzAnimation.standard) { showCompactPill = false }
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
@@ -248,7 +249,10 @@ public struct AudioRecordingView: View {
 
             Spacer()
 
-            Button { viewModel.togglePause() } label: {
+            Button {
+                QuartzFeedback.toggle()
+                viewModel.togglePause()
+            } label: {
                 Image(systemName: viewModel.recordingService.isPaused ? "play.fill" : "pause.fill")
                     .font(.body)
                     .foregroundStyle(.primary)
@@ -256,6 +260,7 @@ public struct AudioRecordingView: View {
             .buttonStyle(.plain)
 
             Button {
+                QuartzFeedback.primaryAction()
                 Task {
                     if let text = await viewModel.stopRecording() {
                         showCompactPill = false
@@ -397,7 +402,10 @@ public struct AudioRecordingView: View {
     private var recordingControls: some View {
         HStack(spacing: 32) {
             if viewModel.recordingService.isRecording {
-                Button { viewModel.togglePause() } label: {
+                Button {
+                QuartzFeedback.toggle()
+                viewModel.togglePause()
+            } label: {
                     Image(systemName: viewModel.recordingService.isPaused ? "play.fill" : "pause.fill")
                         .font(.title2)
                         .foregroundStyle(.primary)
@@ -410,6 +418,7 @@ public struct AudioRecordingView: View {
                     : String(localized: "Pause", bundle: .module))
 
                 Button {
+                    QuartzFeedback.primaryAction()
                     Task {
                         if let text = await viewModel.stopRecording() {
                             onInsertText(text)
@@ -429,7 +438,10 @@ public struct AudioRecordingView: View {
                 .buttonStyle(QuartzBounceButtonStyle())
                 .accessibilityLabel(String(localized: "Stop recording", bundle: .module))
 
-                Button { viewModel.discardRecording() } label: {
+                Button {
+                    QuartzFeedback.destructive()
+                    viewModel.discardRecording()
+                } label: {
                     Image(systemName: "trash")
                         .font(.title2)
                         .foregroundStyle(.red.opacity(0.8))
@@ -444,6 +456,7 @@ public struct AudioRecordingView: View {
                     .tint(QuartzColors.accent)
             } else {
                 Button {
+                    QuartzFeedback.primaryAction()
                     Task { await viewModel.startRecording() }
                 } label: {
                     Image(systemName: "mic.fill")

@@ -111,8 +111,9 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     public func deleteNote(at url: URL) async throws {
         let root = resolveVaultRoot(for: url)
+        let trash = self.trashService
         try await Task.detached(priority: .userInitiated) {
-            try trashService.moveItemToTrash(url, in: root)
+            try trash.moveItemToTrash(url, in: root)
         }.value
     }
 
@@ -188,9 +189,10 @@ public actor FileSystemVaultProvider: VaultProviding {
 
     /// Permanently deletes items in the hidden vault trash that are older than 30 days.
     private func purgeTrashOlderThan30Days(at root: URL) async {
+        let trash = self.trashService
         do {
             try await Task.detached(priority: .utility) {
-                try trashService.purgeExpiredItems(in: root)
+                try trash.purgeExpiredItems(in: root)
             }.value
         } catch {
             // Best-effort housekeeping; never block vault loading because trash cleanup failed.

@@ -9,12 +9,16 @@ public struct CommandPaletteView: View {
     let onSelectNote: (URL) -> Void
     let onNewNote: (() -> Void)?
     let onSearch: (() -> Void)?
+    var onTogglePreview: (() -> Void)?
+    var onToggleFocusMode: (() -> Void)?
+    var onSave: (() -> Void)?
 
     @State private var query: String = ""
     @State private var selectedIndex: Int = 0
     @State private var searchResults: [CommandPaletteItem] = []
     @State private var allItems: [CommandPaletteItem] = []
     @FocusState private var isSearchFocused: Bool
+    @Environment(\.appearanceManager) private var appearance
 
     public init(
         isPresented: Binding<Bool>,
@@ -22,7 +26,10 @@ public struct CommandPaletteView: View {
         vaultRootURL: URL?,
         onSelectNote: @escaping (URL) -> Void,
         onNewNote: (() -> Void)? = nil,
-        onSearch: (() -> Void)? = nil
+        onSearch: (() -> Void)? = nil,
+        onTogglePreview: (() -> Void)? = nil,
+        onToggleFocusMode: (() -> Void)? = nil,
+        onSave: (() -> Void)? = nil
     ) {
         self._isPresented = isPresented
         self.fileTree = fileTree
@@ -30,19 +37,23 @@ public struct CommandPaletteView: View {
         self.onSelectNote = onSelectNote
         self.onNewNote = onNewNote
         self.onSearch = onSearch
+        self.onTogglePreview = onTogglePreview
+        self.onToggleFocusMode = onToggleFocusMode
+        self.onSave = onSave
     }
 
     public var body: some View {
         ZStack {
-            Color.black.opacity(0.3)
+            Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture { dismiss() }
 
             VStack(spacing: 0) {
+                // Search field with keyboard shortcut hint
                 HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "command")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(appearance.accentColor)
                     TextField(String(localized: "Search notes or run command…", bundle: .module), text: $query)
                         .textFieldStyle(.plain)
                         .font(.body)
@@ -51,41 +62,85 @@ public struct CommandPaletteView: View {
                         .onChange(of: query) { _, newValue in
                             updateResults(for: newValue)
                         }
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(16)
                 #if os(visionOS)
                 .frame(minHeight: QuartzHIG.minTouchTarget)
                 #endif
-                .quartzFloatingUltraThinSurface(cornerRadius: 12)
+
+                Divider()
+                    .overlay(appearance.accentColor.opacity(0.2))
 
                 if !searchResults.isEmpty {
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(spacing: 0) {
+                            LazyVStack(spacing: 2) {
                                 ForEach(Array(searchResults.enumerated()), id: \.element.id) { index, item in
                                     CommandPaletteRow(
                                         item: item,
-                                        isSelected: index == selectedIndex
+                                        isSelected: index == selectedIndex,
+                                        accentColor: appearance.accentColor
                                     ) {
+                                        QuartzFeedback.selection()
                                         execute(item)
                                     }
                                     .id(index)
                                 }
                             }
                             .padding(.vertical, 8)
+                            .padding(.horizontal, 8)
                         }
-                        .frame(maxHeight: 320)
+                        .frame(maxHeight: 360)
                         .onChange(of: selectedIndex) { _, newIndex in
-                            proxy.scrollTo(newIndex, anchor: .center)
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                proxy.scrollTo(newIndex, anchor: .center)
+                            }
                         }
                     }
-                    .quartzFloatingUltraThinSurface(cornerRadius: 12)
-                    .padding(.top, 8)
+                } else if !query.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.title2)
+                            .foregroundStyle(.tertiary)
+                        Text(String(localized: "No results", bundle: .module))
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
                 }
+
+                // Footer with keyboard hints
+                HStack(spacing: 16) {
+                    keyboardHint("↑↓", label: String(localized: "Navigate", bundle: .module))
+                    keyboardHint("↵", label: String(localized: "Select", bundle: .module))
+                    keyboardHint("esc", label: String(localized: "Close", bundle: .module))
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial)
+            }
+            .frame(maxWidth: 520)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.25), radius: 40, y: 20)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(appearance.accentColor.opacity(0.15), lineWidth: 1)
             }
             .padding(24)
-            .frame(maxWidth: 480)
-            .quartzMaterialBackground(cornerRadius: 20, shadowRadius: 24, layer: .floating)
         }
         .onAppear {
             buildAllItems()
@@ -103,26 +158,77 @@ public struct CommandPaletteView: View {
             selectedIndex = min(searchResults.count - 1, selectedIndex + 1)
             return .handled
         }
+        .onKeyPress(.escape) {
+            dismiss()
+            return .handled
+        }
+    }
+
+    private func keyboardHint(_ key: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(key)
+                .font(.caption.monospaced().weight(.medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func buildAllItems() {
         var items: [CommandPaletteItem] = []
+
+        // Commands section
         if onNewNote != nil {
             items.append(.command(
                 id: "new-note",
                 title: String(localized: "New Note", bundle: .module),
-                icon: "plus",
-                keywords: ["new", "create"]
+                icon: "plus.circle.fill",
+                keywords: ["new", "create", "add"],
+                shortcut: "⌘N"
             ))
         }
         if onSearch != nil {
             items.append(.command(
                 id: "search-brain",
                 title: String(localized: "Search Brain", bundle: .module),
-                icon: "magnifyingglass",
-                keywords: ["search", "find"]
+                icon: "brain.head.profile",
+                keywords: ["search", "find", "query"],
+                shortcut: "⌘⇧F"
             ))
         }
+        if onTogglePreview != nil {
+            items.append(.command(
+                id: "toggle-preview",
+                title: String(localized: "Toggle Preview", bundle: .module),
+                icon: "eye",
+                keywords: ["preview", "view", "markdown", "render"],
+                shortcut: "⌘P"
+            ))
+        }
+        if onToggleFocusMode != nil {
+            items.append(.command(
+                id: "focus-mode",
+                title: String(localized: "Toggle Focus Mode", bundle: .module),
+                icon: "moon.fill",
+                keywords: ["focus", "zen", "distraction", "free"],
+                shortcut: "⌘."
+            ))
+        }
+        if onSave != nil {
+            items.append(.command(
+                id: "save",
+                title: String(localized: "Save Note", bundle: .module),
+                icon: "square.and.arrow.down",
+                keywords: ["save", "write"],
+                shortcut: "⌘S"
+            ))
+        }
+
+        // Notes section
         for node in collectNotes(from: fileTree) {
             let name = node.name.replacingOccurrences(of: ".md", with: "")
             items.append(.note(id: node.url.absoluteString, title: name, url: node.url))
@@ -144,7 +250,10 @@ public struct CommandPaletteView: View {
     private func updateResults(for q: String) {
         let trimmed = q.trimmingCharacters(in: .whitespaces).lowercased()
         if trimmed.isEmpty {
-            searchResults = Array(allItems.prefix(20))
+            // Show commands first, then recent notes
+            let commands = allItems.filter { if case .command = $0 { return true }; return false }
+            let notes = allItems.filter { if case .note = $0 { return true }; return false }
+            searchResults = commands + Array(notes.prefix(15))
         } else {
             searchResults = allItems.filter { item in
                 fuzzyMatch(query: trimmed, in: item.searchableText)
@@ -169,6 +278,7 @@ public struct CommandPaletteView: View {
 
     private func executeSelected() {
         guard selectedIndex >= 0, selectedIndex < searchResults.count else { return }
+        QuartzFeedback.primaryAction()
         execute(searchResults[selectedIndex])
     }
 
@@ -177,14 +287,21 @@ public struct CommandPaletteView: View {
         case .note(_, _, let url):
             isPresented = false
             onSelectNote(url)
-        case .command(let id, _, _, _):
+        case .command(let id, _, _, _, _):
             isPresented = false
-            if id == "new-note" { onNewNote?() }
-            else if id == "search-brain" { onSearch?() }
+            switch id {
+            case "new-note": onNewNote?()
+            case "search-brain": onSearch?()
+            case "toggle-preview": onTogglePreview?()
+            case "focus-mode": onToggleFocusMode?()
+            case "save": onSave?()
+            default: break
+            }
         }
     }
 
     private func dismiss() {
+        QuartzFeedback.selection()
         withAnimation(QuartzAnimation.content) {
             isPresented = false
         }
@@ -195,19 +312,19 @@ public struct CommandPaletteView: View {
 
 private enum CommandPaletteItem {
     case note(id: String, title: String, url: URL)
-    case command(id: String, title: String, icon: String, keywords: [String])
+    case command(id: String, title: String, icon: String, keywords: [String], shortcut: String? = nil)
 
     var id: String {
         switch self {
         case .note(let id, _, _): id
-        case .command(let id, _, _, _): id
+        case .command(let id, _, _, _, _): id
         }
     }
 
     var searchableText: String {
         switch self {
         case .note(_, let title, _): title.lowercased()
-        case .command(_, let title, _, let keywords):
+        case .command(_, let title, _, let keywords, _):
             (title.lowercased() + " " + keywords.joined(separator: " "))
         }
     }
@@ -215,15 +332,27 @@ private enum CommandPaletteItem {
     var displayTitle: String {
         switch self {
         case .note(_, let title, _): title
-        case .command(_, let title, _, _): title
+        case .command(_, let title, _, _, _): title
         }
     }
 
     var icon: String {
         switch self {
-        case .note: "doc.text"
-        case .command(_, _, let icon, _): icon
+        case .note: "doc.text.fill"
+        case .command(_, _, let icon, _, _): icon
         }
+    }
+
+    var shortcut: String? {
+        switch self {
+        case .note: nil
+        case .command(_, _, _, _, let shortcut): shortcut
+        }
+    }
+
+    var isCommand: Bool {
+        if case .command = self { return true }
+        return false
     }
 }
 
@@ -232,6 +361,7 @@ private enum CommandPaletteItem {
 private struct CommandPaletteRow: View {
     let item: CommandPaletteItem
     let isSelected: Bool
+    let accentColor: Color
     let onTap: () -> Void
 
     var body: some View {
@@ -240,21 +370,40 @@ private struct CommandPaletteRow: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .secondary)
-                    .frame(width: 24, alignment: .center)
-                Text(item.displayTitle)
-                    .font(.body)
-                    .foregroundStyle(isSelected ? .white : .primary)
-                    .lineLimit(1)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(isSelected ? .white : (item.isCommand ? accentColor : .secondary))
+                    .frame(width: 26, alignment: .center)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.displayTitle)
+                        .font(.body)
+                        .foregroundStyle(isSelected ? .white : .primary)
+                        .lineLimit(1)
+                    if item.isCommand {
+                        Text(String(localized: "Command", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? Color.white.opacity(0.7) : Color.secondary)
+                    }
+                }
                 Spacer()
+                if let shortcut = item.shortcut {
+                    Text(shortcut)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(isSelected ? Color.white.opacity(0.7) : Color.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(isSelected ? Color.white.opacity(0.2) : Color.primary.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .padding(.vertical, 10)
             #if os(visionOS)
             .frame(minHeight: QuartzHIG.minTouchTarget)
             #endif
-            .background(isSelected ? Color.accentColor : Color.clear)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? accentColor : Color.clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

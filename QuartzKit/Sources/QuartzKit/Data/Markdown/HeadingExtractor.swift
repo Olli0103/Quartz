@@ -6,22 +6,43 @@ public struct HeadingExtractor: Sendable {
 
     public init() {}
 
-    /// A heading with level (1–6) and text.
+    /// A heading with level (1–6), text, and position information.
     public struct Heading: Sendable, Identifiable {
         public let level: Int
         public let text: String
-        public var id: String { "\(level)-\(text)" }
+        /// Character range in the original string (for cursor navigation).
+        public let range: Range<String.Index>
+        public var id: String { "\(level)-\(text)-\(range.lowerBound.utf16Offset(in: ""))" }
+
+        public init(level: Int, text: String, range: Range<String.Index>) {
+            self.level = level
+            self.text = text
+            self.range = range
+        }
     }
 
     /// Extracts headings from markdown, skipping code blocks.
+    /// Includes character ranges for accessibility rotor navigation.
     public func extractHeadings(from markdown: String) -> [Heading] {
         var headings: [Heading] = []
         var inFencedBlock = false
         var fenceChar: Character?
+        var currentIndex = markdown.startIndex
+
         let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false)
 
         for line in lines {
-            let trimmed = String(line).trimmingCharacters(in: .whitespaces)
+            let lineString = String(line)
+            let trimmed = lineString.trimmingCharacters(in: .whitespaces)
+
+            // Calculate the range for this line
+            let lineStart = currentIndex
+            let lineEnd: String.Index
+            if let end = markdown.index(lineStart, offsetBy: line.count, limitedBy: markdown.endIndex) {
+                lineEnd = end
+            } else {
+                lineEnd = markdown.endIndex
+            }
 
             // Track fenced code blocks
             if trimmed.hasPrefix("```") {
@@ -33,18 +54,37 @@ public struct HeadingExtractor: Sendable {
                     inFencedBlock = false
                     fenceChar = nil
                 }
+                // Move to next line (skip newline character)
+                if lineEnd < markdown.endIndex {
+                    currentIndex = markdown.index(after: lineEnd)
+                } else {
+                    currentIndex = markdown.endIndex
+                }
                 continue
             }
-            guard !inFencedBlock else { continue }
 
-            if let match = trimmed.prefixMatch(of: Self.headingPattern) {
-                let level = match.1.count
-                let text = String(match.2).trimmingCharacters(in: .whitespaces)
-                if !text.isEmpty {
-                    headings.append(Heading(level: level, text: text))
+            if !inFencedBlock {
+                if let match = trimmed.prefixMatch(of: Self.headingPattern) {
+                    let level = match.1.count
+                    let text = String(match.2).trimmingCharacters(in: .whitespaces)
+                    if !text.isEmpty {
+                        headings.append(Heading(level: level, text: text, range: lineStart..<lineEnd))
+                    }
                 }
+            }
+
+            // Move to the next line (skip the newline character)
+            if lineEnd < markdown.endIndex {
+                currentIndex = markdown.index(after: lineEnd)
+            } else {
+                currentIndex = markdown.endIndex
             }
         }
         return headings
+    }
+
+    /// Legacy method for backwards compatibility - extracts headings without range info.
+    public func extractHeadingsSimple(from markdown: String) -> [(level: Int, text: String)] {
+        extractHeadings(from: markdown).map { ($0.level, $0.text) }
     }
 }

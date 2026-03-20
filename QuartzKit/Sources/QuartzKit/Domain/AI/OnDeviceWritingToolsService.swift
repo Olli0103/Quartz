@@ -1,15 +1,21 @@
 import Foundation
 import NaturalLanguage
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
 
-/// On-device writing tools using Natural Language, spell checking, and optional configured AI providers.
+/// On-device writing tools using Apple’s Foundation Models framework (iOS 26+/macOS 26+),
+/// Natural Language, spell checking, and optional configured AI providers.
 ///
-/// This is **not** Apple’s branded “Apple Intelligence” / Foundation Models APIs; it composes
-/// system NLP and text-checking primitives with your chosen provider when configured.
+/// Priority:
+/// 1. Foundation Models (on-device Apple Intelligence) when available
+/// 2. Configured AI provider (OpenAI, Claude, Ollama, etc.)
+/// 3. On-device NLP fallback (NLTokenizer, UITextChecker)
 public actor OnDeviceWritingToolsService {
     public enum AIAction: String, CaseIterable, Sendable {
         case summarize = "summarize"
@@ -100,6 +106,16 @@ public actor OnDeviceWritingToolsService {
         return false
     }
 
+    /// Returns true if Apple's Foundation Models (on-device Apple Intelligence) is available.
+    public var isFoundationModelsAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            return SystemLanguageModel.default.isAvailable
+        }
+        #endif
+        return false
+    }
+
     /// Performs an AI action on the given text.
     ///
     /// - Parameters:
@@ -169,6 +185,24 @@ public actor OnDeviceWritingToolsService {
         tone: Tone?,
         contextChunks: [String] = []
     ) async throws -> String {
+        // Priority 1: Try Foundation Models (Apple Intelligence) first
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            if SystemLanguageModel.default.isAvailable {
+                do {
+                    return try await performWithFoundationModels(
+                        action: action,
+                        text: text,
+                        tone: tone
+                    )
+                } catch {
+                    // Fall through to other providers
+                }
+            }
+        }
+        #endif
+
+        // Priority 2: Try configured AI provider
         let useProvider = await isSelectedProviderUsableForWritingTools()
 
         if useProvider {
@@ -187,8 +221,40 @@ public actor OnDeviceWritingToolsService {
             }
         }
 
+        // Priority 3: On-device NLP fallback
         return try await onDeviceProcessingWithoutProvider(action: action, text: text)
     }
+
+    // MARK: - Foundation Models (Apple Intelligence)
+
+    #if canImport(FoundationModels)
+    @available(iOS 26.0, macOS 26.0, *)
+    private func performWithFoundationModels(
+        action: AIAction,
+        text: String,
+        tone: Tone?
+    ) async throws -> String {
+        let session = LanguageModelSession()
+
+        let prompt: String
+        switch action {
+        case .summarize:
+            prompt = "Summarize the following text into concise bullet points. Keep the same language. Return only the summary:\n\n\(text)"
+        case .rewrite:
+            let t = tone ?? .professional
+            prompt = "Rewrite the following text in a \(t.rawValue) tone. Keep the same language and meaning. Return only the rewritten text:\n\n\(text)"
+        case .proofread:
+            prompt = "Proofread and correct any grammar, spelling, and punctuation errors in the following text. Keep the same language and meaning. Return only the corrected text:\n\n\(text)"
+        case .makeConcise:
+            prompt = "Make the following text more concise while preserving all key information. Keep the same language. Return only the concise text:\n\n\(text)"
+        case .makeDetailed:
+            prompt = "Expand and make the following text more detailed. Keep the same language and tone. Return only the expanded text:\n\n\(text)"
+        }
+
+        let response = try await session.respond(to: prompt)
+        return response.content
+    }
+    #endif
 
     /// Actions that can degrade to Natural Language / spell-check when the provider path fails or is skipped.
     private static func supportsOnDeviceFallback(for action: AIAction) -> Bool {

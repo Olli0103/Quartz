@@ -84,6 +84,13 @@ public actor MarkdownASTHighlighter {
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 80_000_000 // 80ms in nanoseconds
 
+    /// Maximum document size (characters) before we skip highlighting for performance.
+    /// Documents larger than ~500KB of text would cause noticeable lag.
+    private static let maxDocumentSize = 500_000
+
+    /// Threshold above which we use a longer debounce interval.
+    private static let largeDocumentThreshold = 50_000
+
     public init(baseFontSize: CGFloat = 14) {
         self.baseFontSize = baseFontSize
     }
@@ -92,6 +99,12 @@ public actor MarkdownASTHighlighter {
     /// Call from background; result is applied on main thread.
     public func parse(_ markdown: String) async -> [HighlightSpan] {
         parseTask?.cancel()
+
+        // Skip highlighting for very large documents to prevent UI lag
+        guard markdown.count < Self.maxDocumentSize else {
+            return []
+        }
+
         let task = Task<[HighlightSpan], Never> { [baseFontSize] in
             await Task.yield()
             return Self.parseSync(markdown, baseFontSize: baseFontSize)
@@ -101,9 +114,16 @@ public actor MarkdownASTHighlighter {
     }
 
     /// Debounced parse: waits `debounceInterval` then parses. Cancels previous.
+    /// Uses longer debounce for large documents.
     public func parseDebounced(_ markdown: String) async -> [HighlightSpan] {
         parseTask?.cancel()
-        try? await Task.sleep(nanoseconds: debounceInterval)
+
+        // Adaptive debounce: longer delay for larger documents
+        let delay: UInt64 = markdown.count > Self.largeDocumentThreshold
+            ? debounceInterval * 2  // 160ms for large docs
+            : debounceInterval       // 80ms for normal docs
+
+        try? await Task.sleep(nanoseconds: delay)
         guard !Task.isCancelled else { return [] }
         return await parse(markdown)
     }

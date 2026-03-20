@@ -82,6 +82,7 @@ public struct NoteEditorView: View {
     @State private var markdownExportDocument: TextExportDocument?
     @State private var showMarkdownExporter = false
     @State private var markdownExportFilename = "note.md"
+    @State private var showInspector = true
     #endif
     @State private var showSavedOverlay = false
     @State private var isPreviewMode = false
@@ -89,6 +90,12 @@ public struct NoteEditorView: View {
     @State private var showExternalModificationSheet = false
     @State private var diskBodyForMerge = ""
     private let formatter = MarkdownFormatter()
+    private let headingExtractor = HeadingExtractor()
+
+    /// Extracted headings for VoiceOver rotor navigation.
+    private var extractedHeadings: [HeadingExtractor.Heading] {
+        headingExtractor.extractHeadings(from: viewModel.content)
+    }
 
     /// Optional callbacks for global toolbar actions (Search Brain, New Note, Refresh).
     /// When provided, these appear after AI and Focus Mode, before Save and Share.
@@ -137,10 +144,10 @@ public struct NoteEditorView: View {
 
     @ViewBuilder
     private var mainEditorView: some View {
+        editorContent
         #if os(macOS)
-        HStack(spacing: 0) {
-            editorContent
-            if let note = viewModel.note, !focusMode.isFocusModeActive {
+        .inspector(isPresented: $showInspector) {
+            if let note = viewModel.note {
                 NoteMetadataPanelView(
                     note: note,
                     content: viewModel.content,
@@ -148,10 +155,14 @@ public struct NoteEditorView: View {
                     onUpdateFrontmatter: { viewModel.updateFrontmatter($0) },
                     onExportFormat: { prepareAndShowExport(format: $0) }
                 )
+                .inspectorColumnWidth(min: 220, ideal: 260, max: 320)
             }
         }
-        #else
-        editorContent
+        .onChange(of: focusMode.isFocusModeActive) { _, isActive in
+            if isActive {
+                showInspector = false
+            }
+        }
         #endif
     }
 
@@ -468,7 +479,18 @@ public struct NoteEditorView: View {
                         }
                     },
                     onNewNote: onNewNote,
-                    onSearch: onSearch
+                    onSearch: onSearch,
+                    onTogglePreview: {
+                        QuartzFeedback.toggle()
+                        withPreviewTransition { isPreviewMode.toggle() }
+                    },
+                    onToggleFocusMode: {
+                        QuartzFeedback.toggle()
+                        withFocusChromeTransition { focusMode.isFocusModeActive.toggle() }
+                    },
+                    onSave: {
+                        Task { await viewModel.manualSave() }
+                    }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .zIndex(100)
@@ -548,6 +570,19 @@ public struct NoteEditorView: View {
                     .contentShape(Rectangle())
                     .onDrop(of: [.image], isTargeted: nil) { providers in
                         handleImageDrop(providers)
+                    }
+                    // VoiceOver heading rotor for markdown navigation
+                    .accessibilityRotor(String(localized: "Headings", bundle: .module)) {
+                        ForEach(extractedHeadings) { heading in
+                            AccessibilityRotorEntry(heading.text, id: heading.id) {
+                                // Navigate cursor to the heading
+                                let distance = viewModel.content.distance(
+                                    from: viewModel.content.startIndex,
+                                    to: heading.range.lowerBound
+                                )
+                                viewModel.cursorPosition = NSRange(location: distance, length: 0)
+                            }
+                        }
                     }
                 }
             }
@@ -1287,6 +1322,24 @@ public struct NoteEditorView: View {
                     Image(systemName: "gearshape")
                 }
             }
+
+            // Inspector toggle button
+            Button {
+                QuartzFeedback.toggle()
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    showInspector.toggle()
+                }
+            } label: {
+                Image(systemName: "sidebar.trailing")
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .accessibilityLabel(showInspector
+                ? String(localized: "Hide inspector", bundle: .module)
+                : String(localized: "Show inspector", bundle: .module))
+            .help(showInspector
+                ? String(localized: "Hide inspector (⌥⌘I)", bundle: .module)
+                : String(localized: "Show inspector (⌥⌘I)", bundle: .module))
             #endif
 
             Button {
