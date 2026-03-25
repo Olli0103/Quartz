@@ -12,12 +12,15 @@ public struct HeadingExtractor: Sendable {
         public let text: String
         /// Character range in the original string (for cursor navigation).
         public let range: Range<String.Index>
-        public var id: String { "\(level)-\(text)-\(range.lowerBound.utf16Offset(in: ""))" }
+        /// UTF-16 offset of the heading start, stored for stable ID generation.
+        private let utf16Offset: Int
+        public var id: String { "\(level)-\(text)-\(utf16Offset)" }
 
-        public init(level: Int, text: String, range: Range<String.Index>) {
+        public init(level: Int, text: String, range: Range<String.Index>, in source: String) {
             self.level = level
             self.text = text
             self.range = range
+            self.utf16Offset = source.utf16.distance(from: source.startIndex, to: range.lowerBound)
         }
     }
 
@@ -68,7 +71,7 @@ public struct HeadingExtractor: Sendable {
                     let level = match.1.count
                     let text = String(match.2).trimmingCharacters(in: .whitespaces)
                     if !text.isEmpty {
-                        headings.append(Heading(level: level, text: text, range: lineStart..<lineEnd))
+                        headings.append(Heading(level: level, text: text, range: lineStart..<lineEnd, in: markdown))
                     }
                 }
             }

@@ -83,6 +83,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
     // MARK: - Dynamic Type Support Tests
 
+    @MainActor
     func testScaledMetricsExist() throws {
         // Verify ScaledMetric is used for key UI elements
         // This is compile-time verification - if QuartzTagBadge compiles with @ScaledMetric, it passes
@@ -206,7 +207,7 @@ struct StoreKitConfigurationTests {
 
 // MARK: - XCTest Performance Tests for StoreKit Operations
 
-final class StoreKitPerformanceTests: XCTestCase {
+final class AccessibilityStoreKitPerformanceTests: XCTestCase {
     func testProductIDHashingPerformance() throws {
         let options = XCTMeasureOptions()
         options.iterationCount = 10
@@ -250,12 +251,13 @@ final class StoreKitPerformanceTests: XCTestCase {
             let expirationDate: Date?
         }
 
-        let entitlements = (0..<100).map { i in
-            MockEntitlement(
-                productID: "com.quartz.product.\(i)",
-                isActive: i % 2 == 0,
-                expirationDate: i % 3 == 0 ? Date().addingTimeInterval(Double(i) * 86400) : nil
-            )
+        // Pre-compute the entitlements to avoid type-checking complexity
+        var entitlements: [MockEntitlement] = []
+        for i in 0..<100 {
+            let productID = "com.quartz.product.\(i)"
+            let isActive = i % 2 == 0
+            let expirationDate: Date? = i % 3 == 0 ? Date().addingTimeInterval(Double(i) * 86400) : nil
+            entitlements.append(MockEntitlement(productID: productID, isActive: isActive, expirationDate: expirationDate))
         }
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()], options: options) {
@@ -271,8 +273,8 @@ final class StoreKitPerformanceTests: XCTestCase {
 
 // MARK: - Receipt Validation Tests
 
-@Suite("ReceiptValidation")
-struct ReceiptValidationTests {
+@Suite("AccessibilityReceiptValidation")
+struct AccessibilityReceiptValidationTests {
     @Test("Receipt data structure is valid")
     func receiptDataStructure() {
         struct AppReceipt {

@@ -9,6 +9,8 @@ public extension Notification.Name {
     static let quartzSpotlightNotesRemoved = Notification.Name("quartzSpotlightNotesRemoved")
     /// `userInfo["old"]` and `["new"]` are file `URL`s after rename or move.
     static let quartzSpotlightNoteRelocated = Notification.Name("quartzSpotlightNoteRelocated")
+    /// Posted after a note is renamed. `userInfo["oldURL"]` and `userInfo["newURL"]` contain the file URLs.
+    static let quartzNoteRenamed = Notification.Name("quartzNoteRenamed")
 }
 
 public enum SidebarFilter: String, CaseIterable, Sendable {
@@ -111,6 +113,7 @@ public final class SidebarViewModel {
     }
 
     private var favoritesObserver: Any?
+    private var renameObserver: Any?
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -121,6 +124,16 @@ public final class SidebarViewModel {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.invalidateFavorites()
+            }
+        }
+
+        renameObserver = NotificationCenter.default.addObserver(
+            forName: .quartzNoteRenamed,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.refresh()
             }
         }
     }
@@ -217,9 +230,11 @@ public final class SidebarViewModel {
     /// - Returns: `true` if the move succeeded, `false` if it failed.
     @discardableResult
     public func move(at sourceURL: URL, to destinationFolder: URL) async -> Bool {
+        print("[SidebarViewModel] move called: \(sourceURL.lastPathComponent) -> \(destinationFolder.lastPathComponent)")
         do {
             let folderUseCase = FolderManagementUseCase(vaultProvider: vaultProvider)
             let newURL = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
+            print("[SidebarViewModel] move succeeded: \(newURL.path)")
             await refresh()
             if newURL != sourceURL {
                 NotificationCenter.default.post(
@@ -230,6 +245,7 @@ public final class SidebarViewModel {
             }
             return true
         } catch {
+            print("[SidebarViewModel] move failed: \(error)")
             errorMessage = userFacingMessage(for: error)
             return false
         }

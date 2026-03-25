@@ -10,8 +10,8 @@ import XCTest
 // MARK: - FormattingAction Tests (ALL 17 Actions)
 // ============================================================================
 
-@Suite("FormattingAction")
-struct FormattingActionTests {
+@Suite("Phase3FormattingAction")
+struct Phase3FormattingActionTests {
 
     @Test("FormattingAction enum has exactly 17 cases")
     func formattingActionCount() {
@@ -58,6 +58,9 @@ struct FormattingActionTests {
                 #expect(!before.isEmpty || !after.isEmpty, "\(action) template should have markers")
             case .insert(let raw):
                 #expect(!raw.isEmpty, "\(action) insert should not be empty")
+            case .removeHeadingPrefix:
+                // Paragraph action removes heading prefix
+                #expect(action == .paragraph, "\(action) should be paragraph action")
             }
         }
     }
@@ -78,8 +81,8 @@ struct FormattingActionTests {
 // MARK: - MarkdownFormatter Tests (Exhaustive)
 // ============================================================================
 
-@Suite("MarkdownFormatter")
-struct MarkdownFormatterTests {
+@Suite("Phase3MarkdownFormatter")
+struct Phase3MarkdownFormatterTests {
     let formatter = MarkdownFormatter()
 
     // MARK: - Wrap Actions
@@ -309,8 +312,8 @@ struct MarkdownFormatterTests {
 // MARK: - MarkdownRenderer Tests (AST Fidelity)
 // ============================================================================
 
-@Suite("MarkdownRenderer")
-struct MarkdownRendererTests {
+@Suite("Phase3MarkdownRenderer")
+struct Phase3MarkdownRendererTests {
     let renderer = MarkdownRenderer()
 
     @Test("Renders headings with correct level attribute")
@@ -523,8 +526,8 @@ struct FocusModeManagerTests {
 // MARK: - Frontmatter Tests
 // ============================================================================
 
-@Suite("Frontmatter")
-struct FrontmatterTests {
+@Suite("Phase3Frontmatter")
+struct Phase3FrontmatterTests {
 
     @Test("Frontmatter initializes with required fields")
     func frontmatterInitialization() {
@@ -683,8 +686,8 @@ final class Phase3PerformanceTests: XCTestCase {
 // MARK: - MarkdownSyntax Tests
 // ============================================================================
 
-@Suite("MarkdownSyntax")
-struct MarkdownSyntaxTests {
+@Suite("Phase3MarkdownSyntax")
+struct Phase3MarkdownSyntaxTests {
 
     @Test("All syntax types are Sendable")
     func syntaxIsSendable() {

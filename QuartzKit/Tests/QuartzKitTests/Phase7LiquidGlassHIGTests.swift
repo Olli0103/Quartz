@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 import XCTest
 @testable import QuartzKit
 
@@ -161,33 +162,23 @@ struct LiquidGlassMaterialTests {
 
     @Test("QuartzMaterialLayer enum has all layers")
     func materialLayersCoverage() {
-        let layers: [QuartzMaterialLayer] = [.ultraThin, .thin, .regular, .thick, .chrome]
-        #expect(layers.count == 5)
+        let layers: [QuartzMaterialLayer] = [.sidebar, .floating]
+        #expect(layers.count == 2)
     }
 
-    @Test("Material layers map to native materials")
+    @Test("Material layers are available")
     func materialLayerMapping() {
-        // Each layer should correspond to a native SwiftUI material
-        for layer in QuartzMaterialLayer.allCases {
-            switch layer {
-            case .ultraThin:
-                #expect(true) // .ultraThinMaterial
-            case .thin:
-                #expect(true) // .thinMaterial
-            case .regular:
-                #expect(true) // .regularMaterial
-            case .thick:
-                #expect(true) // .thickMaterial
-            case .chrome:
-                #expect(true) // Custom chrome effect
-            }
-        }
+        // Verify the material layers exist
+        let sidebar = QuartzMaterialLayer.sidebar
+        let floating = QuartzMaterialLayer.floating
+        #expect(sidebar == .sidebar)
+        #expect(floating == .floating)
     }
 
     @Test("QuartzAmbientMeshStyle has all styles")
     func ambientMeshStylesCoverage() {
-        let styles: [QuartzAmbientMeshStyle] = [.subtle, .onboarding, .celebration, .error]
-        #expect(styles.count == 4)
+        let styles: [QuartzAmbientMeshStyle] = [.onboarding, .shell, .editorChrome]
+        #expect(styles.count == 3)
     }
 }
 
@@ -255,8 +246,8 @@ struct TouchTargetComplianceTests {
 // MARK: - QuartzColors Tests
 // ============================================================================
 
-@Suite("QuartzColors")
-struct QuartzColorsTests {
+@Suite("Phase7QuartzColors")
+struct Phase7QuartzColorsTests {
 
     @Test("Tag color is deterministic")
     func tagColorDeterministic() {

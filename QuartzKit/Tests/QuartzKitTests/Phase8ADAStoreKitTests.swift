@@ -10,7 +10,7 @@ import XCTest
 // MARK: - Accessibility Audit Tests (XCTest UITest Pattern)
 // ============================================================================
 
-final class AccessibilityAuditTests: XCTestCase {
+final class Phase8AccessibilityAuditTests: XCTestCase {
 
     // MARK: - Automated Accessibility Audits
 
@@ -86,6 +86,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
     // MARK: - Dynamic Type Support Tests
 
+    @MainActor
     func testScaledMetricsExist() throws {
         // Verify ScaledMetric is used for key UI elements
         // This is compile-time verification - if QuartzTagBadge compiles with @ScaledMetric, it passes
@@ -111,8 +112,8 @@ final class AccessibilityAuditTests: XCTestCase {
 // MARK: - StoreKit Integration Tests (Swift Testing Framework)
 // ============================================================================
 
-@Suite("StoreKitIntegration")
-struct StoreKitIntegrationTests {
+@Suite("Phase8StoreKitIntegration")
+struct Phase8StoreKitIntegrationTests {
 
     @Test("Product identifiers are valid strings")
     func productIdentifiersValid() {
@@ -167,8 +168,8 @@ struct StoreKitIntegrationTests {
 // MARK: - StoreKit Configuration Tests
 // ============================================================================
 
-@Suite("StoreKitConfiguration")
-struct StoreKitConfigurationTests {
+@Suite("Phase8StoreKitConfiguration")
+struct Phase8StoreKitConfigurationTests {
 
     @Test("StoreKit configuration file can be validated")
     func storeKitConfigValidation() {
@@ -239,7 +240,7 @@ struct StoreKitConfigurationTests {
 // MARK: - XCTest Performance Tests for StoreKit Operations
 // ============================================================================
 
-final class StoreKitPerformanceTests: XCTestCase {
+final class Phase8StoreKitPerformanceTests: XCTestCase {
 
     func testProductIDHashingPerformance() throws {
         let options = XCTMeasureOptions()
@@ -284,12 +285,13 @@ final class StoreKitPerformanceTests: XCTestCase {
             let expirationDate: Date?
         }
 
-        let entitlements = (0..<100).map { i in
-            MockEntitlement(
-                productID: "com.quartz.product.\(i)",
-                isActive: i % 2 == 0,
-                expirationDate: i % 3 == 0 ? Date().addingTimeInterval(Double(i) * 86400) : nil
-            )
+        // Pre-compute the entitlements to avoid type-checking complexity
+        var entitlements: [MockEntitlement] = []
+        for i in 0..<100 {
+            let productID = "com.quartz.product.\(i)"
+            let isActive = i % 2 == 0
+            let expirationDate: Date? = i % 3 == 0 ? Date().addingTimeInterval(Double(i) * 86400) : nil
+            entitlements.append(MockEntitlement(productID: productID, isActive: isActive, expirationDate: expirationDate))
         }
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()], options: options) {
@@ -307,8 +309,8 @@ final class StoreKitPerformanceTests: XCTestCase {
 // MARK: - Receipt Validation Tests
 // ============================================================================
 
-@Suite("ReceiptValidation")
-struct ReceiptValidationTests {
+@Suite("Phase8ReceiptValidation")
+struct Phase8ReceiptValidationTests {
 
     @Test("Receipt data structure is valid")
     func receiptDataStructure() {
@@ -368,8 +370,8 @@ struct ReceiptValidationTests {
 // MARK: - Subscription Status Tests
 // ============================================================================
 
-@Suite("SubscriptionStatus")
-struct SubscriptionStatusTests {
+@Suite("Phase8SubscriptionStatus")
+struct Phase8SubscriptionStatusTests {
 
     @Test("Subscription renewal info parsing")
     func subscriptionRenewalInfoParsing() {

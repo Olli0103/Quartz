@@ -58,7 +58,8 @@ struct QuartzApp: App {
                 onSearch: { appState.pendingCommand = .search },
                 onGlobalSearch: { appState.pendingCommand = .globalSearch },
                 onToggleSidebar: { appState.pendingCommand = .toggleSidebar },
-                onDailyNote: { appState.pendingCommand = .dailyNote }
+                onDailyNote: { appState.pendingCommand = .dailyNote },
+                onFormatAction: { action in appState.pendingCommand = .format(action) }
             )
         }
         #if os(macOS)

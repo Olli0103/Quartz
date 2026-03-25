@@ -76,11 +76,18 @@ public final class ContentViewModel {
 
     /// Opens a note at the given URL, cancelling any previous editor tasks.
     public func openNote(at url: URL?) {
+        print("[ContentViewModel] openNote called with: \(url?.path(percentEncoded: false) ?? "nil")")
         editorViewModel?.cancelAllTasks()
         guard let url else {
+            print("[ContentViewModel] URL is nil, clearing editor")
             editorViewModel = nil
             return
         }
+
+        // Verify file exists before creating editor
+        let exists = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
+        print("[ContentViewModel] File exists at path: \(exists)")
+
         let container = ServiceContainer.shared
         let vm = NoteEditorViewModel(
             vaultProvider: container.resolveVaultProvider(),
@@ -358,8 +365,20 @@ public final class ContentViewModel {
             }
         case .dailyNote:
             createDailyNote()
+        case .format(let action):
+            applyFormatting(action)
         case .none:
             break
         }
+    }
+
+    private func applyFormatting(_ action: FormattingAction) {
+        guard let editor = editorViewModel else { return }
+        let formatter = MarkdownFormatter()
+        let (newText, newSelection) = formatter.apply(
+            action, to: editor.content, selectedRange: editor.cursorPosition
+        )
+        editor.content = newText
+        editor.cursorPosition = newSelection
     }
 }

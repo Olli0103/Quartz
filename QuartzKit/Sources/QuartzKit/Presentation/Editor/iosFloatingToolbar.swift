@@ -30,6 +30,9 @@ struct IosEditorToolbar: View {
                         .frame(width: 1, height: 24)
                     formatButton(.bold, icon: "bold")
                     formatButton(.italic, icon: "italic")
+                    HeadingDropdown { action in
+                        onFormatting(action)
+                    }
                     formatButton(.bulletList, icon: "list.bullet")
                     formatButton(.link, icon: "link")
                     Rectangle()
@@ -47,9 +50,10 @@ struct IosEditorToolbar: View {
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Insert Image", bundle: .module))
                     formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
                     Menu {
-                        ForEach([FormattingAction.codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
+                        ForEach([FormattingAction.codeBlock, .blockquote, .checkbox, .numberedList, .strikethrough, .math, .mermaid], id: \.self) { action in
                             Button { onFormatting(action) } label: {
                                 Label(action.label, systemImage: action.icon)
                             }
@@ -62,6 +66,7 @@ struct IosEditorToolbar: View {
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)

@@ -462,7 +462,7 @@ struct ReceiptValidationTests {
 
 // MARK: - XCTest Performance Tests for StoreKit Operations
 
-final class StoreKitPerformanceTests: XCTestCase {
+final class CoreStoreKitPerformanceTests: XCTestCase {
 
     func testProductLoadingPerformance() throws {
         let options = XCTMeasureOptions()

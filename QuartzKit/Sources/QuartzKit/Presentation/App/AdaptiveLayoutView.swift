@@ -58,6 +58,7 @@ public struct KeyboardShortcutCommands: Commands {
     let onGlobalSearch: () -> Void
     let onToggleSidebar: () -> Void
     let onDailyNote: () -> Void
+    var onFormatAction: ((FormattingAction) -> Void)?
 
     public init(
         onNewNote: @escaping () -> Void,
@@ -65,7 +66,8 @@ public struct KeyboardShortcutCommands: Commands {
         onSearch: @escaping () -> Void,
         onGlobalSearch: @escaping () -> Void,
         onToggleSidebar: @escaping () -> Void,
-        onDailyNote: @escaping () -> Void
+        onDailyNote: @escaping () -> Void,
+        onFormatAction: ((FormattingAction) -> Void)? = nil
     ) {
         self.onNewNote = onNewNote
         self.onNewFolder = onNewFolder
@@ -73,6 +75,7 @@ public struct KeyboardShortcutCommands: Commands {
         self.onGlobalSearch = onGlobalSearch
         self.onToggleSidebar = onToggleSidebar
         self.onDailyNote = onDailyNote
+        self.onFormatAction = onFormatAction
     }
 
     public var body: some Commands {
@@ -100,6 +103,48 @@ public struct KeyboardShortcutCommands: Commands {
         CommandGroup(after: .sidebar) {
             Button(String(localized: "Toggle Sidebar", bundle: .module)) { onToggleSidebar() }
                 .keyboardShortcut("/", modifiers: .command)
+        }
+
+        CommandMenu(String(localized: "Format", bundle: .module)) {
+            Button(String(localized: "Bold", bundle: .module)) { onFormatAction?(.bold) }
+                .keyboardShortcut("b", modifiers: .command)
+            Button(String(localized: "Italic", bundle: .module)) { onFormatAction?(.italic) }
+                .keyboardShortcut("i", modifiers: .command)
+            Button(String(localized: "Strikethrough", bundle: .module)) { onFormatAction?(.strikethrough) }
+                .keyboardShortcut("x", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button(String(localized: "Heading 1", bundle: .module)) { onFormatAction?(.heading1) }
+                .keyboardShortcut("1", modifiers: .command)
+            Button(String(localized: "Heading 2", bundle: .module)) { onFormatAction?(.heading2) }
+                .keyboardShortcut("2", modifiers: .command)
+            Button(String(localized: "Heading 3", bundle: .module)) { onFormatAction?(.heading3) }
+                .keyboardShortcut("3", modifiers: .command)
+            Button(String(localized: "Heading 4", bundle: .module)) { onFormatAction?(.heading4) }
+                .keyboardShortcut("4", modifiers: .command)
+            Button(String(localized: "Heading 5", bundle: .module)) { onFormatAction?(.heading5) }
+                .keyboardShortcut("5", modifiers: .command)
+            Button(String(localized: "Heading 6", bundle: .module)) { onFormatAction?(.heading6) }
+                .keyboardShortcut("6", modifiers: .command)
+
+            Divider()
+
+            Button(String(localized: "Inline Code", bundle: .module)) { onFormatAction?(.code) }
+                .keyboardShortcut("e", modifiers: .command)
+            Button(String(localized: "Code Block", bundle: .module)) { onFormatAction?(.codeBlock) }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            Button(String(localized: "Link", bundle: .module)) { onFormatAction?(.link) }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+            Button(String(localized: "Blockquote", bundle: .module)) { onFormatAction?(.blockquote) }
+                .keyboardShortcut("q", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button(String(localized: "Bullet List", bundle: .module)) { onFormatAction?(.bulletList) }
+            Button(String(localized: "Numbered List", bundle: .module)) { onFormatAction?(.numberedList) }
+            Button(String(localized: "Checkbox", bundle: .module)) { onFormatAction?(.checkbox) }
+            Button(String(localized: "Table", bundle: .module)) { onFormatAction?(.table) }
         }
     }
 }

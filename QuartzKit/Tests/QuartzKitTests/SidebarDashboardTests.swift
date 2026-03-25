@@ -179,8 +179,8 @@ struct DashboardTaskItemTests {
 
 // MARK: - FileNode Tests
 
-@Suite("FileNode")
-struct FileNodeTests {
+@Suite("SidebarFileNode")
+struct SidebarFileNodeTests {
     @Test("FileNode isNote property")
     func fileNodeIsNote() {
         let note = FileNode(
@@ -230,8 +230,8 @@ struct FileNodeTests {
             metadata: metadata
         )
 
-        #expect(node.metadata?.fileSize == 1024)
-        #expect(node.metadata?.createdAt == now)
+        #expect(node.metadata.fileSize == 1024)
+        #expect(node.metadata.createdAt == now)
     }
 }
 

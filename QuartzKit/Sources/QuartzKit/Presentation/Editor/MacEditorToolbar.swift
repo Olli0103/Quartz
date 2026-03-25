@@ -19,9 +19,10 @@ struct MacEditorToolbar: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(isPreviewMode ? QuartzColors.accent : .primary)
                     .contentTransition(.interpolate)
-                    .frame(minWidth: 28, minHeight: 28)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
             .help(isPreviewMode ? String(localized: "Switch to edit mode", bundle: .module) : String(localized: "Preview rendered markdown", bundle: .module))
 
             toolbarDivider
@@ -29,6 +30,9 @@ struct MacEditorToolbar: View {
             HStack(spacing: 2) {
                 formatButton(.bold, icon: "bold")
                 formatButton(.italic, icon: "italic")
+                HeadingDropdown { action in
+                    onFormatting(action)
+                }
                 formatButton(.link, icon: "link")
             }
 
@@ -43,9 +47,10 @@ struct MacEditorToolbar: View {
                         .font(.body)
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.primary)
-                        .frame(minWidth: 28, minHeight: 28)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel(String(localized: "Insert Image", bundle: .module))
                 .help(String(localized: "Insert Image", bundle: .module))
                 formatButton(.code, icon: "chevron.left.forwardslash.chevron.right")
             }
@@ -53,7 +58,7 @@ struct MacEditorToolbar: View {
             toolbarDivider
 
             Menu {
-                ForEach([FormattingAction.table, .codeBlock, .blockquote, .checkbox, .numberedList, .heading, .strikethrough, .math, .mermaid], id: \.self) { action in
+                ForEach([FormattingAction.table, .codeBlock, .blockquote, .checkbox, .numberedList, .strikethrough, .math, .mermaid], id: \.self) { action in
                     Button { onFormatting(action) } label: {
                         Label(action.label, systemImage: action.icon)
                     }
@@ -63,9 +68,10 @@ struct MacEditorToolbar: View {
                     .font(.body)
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
-                    .frame(minWidth: 28, minHeight: 28)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .menuStyle(.borderlessButton)
+            .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
             .help(String(localized: "More formatting options", bundle: .module))
         }
         .padding(.horizontal, 6)
@@ -75,7 +81,7 @@ struct MacEditorToolbar: View {
     private var toolbarDivider: some View {
         Rectangle()
             .fill(.separator)
-            .frame(width: 1, height: 18)
+            .frame(width: 1, height: 28)
             .padding(.horizontal, 3)
     }
 

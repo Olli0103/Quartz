@@ -66,6 +66,8 @@ public final class NoteEditorViewModel {
     /// Loads a note from the file system.
     public func loadNote(at url: URL) async {
         stopFileWatching()
+        print("[NoteEditorViewModel] loadNote called with URL: \(url.path(percentEncoded: false))")
+        print("[NoteEditorViewModel] File exists: \(FileManager.default.fileExists(atPath: url.path(percentEncoded: false)))")
         do {
             let loaded = try await vaultProvider.readNote(at: url)
             note = loaded
@@ -74,7 +76,9 @@ public final class NoteEditorViewModel {
             errorMessage = nil
             externalModificationDetected = false
             startFileWatching(for: url)
+            print("[NoteEditorViewModel] Successfully loaded note: \(loaded.displayName)")
         } catch {
+            print("[NoteEditorViewModel] Error loading note: \(error)")
             errorMessage = (error as? LocalizedError)?.errorDescription ?? String(localized: "An unexpected error occurred.", bundle: .module)
         }
     }
@@ -157,13 +161,58 @@ public final class NoteEditorViewModel {
         scheduleAutosave()
     }
 
-    /// Renames the note by updating the frontmatter title.
-    public func renameNote(to newTitle: String) {
+    /// Renames the note file on disk and updates the frontmatter title.
+    /// - Parameter newTitle: The new title (without .md extension).
+    public func renameNote(to newTitle: String) async {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        note?.frontmatter.title = trimmed
-        isDirty = true
-        scheduleAutosave()
+        guard !trimmed.isEmpty, let currentNote = note else { return }
+
+        // Derive new filename (add .md if not present)
+        let newFilename = trimmed.hasSuffix(".md") ? trimmed : "\(trimmed).md"
+
+        // If filename unchanged, just update frontmatter title
+        if newFilename == currentNote.fileURL.lastPathComponent {
+            note?.frontmatter.title = trimmed.hasSuffix(".md") ? String(trimmed.dropLast(3)) : trimmed
+            isDirty = true
+            scheduleAutosave()
+            return
+        }
+
+        do {
+            // Save current changes first to avoid data loss
+            await save(force: true)
+
+            // Rename file on disk via VaultProvider
+            let oldURL = currentNote.fileURL
+            let newURL = try await vaultProvider.rename(at: oldURL, to: newFilename)
+
+            // Reload note at new location
+            await loadNote(at: newURL)
+
+            // Also update the frontmatter title to match
+            let baseTitle = trimmed.hasSuffix(".md") ? String(trimmed.dropLast(3)) : trimmed
+            if note?.frontmatter.title != baseTitle {
+                note?.frontmatter.title = baseTitle
+                isDirty = true
+                scheduleAutosave()
+            }
+
+            // Notify sidebar and other observers to update their state
+            NotificationCenter.default.post(
+                name: .quartzNoteRenamed,
+                object: nil,
+                userInfo: ["oldURL": oldURL, "newURL": newURL]
+            )
+
+            // Also post spotlight notification for search index update
+            NotificationCenter.default.post(
+                name: .quartzSpotlightNoteRelocated,
+                object: nil,
+                userInfo: ["old": oldURL, "new": newURL]
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private var wordCountTask: Task<Void, Never>?

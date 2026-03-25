@@ -53,6 +53,7 @@ struct ContentView: View {
     @State private var showKnowledgeGraph = false
     @State private var showVoiceNoteSheet = false
     @State private var showMeetingMinutesSheet = false
+    @Environment(\.openWindow) private var openWindow
     #endif
     @State private var vaultChatSheetItem: VaultChatSheetItem?
     @State private var showConflictResolver = false
@@ -244,6 +245,8 @@ struct ContentView: View {
             #endif
         }
         .onChange(of: selectedNoteURL) { _, newURL in
+            print("[ContentView] selectedNoteURL changed to: \(newURL?.path(percentEncoded: false) ?? "nil")")
+            print("[ContentView] viewModel is: \(viewModel == nil ? "nil" : "present")")
             viewModel?.openNote(at: newURL)
             // Update restored path for state restoration
             if let url = newURL, let vaultRoot = appState.currentVault?.rootURL {
@@ -500,7 +503,14 @@ struct ContentView: View {
 
                 #if os(macOS)
                 // Sidebar uses a `List` with `.sidebar` style (see QuartzKit `SidebarView`).
-                SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL, onMapViewTap: { showKnowledgeGraph = true })
+                SidebarView(
+                    viewModel: sidebarVM,
+                    selectedNoteURL: $selectedNoteURL,
+                    onMapViewTap: { showKnowledgeGraph = true },
+                    onDoubleClick: { url in
+                        openWindow(value: url.standardizedFileURL)
+                    }
+                )
                 #else
                 SidebarView(viewModel: sidebarVM, selectedNoteURL: $selectedNoteURL)
                 #endif

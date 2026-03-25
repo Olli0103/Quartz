@@ -39,7 +39,7 @@ struct SidebarNavigationTests {
 
     @Test("FileNodeType enum is complete")
     func fileNodeTypeComplete() {
-        let types: [FileNodeType] = [.note, .folder]
+        let types: [NodeType] = [.note, .folder]
         #expect(types.count == 2)
     }
 }
@@ -48,8 +48,8 @@ struct SidebarNavigationTests {
 // MARK: - FavoriteNoteStorage Tests
 // ============================================================================
 
-@Suite("FavoriteNoteStorage")
-struct FavoriteNoteStorageTests {
+@Suite("Phase4FavoriteNoteStorage")
+struct Phase4FavoriteNoteStorageTests {
 
     @Test("Favorites persist to UserDefaults")
     func favoritesPersistence() {

@@ -1,6 +1,9 @@
 import Testing
 import Foundation
 import XCTest
+#if canImport(LocalAuthentication)
+import LocalAuthentication
+#endif
 @testable import QuartzKit
 
 // MARK: - Phase 1: Onboarding, Multi-Vault & Security Hardening
@@ -359,7 +362,6 @@ final class Phase1PerformanceTests: XCTestCase {
 
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric()], options: options) {
             #if canImport(LocalAuthentication)
-            import LocalAuthentication
             let context = LAContext()
             _ = context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
             #endif

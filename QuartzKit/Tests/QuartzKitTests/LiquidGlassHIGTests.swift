@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 import XCTest
 @testable import QuartzKit
 
@@ -262,6 +263,7 @@ final class LiquidGlassPerformanceTests: XCTestCase {
 // MARK: - Accessibility Compliance Tests
 
 @Suite("AccessibilityCompliance")
+@MainActor
 struct AccessibilityComplianceTests {
     @Test("QuartzTagBadge has accessibility label")
     func tagBadgeAccessibility() {
@@ -302,6 +304,7 @@ struct AccessibilityComplianceTests {
 // MARK: - Button Style Tests
 
 @Suite("QuartzButtonStyles")
+@MainActor
 struct QuartzButtonStylesTests {
     @Test("QuartzPressButtonStyle exists")
     func pressButtonStyleExists() {
@@ -325,6 +328,7 @@ struct QuartzButtonStylesTests {
 // MARK: - Skeleton Row Tests
 
 @Suite("SkeletonRow")
+@MainActor
 struct SkeletonRowTests {
     @Test("SkeletonRow initializes without crashing")
     func skeletonRowInit() {

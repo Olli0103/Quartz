@@ -10,6 +10,7 @@ public enum CommandAction: Equatable, Sendable {
     case globalSearch
     case toggleSidebar
     case dailyNote
+    case format(FormattingAction)
 }
 
 /// Global app state, injected into all views via Environment.

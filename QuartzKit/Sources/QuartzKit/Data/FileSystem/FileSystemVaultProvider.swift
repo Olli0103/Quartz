@@ -167,8 +167,18 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
             throw FileSystemError.fileNotFound(url)
         }
+
+        // Try direct read first (works for locally available files with proper security scope)
+        // Fall back to coordinated read if that fails
         return try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.read(from: url)
+            // First attempt: direct read (faster, works when security scope is active)
+            do {
+                return try Data(contentsOf: url)
+            } catch {
+                // Second attempt: coordinated read (needed for some iCloud scenarios)
+                print("[FileSystemVaultProvider] Direct read failed, trying coordinated: \(error.localizedDescription)")
+                return try CoordinatedFileWriter.shared.read(from: url)
+            }
         }.value
     }
 

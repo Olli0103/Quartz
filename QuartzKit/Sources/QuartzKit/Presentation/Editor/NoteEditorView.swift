@@ -5,23 +5,6 @@ import CoreText
 import PhotosUI
 #endif
 
-/// Editor UI sizes – larger on macOS for better legibility.
-private var editorBreadcrumbChevronSize: CGFloat {
-    #if os(macOS)
-    12
-    #else
-    10
-    #endif
-}
-
-private var editorMetadataIconSize: CGFloat {
-    #if os(macOS)
-    14
-    #else
-    12
-    #endif
-}
-
 private var editorBacklinkFont: Font {
     #if os(macOS)
     .subheadline
@@ -30,15 +13,7 @@ private var editorBacklinkFont: Font {
     #endif
 }
 
-private var editorMetadataFont: Font {
-    #if os(macOS)
-    .callout
-    #else
-    .subheadline
-    #endif
-}
-
-/// Markdown editor with liquid glass header, formatting toolbar, AI tools, and status bar.
+/// Markdown editor with unified toolbar, formatting, AI tools, and status bar.
 public struct NoteEditorView: View {
     @Bindable var viewModel: NoteEditorViewModel
     var embeddingService: VectorEmbeddingService?
@@ -183,12 +158,41 @@ public struct NoteEditorView: View {
                 }
             }
         }
-        .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         #if os(iOS)
+        .navigationTitle(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
         .navigationBarTitleDisplayMode(.inline)
+        #else
+        .navigationTitle("")
         #endif
         .toolbar {
             #if os(macOS)
+            // LEFT: Breadcrumb navigation
+            ToolbarItemGroup(placement: .navigation) {
+                if let note = viewModel.note {
+                    HStack(spacing: 4) {
+                        let pathComponents = breadcrumbComponents(for: note)
+                        ForEach(Array(pathComponents.enumerated()), id: \.offset) { index, component in
+                            if index > 0 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(component)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text(note.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            // CENTER: Formatting toolbar
             ToolbarItemGroup(placement: .principal) {
                 MacEditorToolbar(
                     isPreviewMode: isPreviewMode,
@@ -205,18 +209,22 @@ public struct NoteEditorView: View {
             #if os(iOS)
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text(String(localized: "EDITING", bundle: .module))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(QuartzColors.accent)
-                        .textCase(.uppercase)
+                    if let note = viewModel.note {
+                        let pathComponents = breadcrumbComponents(for: note)
+                        if !pathComponents.isEmpty {
+                            Text(pathComponents.joined(separator: " › "))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Text(viewModel.note?.displayName ?? String(localized: "Note", bundle: .module))
                         .font(.headline.weight(.bold))
                         .lineLimit(1)
                 }
             }
             #endif
-        }
-        .toolbar {
+
+            // RIGHT: Actions
             ToolbarItem(placement: .primaryAction) {
                 toolbarActions
             }
@@ -538,7 +546,7 @@ public struct NoteEditorView: View {
 
     private var editorContent: some View {
         VStack(spacing: 0) {
-            editorHeader
+            inlineTitle
                 .hidesInFocusMode()
 
             if showFrontmatter, viewModel.note != nil {
@@ -855,31 +863,11 @@ public struct NoteEditorView: View {
         return viewModel.content
     }
 
-    // MARK: - Editor Header (Liquid Glass)
+    // MARK: - Inline Title (Apple Notes style)
 
-    private var editorHeader: some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private var inlineTitle: some View {
+        Group {
             if let note = viewModel.note {
-                // Breadcrumbs
-                HStack(spacing: 6) {
-                    let pathComponents = breadcrumbComponents(for: note)
-                    ForEach(Array(pathComponents.enumerated()), id: \.offset) { index, component in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: editorBreadcrumbChevronSize, weight: .semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        Text(component)
-                            .font(.subheadline.weight(index == pathComponents.count - 1 ? .semibold : .regular))
-                            .foregroundStyle(index == pathComponents.count - 1 ? QuartzColors.accent : .secondary)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .padding(.bottom, 6)
-
-                // Editable title + favorite
                 HStack(spacing: 12) {
                     TextField(
                         String(localized: "Note title", bundle: .module),
@@ -896,8 +884,9 @@ public struct NoteEditorView: View {
                         refreshFavoriteState(for: viewModel.note?.fileURL)
                     }
                     .onSubmit {
-                        viewModel.renameNote(to: editableTitle)
+                        Task { await viewModel.renameNote(to: editableTitle) }
                     }
+                    .accessibilityLabel(String(localized: "Note title", bundle: .module))
 
                     Button {
                         QuartzFeedback.selection()
@@ -911,19 +900,15 @@ public struct NoteEditorView: View {
                     .help(isFavorite
                         ? String(localized: "Remove from Favorites", bundle: .module)
                         : String(localized: "Add to Favorites", bundle: .module))
+                    .accessibilityLabel(isFavorite
+                        ? String(localized: "Remove from Favorites", bundle: .module)
+                        : String(localized: "Add to Favorites", bundle: .module))
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
             }
-
-            Divider()
-                .overlay(QuartzColors.accent.opacity(0.1))
         }
-        #if os(visionOS)
-        .quartzMaterialBackground(cornerRadius: 0)
-        #else
-        .quartzAmbientGlassBackground(style: .editorChrome, cornerRadius: 0)
-        #endif
     }
 
     private func breadcrumbComponents(for note: NoteDocument) -> [String] {
@@ -933,7 +918,7 @@ public struct NoteEditorView: View {
         if !parentName.isEmpty && parentName != "/" {
             components.append(parentName)
         }
-        components.append(url.lastPathComponent)
+        // Don't include filename - it's shown in the editable title below
         return components
     }
 
@@ -1017,6 +1002,7 @@ public struct NoteEditorView: View {
                                     .foregroundStyle(.tertiary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(String(localized: "Remove tag \(tag)", bundle: .module))
                         }
                         .padding(.horizontal, tagBarPillHPadding)
                         .padding(.vertical, tagBarPillVPadding)
@@ -1297,6 +1283,7 @@ public struct NoteEditorView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(searchDisabled)
+                .accessibilityLabel(String(localized: "Search notes", bundle: .module))
                 .help(String(localized: "Search notes", bundle: .module))
             }
             if let onNewNote {
@@ -1307,6 +1294,8 @@ public struct NoteEditorView: View {
                     Image(systemName: "plus")
                 }
                 .disabled(newNoteDisabled)
+                .accessibilityLabel(String(localized: "New Note", bundle: .module))
+                .help(String(localized: "New Note", bundle: .module))
             }
             if let onRefresh {
                 Button {
@@ -1316,6 +1305,8 @@ public struct NoteEditorView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .disabled(refreshDisabled)
+                .accessibilityLabel(String(localized: "Refresh", bundle: .module))
+                .help(String(localized: "Refresh", bundle: .module))
             }
             #if os(macOS)
             if onSearch != nil || onNewNote != nil || onRefresh != nil {

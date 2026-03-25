@@ -47,6 +47,19 @@ public struct HighlightSpan: @unchecked Sendable {
     public let traits: FontTraits
     public let backgroundColor: PlatformColor?
     public let strikethrough: Bool
+    /// When true, only the foreground color is applied (overlays on existing attributes).
+    /// Used for muting syntax delimiter characters (e.g., `#`, `**`, `` ` ``).
+    public let isOverlay: Bool
+
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false) {
+        self.range = range
+        self.font = font
+        self.color = color
+        self.traits = traits
+        self.backgroundColor = backgroundColor
+        self.strikethrough = strikethrough
+        self.isOverlay = isOverlay
+    }
 }
 
 #if canImport(UIKit)
@@ -148,40 +161,81 @@ public actor MarkdownASTHighlighter {
                 #if canImport(UIKit)
                 let font = UIFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                // Mute the # prefix characters
+                let headingText = (source as NSString).substring(with: nsRange)
+                if let prefixEnd = headingText.firstIndex(of: " "),
+                   headingText.hasPrefix("#") {
+                    let prefixLength = headingText.distance(from: headingText.startIndex, to: prefixEnd) + 1
+                    let prefixRange = NSRange(location: nsRange.location, length: prefixLength)
+                    spans.append(HighlightSpan(range: prefixRange, font: font, color: UIColor.tertiaryLabel, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
                 #elseif canImport(AppKit)
                 let font = NSFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                // Mute the # prefix characters
+                let headingText = (source as NSString).substring(with: nsRange)
+                if let prefixEnd = headingText.firstIndex(of: " "),
+                   headingText.hasPrefix("#") {
+                    let prefixLength = headingText.distance(from: headingText.startIndex, to: prefixEnd) + 1
+                    let prefixRange = NSRange(location: nsRange.location, length: prefixLength)
+                    spans.append(HighlightSpan(range: prefixRange, font: font, color: NSColor.tertiaryLabelColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
                 #endif
                 return
             }
             if markup is Strong {
+                let syntaxLen = 2 // ** or __
+                let mutedColor: PlatformColor
                 #if canImport(UIKit)
                 let font = UIFont.systemFont(ofSize: baseFontSize, weight: .bold)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                mutedColor = UIColor.tertiaryLabel
                 #elseif canImport(AppKit)
                 let font = NSFont.systemFont(ofSize: baseFontSize, weight: .bold)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                mutedColor = NSColor.tertiaryLabelColor
                 #endif
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                // Mute opening and closing ** delimiters
+                if nsRange.length > syntaxLen * 2 {
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
                 return
             }
             if markup is Emphasis {
+                let syntaxLen = 1 // * or _
+                let mutedColor: PlatformColor
                 #if canImport(UIKit)
                 let font = UIFont.italicSystemFont(ofSize: baseFontSize)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                mutedColor = UIColor.tertiaryLabel
                 #elseif canImport(AppKit)
                 let font = NSFontManager.shared.convert(NSFont.systemFont(ofSize: baseFontSize), toHaveTrait: .italicFontMask)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                mutedColor = NSColor.tertiaryLabelColor
                 #endif
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                // Mute opening and closing * delimiters
+                if nsRange.length > syntaxLen * 2 {
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
                 return
             }
             if markup is InlineCode {
+                let syntaxLen = 1 // `
+                let mutedColor: PlatformColor
                 #if canImport(UIKit)
                 let font = UIFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
+                mutedColor = UIColor.tertiaryLabel
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false))
                 #elseif canImport(AppKit)
                 let font = NSFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
+                mutedColor = NSColor.tertiaryLabelColor
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
                 #endif
+                // Mute backtick delimiters
+                if nsRange.length > syntaxLen * 2 {
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
                 return
             }
             if markup is CodeBlock {
@@ -192,6 +246,49 @@ public actor MarkdownASTHighlighter {
                 let font = NSFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
                 #endif
+                return
+            }
+            if markup is Strikethrough {
+                #if canImport(UIKit)
+                let font = UIFont.systemFont(ofSize: baseFontSize)
+                let mutedColor = UIColor.tertiaryLabel
+                let strikeColor: PlatformColor = UIColor.secondaryLabel
+                #elseif canImport(AppKit)
+                let font = NSFont.systemFont(ofSize: baseFontSize)
+                let mutedColor = NSColor.tertiaryLabelColor
+                let strikeColor: PlatformColor = NSColor.secondaryLabelColor
+                #endif
+                spans.append(HighlightSpan(range: nsRange, font: font, color: strikeColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: true))
+                // Mute ~~ delimiters
+                let syntaxLen = 2
+                if nsRange.length > syntaxLen * 2 {
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                }
+                return
+            }
+            if markup is BlockQuote {
+                let quoteColor: PlatformColor
+                #if canImport(UIKit)
+                let font = UIFont.italicSystemFont(ofSize: baseFontSize)
+                quoteColor = UIColor.secondaryLabel
+                #elseif canImport(AppKit)
+                let font = NSFontManager.shared.convert(NSFont.systemFont(ofSize: baseFontSize), toHaveTrait: .italicFontMask)
+                quoteColor = NSColor.secondaryLabelColor
+                #endif
+                spans.append(HighlightSpan(range: nsRange, font: font, color: quoteColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                // Don't recurse into children — blockquote styles the whole range
+                return
+            }
+            if markup is Link {
+                #if canImport(UIKit)
+                let font = UIFont.systemFont(ofSize: baseFontSize)
+                let linkColor = UIColor.systemBlue
+                #elseif canImport(AppKit)
+                let font = NSFont.systemFont(ofSize: baseFontSize)
+                let linkColor = NSColor.linkColor
+                #endif
+                spans.append(HighlightSpan(range: nsRange, font: font, color: linkColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false))
                 return
             }
         }

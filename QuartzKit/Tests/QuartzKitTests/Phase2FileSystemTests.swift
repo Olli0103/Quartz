@@ -10,8 +10,8 @@ import XCTest
 // MARK: - FileSystemVaultProvider Tests (Swift Testing Framework)
 // ============================================================================
 
-@Suite("FileSystemVaultProvider")
-struct FileSystemVaultProviderTests {
+@Suite("Phase2FileSystemVaultProvider")
+struct Phase2FileSystemVaultProviderTests {
 
     @Test("FileSystemVaultProvider is actor-isolated for thread safety")
     func actorIsolation() async throws {
@@ -264,8 +264,8 @@ struct NotesImporterTests {
 // MARK: - FileWatcher Tests
 // ============================================================================
 
-@Suite("FileWatcher")
-struct FileWatcherTests {
+@Suite("Phase2FileWatcher")
+struct Phase2FileWatcherTests {
 
     @Test("FileWatcher is actor-isolated")
     func actorIsolation() async {
@@ -279,12 +279,15 @@ struct FileWatcherTests {
         let testURL = URL(fileURLWithPath: "/tmp/test.md")
 
         let events: [FileChangeEvent] = [
+            .created(testURL),
             .modified(testURL),
             .deleted(testURL)
         ]
 
         for event in events {
             switch event {
+            case .created(let url):
+                #expect(url == testURL)
             case .modified(let url):
                 #expect(url == testURL)
             case .deleted(let url):
@@ -306,8 +309,8 @@ struct FileWatcherTests {
 // ============================================================================
 
 #if canImport(UIKit) || canImport(AppKit)
-@Suite("CloudSyncService")
-struct CloudSyncServiceTests {
+@Suite("Phase2CloudSyncService")
+struct Phase2CloudSyncServiceTests {
 
     @Test("CloudSyncStatus enum covers all states")
     func syncStatusCoverage() {
@@ -392,8 +395,8 @@ struct FrontmatterIntegrationTests {
         var frontmatter = Frontmatter(title: "Tagged Note")
         frontmatter.tags = ["tag1", "tag2", "tag3"]
 
-        #expect(frontmatter.tags?.count == 3)
-        #expect(frontmatter.tags?.contains("tag1") == true)
+        #expect(frontmatter.tags.count == 3)
+        #expect(frontmatter.tags.contains("tag1") == true)
     }
 }
 
@@ -538,9 +541,9 @@ final class Phase2PerformanceTests: XCTestCase {
             for i in 0..<100 {
                 let frontmatter = Frontmatter(
                     title: "Note \(i)",
+                    tags: ["tag1", "tag2", "tag3"],
                     createdAt: Date(),
-                    modifiedAt: Date(),
-                    tags: ["tag1", "tag2", "tag3"]
+                    modifiedAt: Date()
                 )
                 _ = frontmatter.title
             }

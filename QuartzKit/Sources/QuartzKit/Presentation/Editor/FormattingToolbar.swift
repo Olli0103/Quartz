@@ -5,13 +5,16 @@ public enum FormattingAction: String, CaseIterable, Sendable {
     case bold, italic, strikethrough, heading, bulletList, numberedList, checkbox
     case code, codeBlock, link, image, blockquote, highlight
     case table, math, footnote, mermaid
+    // Heading level actions for HeadingDropdown
+    case heading1, heading2, heading3, heading4, heading5, heading6, paragraph
 
     var icon: String {
         switch self {
         case .bold: "bold"
         case .italic: "italic"
         case .strikethrough: "strikethrough"
-        case .heading: "textformat.size.larger"
+        case .heading, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6: "textformat.size.larger"
+        case .paragraph: "paragraph"
         case .bulletList: "list.bullet"
         case .numberedList: "list.number"
         case .checkbox: "checklist"
@@ -35,6 +38,13 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .italic: "⌘I"
         case .strikethrough: "⌘⇧X"
         case .heading: "⌘⇧H"
+        case .heading1: "⌘1"
+        case .heading2: "⌘2"
+        case .heading3: "⌘3"
+        case .heading4: "⌘4"
+        case .heading5: "⌘5"
+        case .heading6: "⌘6"
+        case .paragraph: "⌘0"
         case .code: "⌘E"
         case .link: "⌘⇧L"
         case .blockquote: "⌘⇧Q"
@@ -48,6 +58,13 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .italic: String(localized: "Italic", bundle: .module)
         case .strikethrough: String(localized: "Strikethrough", bundle: .module)
         case .heading: String(localized: "Heading", bundle: .module)
+        case .heading1: String(localized: "Heading 1", bundle: .module)
+        case .heading2: String(localized: "Heading 2", bundle: .module)
+        case .heading3: String(localized: "Heading 3", bundle: .module)
+        case .heading4: String(localized: "Heading 4", bundle: .module)
+        case .heading5: String(localized: "Heading 5", bundle: .module)
+        case .heading6: String(localized: "Heading 6", bundle: .module)
+        case .paragraph: String(localized: "Paragraph", bundle: .module)
         case .bulletList: String(localized: "Bullet List", bundle: .module)
         case .numberedList: String(localized: "Numbered List", bundle: .module)
         case .checkbox: String(localized: "Checkbox", bundle: .module)
@@ -70,6 +87,13 @@ public enum FormattingAction: String, CaseIterable, Sendable {
         case .italic: .wrap("*")
         case .strikethrough: .wrap("~~")
         case .heading: .linePrefix("# ")
+        case .heading1: .linePrefix("# ")
+        case .heading2: .linePrefix("## ")
+        case .heading3: .linePrefix("### ")
+        case .heading4: .linePrefix("#### ")
+        case .heading5: .linePrefix("##### ")
+        case .heading6: .linePrefix("###### ")
+        case .paragraph: .removeHeadingPrefix
         case .bulletList: .linePrefix("- ")
         case .numberedList: .linePrefix("1. ")
         case .checkbox: .linePrefix("- [ ] ")
@@ -93,6 +117,7 @@ public enum MarkdownSyntax: Sendable {
     case block(String, String)
     case template(String, String)
     case insert(String)
+    case removeHeadingPrefix
 }
 
 // MARK: - Formatting Toolbar View
@@ -255,6 +280,8 @@ public struct MarkdownFormatter: Sendable {
         case .insert(let raw):
             let newText = nsText.replacingCharacters(in: selectedRange, with: raw)
             return (newText, NSRange(location: selectedRange.location + raw.count, length: 0))
+        case .removeHeadingPrefix:
+            return removeHeadingPrefix(text: text, selection: selectedRange)
         }
     }
 
@@ -283,6 +310,16 @@ public struct MarkdownFormatter: Sendable {
         let lineRange = nsText.lineRange(for: selection)
         let line = nsText.substring(with: lineRange)
 
+        // For heading prefixes, remove any existing heading prefix first
+        let headingPrefixPattern = /^#{1,6}\s/
+        if prefix.hasPrefix("#"), let match = line.prefixMatch(of: headingPrefixPattern) {
+            let trimmedLine = String(line[match.range.upperBound...])
+            let newLine = prefix + trimmedLine
+            let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
+            let prefixDiff = prefix.count - match.range.upperBound.utf16Offset(in: line)
+            return (newText, NSRange(location: selection.location + prefixDiff, length: 0))
+        }
+
         if line.hasPrefix(prefix) {
             let newLine = String(line.dropFirst(prefix.count))
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
@@ -292,5 +329,20 @@ public struct MarkdownFormatter: Sendable {
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
             return (newText, NSRange(location: selection.location + prefix.count, length: 0))
         }
+    }
+
+    private func removeHeadingPrefix(text: String, selection: NSRange) -> (String, NSRange) {
+        let nsText = text as NSString
+        let lineRange = nsText.lineRange(for: selection)
+        let line = nsText.substring(with: lineRange)
+
+        let headingPrefixPattern = /^#{1,6}\s/
+        if let match = line.prefixMatch(of: headingPrefixPattern) {
+            let newLine = String(line[match.range.upperBound...])
+            let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
+            let prefixLen = match.range.upperBound.utf16Offset(in: line)
+            return (newText, NSRange(location: max(selection.location - prefixLen, lineRange.location), length: 0))
+        }
+        return (text, selection)
     }
 }

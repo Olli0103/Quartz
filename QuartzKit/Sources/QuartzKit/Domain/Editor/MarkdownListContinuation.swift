@@ -7,9 +7,25 @@ public struct ListContinuationResult: Equatable, Sendable {
     /// The new cursor position after the insertion.
     public let newCursorPosition: Int
 
+    /// Range in the original text that should be replaced (for surgical updates).
+    public let replacementRange: NSRange
+    /// The text to insert at the replacement range (for surgical updates).
+    public let insertionText: String
+
+    public init(newText: String, newCursorPosition: Int, replacementRange: NSRange, insertionText: String) {
+        self.newText = newText
+        self.newCursorPosition = newCursorPosition
+        self.replacementRange = replacementRange
+        self.insertionText = insertionText
+    }
+
+    /// Legacy initializer for compatibility
     public init(newText: String, newCursorPosition: Int) {
         self.newText = newText
         self.newCursorPosition = newCursorPosition
+        // Fallback: replace entire document
+        self.replacementRange = NSRange(location: 0, length: (newText as NSString).length)
+        self.insertionText = newText
     }
 }
 
@@ -81,12 +97,15 @@ public struct MarkdownListContinuation: Sendable {
         let lineHadTrailingNewline = currentLine.hasSuffix("\n")
 
         let newLineContent: String
+        let insertionText: String
         if textAfterCursorInLine.isEmpty {
             // Cursor at end of line content
             newLineContent = textBeforeCursorInLine + "\n" + continuationMarker
+            insertionText = "\n" + continuationMarker
         } else {
             // Cursor in middle - split the content
             newLineContent = textBeforeCursorInLine + "\n" + continuationMarker + textAfterCursorInLine
+            insertionText = "\n" + continuationMarker
         }
 
         let newText: String
@@ -99,7 +118,15 @@ public struct MarkdownListContinuation: Sendable {
         // Calculate new cursor position (right after the continuation marker)
         let newCursorPosition = beforeLine.count + textBeforeCursorInLine.count + 1 + continuationMarker.count
 
-        return ListContinuationResult(newText: newText, newCursorPosition: newCursorPosition)
+        // Surgical replacement: just insert at cursor position
+        let replacementRange = NSRange(location: safeCursor, length: 0)
+
+        return ListContinuationResult(
+            newText: newText,
+            newCursorPosition: newCursorPosition,
+            replacementRange: replacementRange,
+            insertionText: insertionText
+        )
     }
 
     // MARK: - Private Helpers
@@ -288,6 +315,15 @@ public struct MarkdownListContinuation: Sendable {
         let newText = beforeLine + "\n" + afterLine
         let newCursorPosition = beforeLine.count + 1
 
-        return ListContinuationResult(newText: newText, newCursorPosition: newCursorPosition)
+        // Surgical replacement: replace the entire current line with just a newline
+        let replacementRange = lineRange
+        let insertionText = "\n"
+
+        return ListContinuationResult(
+            newText: newText,
+            newCursorPosition: newCursorPosition,
+            replacementRange: replacementRange,
+            insertionText: insertionText
+        )
     }
 }

@@ -208,19 +208,25 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
         }
 
         func scheduleHighlight(text: String, textView: UITextView) {
+            // Skip highlighting during IME composition to avoid breaking input
+            if textView.markedTextRange != nil { return }
+
             highlightTask?.cancel()
             highlightTask = Task { [highlighter, baseFontSize] in
                 let spans = await highlighter.parseDebounced(text)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self, weak textView] in
                     guard let self, let tv = textView, let cm = self.contentManager else { return }
+                    // Skip if IME composition started while we were parsing
+                    guard tv.markedTextRange == nil else { return }
                     Self.applySpans(spans, to: tv, baseFontSize: baseFontSize, contentManager: cm)
                 }
             }
         }
 
-        /// Applies syntax highlighting inside a TextKit 2 editing transaction.
-        /// Uses targeted span application to minimize layout churn.
+        /// Applies syntax highlighting with minimal layout invalidation.
+        /// Uses beginEditing/endEditing to batch changes and diffs attributes
+        /// to skip ranges that haven't changed — preventing flicker.
         private static func applySpans(
             _ spans: [HighlightSpan],
             to textView: UITextView,
@@ -231,49 +237,93 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
             let storageLength = storage.length
             guard storageLength > 0 else { return }
 
-            // Default attributes for non-highlighted text
-            let defaultAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: baseFontSize),
-                .foregroundColor: UIColor.label
-            ]
+            // Save typing attributes and selection BEFORE touching attributes
+            let savedTypingAttrs = textView.typingAttributes
+            let savedSelection = textView.selectedRange
 
-            contentManager.performMarkdownEdit {
-                // If no spans, just reset the whole document to defaults
-                if spans.isEmpty {
-                    storage.setAttributes(defaultAttrs, range: NSRange(location: 0, length: storageLength))
-                    return
+            let defaultFont = UIFont.systemFont(ofSize: baseFontSize)
+            let defaultColor: UIColor = .label
+
+            // Build a flat array of (range, attributes) covering the entire document.
+            // This computes what the document SHOULD look like, then we diff against current.
+            var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
+            let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
+
+            var lastEnd = 0
+            for span in primarySpans {
+                let r = span.range
+                guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+
+                if r.location > lastEnd {
+                    segments.append((NSRange(location: lastEnd, length: r.location - lastEnd), [
+                        .font: defaultFont,
+                        .foregroundColor: defaultColor
+                    ]))
                 }
 
-                // For incremental highlighting, set attributes span by span
-                // This avoids a wide reset that causes layout churn
-                var lastEnd = 0
-                for span in spans.sorted(by: { $0.range.location < $1.range.location }) {
-                    let r = span.range
-                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+                segments.append((r, [
+                    .font: span.font,
+                    .foregroundColor: span.color ?? defaultColor,
+                    .backgroundColor: span.backgroundColor ?? UIColor.clear,
+                    .strikethroughStyle: span.strikethrough ? 1 : 0
+                ]))
 
-                    // Fill gap before this span with default attributes
-                    if r.location > lastEnd {
-                        let gapRange = NSRange(location: lastEnd, length: r.location - lastEnd)
-                        storage.setAttributes(defaultAttrs, range: gapRange)
-                    }
+                lastEnd = r.location + r.length
+            }
+            if lastEnd < storageLength {
+                segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd), [
+                    .font: defaultFont,
+                    .foregroundColor: defaultColor
+                ]))
+            }
 
-                    // Apply span attributes
-                    storage.setAttributes([
-                        .font: span.font,
-                        .foregroundColor: span.color ?? .label,
-                        .backgroundColor: span.backgroundColor ?? .clear,
-                        .strikethroughStyle: span.strikethrough ? 1 : 0
-                    ], range: r)
+            // Batch all attribute changes — single processEditing call at endEditing
+            storage.beginEditing()
 
-                    lastEnd = r.location + r.length
-                }
-
-                // Fill any remaining gap after the last span
-                if lastEnd < storageLength {
-                    let gapRange = NSRange(location: lastEnd, length: storageLength - lastEnd)
-                    storage.setAttributes(defaultAttrs, range: gapRange)
+            // Only set attributes where they actually differ from current
+            for (range, targetAttrs) in segments {
+                guard range.length > 0 else { continue }
+                let existingAttrs = storage.attributes(at: range.location, effectiveRange: nil)
+                if !fontsEqual(existingAttrs[.font] as? UIFont, targetAttrs[.font] as? UIFont) ||
+                   !colorsEqual(existingAttrs[.foregroundColor] as? UIColor, targetAttrs[.foregroundColor] as? UIColor) {
+                    storage.setAttributes(targetAttrs, range: range)
                 }
             }
+
+            // Apply overlay spans (muted syntax characters)
+            for span in spans where span.isOverlay {
+                let r = span.range
+                guard r.location >= 0, r.location + r.length <= storageLength,
+                      let color = span.color else { continue }
+                let existing = storage.attributes(at: r.location, effectiveRange: nil)
+                if !colorsEqual(existing[.foregroundColor] as? UIColor, color) {
+                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                }
+            }
+
+            storage.endEditing()
+
+            // Restore typing attributes AFTER all attribute changes
+            textView.typingAttributes = savedTypingAttrs
+
+            // Restore selection if it was displaced
+            if textView.selectedRange != savedSelection {
+                let textLength = (textView.text ?? "").count
+                if savedSelection.location <= textLength &&
+                   savedSelection.location + savedSelection.length <= textLength {
+                    textView.selectedRange = savedSelection
+                }
+            }
+        }
+
+        private static func fontsEqual(_ a: UIFont?, _ b: UIFont?) -> Bool {
+            guard let a, let b else { return a == nil && b == nil }
+            return a.fontName == b.fontName && a.pointSize == b.pointSize
+        }
+
+        private static func colorsEqual(_ a: UIColor?, _ b: UIColor?) -> Bool {
+            guard let a, let b else { return a == nil && b == nil }
+            return a == b
         }
 
         // MARK: - Newline Interception for List Continuation
@@ -315,6 +365,20 @@ private struct MarkdownTextView_iOS: UIViewRepresentable {
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             updateCursorPosition(from: textView)
+            // Set typing attributes from the character before cursor
+            // This ensures newly typed text matches the surrounding style
+            let loc = textView.selectedRange.location
+            if loc > 0, let storage = textView.textStorage as NSAttributedString? {
+                let attrs = storage.attributes(at: max(0, loc - 1), effectiveRange: nil)
+                var typingAttrs = textView.typingAttributes
+                if let font = attrs[.font] as? UIFont {
+                    typingAttrs[.font] = font
+                }
+                if let color = attrs[.foregroundColor] as? UIColor {
+                    typingAttrs[.foregroundColor] = color
+                }
+                textView.typingAttributes = typingAttrs
+            }
         }
 
         private func updateCursorPosition(from textView: UITextView) {
@@ -429,19 +493,25 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
         }
 
         func scheduleHighlight(text: String, textView: NSTextView) {
+            // Skip highlighting during IME composition to avoid breaking input
+            if textView.hasMarkedText() { return }
+
             highlightTask?.cancel()
             highlightTask = Task { [highlighter, baseFontSize] in
                 let spans = await highlighter.parseDebounced(text)
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self, weak textView] in
                     guard let self, let tv = textView, let cm = self.contentManager else { return }
+                    // Skip if IME composition started while we were parsing
+                    guard !tv.hasMarkedText() else { return }
                     Self.applySpans(spans, to: tv, baseFontSize: baseFontSize, contentManager: cm)
                 }
             }
         }
 
-        /// Applies syntax highlighting inside a TextKit 2 editing transaction.
-        /// Uses targeted span application to minimize layout churn.
+        /// Applies syntax highlighting with minimal layout invalidation.
+        /// Uses beginEditing/endEditing to batch changes and diffs attributes
+        /// to skip ranges that haven't changed — preventing flicker.
         private static func applySpans(
             _ spans: [HighlightSpan],
             to textView: NSTextView,
@@ -452,49 +522,92 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
             let storageLength = storage.length
             guard storageLength > 0 else { return }
 
-            // Default attributes for non-highlighted text
-            let defaultAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: baseFontSize),
-                .foregroundColor: NSColor.labelColor
-            ]
+            // Save typing attributes and selection BEFORE touching attributes
+            let savedTypingAttrs = textView.typingAttributes
+            let savedSelection = textView.selectedRange()
 
-            contentManager.performMarkdownEdit {
-                // If no spans, just reset the whole document to defaults
-                if spans.isEmpty {
-                    storage.setAttributes(defaultAttrs, range: NSRange(location: 0, length: storageLength))
-                    return
+            let defaultFont = NSFont.systemFont(ofSize: baseFontSize)
+            let defaultColor: NSColor = .labelColor
+
+            // Build a flat array of (range, attributes) covering the entire document
+            var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
+            let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
+
+            var lastEnd = 0
+            for span in primarySpans {
+                let r = span.range
+                guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+
+                if r.location > lastEnd {
+                    segments.append((NSRange(location: lastEnd, length: r.location - lastEnd), [
+                        .font: defaultFont,
+                        .foregroundColor: defaultColor
+                    ]))
                 }
 
-                // For incremental highlighting, set attributes span by span
-                // This avoids a wide reset that causes layout churn
-                var lastEnd = 0
-                for span in spans.sorted(by: { $0.range.location < $1.range.location }) {
-                    let r = span.range
-                    guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+                segments.append((r, [
+                    .font: span.font,
+                    .foregroundColor: span.color ?? defaultColor,
+                    .backgroundColor: span.backgroundColor ?? NSColor.clear,
+                    .strikethroughStyle: span.strikethrough ? 1 : 0
+                ]))
 
-                    // Fill gap before this span with default attributes
-                    if r.location > lastEnd {
-                        let gapRange = NSRange(location: lastEnd, length: r.location - lastEnd)
-                        storage.setAttributes(defaultAttrs, range: gapRange)
-                    }
+                lastEnd = r.location + r.length
+            }
+            if lastEnd < storageLength {
+                segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd), [
+                    .font: defaultFont,
+                    .foregroundColor: defaultColor
+                ]))
+            }
 
-                    // Apply span attributes
-                    storage.setAttributes([
-                        .font: span.font,
-                        .foregroundColor: span.color ?? .labelColor,
-                        .backgroundColor: span.backgroundColor ?? .clear,
-                        .strikethroughStyle: span.strikethrough ? 1 : 0
-                    ], range: r)
+            // Batch all attribute changes — single processEditing call at endEditing
+            storage.beginEditing()
 
-                    lastEnd = r.location + r.length
-                }
-
-                // Fill any remaining gap after the last span
-                if lastEnd < storageLength {
-                    let gapRange = NSRange(location: lastEnd, length: storageLength - lastEnd)
-                    storage.setAttributes(defaultAttrs, range: gapRange)
+            // Only set attributes where they actually differ from current
+            for (range, targetAttrs) in segments {
+                guard range.length > 0 else { continue }
+                let existingAttrs = storage.attributes(at: range.location, effectiveRange: nil)
+                if !fontsEqual(existingAttrs[.font] as? NSFont, targetAttrs[.font] as? NSFont) ||
+                   !colorsEqual(existingAttrs[.foregroundColor] as? NSColor, targetAttrs[.foregroundColor] as? NSColor) {
+                    storage.setAttributes(targetAttrs, range: range)
                 }
             }
+
+            // Apply overlay spans (muted syntax characters)
+            for span in spans where span.isOverlay {
+                let r = span.range
+                guard r.location >= 0, r.location + r.length <= storageLength,
+                      let color = span.color else { continue }
+                let existing = storage.attributes(at: r.location, effectiveRange: nil)
+                if !colorsEqual(existing[.foregroundColor] as? NSColor, color as? NSColor) {
+                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                }
+            }
+
+            storage.endEditing()
+
+            // Restore typing attributes AFTER all attribute changes
+            textView.typingAttributes = savedTypingAttrs
+
+            // Restore selection if it was displaced
+            if textView.selectedRange() != savedSelection {
+                let textLength = textView.string.count
+                if savedSelection.location <= textLength &&
+                   savedSelection.location + savedSelection.length <= textLength {
+                    textView.setSelectedRange(savedSelection)
+                }
+            }
+        }
+
+        private static func fontsEqual(_ a: NSFont?, _ b: NSFont?) -> Bool {
+            guard let a, let b else { return a == nil && b == nil }
+            return a.fontName == b.fontName && a.pointSize == b.pointSize
+        }
+
+        private static func colorsEqual(_ a: NSColor?, _ b: NSColor?) -> Bool {
+            guard let a, let b else { return a == nil && b == nil }
+            return a == b
         }
 
         // MARK: - Newline Interception for List Continuation
@@ -536,6 +649,20 @@ private struct MarkdownTextView_macOS: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             updateCursorPosition(from: textView)
+            // Set typing attributes from the character before cursor
+            // This ensures newly typed text matches the surrounding style
+            let loc = textView.selectedRange().location
+            if loc > 0, let storage = textView.textStorage {
+                let attrs = storage.attributes(at: max(0, loc - 1), effectiveRange: nil)
+                var typingAttrs = textView.typingAttributes
+                if let font = attrs[.font] as? NSFont {
+                    typingAttrs[.font] = font
+                }
+                if let color = attrs[.foregroundColor] as? NSColor {
+                    typingAttrs[.foregroundColor] = color
+                }
+                textView.typingAttributes = typingAttrs
+            }
         }
 
         private func updateCursorPosition(from textView: NSTextView) {

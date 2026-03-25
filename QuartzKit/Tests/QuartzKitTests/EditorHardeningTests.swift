@@ -7,8 +7,8 @@ import XCTest
 
 // MARK: - MarkdownFormatter Tests
 
-@Suite("MarkdownFormatter")
-struct MarkdownFormatterTests {
+@Suite("EditorHardeningMarkdownFormatter")
+struct EditorHardeningMarkdownFormatterTests {
     let formatter = MarkdownFormatter()
 
     @Test("Bold formatting wraps with **")
@@ -145,8 +145,8 @@ struct MarkdownFormatterTests {
 
 // MARK: - FormattingAction Tests
 
-@Suite("FormattingAction")
-struct FormattingActionTests {
+@Suite("EditorHardeningFormattingAction")
+struct EditorHardeningFormattingActionTests {
     @Test("All actions have icons")
     func allActionsHaveIcons() {
         for action in FormattingAction.allCases {
@@ -177,8 +177,8 @@ struct FormattingActionTests {
 
 // MARK: - MarkdownSyntax Tests
 
-@Suite("MarkdownSyntax")
-struct MarkdownSyntaxTests {
+@Suite("EditorHardeningMarkdownSyntax")
+struct EditorHardeningMarkdownSyntaxTests {
     @Test("Wrap syntax is correct")
     func wrapSyntax() {
         let bold = FormattingAction.bold.markdownSyntax
