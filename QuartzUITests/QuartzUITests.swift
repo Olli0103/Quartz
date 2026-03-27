@@ -21,7 +21,7 @@ final class WelcomeScreenTests: XCTestCase {
         app.launchArguments.append("--uitesting")
         app.launch()
 
-        let welcomeText = app.staticTexts["Welcome to Quartz"]
+        let welcomeText = app.staticTexts["Welcome to Quartz Notes"]
         XCTAssertTrue(welcomeText.waitForExistence(timeout: 10), "Welcome screen should be displayed on first launch")
     }
 
@@ -206,7 +206,7 @@ final class AccessibilityUITests: XCTestCase {
         #endif
         app.launch()
 
-        let welcomeText = app.staticTexts["Welcome to Quartz"]
+        let welcomeText = app.staticTexts["Welcome to Quartz Notes"]
         XCTAssertTrue(welcomeText.waitForExistence(timeout: 10), "Welcome text should be visible")
 
         let openVaultButton = app.buttons["Open Vault"]
@@ -247,7 +247,7 @@ final class AccessibilityUITests: XCTestCase {
         #endif
         app.launch()
 
-        let welcomeText = app.staticTexts["Welcome to Quartz"]
+        let welcomeText = app.staticTexts["Welcome to Quartz Notes"]
         XCTAssertTrue(welcomeText.waitForExistence(timeout: 10), "UI should render correctly")
     }
 }

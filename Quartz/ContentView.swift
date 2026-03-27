@@ -74,6 +74,16 @@ struct ContentView: View {
             },
             onVaultChat: {
                 openVaultChat()
+            },
+            onDashboard: {
+                workspaceStore.showDashboard = true
+            },
+            onSwitchVault: {
+                #if os(macOS)
+                presentOpenVaultFlow()
+                #else
+                coordinator.activeSheet = .vaultPicker
+                #endif
             }
         )
         .stageManagerSupport(appState: appState, selectedNoteURL: Binding(
@@ -310,7 +320,17 @@ struct ContentView: View {
                     coordinator.activeSheet = .onboarding
                 } else {
                     restoreLastVault()
+                    // If restoration failed (deleted folder, stale bookmark), show onboarding
+                    if appState.currentVault == nil {
+                        coordinator.activeSheet = .onboarding
+                    }
                 }
+            }
+            // Respect the user's dashboard-on-launch preference.
+            // If a note was restored, showDashboard is already false (via didSet).
+            // If no note was restored and the preference is off, dismiss the dashboard.
+            if !appearance.showDashboardOnLaunch {
+                workspaceStore.showDashboard = false
             }
             coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
             consumePendingWidgetDeepLinks()
@@ -330,7 +350,7 @@ struct ContentView: View {
             viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
             #endif
         }
-        .onChange(of: selectedNoteURL) { _, newURL in
+        .onChange(of: workspaceStore.selectedNoteURL) { _, newURL in
             viewModel?.openNote(at: newURL)
             if let url = newURL, let vaultRoot = appState.currentVault?.rootURL {
                 let relativePath = url.path(percentEncoded: false)
@@ -343,6 +363,25 @@ struct ContentView: View {
         .onChange(of: appState.pendingCommand) { _, command in
             guard command != .none else { return }
             defer { appState.pendingCommand = .none }
+
+            // Vault commands are handled here (they need ContentView's panel methods)
+            switch command {
+            case .openVault:
+                #if os(macOS)
+                presentOpenVaultFlow()
+                #else
+                coordinator.activeSheet = .vaultPicker
+                #endif
+                return
+            case .createVault:
+                #if os(macOS)
+                createVaultFolderMacOS()
+                #endif
+                return
+            default:
+                break
+            }
+
             viewModel?.handleCommand(
                 command,
                 coordinator: coordinator,
@@ -718,9 +757,9 @@ struct ContentView: View {
     private func createVaultFolderMacOS() {
         let panel = NSSavePanel()
         panel.title = String(localized: "Create Vault")
-        panel.message = String(localized: "Choose where to create your Quartz vault folder.")
+        panel.message = String(localized: "Choose where to create your Quartz Notes vault folder.")
         panel.prompt = String(localized: "Create")
-        panel.nameFieldStringValue = String(localized: "Quartz Vault")
+        panel.nameFieldStringValue = String(localized: "Quartz Notes Vault")
         panel.canCreateDirectories = true
         panel.showsTagField = false
         panel.treatsFilePackagesAsDirectories = true
@@ -758,17 +797,6 @@ struct ContentView: View {
             #endif
             guard url.startAccessingSecurityScopedResource() else {
                 clearBookmark()
-                return
-            }
-            let testFile = url.appending(path: ".quartz-write-test")
-            do {
-                try CoordinatedFileWriter.shared.write(Data(), to: testFile)
-                try? CoordinatedFileWriter.shared.removeItem(at: testFile)
-            } catch {
-                url.stopAccessingSecurityScopedResource()
-                clearBookmark()
-                Logger(subsystem: "com.quartz", category: "Vault")
-                    .warning("Saved bookmark has read-only access; user must re-select vault.")
                 return
             }
             if isStale {

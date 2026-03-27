@@ -73,7 +73,7 @@ public struct OnboardingView: View {
                     .slideUp()
 
                 VStack(spacing: 10) {
-                    Text(verbatim: "Quartz")
+                    Text(verbatim: "Quartz Notes")
                         .font(.system(size: brandingFontSize, weight: .bold, design: .rounded))
                         .slideUp(delay: 0.1)
 
@@ -124,7 +124,7 @@ public struct OnboardingView: View {
                 Text(String(localized: "Choose a Vault Folder", bundle: .module))
                     .font(.title2.bold())
 
-                Text(String(localized: "Pick a folder where Quartz will store your notes, or create a new one.", bundle: .module))
+                Text(String(localized: "Pick a folder where Quartz Notes will store your notes, or create a new one.", bundle: .module))
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

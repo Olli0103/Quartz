@@ -1,13 +1,9 @@
 import SwiftUI
 
-// MARK: - Morning Command Center (Pillar 8)
+// MARK: - Dashboard Command Center
 
-/// Dashboard acting as a "Morning Command Center" with AI briefing, action items, and Jump Back In.
-///
-/// **Architecture:**
-/// - **AI Morning Briefing:** Uses `DashboardBriefingService` to summarize recent notes via AI provider
-/// - **Action Items:** Parses `- [ ]` from recently edited notes (see load scope) via `TaskItemParser`
-/// - **Jump Back In:** Rich cards for recent notes using `.ultraThinMaterial`
+/// Premium macOS vault dashboard using Liquid Glass (regularMaterial) containers.
+/// Features: Quick Capture, AI Briefing, Serendipity, Recent Notes, Action Items, Activity Heatmap.
 public struct DashboardView: View {
     let sidebarViewModel: SidebarViewModel?
     let vaultProvider: (any VaultProviding)?
@@ -16,6 +12,7 @@ public struct DashboardView: View {
     let onExploreGraph: () -> Void
     var onRecordVoiceNote: (() -> Void)? = nil
     var onRecordMeetingMinutes: (() -> Void)? = nil
+    var onQuickCapture: ((String) -> Void)? = nil
 
     @State private var briefing: String?
     @State private var briefingLoading = false
@@ -23,9 +20,10 @@ public struct DashboardView: View {
     @State private var actionItemsLoading = false
     @State private var togglingTaskID: UUID?
     @State private var taskToggledSuccessfully = false
-
-    private static let navyButton = Color(hex: 0x1E3A5F)
-    private static let cardRadius: CGFloat = 20
+    @State private var quickCaptureText = ""
+    @State private var quickCaptureSent = false
+    @State private var serendipityNote: FileNode?
+    @State private var hoveredHeatmapDay: HeatmapDay?
 
     public init(
         sidebarViewModel: SidebarViewModel?,
@@ -34,7 +32,8 @@ public struct DashboardView: View {
         onNewNote: @escaping () -> Void,
         onExploreGraph: @escaping () -> Void,
         onRecordVoiceNote: (() -> Void)? = nil,
-        onRecordMeetingMinutes: (() -> Void)? = nil
+        onRecordMeetingMinutes: (() -> Void)? = nil,
+        onQuickCapture: ((String) -> Void)? = nil
     ) {
         self.sidebarViewModel = sidebarViewModel
         self.vaultProvider = vaultProvider
@@ -43,369 +42,589 @@ public struct DashboardView: View {
         self.onExploreGraph = onExploreGraph
         self.onRecordVoiceNote = onRecordVoiceNote
         self.onRecordMeetingMinutes = onRecordMeetingMinutes
+        self.onQuickCapture = onQuickCapture
     }
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                headerSection
-
-                aiMorningBriefingSection
-
-                actionItemsSection
-
-                jumpBackInSection
-
-                bottomCardsRow
+            VStack(alignment: .leading, spacing: 32) {
+                headerRow
+                statsRow
+                quickCaptureBar
+                briefingAndSerendipityRow
+                contentColumns
+                heatmapPane
             }
-            .padding(28)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(36)
+            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .background(QuartzColors.sidebarBackground)
+        .quartzAmbientShellBackground()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sensoryFeedback(.success, trigger: taskToggledSuccessfully)
+        .sensoryFeedback(.success, trigger: quickCaptureSent)
         .task {
+            pickSerendipityNote()
             await loadDashboardData()
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (Greeting + Toolbar Buttons)
 
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(String(localized: "Dashboard", bundle: .module))
-                .font(.system(size: 28, weight: .bold))
-            Text(String(localized: "Your morning command center.", bundle: .module))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - AI Morning Briefing
-
-    private var aiMorningBriefingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(QuartzColors.accent)
-                Text(String(localized: "AI MORNING BRIEFING", bundle: .module))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(QuartzColors.accent)
-                    .textCase(.uppercase)
-            }
-            Text(String(localized: "Summarizes excerpts from your most recently edited notes. Cached up to 4 hours per vault.", bundle: .module))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-
-            if briefingLoading {
-                HStack(spacing: 12) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(QuartzColors.accent)
-                    Text(String(localized: "Generating your briefing…", bundle: .module))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(24)
-            } else if let briefing {
-                Text(briefing)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                    .lineSpacing(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(String(localized: "Configure an AI provider in Settings to summarize excerpts from your most recently edited notes.", bundle: .module))
-                    .font(.subheadline)
+    private var headerRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(timeBasedGreeting)
+                    .font(.system(size: 34, weight: .bold))
+                Text(currentDateString)
+                    .font(.title3)
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-    }
 
-    // MARK: - Action Items
+            Spacer(minLength: 24)
 
-    private var actionItemsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label(String(localized: "Action Items", bundle: .module), systemImage: "checklist")
-                    .font(.headline)
-                Spacer()
-                if !actionItems.isEmpty {
-                    Text("\(actionItems.count)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(.quaternary))
+            ControlGroup {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    onNewNote()
+                } label: {
+                    Label(String(localized: "New Note", bundle: .module), systemImage: "square.and.pencil")
                 }
-            }
-            Text(String(localized: "Open tasks from notes you edited recently (up to 15 files).", bundle: .module))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
 
-            if actionItemsLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(QuartzColors.accent)
-                    .frame(maxWidth: .infinity)
-                    .padding(20)
-            } else if actionItems.isEmpty {
-                Text(String(localized: "No open tasks. Add `- [ ]` to your notes to see them here.", bundle: .module))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(actionItems.prefix(10)) { item in
-                        HStack(alignment: .top, spacing: 12) {
-                            Button {
-                                QuartzFeedback.toggle()
-                                toggleTask(item)
-                            } label: {
-                                Image(systemName: "circle")
-                                    .font(.body)
-                                    .foregroundStyle(QuartzColors.accent)
-                                    .contentShape(Rectangle())
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(togglingTaskID == item.id)
-                            .accessibilityLabel(String(localized: "Complete task", bundle: .module))
-                            .accessibilityHint(String(localized: "Double tap to mark as done", bundle: .module))
-
-                            Button {
-                                QuartzFeedback.selection()
-                                onSelectNote(item.noteURL)
-                            } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.text)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                            .multilineTextAlignment(.leading)
-                                            .lineLimit(2)
-                                        Text(item.noteTitle)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    Image(systemName: "arrow.right")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(item.text)
-                            .accessibilityHint(String(localized: "From \(item.noteTitle). Double tap to open note.", bundle: .module))
-                        }
-                        .padding(12)
-                        .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-    }
-
-    // MARK: - Jump Back In (Recent Notes)
-
-    private var jumpBackInSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(String(localized: "Jump Back In", bundle: .module))
-                .font(.headline)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    ForEach(recentNotes) { note in
-                        JumpBackInCard(note: note, onTap: { onSelectNote(note.url) })
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-    }
-
-    private var recentNotes: [FileNode] {
-        sidebarViewModel?.recentNotes(limit: 6) ?? []
-    }
-
-    // MARK: - Bottom Row
-
-    private var bottomCardsRow: some View {
-        HStack(spacing: 20) {
-            brainGardenCard
-            quickCaptureCard
-            if onRecordVoiceNote != nil || onRecordMeetingMinutes != nil {
-                voiceCaptureCard
-            }
-        }
-    }
-
-    private var brainGardenCard: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(String(localized: "KNOWLEDGE GRAPH", bundle: .module))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(QuartzColors.accent)
-                    .textCase(.uppercase)
-                Text(String(localized: "Brain Garden", bundle: .module))
-                    .font(.title2.weight(.bold))
-                Text(String(format: String(localized: "%lld notes in vault. Explore wiki-links and semantic links from on-device embeddings.", bundle: .module), nodeCount))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
-                Spacer(minLength: 12)
                 Button {
                     QuartzFeedback.primaryAction()
                     onExploreGraph()
                 } label: {
-                    Text(String(localized: "Explore Graph", bundle: .module))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(.white))
+                    Label(String(localized: "Graph", bundle: .module), systemImage: "brain.head.profile")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(localized: "Explore knowledge graph", bundle: .module))
-                .accessibilityHint(String(localized: "\(nodeCount) notes in vault", bundle: .module))
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            ZStack {
-                ForEach(0..<12, id: \.self) { i in
-                    Circle()
-                        .fill(QuartzColors.accent.opacity(0.6 + Double(i % 3) * 0.1))
-                        .frame(width: 6, height: 6)
-                        .offset(
-                            x: CGFloat((i % 4) * 24) - 36,
-                            y: CGFloat((i / 4) * 20) - 20
-                        )
-                }
-            }
-            .frame(width: 120, height: 80)
-        }
-        .frame(height: 180)
-        .background(
-            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Self.navyButton, Self.navyButton.opacity(0.9)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
-        )
-    }
-
-    private var nodeCount: Int {
-        guard let vm = sidebarViewModel else { return 0 }
-        var count = 0
-        func walk(_ nodes: [FileNode]) {
-            for n in nodes {
-                if n.isNote { count += 1 }
-                if let c = n.children { walk(c) }
-            }
-        }
-        walk(vm.fileTree)
-        return count
-    }
-
-    private var voiceCaptureCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
                 if let onVoice = onRecordVoiceNote {
                     Button {
                         QuartzFeedback.primaryAction()
                         onVoice()
                     } label: {
-                        Label(String(localized: "Quick Note", bundle: .module), systemImage: "mic.fill")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(QuartzColors.accent)
+                        Label(String(localized: "Voice", bundle: .module), systemImage: "mic")
                     }
-                    .buttonStyle(.plain)
                 }
+
                 if let onMeeting = onRecordMeetingMinutes {
                     Button {
                         QuartzFeedback.primaryAction()
                         onMeeting()
                     } label: {
-                        Label(String(localized: "Meeting Minutes", bundle: .module), systemImage: "person.2.fill")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(QuartzColors.accent)
+                        Label(String(localized: "Meeting", bundle: .module), systemImage: "person.2")
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            Text(String(localized: "Record voice to create a note or meeting minutes.", bundle: .module))
-                .font(.caption)
+            .controlGroupStyle(.navigation)
+            .controlSize(.large)
+        }
+    }
+
+    private var timeBasedGreeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return String(localized: "Good Morning", bundle: .module)
+        case 12..<17: return String(localized: "Good Afternoon", bundle: .module)
+        default: return String(localized: "Good Evening", bundle: .module)
+        }
+    }
+
+    private var currentDateString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter.string(from: Date())
+    }
+
+    // MARK: - Stats Row
+
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            statBlock("\(noteCount)", label: String(localized: "Notes", bundle: .module))
+            Divider().frame(height: 36).padding(.horizontal, 28)
+            statBlock("\(folderCount)", label: String(localized: "Folders", bundle: .module))
+            Divider().frame(height: 36).padding(.horizontal, 28)
+            statBlock("\(actionItems.count)", label: String(localized: "Open Tasks", bundle: .module))
+            Spacer()
+        }
+    }
+
+    private func statBlock(_ value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.title.bold().monospacedDigit())
+                .foregroundStyle(.primary)
+            Text(label)
+                .font(.body.weight(.medium))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+        }
+    }
+
+    // MARK: - Quick Capture Bar
+
+    private var quickCaptureBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            TextField(
+                String(localized: "What's on your mind? Press Enter to append to Daily Note…", bundle: .module),
+                text: $quickCaptureText
+            )
+            .textFieldStyle(.plain)
+            .font(.body)
+            .onSubmit { submitQuickCapture() }
+
+            if !quickCaptureText.isEmpty {
+                Button {
+                    submitQuickCapture()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.primary.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassPane()
+    }
+
+    private func submitQuickCapture() {
+        let text = quickCaptureText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        QuartzFeedback.primaryAction()
+        onQuickCapture?(text)
+        quickCaptureText = ""
+        quickCaptureSent.toggle()
+    }
+
+    // MARK: - Briefing + Serendipity Row
+
+    private var briefingAndSerendipityRow: some View {
+        HStack(alignment: .top, spacing: 24) {
+            briefingPane
+            serendipityPane
+                .frame(width: 280)
+        }
+    }
+
+    // MARK: - AI Briefing Pane
+
+    private var briefingPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            glassSectionHeader("AI BRIEFING", icon: "sparkles")
+
+            if briefingLoading {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "Generating your briefing…", bundle: .module))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 6)
+            } else if let briefing {
+                Text(briefing)
+                    .font(.body)
+                    .lineSpacing(5)
+                    .foregroundStyle(.primary)
+            } else {
+                Text(String(localized: "Configure an AI provider in Settings to enable daily briefings from your recent notes.", bundle: .module))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                .fill(.background)
-                .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
-        )
+        .glassPane()
     }
 
-    private var quickCaptureCard: some View {
-        Button {
-            onNewNote()
-        } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: "bolt.fill")
-                    .font(.title)
-                    .foregroundStyle(.white)
-                Text(String(localized: "Capture a Spark", bundle: .module))
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text(String(localized: "Have a fleeting idea? Capture it quickly before it fades.", bundle: .module))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                HStack {
-                    Spacer()
-                    Image(systemName: "square.and.pencil")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(.white.opacity(0.2)))
+    // MARK: - Serendipity Pane
+
+    private var serendipityPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            glassSectionHeader("SERENDIPITY", icon: "shuffle")
+
+            if let note = serendipityNote {
+                let title = note.frontmatter?.title ?? note.name.replacingOccurrences(of: ".md", with: "")
+                Button {
+                    QuartzFeedback.selection()
+                    onSelectNote(note.url)
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Text(relativeDate(note.metadata.modifiedAt))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(QuartzAnimation.soft) {
+                        pickSerendipityNote()
+                    }
+                } label: {
+                    Label(String(localized: "Shuffle", bundle: .module), systemImage: "arrow.trianglehead.2.clockwise")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            } else {
+                Text(String(localized: "Not enough notes yet.", bundle: .module))
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassPane()
+    }
+
+    private func pickSerendipityNote() {
+        let allNotes = collectAllNotes(from: sidebarViewModel?.fileTree ?? [])
+        guard !allNotes.isEmpty else { serendipityNote = nil; return }
+
+        // Try "on this day" (1 year ago) first
+        let calendar = Calendar.current
+        let oneYearAgo = calendar.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        let onThisDay = allNotes.first { note in
+            calendar.isDate(note.metadata.modifiedAt, inSameDayAs: oneYearAgo)
+        }
+        serendipityNote = onThisDay ?? allNotes.randomElement()
+    }
+
+    // MARK: - Two-Column Content
+
+    private var contentColumns: some View {
+        HStack(alignment: .top, spacing: 24) {
+            recentNotesPane
+            actionItemsPane
+        }
+    }
+
+    // MARK: - Recent Notes (Glass Pane)
+
+    private var recentNotesPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            glassSectionHeader("RECENT NOTES", icon: nil)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+            if recentNotes.isEmpty {
+                Text(String(localized: "No recent notes.", bundle: .module))
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(recentNotes.prefix(8).enumerated()), id: \.element.id) { index, note in
+                        if index > 0 {
+                            Divider().padding(.leading, 50)
+                        }
+                        Button {
+                            QuartzFeedback.selection()
+                            onSelectNote(note.url)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 20)
+                                Text(note.frontmatter?.title ?? note.name.replacingOccurrences(of: ".md", with: ""))
+                                    .font(.body)
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                                Spacer(minLength: 4)
+                                Text(relativeDate(note.metadata.modifiedAt))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 20)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassPane()
+    }
+
+    // MARK: - Action Items (Glass Pane)
+
+    private var actionItemsPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                glassSectionHeader("ACTION ITEMS", icon: nil)
+                if !actionItems.isEmpty {
+                    Text("\(actionItems.count)")
+                        .font(.subheadline.weight(.medium).monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(20)
-            .frame(width: 220, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous)
-                    .fill(QuartzColors.accent.gradient)
-                    .shadow(color: QuartzColors.accent.opacity(0.3), radius: 12, y: 6)
-            )
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            if actionItemsLoading {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "Loading tasks…", bundle: .module))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            } else if actionItems.isEmpty {
+                Text(String(localized: "No open tasks. Add `- [ ]` items to your notes.", bundle: .module))
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(actionItems.prefix(10).enumerated()), id: \.element.id) { index, item in
+                        if index > 0 {
+                            Divider().padding(.leading, 50)
+                        }
+                        HStack(spacing: 10) {
+                            Button {
+                                QuartzFeedback.toggle()
+                                toggleTask(item)
+                            } label: {
+                                Image(systemName: "circle")
+                                    .font(.system(size: 18, weight: .light))
+                                    .foregroundStyle(.primary.opacity(0.5))
+                                    .frame(width: 22, height: 22)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(togglingTaskID == item.id)
+
+                            Button {
+                                QuartzFeedback.selection()
+                                onSelectNote(item.noteURL)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.text)
+                                        .font(.body)
+                                        .lineLimit(2)
+                                        .foregroundStyle(.primary)
+                                    Text(item.noteTitle)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 20)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(String(localized: "Capture a Spark", bundle: .module))
-        .accessibilityHint(String(localized: "Double tap to create a new quick note", bundle: .module))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassPane()
+    }
+
+    // MARK: - Activity Heatmap (Momentum)
+
+    private var heatmapPane: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            glassSectionHeader("MOMENTUM", icon: "flame")
+
+            let data = heatmapData
+            let weeks = stride(from: 0, to: data.count, by: 7).map { i in
+                Array(data[i..<min(i + 7, data.count)])
+            }
+            let weekCount = weeks.count
+            let gap: CGFloat = 3
+            let rows: CGFloat = 7
+
+            GeometryReader { geo in
+                let totalWidth = geo.size.width
+                let cellSize = max(4, (totalWidth - gap * CGFloat(weekCount - 1)) / CGFloat(weekCount))
+
+                HStack(alignment: .top, spacing: gap) {
+                    ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                        VStack(spacing: gap) {
+                            ForEach(Array(week.enumerated()), id: \.offset) { _, day in
+                                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                    .fill(QuartzColors.accent.opacity(day.opacity))
+                                    .frame(width: cellSize, height: cellSize)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                            .strokeBorder(Color.primary.opacity(hoveredHeatmapDay?.date == day.date ? 0.4 : 0), lineWidth: 1)
+                                    )
+                                    .onHover { hovering in
+                                        hoveredHeatmapDay = hovering ? day : nil
+                                    }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: {
+                // Calculate height: 7 rows * cellSize + 6 gaps
+                // Estimate cellSize from max width ~880 (920 - 40 padding)
+                let estimatedCell = max(4, (860 - 3 * CGFloat(weeks.count - 1)) / CGFloat(weeks.count))
+                return rows * estimatedCell + (rows - 1) * gap
+            }())
+
+            HStack(spacing: 16) {
+                if let hovered = hoveredHeatmapDay {
+                    Text(heatmapTooltip(for: hovered))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .transition(.opacity)
+                } else {
+                    Text(String(localized: "26 weeks", bundle: .module))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Spacer()
+                HStack(spacing: 2) {
+                    Text(String(localized: "Less", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    ForEach([0.08, 0.25, 0.5, 0.75, 1.0], id: \.self) { opacity in
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(QuartzColors.accent.opacity(opacity))
+                            .frame(width: 10, height: 10)
+                    }
+                    Text(String(localized: "More", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: hoveredHeatmapDay?.date)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassPane()
+    }
+
+    private struct HeatmapDay {
+        let date: Date
+        let count: Int
+        let opacity: Double
+    }
+
+    private func heatmapTooltip(for day: HeatmapDay) -> String {
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .none
+        let dateStr = df.string(from: day.date)
+        if day.count == 0 {
+            return "\(dateStr) — no edits"
+        } else if day.count == 1 {
+            return "\(dateStr) — 1 note edited"
+        } else {
+            return "\(dateStr) — \(day.count) notes edited"
+        }
+    }
+
+    private var heatmapData: [HeatmapDay] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let allNotes = collectAllNotes(from: sidebarViewModel?.fileTree ?? [])
+
+        // Bucket modification dates by day offset (0 = today, 181 = 26 weeks ago)
+        var counts = [Int: Int]()
+        for note in allNotes {
+            let noteDay = calendar.startOfDay(for: note.metadata.modifiedAt)
+            let diff = calendar.dateComponents([.day], from: noteDay, to: today).day ?? 0
+            if diff >= 0, diff < 182 {
+                counts[diff, default: 0] += 1
+            }
+        }
+
+        let maxCount = max(counts.values.max() ?? 1, 1)
+
+        // Build array from 89 days ago → today (left to right)
+        return (0..<182).reversed().map { daysAgo in
+            let date = calendar.date(byAdding: .day, value: -daysAgo, to: today) ?? today
+            let count = counts[daysAgo] ?? 0
+            let intensity: Double
+            if count == 0 {
+                intensity = 0.08
+            } else {
+                // Map to 0.25 – 1.0 range
+                intensity = 0.25 + 0.75 * (Double(count) / Double(maxCount))
+            }
+            return HeatmapDay(date: date, count: count, opacity: intensity)
+        }
+    }
+
+    // MARK: - Shared Helpers
+
+    private func glassSectionHeader(_ title: String, icon: String?) -> some View {
+        HStack(spacing: 6) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text(title)
+                .font(.subheadline.weight(.bold))
+                .tracking(1.0)
+        }
+        .foregroundStyle(.secondary)
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private var recentNotes: [FileNode] {
+        sidebarViewModel?.recentNotes(limit: 8) ?? []
+    }
+
+    private var noteCount: Int {
+        guard let vm = sidebarViewModel else { return 0 }
+        return countNodes(vm.fileTree, where: \.isNote)
+    }
+
+    private var folderCount: Int {
+        guard let vm = sidebarViewModel else { return 0 }
+        return countNodes(vm.fileTree, where: \.isFolder)
+    }
+
+    private func countNodes(_ nodes: [FileNode], where predicate: (FileNode) -> Bool) -> Int {
+        var count = 0
+        for n in nodes {
+            if predicate(n) { count += 1 }
+            if let c = n.children { count += countNodes(c, where: predicate) }
+        }
+        return count
+    }
+
+    private func collectAllNotes(from nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for n in nodes {
+            if n.isNote { result.append(n) }
+            if let c = n.children { result.append(contentsOf: collectAllNotes(from: c)) }
+        }
+        return result
     }
 
     // MARK: - Data Loading
@@ -416,24 +635,19 @@ public struct DashboardView: View {
         let recent = vm.recentNotes(limit: 15)
         guard !recent.isEmpty else { return }
 
-        // Offload task parsing to background actor (non-blocking)
         actionItemsLoading = true
         let taskActor = DashboardTaskActor(vaultProvider: provider)
-        let noteURLs = recent.map(\.url)
-        let allTasks = await taskActor.parseOpenTasks(from: noteURLs)
+        let allTasks = await taskActor.parseOpenTasks(from: recent.map(\.url))
         actionItems = allTasks
         actionItemsLoading = false
 
-        // Load briefing context and generate (cached 4h per vault, process-wide)
         var contents: [(title: String, body: String)] = []
         for note in recent.prefix(10) {
             do {
                 let doc = try await provider.readNote(at: note.url)
                 let title = doc.frontmatter.title ?? note.name.replacingOccurrences(of: ".md", with: "")
                 contents.append((title: title, body: doc.body))
-            } catch {
-                // Skip
-            }
+            } catch {}
         }
 
         briefingLoading = true
@@ -456,73 +670,28 @@ public struct DashboardView: View {
                     actionItems.removeAll { $0.id == item.id }
                     taskToggledSuccessfully.toggle()
                 }
-            } catch {
-                await MainActor.run { togglingTaskID = nil }
-            }
+            } catch {}
             await MainActor.run { togglingTaskID = nil }
         }
     }
 }
 
-// MARK: - Jump Back In Card
+// MARK: - Liquid Glass Pane
 
-private struct JumpBackInCard: View {
-    let note: FileNode
-    let onTap: () -> Void
-
-    private static let iconColors: [Color] = [QuartzColors.accent, QuartzColors.noteBlue, QuartzColors.canvasPurple]
-
-    var body: some View {
-        Button {
-            QuartzFeedback.selection()
-            onTap()
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    let colorIndex = abs(note.id.hashValue) % Self.iconColors.count
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill((Self.iconColors[colorIndex]).opacity(0.2))
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            Image(systemName: "doc.text")
-                                .font(.subheadline)
-                                .foregroundStyle(Self.iconColors[colorIndex])
-                        }
-                    Spacer()
-                    Text(note.metadata.modifiedAt, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Text(note.frontmatter?.title ?? note.name.replacingOccurrences(of: ".md", with: ""))
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-                Text(String(localized: "Tap to open", bundle: .module))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-                if let tags = note.frontmatter?.tags.prefix(2), !tags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(Array(tags), id: \.self) { tag in
-                            Text("#\(tag)")
-                                .font(.caption2)
-                                .foregroundStyle(QuartzColors.accent)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(QuartzColors.accent.opacity(0.12)))
-                        }
-                    }
-                }
-            }
-            .padding(16)
-            .frame(width: 200, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+private struct GlassPaneModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
             )
-            .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
-        }
-        .buttonStyle(.plain)
+            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+    }
+}
+
+private extension View {
+    func glassPane() -> some View {
+        modifier(GlassPaneModifier())
     }
 }

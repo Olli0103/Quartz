@@ -42,7 +42,16 @@ public final class WorkspaceStore {
 
     /// Currently selected note URL, driven by the middle column.
     /// Observed by the detail column to load the editor.
-    public var selectedNoteURL: URL?
+    public var selectedNoteURL: URL? {
+        didSet {
+            if selectedNoteURL != nil {
+                showDashboard = false
+            }
+        }
+    }
+
+    /// Whether the detail pane shows the Dashboard instead of a note editor.
+    public var showDashboard: Bool = true
 
     // MARK: - Column Visibility
 

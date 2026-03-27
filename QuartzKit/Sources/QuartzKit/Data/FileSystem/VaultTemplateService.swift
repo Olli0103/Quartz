@@ -107,7 +107,7 @@ public actor VaultTemplateService {
         modified: \(ISO8601DateFormatter().string(from: Date()))
         ---
 
-        # Welcome to Quartz
+        # Welcome to Quartz Notes
 
         Your vault is organized using the **PARA** method:
 

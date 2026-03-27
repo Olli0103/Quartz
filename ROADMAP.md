@@ -1,6 +1,6 @@
 # Quartz — Development Roadmap
 
-_Last updated: 2026-03-26_
+_Last updated: 2026-03-27_
 
 ## Vision
 
@@ -107,20 +107,34 @@ The hybrid of Apple Notes and Obsidian — simple, elegant, powerful.
 
 ---
 
-## Phase H: Mac Polish Master Plan — **🚧 In Progress**
+## Phase H: Mac Polish Master Plan — **✅ Complete**
 
 | Step | Deliverable | Status |
 |------|------------|--------|
 | H1 | Command Palette (Omni-Search) — Cmd+K spotlight-style search + commands | ✅ Done |
 | H2 | Export Pipeline — PDF, HTML, plain text export | ✅ Done |
 | H3 | Multi-Window & Stage Manager — proper macOS windowing | ✅ Done |
-| H4 | Visual Aesthetics & Animation Polish — final ADA-quality refinements | 🚧 In Progress |
+| H4 | Visual Aesthetics & Animation Polish — final ADA-quality refinements | ✅ Done |
 
 > **H1 Note:** Spotlight-style Cmd+K palette with fuzzy note search, command registry, keyboard navigation, frosted glass UI.
 >
 > **H2 Note:** PDF via CTFramesetter, HTML via AST walker, RTF via NSAttributedString, share menu, command palette integration.
 >
 > **H3 Note:** Secondary WindowGroup with EditorSession, NoteWindowRoot extraction, Cmd+Shift+O command, NSTableView selection highlight fix.
+>
+> **H4 Note:** Aesthetics & Typography Engine — custom font system, heading scale, paragraph spacing, syntax-theme palette, smooth spring animations, Reduce Motion support.
+
+---
+
+## Phase I: Vault Dashboard — **🚧 In Progress**
+
+| Step | Deliverable | Status |
+|------|------------|--------|
+| I1 | Dashboard view with vault-level stats (note count, word count, recent activity) | 🚧 In Progress |
+| I2 | Quick-access recent notes, pinned notes, and daily writing streak | Planned |
+| I3 | Dashboard as optional home screen with user preference toggle | Planned |
+
+> **Note:** Vault Dashboard provides a welcoming home screen with at-a-glance vault statistics, recent activity, and quick actions. User preference to show/hide via Settings.
 
 ---
 

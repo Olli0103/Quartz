@@ -168,18 +168,30 @@ public actor FileSystemVaultProvider: VaultProviding {
             throw FileSystemError.fileNotFound(url)
         }
 
-        // Try direct read first (works for locally available files with proper security scope)
-        // Fall back to coordinated read if that fails
-        return try await Task.detached(priority: .userInitiated) {
-            // First attempt: direct read (faster, works when security scope is active)
-            do {
-                return try Data(contentsOf: url)
-            } catch {
-                // Second attempt: coordinated read (needed for some iCloud scenarios)
-                print("[FileSystemVaultProvider] Direct read failed, trying coordinated: \(error.localizedDescription)")
-                return try CoordinatedFileWriter.shared.read(from: url)
+        // Race the read against a 5-second timeout.
+        // iCloud Drive files that aren't downloaded locally will hang indefinitely
+        // on both Data(contentsOf:) and coordinated reads.
+        return try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                // First attempt: direct read
+                do {
+                    return try Data(contentsOf: url)
+                } catch {
+                    // Second attempt: coordinated read
+                    return try CoordinatedFileWriter.shared.read(from: url)
+                }
             }
-        }.value
+
+            group.addTask {
+                try await Task.sleep(for: .seconds(5))
+                throw FileSystemError.iCloudTimeout(url)
+            }
+
+            // Return whichever finishes first; cancel the other.
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     private func coordinatedWrite(data: Data, to url: URL) async throws {
@@ -278,6 +290,7 @@ public enum FileSystemError: LocalizedError, Sendable {
     case fileAlreadyExists(URL)
     case fileNotFound(URL)
     case invalidName(String)
+    case iCloudTimeout(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -289,6 +302,8 @@ public enum FileSystemError: LocalizedError, Sendable {
             String(localized: "File not found: \(url.lastPathComponent)", bundle: .module)
         case .invalidName(let name):
             String(localized: "Invalid name: \(name)", bundle: .module)
+        case .iCloudTimeout(let url):
+            "\(url.lastPathComponent) is not downloaded from iCloud. Open Finder and wait for it to sync, then try again."
         }
     }
 }

@@ -74,10 +74,13 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
 
-        // Trigger initial highlighting
-        session.scheduleHighlight()
+        // Trigger initial highlighting (no debounce — instant)
+        session.highlightImmediately()
 
         context.coordinator.textView = textView
+        context.coordinator.lastFontScale = editorFontScale
+        context.coordinator.lastFontFamily = editorFontFamily
+        context.coordinator.lastLineSpacing = editorLineSpacing
         return textView
     }
 
@@ -264,8 +267,8 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
 
-        // Trigger initial highlighting
-        session.scheduleHighlight()
+        // Trigger initial highlighting (no debounce — instant)
+        session.highlightImmediately()
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -274,6 +277,9 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.lastFontScale = editorFontScale
+        context.coordinator.lastFontFamily = editorFontFamily
+        context.coordinator.lastLineSpacing = editorLineSpacing
 
         // Observe scroll position changes for inspector ToC sync
         NotificationCenter.default.addObserver(

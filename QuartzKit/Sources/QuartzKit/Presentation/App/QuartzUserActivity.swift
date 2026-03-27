@@ -5,7 +5,7 @@ import Foundation
 /// Uses the same `quartz://note/...` shape as widgets and ``OpenNoteIntent`` so routing stays unified.
 public enum QuartzUserActivity {
     /// Declared in the app target `Info.plist` (`NSUserActivityTypes`).
-    public static let openNoteActivityType = "olli.Quartz.useractivity.openNote"
+    public static let openNoteActivityType = "olli.QuartzNotes.useractivity.openNote"
 
     public enum UserInfoKey {
         public static let deepLink = "quartzDeepLink"

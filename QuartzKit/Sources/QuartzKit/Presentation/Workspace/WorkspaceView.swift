@@ -17,6 +17,8 @@ public struct WorkspaceView: View {
     var onVoiceNote: (() -> Void)?
     var onMeetingMinutes: (() -> Void)?
     var onVaultChat: (() -> Void)?
+    var onDashboard: (() -> Void)?
+    var onSwitchVault: (() -> Void)?
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.colorScheme) private var colorScheme
@@ -34,7 +36,9 @@ public struct WorkspaceView: View {
         onNewNote: (() -> Void)? = nil,
         onVoiceNote: (() -> Void)? = nil,
         onMeetingMinutes: (() -> Void)? = nil,
-        onVaultChat: (() -> Void)? = nil
+        onVaultChat: (() -> Void)? = nil,
+        onDashboard: (() -> Void)? = nil,
+        onSwitchVault: (() -> Void)? = nil
     ) {
         self.store = store
         self.noteListStore = noteListStore
@@ -47,6 +51,8 @@ public struct WorkspaceView: View {
         self.onVoiceNote = onVoiceNote
         self.onMeetingMinutes = onMeetingMinutes
         self.onVaultChat = onVaultChat
+        self.onDashboard = onDashboard
+        self.onSwitchVault = onSwitchVault
     }
 
     private var isPureDark: Bool {
@@ -111,14 +117,16 @@ public struct WorkspaceView: View {
                 onVaultChat: onVaultChat,
                 onSearchChanged: { query in
                     noteListStore.searchText = query
-                }
+                },
+                onDashboard: onDashboard,
+                onSwitchVault: onSwitchVault
             )
             .onChange(of: sidebarNoteSelection) { _, newURL in
                 if let url = newURL {
                     store.selectedNoteURL = url
                 }
             }
-            .navigationTitle("Quartz")
+            .navigationTitle("Quartz Notes")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
             #endif
@@ -129,7 +137,7 @@ public struct WorkspaceView: View {
                 subtitle: "Open a vault to see your notes"
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Quartz")
+            .navigationTitle("Quartz Notes")
         }
     }
 
@@ -152,8 +160,25 @@ public struct WorkspaceView: View {
 
     private var detailColumn: some View {
         Group {
-            if let session = editorSession, session.note != nil {
+            if store.showDashboard {
+                DashboardView(
+                    sidebarViewModel: sidebarViewModel,
+                    vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
+                    onSelectNote: { url in
+                        store.selectedNoteURL = url
+                    },
+                    onNewNote: onNewNote ?? {},
+                    onExploreGraph: onMapViewTap ?? {},
+                    onRecordVoiceNote: onVoiceNote,
+                    onRecordMeetingMinutes: onMeetingMinutes,
+                    onQuickCapture: { text in
+                        appendToDailyNote(text)
+                    }
+                )
+            } else if let session = editorSession, session.note != nil {
                 EditorContainerView(session: session, workspaceStore: store, documentChatSession: documentChatSession, onVoiceNote: onVoiceNote)
+            } else if let session = editorSession, let error = session.errorMessage {
+                iCloudErrorView(message: error)
             } else {
                 QuartzEmptyState(
                     icon: "text.cursor",
@@ -164,5 +189,61 @@ public struct WorkspaceView: View {
             }
         }
         .quartzAmbientShellBackground()
+    }
+
+    private func iCloudErrorView(message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "icloud.slash")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button {
+                if let url = store.selectedNoteURL {
+                    editorSession?.errorMessage = nil
+                    Task { await editorSession?.loadNote(at: url) }
+                }
+            } label: {
+                Label(String(localized: "Try Again", bundle: .module), systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Quick Capture → Daily Note
+
+    private func appendToDailyNote(_ text: String) {
+        guard let vaultRoot = sidebarViewModel?.vaultRootURL else { return }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        let fileName = "Daily Note \(df.string(from: Date())).md"
+        let dailyURL = vaultRoot.appending(path: fileName)
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+        let entry = "\n- \(timestamp): \(text)\n"
+
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let path = dailyURL.path(percentEncoded: false)
+            if fm.fileExists(atPath: path) {
+                // Append
+                if let handle = try? FileHandle(forWritingTo: dailyURL) {
+                    handle.seekToEndOfFile()
+                    if let data = entry.data(using: .utf8) {
+                        handle.write(data)
+                    }
+                    try? handle.close()
+                }
+            } else {
+                // Create
+                let header = "# Daily Note — \(df.string(from: Date()))\n"
+                let content = header + entry
+                try? content.data(using: .utf8)?.write(to: dailyURL)
+            }
+        }
     }
 }

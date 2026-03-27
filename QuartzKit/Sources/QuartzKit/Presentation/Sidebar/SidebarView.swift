@@ -71,6 +71,8 @@ public struct SidebarView: View {
     var onSourceChanged: ((SourceSelection) -> Void)?
     var onVaultChat: (() -> Void)?
     var onSearchChanged: ((String) -> Void)?
+    var onDashboard: (() -> Void)?
+    var onSwitchVault: (() -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
     @State private var showNewFolderDialog = false
@@ -101,7 +103,9 @@ public struct SidebarView: View {
         onDoubleClick: ((URL) -> Void)? = nil,
         onSourceChanged: ((SourceSelection) -> Void)? = nil,
         onVaultChat: (() -> Void)? = nil,
-        onSearchChanged: ((String) -> Void)? = nil
+        onSearchChanged: ((String) -> Void)? = nil,
+        onDashboard: (() -> Void)? = nil,
+        onSwitchVault: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self._selectedNoteURL = selectedNoteURL
@@ -110,6 +114,8 @@ public struct SidebarView: View {
         self.onSourceChanged = onSourceChanged
         self.onVaultChat = onVaultChat
         self.onSearchChanged = onSearchChanged
+        self.onDashboard = onDashboard
+        self.onSwitchVault = onSwitchVault
     }
 
     public var body: some View {
@@ -705,6 +711,7 @@ public struct SidebarView: View {
         Button {
             QuartzFeedback.selection()
             selectedNoteURL = nil
+            onDashboard?()
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "square.grid.2x2")
@@ -935,7 +942,21 @@ public struct SidebarView: View {
                     .frame(minHeight: QuartzHIG.minTouchTarget)
             }
             .buttonStyle(.plain)
-            .help(String(localized: "Reveals Quartz's hidden trash folder in Finder.", bundle: .module))
+            .help(String(localized: "Reveals the hidden trash folder in Finder.", bundle: .module))
+
+            Divider()
+
+            Button {
+                QuartzFeedback.selection()
+                onSwitchVault?()
+            } label: {
+                Label(String(localized: "Switch Vault…", bundle: .module), systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: QuartzHIG.minTouchTarget)
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)

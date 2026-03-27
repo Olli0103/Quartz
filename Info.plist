@@ -9,7 +9,7 @@
 	</dict>
 	<key>NSUserActivityTypes</key>
 	<array>
-		<string>olli.Quartz.useractivity.openNote</string>
+		<string>olli.QuartzNotes.useractivity.openNote</string>
 	</array>
 	<key>NSUbiquitousContainers</key>
 	<dict>
@@ -20,7 +20,7 @@
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>Any</string>
 			<key>NSUbiquitousContainerName</key>
-			<string>Quartz</string>
+			<string>Quartz Notes</string>
 		</dict>
 	</dict>
 </dict>

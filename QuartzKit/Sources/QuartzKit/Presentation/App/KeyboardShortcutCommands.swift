@@ -20,6 +20,8 @@ public struct KeyboardShortcutCommands: Commands {
     let onToggleSidebar: () -> Void
     let onDailyNote: () -> Void
     var onFormatAction: ((FormattingAction) -> Void)?
+    var onOpenVault: (() -> Void)?
+    var onCreateVault: (() -> Void)?
 
     public init(
         onNewNote: @escaping () -> Void,
@@ -28,7 +30,9 @@ public struct KeyboardShortcutCommands: Commands {
         onGlobalSearch: @escaping () -> Void,
         onToggleSidebar: @escaping () -> Void,
         onDailyNote: @escaping () -> Void,
-        onFormatAction: ((FormattingAction) -> Void)? = nil
+        onFormatAction: ((FormattingAction) -> Void)? = nil,
+        onOpenVault: (() -> Void)? = nil,
+        onCreateVault: (() -> Void)? = nil
     ) {
         self.onNewNote = onNewNote
         self.onNewFolder = onNewFolder
@@ -37,6 +41,8 @@ public struct KeyboardShortcutCommands: Commands {
         self.onToggleSidebar = onToggleSidebar
         self.onDailyNote = onDailyNote
         self.onFormatAction = onFormatAction
+        self.onOpenVault = onOpenVault
+        self.onCreateVault = onCreateVault
     }
 
     public var body: some Commands {
@@ -51,6 +57,13 @@ public struct KeyboardShortcutCommands: Commands {
 
             Button(String(localized: "Daily Note", bundle: .module)) { onDailyNote() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button(String(localized: "Open Vault…", bundle: .module)) { onOpenVault?() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+
+            Button(String(localized: "Create New Vault…", bundle: .module)) { onCreateVault?() }
         }
 
         CommandGroup(after: .textEditing) {

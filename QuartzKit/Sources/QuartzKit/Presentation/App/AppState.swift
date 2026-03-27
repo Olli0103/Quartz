@@ -11,6 +11,8 @@ public enum CommandAction: Equatable, Sendable {
     case toggleSidebar
     case dailyNote
     case format(FormattingAction)
+    case openVault
+    case createVault
 }
 
 /// Global app state, injected into all views via Environment.

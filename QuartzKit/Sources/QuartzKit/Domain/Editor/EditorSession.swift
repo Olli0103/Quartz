@@ -130,7 +130,7 @@ public final class EditorSession {
             clearUndoStack()
 
             // Trigger highlighting and analysis
-            scheduleHighlight()
+            highlightImmediately()
             scheduleAnalysis()
 
             startFileWatching(for: url)
@@ -530,6 +530,35 @@ public final class EditorSession {
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpans(spans)
+            }
+        }
+    }
+
+    /// Immediate (non-debounced) highlight for initial load. No 80ms wait.
+    public func highlightImmediately() {
+        guard !isComposing else { return }
+
+        // Hide text view to prevent flash of unstyled text
+        #if canImport(UIKit)
+        activeTextView?.alpha = 0
+        #elseif canImport(AppKit)
+        activeTextView?.alphaValue = 0
+        #endif
+
+        highlightTask?.cancel()
+        highlightTask = Task(priority: .userInteractive) { [weak self] in
+            guard let self, let highlighter = self.highlighter else { return }
+            let text = self.currentText
+            let spans = await highlighter.parse(text)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.applyHighlightSpans(spans)
+                // Reveal text view after highlights are applied
+                #if canImport(UIKit)
+                self?.activeTextView?.alpha = 1
+                #elseif canImport(AppKit)
+                self?.activeTextView?.alphaValue = 1
+                #endif
             }
         }
     }

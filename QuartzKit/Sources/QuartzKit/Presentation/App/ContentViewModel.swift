@@ -776,7 +776,7 @@ public final class ContentViewModel {
             createDailyNote()
         case .format(let action):
             applyFormatting(action)
-        case .none:
+        case .none, .openVault, .createVault:
             break
         }
     }
