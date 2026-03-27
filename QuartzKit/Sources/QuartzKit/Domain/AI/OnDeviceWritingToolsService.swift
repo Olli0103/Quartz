@@ -186,21 +186,19 @@ public actor OnDeviceWritingToolsService {
         contextChunks: [String] = []
     ) async throws -> String {
         // Priority 1: Try Foundation Models (Apple Intelligence) first
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *) {
-            if SystemLanguageModel.default.isAvailable {
-                do {
-                    return try await performWithFoundationModels(
-                        action: action,
-                        text: text,
-                        tone: tone
-                    )
-                } catch {
-                    // Fall through to other providers
-                }
-            }
-        }
-        #endif
+        // DISABLED: Foundation Models on macOS 26 beta causes EXC_BAD_ACCESS (null pointer)
+        // in GenerativeModels.framework. Re-enable when Apple ships a stable release.
+        // The crash is a SIGSEGV which cannot be caught by Swift do/catch.
+        //
+        // #if canImport(FoundationModels)
+        // if #available(iOS 26.0, macOS 26.0, *) {
+        //     if SystemLanguageModel.default.isAvailable {
+        //         do {
+        //             return try await performWithFoundationModels(...)
+        //         } catch { }
+        //     }
+        // }
+        // #endif
 
         // Priority 2: Try configured AI provider
         let useProvider = await isSelectedProviderUsableForWritingTools()

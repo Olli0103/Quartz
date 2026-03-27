@@ -89,19 +89,14 @@ public struct FileNodeRow: View {
 
     private var iconName: String {
         switch node.nodeType {
-        case .folder: "folder.fill"
-        case .note: "doc.text.fill"
-        case .asset: "photo.fill"
+        case .folder: "folder"
+        case .note: "doc.text"
+        case .asset: "photo"
         case .canvas: "scribble.variable"
         }
     }
 
     private var iconColor: Color {
-        switch node.nodeType {
-        case .folder: appearance.accentColor.opacity(0.7)
-        case .note: appearance.accentColor.opacity(0.5)
-        case .asset: QuartzColors.assetOrange
-        case .canvas: QuartzColors.canvasPurple
-        }
+        .primary
     }
 }

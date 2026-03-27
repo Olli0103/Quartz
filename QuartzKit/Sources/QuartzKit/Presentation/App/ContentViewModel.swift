@@ -9,20 +9,50 @@ import SwiftUI
 public final class ContentViewModel {
     public var sidebarViewModel: SidebarViewModel?
     public var editorViewModel: NoteEditorViewModel?
+    /// New jitter-free editor session (Phase C1). Used by WorkspaceView's detail column.
+    public var editorSession: EditorSession?
+    /// Document-context chat session — reads live text from EditorSession at send-time.
+    public var documentChatSession: DocumentChatSession?
+    /// Inspector store — shared across note switches, persists visibility state.
+    public let inspectorStore = InspectorStore()
     public var searchIndex: VaultSearchIndex?
     /// Core Spotlight indexer (system search); separate from in-app ``searchIndex``.
     private var spotlightIndexer: QuartzSpotlightIndexer?
     public var embeddingService: VectorEmbeddingService?
+    /// Preview cache for the middle column note list.
+    public var previewRepository: NotePreviewRepository?
+    /// Preview indexer — reads 8KB prefix of each note for title/snippet/tags.
+    public var previewIndexer: NotePreviewIndexer?
     public var cloudSyncStatus: CloudSyncStatus = .notApplicable
     /// URLs of files with unresolved iCloud sync conflicts. Used to present ConflictResolverView.
     public var conflictingFileURLs: [URL] = []
     public var indexingProgress: (current: Int, total: Int)?
+
+    // MARK: - Backup State
+
+    /// Vault backup service — manages export, auto-backup, and restore.
+    public let backupService = VaultBackupService()
+    /// Available backups for the current vault.
+    public var availableBackups: [BackupEntry] = []
+    /// Whether a backup operation is currently running.
+    public var isBackupInProgress: Bool = false
+    /// Backup progress (0.0–1.0).
+    public var backupProgress: Double = 0
+    /// Last sync timestamp (updated when cloudSyncStatus becomes .current).
+    public var lastSyncTimestamp: Date? {
+        get { UserDefaults.standard.object(forKey: "quartzLastSyncTimestamp") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "quartzLastSyncTimestamp") }
+    }
 
     private let appState: AppState
     private var cloudSyncService: CloudSyncService?
     private var syncMonitoringTask: Task<Void, Never>?
     private var indexingTask: Task<Void, Never>?
     private var currentVaultRootURL: URL?
+    /// Debounced task for re-indexing embeddings after note saves.
+    private var embeddingReindexTask: Task<Void, Never>?
+    /// Observer token for `.quartzNoteSaved` notifications.
+    private var noteSavedObserver: Any?
 
     public init(appState: AppState) {
         self.appState = appState
@@ -30,8 +60,9 @@ public final class ContentViewModel {
 
     // MARK: - Vault Loading
 
-    /// Loads a vault: creates sidebar VM, search index, builds the file tree, and indexes notes for Vault Chat.
-    public func loadVault(_ vault: VaultConfig) {
+    /// Loads a vault: creates sidebar VM, search index, builds the file tree, and indexes notes.
+    /// Wires the `NoteListStore` with preview data after indexing completes.
+    public func loadVault(_ vault: VaultConfig, noteListStore: NoteListStore? = nil) {
         editorViewModel?.cancelAllTasks()
         editorViewModel = nil
         stopCloudSync()
@@ -52,8 +83,49 @@ public final class ContentViewModel {
         let embedding = VectorEmbeddingService(vaultURL: vault.rootURL)
         embeddingService = embedding
 
+        let frontmatterParser = ServiceContainer.shared.resolveFrontmatterParser()
+        let previewRepo = NotePreviewRepository(vaultRoot: vault.rootURL)
+        previewRepository = previewRepo
+        let previewIdx = NotePreviewIndexer(
+            vaultRoot: vault.rootURL,
+            repository: previewRepo,
+            frontmatterParser: frontmatterParser
+        )
+        previewIndexer = previewIdx
+
+        // Create EditorSession ONCE per vault — reused across all note switches.
+        // This prevents view destruction/flashing when switching notes.
+        let container2 = ServiceContainer.shared
+        let session = EditorSession(
+            vaultProvider: container2.resolveVaultProvider(),
+            frontmatterParser: container2.resolveFrontmatterParser(),
+            inspectorStore: inspectorStore
+        )
+        session.vaultRootURL = vault.rootURL
+        editorSession = session
+
+        // Create DocumentChatSession ONCE per vault — reuses the same EditorSession.
+        documentChatSession = DocumentChatSession(editorSession: session)
+
         Task {
+            // Load preview cache from disk first (instant middle column population)
+            await previewRepo.loadCache()
+
+            // Wire NoteListStore with cached data immediately (before full reindex)
+            if let noteListStore {
+                noteListStore.configure(repository: previewRepo, vaultRoot: vault.rootURL)
+                await noteListStore.loadItems(for: .allNotes)
+            }
+
             await viewModel.loadTree(at: vault.rootURL)
+            // Run preview indexer alongside other indexers — it's the fastest (8KB reads)
+            await previewIdx.indexAll(from: viewModel.fileTree)
+
+            // Refresh note list after full reindex completes (picks up new/changed notes)
+            if let noteListStore {
+                await noteListStore.refresh()
+            }
+
             await index.indexFromPreloadedTree(viewModel.fileTree)
             if let root = currentVaultRootURL {
                 await spotlightIndexer?.removeAllInDomain()
@@ -67,28 +139,74 @@ public final class ContentViewModel {
         }
 
         let iCloudSyncEnabled = (UserDefaults.standard.object(forKey: "iCloudSyncEnabled") as? Bool) ?? true
-        if iCloudSyncEnabled && Self.isICloudDriveURL(vault.rootURL) {
+        if Self.isICloudDriveURL(vault.rootURL) {
+            // Vault is in iCloud — always monitor sync status
             startCloudSync(for: vault.rootURL)
+        } else if iCloudSyncEnabled && CloudSyncService.isAvailable {
+            // Local vault with sync enabled — user may want to migrate
+            cloudSyncStatus = .notApplicable
+        }
+
+        // Observe note saves for debounced embedding re-indexing (5s after last save)
+        startEmbeddingReindexObserver()
+
+        // Auto-backup check (runs in background if enabled)
+        scheduleAutoBackupIfNeeded(vaultRoot: vault.rootURL)
+
+        // Load list of available backups
+        refreshAvailableBackups(vaultRoot: vault.rootURL)
+
+        // Check iCloud availability (resolves container URL on background thread)
+        checkICloudAvailability()
+    }
+
+    /// Listens for `.quartzNoteSaved` and re-indexes the saved note's embeddings
+    /// after a 5-second debounce. This keeps the vector index fresh without
+    /// blocking the editor on every keystroke.
+    private func startEmbeddingReindexObserver() {
+        noteSavedObserver.map { NotificationCenter.default.removeObserver($0) }
+        noteSavedObserver = NotificationCenter.default.addObserver(
+            forName: .quartzNoteSaved,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let url = notification.object as? URL else { return }
+            Task { @MainActor in
+                self.scheduleEmbeddingReindex(for: url)
+            }
+        }
+    }
+
+    /// Debounced embedding reindex — waits 5 seconds after the last save.
+    private func scheduleEmbeddingReindex(for url: URL) {
+        embeddingReindexTask?.cancel()
+        embeddingReindexTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            updateEmbeddingForNote(at: url)
         }
     }
 
     // MARK: - Note Opening
 
-    /// Opens a note at the given URL, cancelling any previous editor tasks.
+    /// Opens a note by loading it into the existing EditorSession.
+    /// The session object is REUSED — no view destruction, no flash.
     public func openNote(at url: URL?) {
-        print("[ContentViewModel] openNote called with: \(url?.path(percentEncoded: false) ?? "nil")")
         editorViewModel?.cancelAllTasks()
+
         guard let url else {
-            print("[ContentViewModel] URL is nil, clearing editor")
             editorViewModel = nil
+            editorSession?.closeNote()
+            documentChatSession?.clear()
             return
         }
 
-        // Verify file exists before creating editor
-        let exists = FileManager.default.fileExists(atPath: url.path(percentEncoded: false))
-        print("[ContentViewModel] File exists at path: \(exists)")
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return }
 
         let container = ServiceContainer.shared
+
+        // Legacy editor
         let vm = NoteEditorViewModel(
             vaultProvider: container.resolveVaultProvider(),
             frontmatterParser: container.resolveFrontmatterParser()
@@ -97,6 +215,15 @@ public final class ContentViewModel {
         vm.fileTree = sidebarViewModel?.fileTree ?? []
         editorViewModel = vm
         Task { await vm.loadNote(at: url) }
+
+        // Reuse existing session — just load the new note into it
+        if let session = editorSession {
+            session.fileTree = sidebarViewModel?.fileTree ?? []
+            Task { await session.loadNote(at: url) }
+        }
+
+        // Clear chat history — system prompt is document-specific
+        documentChatSession?.clear()
     }
 
     // MARK: - Daily Note
@@ -116,7 +243,48 @@ public final class ContentViewModel {
 
     // MARK: - Vault Chat
 
-    /// Creates a new vault chat session wired to the current embedding service.
+    /// Creates a new streaming vault chat session wired to the current embedding service.
+    ///
+    /// **Just-in-time indexing:** Before creating the session, ensures the background
+    /// indexer has completed (waits up to 30s), then force-saves the active note
+    /// and indexes its live text into the vector store.
+    public func createVaultChatSession2() async -> VaultChatSession2? {
+        guard let embeddingService,
+              let vaultRoot = currentVaultRootURL else { return nil }
+
+        // Just-in-time: save + index the active note before chat opens
+        if let session = editorSession, let noteURL = session.note?.fileURL {
+            await session.save(force: true)
+            let liveText = session.currentText
+            if !liveText.isEmpty {
+                let stableID = VectorEmbeddingService.stableNoteID(for: noteURL, vaultRoot: vaultRoot)
+                try? await embeddingService.indexNote(noteID: stableID, content: liveText)
+                try? await embeddingService.saveIndex()
+            }
+        }
+
+        let fileTree = sidebarViewModel?.fileTree ?? []
+        let titleMap = Self.buildNoteTitleMap(from: fileTree, vaultRoot: vaultRoot)
+
+        // Log index state for diagnostics
+        let entryCount = await embeddingService.entryCount
+        let noteCount = await embeddingService.indexedNoteCount
+        print("[VaultChat] Opening with \(entryCount) chunks from \(noteCount) notes, \(titleMap.count) notes in tree")
+
+        let chatService = VaultChatService(
+            embeddingService: embeddingService,
+            providerRegistry: .shared
+        )
+
+        return VaultChatSession2(
+            chatService: chatService,
+            noteResolver: { noteID in titleMap[noteID] },
+            indexedChunkCount: entryCount,
+            indexedNoteCount: noteCount
+        )
+    }
+
+    /// Legacy non-streaming vault chat session (kept for backward compatibility during migration).
     public func createVaultChatSession() -> VaultChatSession? {
         guard let embeddingService,
               let vaultRoot = currentVaultRootURL else { return nil }
@@ -202,6 +370,151 @@ public final class ContentViewModel {
         }
     }
 
+    // MARK: - Preview Cache (Incremental Updates)
+
+    /// Incrementally updates the preview cache for a single saved note.
+    /// Posts `.quartzPreviewCacheDidChange` with the URL so `NoteListStore` can do a targeted update.
+    public func updatePreviewForNote(at url: URL) {
+        Task {
+            await previewIndexer?.indexFile(at: url)
+            NotificationCenter.default.post(name: .quartzPreviewCacheDidChange, object: url)
+        }
+    }
+
+    /// Removes preview entries for deleted notes.
+    public func removePreviewsForNotes(at urls: [URL]) {
+        Task {
+            for url in urls {
+                await previewIndexer?.removeFile(at: url)
+            }
+            NotificationCenter.default.post(name: .quartzPreviewCacheDidChange, object: nil)
+        }
+    }
+
+    /// Updates preview entry when a note is renamed or moved.
+    public func relocatePreview(from oldURL: URL, to newURL: URL) {
+        Task {
+            await previewIndexer?.removeFile(at: oldURL)
+            await previewIndexer?.indexFile(at: newURL)
+            NotificationCenter.default.post(name: .quartzPreviewCacheDidChange, object: nil)
+        }
+    }
+
+    // MARK: - Incremental Embedding Updates
+
+    /// Re-indexes a single note's embeddings after save.
+    /// Runs on a background thread to avoid blocking the editor.
+    public func updateEmbeddingForNote(at url: URL) {
+        guard let embedding = embeddingService,
+              let vaultRoot = currentVaultRootURL else { return }
+
+        // If this is the active note, use live text (avoids stale disk read)
+        let liveText: String? = (editorSession?.note?.fileURL == url) ? editorSession?.currentText : nil
+
+        Task.detached(priority: .utility) {
+            let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
+            let content = liveText ?? (try? String(contentsOf: url, encoding: .utf8))
+            if let content, !content.isEmpty {
+                try? await embedding.indexNote(noteID: stableID, content: content)
+                try? await embedding.saveIndex()
+            }
+        }
+    }
+
+    /// Removes embeddings for deleted notes.
+    public func removeEmbeddingsForNotes(at urls: [URL]) {
+        guard let embedding = embeddingService,
+              let vaultRoot = currentVaultRootURL else { return }
+        Task.detached(priority: .utility) {
+            for url in urls {
+                let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
+                await embedding.removeNote(stableID)
+            }
+            try? await embedding.saveIndex()
+        }
+    }
+
+    /// Updates embeddings when a note is renamed or moved.
+    public func relocateEmbedding(from oldURL: URL, to newURL: URL) {
+        guard let embedding = embeddingService,
+              let vaultRoot = currentVaultRootURL else { return }
+        Task.detached(priority: .utility) {
+            // Remove old stableID entries
+            let oldID = VectorEmbeddingService.stableNoteID(for: oldURL, vaultRoot: vaultRoot)
+            await embedding.removeNote(oldID)
+            // Index at new stableID
+            let newID = VectorEmbeddingService.stableNoteID(for: newURL, vaultRoot: vaultRoot)
+            let content = try? String(contentsOf: newURL, encoding: .utf8)
+            if let content, !content.isEmpty {
+                try? await embedding.indexNote(noteID: newID, content: content)
+            }
+            try? await embedding.saveIndex()
+        }
+    }
+
+    // MARK: - Backup
+
+    /// Triggers a manual backup of the current vault.
+    public func triggerManualBackup() {
+        guard let vaultRoot = currentVaultRootURL else { return }
+        guard !isBackupInProgress else { return }
+
+        isBackupInProgress = true
+        backupProgress = 0
+
+        Task.detached(priority: .utility) { [backupService] in
+            do {
+                _ = try await backupService.createBackup(vaultRoot: vaultRoot) { progress in
+                    Task { @MainActor [weak self] in
+                        self?.backupProgress = progress.fraction
+                    }
+                }
+                await MainActor.run { [weak self] in
+                    self?.isBackupInProgress = false
+                    self?.backupProgress = 1
+                    self?.refreshAvailableBackups(vaultRoot: vaultRoot)
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.isBackupInProgress = false
+                    self?.backupProgress = 0
+                }
+            }
+        }
+    }
+
+    /// Restores a backup to a user-chosen destination.
+    /// Returns the URL of the restored vault folder.
+    public func restoreFromBackup(backupURL: URL, destination: URL) async throws {
+        try await backupService.restoreBackup(from: backupURL, to: destination)
+    }
+
+    /// Refreshes the list of available backups for the current vault.
+    public func refreshAvailableBackups(vaultRoot: URL? = nil) {
+        guard let root = vaultRoot ?? currentVaultRootURL else { return }
+        Task {
+            let backups = await backupService.listBackups(vaultRoot: root)
+            availableBackups = backups
+        }
+    }
+
+    /// Checks if auto-backup is enabled and schedules one if >24h since last backup.
+    private func scheduleAutoBackupIfNeeded(vaultRoot: URL) {
+        let autoEnabled = UserDefaults.standard.bool(forKey: "quartzAutoBackupEnabled")
+        guard autoEnabled else { return }
+
+        Task.detached(priority: .utility) { [backupService] in
+            let retainCount = UserDefaults.standard.integer(forKey: "quartzAutoBackupRetainCount")
+            try? await backupService.runAutoBackup(
+                vaultRoot: vaultRoot,
+                retainCount: max(1, retainCount > 0 ? retainCount : 7)
+            )
+            await MainActor.run { [weak self] in
+                self?.refreshAvailableBackups(vaultRoot: vaultRoot)
+            }
+        }
+    }
+
     // MARK: - Note Indexing
 
     /// Recursively flattens the file tree into a UUID → title lookup using stable IDs.
@@ -254,6 +567,7 @@ public final class ContentViewModel {
         guard !noteURLs.isEmpty else { return }
 
         indexingProgress = (current: 0, total: noteURLs.count)
+        sidebarViewModel?.indexingProgress = indexingProgress
 
         indexingTask = Task.detached(priority: .utility) {
             let total = noteURLs.count
@@ -266,7 +580,9 @@ public final class ContentViewModel {
                     // File unchanged since last index, skip
                     let current = i + 1
                     await MainActor.run { [weak self] in
-                        self?.indexingProgress = (current: current, total: total)
+                        let progress = (current: current, total: total)
+                        self?.indexingProgress = progress
+                        self?.sidebarViewModel?.indexingProgress = progress
                     }
                     continue
                 }
@@ -278,13 +594,16 @@ public final class ContentViewModel {
 
                 let current = i + 1
                 await MainActor.run { [weak self] in
-                    self?.indexingProgress = (current: current, total: total)
+                    let progress = (current: current, total: total)
+                    self?.indexingProgress = progress
+                    self?.sidebarViewModel?.indexingProgress = progress
                 }
             }
 
             try? await embedding.saveIndex()
             await MainActor.run { [weak self] in
                 self?.indexingProgress = nil
+                self?.sidebarViewModel?.indexingProgress = nil
             }
         }
     }
@@ -303,6 +622,10 @@ public final class ContentViewModel {
             for await (url, status) in stream {
                 fileStatuses[url] = status
                 cloudSyncStatus = Self.aggregateStatus(from: fileStatuses)
+                sidebarViewModel?.cloudSyncStatus = cloudSyncStatus
+                if cloudSyncStatus == .current {
+                    lastSyncTimestamp = Date()
+                }
                 conflictingFileURLs = fileStatuses.filter { $0.value == .conflict }.map(\.key)
             }
         }
@@ -316,6 +639,7 @@ public final class ContentViewModel {
         }
         cloudSyncService = nil
         cloudSyncStatus = .notApplicable
+        sidebarViewModel?.cloudSyncStatus = .notApplicable
         conflictingFileURLs = []
     }
 
@@ -335,33 +659,118 @@ public final class ContentViewModel {
         return .current
     }
 
+    // MARK: - iCloud Vault Migration
+
+    /// Whether the current vault is inside the app's iCloud ubiquity container.
+    public var isVaultInICloud: Bool {
+        guard let root = currentVaultRootURL else { return false }
+        return Self.isICloudDriveURL(root)
+    }
+
+    /// Whether iCloud is available on this device.
+    /// Resolves the container URL on a background thread to check availability.
+    /// Cached after first check to avoid repeated blocking calls.
+    public var isICloudAvailable: Bool = false
+
+    /// Checks iCloud availability by resolving the ubiquity container.
+    /// Call this once during vault load or settings open.
+    public func checkICloudAvailability() {
+        let token = FileManager.default.ubiquityIdentityToken
+        print("[iCloud] ubiquityIdentityToken: \(String(describing: token))")
+        Task {
+            let url = await CloudSyncService.resolveContainerURL()
+            print("[iCloud] resolveContainerURL: \(String(describing: url))")
+            isICloudAvailable = url != nil
+            print("[iCloud] isICloudAvailable set to: \(url != nil)")
+        }
+    }
+
+    /// Migrates the current local vault into the app's iCloud ubiquity container.
+    ///
+    /// Copies the entire vault directory into `iCloud.olli.QuartzNotes/Documents/{vaultName}/`,
+    /// then switches the app to use the iCloud copy as the active vault. The original local
+    /// copy is left untouched as a backup.
+    ///
+    /// - Returns: The new iCloud vault URL, or `nil` if migration failed.
+    @discardableResult
+    public func migrateVaultToICloud() async -> URL? {
+        guard let localRoot = currentVaultRootURL else { return nil }
+
+        guard CloudSyncService.isAvailable else {
+            cloudSyncStatus = .error
+            return nil
+        }
+
+        // Resolve container URL on background thread (first call may block while
+        // the system creates the container directory structure)
+        guard let containerURL = await CloudSyncService.resolveContainerURL() else {
+            cloudSyncStatus = .error
+            return nil
+        }
+
+        let fm = FileManager.default
+        let vaultName = localRoot.lastPathComponent
+        let iCloudVaultURL = containerURL.appending(path: vaultName, directoryHint: .isDirectory)
+
+        do {
+            // Ensure the Documents directory exists
+            if !fm.fileExists(atPath: containerURL.path(percentEncoded: false)) {
+                try fm.createDirectory(at: containerURL, withIntermediateDirectories: true)
+            }
+
+            // If the vault already exists in iCloud, just switch to it
+            if fm.fileExists(atPath: iCloudVaultURL.path(percentEncoded: false)) {
+                switchToVault(at: iCloudVaultURL, name: vaultName)
+                return iCloudVaultURL
+            }
+
+            // Copy the local vault to iCloud
+            try fm.copyItem(at: localRoot, to: iCloudVaultURL)
+
+            // Switch to the iCloud vault
+            switchToVault(at: iCloudVaultURL, name: vaultName)
+
+            return iCloudVaultURL
+        } catch {
+            cloudSyncStatus = .error
+            return nil
+        }
+    }
+
+    /// Switches the active vault to a new URL and reloads everything.
+    private func switchToVault(at url: URL, name: String) {
+        var vault = VaultConfig(name: name, rootURL: url, storageType: .iCloudDrive)
+        vault.isDefault = true
+        appState.switchVault(to: vault)
+        // Reload vault is triggered by the app state change in ContentView
+    }
+
     // MARK: - Command Handling
 
-    /// Processes a keyboard shortcut command and returns any UI action needed.
+    /// Processes a keyboard shortcut command, routing UI actions through the coordinator.
+    ///
+    /// Replaces the previous 5-`inout` parameter signature with a single coordinator.
+    /// Layout commands (toggle sidebar) route through `WorkspaceStore`.
     public func handleCommand(
         _ command: CommandAction,
-        showNewNote: inout Bool,
-        showNewFolder: inout Bool,
-        showSearch: inout Bool,
-        columnVisibility: inout NavigationSplitViewVisibility,
-        newNoteParent: inout URL?
+        coordinator: AppCoordinator,
+        workspaceStore: WorkspaceStore
     ) {
         switch command {
         case .newNote:
             if let root = sidebarViewModel?.vaultRootURL {
-                newNoteParent = root
-                showNewNote = true
+                coordinator.presentNewNote(in: root)
             }
         case .newFolder:
             if let root = sidebarViewModel?.vaultRootURL {
-                newNoteParent = root
-                showNewFolder = true
+                coordinator.presentNewFolder(in: root)
             }
         case .search, .globalSearch:
-            showSearch = true
+            coordinator.activeSheet = .search
         case .toggleSidebar:
-            withAnimation {
-                columnVisibility = columnVisibility == .all ? .detailOnly : .all
+            withAnimation(QuartzAnimation.content) {
+                workspaceStore.columnVisibility = workspaceStore.columnVisibility == .all
+                    ? .detailOnly : .all
             }
         case .dailyNote:
             createDailyNote()
@@ -373,6 +782,12 @@ public final class ContentViewModel {
     }
 
     private func applyFormatting(_ action: FormattingAction) {
+        // Prefer the new surgical EditorSession path (no full-text replacement)
+        if let session = editorSession {
+            session.applyFormatting(action)
+            return
+        }
+        // Legacy fallback for old NoteEditorView pipeline
         guard let editor = editorViewModel else { return }
         let formatter = MarkdownFormatter()
         let (newText, newSelection) = formatter.apply(

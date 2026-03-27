@@ -2,29 +2,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Export format for document export (macOS metadata panel).
-enum ExportFormat: String, CaseIterable {
-    case pdf
-    case plainText
-    case markdown
-
-    var displayName: String {
-        switch self {
-        case .pdf: return String(localized: "PDF", bundle: .module)
-        case .plainText: return String(localized: "Plain Text (.txt)", bundle: .module)
-        case .markdown: return String(localized: "Markdown (.md)", bundle: .module)
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .pdf: return "doc.richtext"
-        case .plainText: return "doc.text"
-        case .markdown: return "doc.plaintext"
-        }
-    }
-}
-
 /// Right-hand metadata panel for the note editor: outline, folder path, tags (editable), export.
 struct NoteMetadataPanelView: View {
     let note: NoteDocument

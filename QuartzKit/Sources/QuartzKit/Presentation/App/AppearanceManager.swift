@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Manages the app's appearance (theme, font size).
+/// Manages the app's appearance (theme, font, spacing, dark mode).
 ///
 /// Injected into views via `@Environment` and persists
 /// settings in `UserDefaults`.
@@ -31,13 +31,58 @@ public final class AppearanceManager {
         }
     }
 
-    /// Current theme.
+    // MARK: - Editor Font Family
+
+    public enum EditorFontFamily: String, CaseIterable, Codable, Sendable {
+        case system      // SF Pro
+        case serif       // New York
+        case monospaced  // SF Mono
+        case rounded     // SF Rounded
+
+        public var displayName: String {
+            switch self {
+            case .system:     String(localized: "System", bundle: .module)
+            case .serif:      String(localized: "Serif", bundle: .module)
+            case .monospaced: String(localized: "Monospaced", bundle: .module)
+            case .rounded:    String(localized: "Rounded", bundle: .module)
+            }
+        }
+    }
+
+    // MARK: - Properties
+
     public var theme: Theme {
         didSet { save() }
     }
 
-    /// Editor font size (scale factor relative to Dynamic Type).
+    /// Editor font family (System, Serif, Monospaced, Rounded).
+    public var editorFontFamily: EditorFontFamily {
+        didSet { save() }
+    }
+
+    /// Editor font size in points (12–24).
+    public var editorFontSize: CGFloat {
+        didSet { save() }
+    }
+
+    /// Editor font scale — computed from editorFontSize for backward compatibility.
     public var editorFontScale: Double {
+        get { Double(editorFontSize) / 16.0 }
+        set { editorFontSize = CGFloat(newValue * 16.0).clamped(to: 12...24, default: 16) }
+    }
+
+    /// Line height multiplier (1.0–2.5).
+    public var editorLineSpacing: CGFloat {
+        didSet { save() }
+    }
+
+    /// Maximum text column width in points (400–1200).
+    public var editorMaxWidth: CGFloat {
+        didSet { save() }
+    }
+
+    /// True black background in dark mode (for OLED displays).
+    public var pureDarkMode: Bool {
         didSet { save() }
     }
 
@@ -68,10 +113,22 @@ public final class AppearanceManager {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.theme = Self.loadTheme(from: defaults)
-        self.editorFontScale = defaults.double(forKey: Keys.editorFontScale).clamped(to: 0.8...2.0, default: 1.0)
+        self.editorFontFamily = Self.loadFontFamily(from: defaults)
+        self.editorFontSize = defaults.double(forKey: Keys.editorFontSize).clamped(to: 12...24, default: 16)
+        self.editorLineSpacing = defaults.double(forKey: Keys.editorLineSpacing).clamped(to: 1.0...2.5, default: 1.5)
+        self.editorMaxWidth = defaults.double(forKey: Keys.editorMaxWidth).clamped(to: 400...1200, default: 720)
+        self.pureDarkMode = defaults.object(forKey: Keys.pureDarkMode) as? Bool ?? false
         self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
         self.accentColorHex = UInt(defaults.integer(forKey: Keys.accentColorHex)).clamped(to: 1...0xFFFFFF, default: 0xF2994A)
         self.showDashboardOnLaunch = defaults.object(forKey: Keys.showDashboardOnLaunch) as? Bool ?? true
+
+        // Migration: if editorFontSize was never set but editorFontScale was, derive size
+        if defaults.object(forKey: Keys.editorFontSize) == nil {
+            let oldScale = defaults.double(forKey: Keys.editorFontScale)
+            if oldScale > 0 {
+                self.editorFontSize = round(16 * oldScale).clamped(to: 12...24, default: 16)
+            }
+        }
     }
 
     // MARK: - Persistence
@@ -79,6 +136,11 @@ public final class AppearanceManager {
     private enum Keys {
         static let theme = "quartz.appearance.theme"
         static let editorFontScale = "quartz.appearance.editorFontScale"
+        static let editorFontFamily = "quartz.appearance.editorFontFamily"
+        static let editorFontSize = "quartz.appearance.editorFontSize"
+        static let editorLineSpacing = "quartz.appearance.editorLineSpacing"
+        static let editorMaxWidth = "quartz.appearance.editorMaxWidth"
+        static let pureDarkMode = "quartz.appearance.pureDarkMode"
         static let vibrantTransparency = "quartz.appearance.vibrantTransparency"
         static let accentColorHex = "quartz.appearance.accentColorHex"
         static let showDashboardOnLaunch = "quartz.appearance.showDashboardOnLaunch"
@@ -86,7 +148,12 @@ public final class AppearanceManager {
 
     private func save() {
         defaults.set(theme.rawValue, forKey: Keys.theme)
+        defaults.set(editorFontFamily.rawValue, forKey: Keys.editorFontFamily)
+        defaults.set(Double(editorFontSize), forKey: Keys.editorFontSize)
         defaults.set(editorFontScale, forKey: Keys.editorFontScale)
+        defaults.set(Double(editorLineSpacing), forKey: Keys.editorLineSpacing)
+        defaults.set(Double(editorMaxWidth), forKey: Keys.editorMaxWidth)
+        defaults.set(pureDarkMode, forKey: Keys.pureDarkMode)
         defaults.set(vibrantTransparency, forKey: Keys.vibrantTransparency)
         defaults.set(Int(accentColorHex), forKey: Keys.accentColorHex)
         defaults.set(showDashboardOnLaunch, forKey: Keys.showDashboardOnLaunch)
@@ -98,6 +165,14 @@ public final class AppearanceManager {
             return .system
         }
         return theme
+    }
+
+    private static func loadFontFamily(from defaults: UserDefaults) -> EditorFontFamily {
+        guard let raw = defaults.string(forKey: Keys.editorFontFamily),
+              let family = EditorFontFamily(rawValue: raw) else {
+            return .system
+        }
+        return family
     }
 }
 
@@ -125,6 +200,13 @@ private extension Double {
 
 private extension UInt {
     func clamped(to range: ClosedRange<UInt>, default defaultValue: UInt) -> UInt {
+        if self == 0 { return defaultValue }
+        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>, default defaultValue: CGFloat) -> CGFloat {
         if self == 0 { return defaultValue }
         return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }

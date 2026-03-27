@@ -11,6 +11,8 @@ public extension Notification.Name {
     static let quartzSpotlightNoteRelocated = Notification.Name("quartzSpotlightNoteRelocated")
     /// Posted after a note is renamed. `userInfo["oldURL"]` and `userInfo["newURL"]` contain the file URLs.
     static let quartzNoteRenamed = Notification.Name("quartzNoteRenamed")
+    /// Posted when the preview cache changes (note save, reindex).
+    static let quartzPreviewCacheDidChange = Notification.Name("quartzPreviewCacheDidChange")
 }
 
 public enum SidebarFilter: String, CaseIterable, Sendable {
@@ -56,6 +58,10 @@ public final class SidebarViewModel {
     public private(set) var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
+    /// Set by ContentViewModel for sidebar indexing status display.
+    public var indexingProgress: (current: Int, total: Int)?
+    /// Set by ContentViewModel for sidebar sync status display.
+    public var cloudSyncStatus: CloudSyncStatus = .notApplicable
 
     private static let sortOrderKey = "quartz.sidebarSortOrder"
     private var cachedSortOrder: SidebarSortOrder?

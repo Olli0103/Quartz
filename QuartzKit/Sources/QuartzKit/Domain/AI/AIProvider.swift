@@ -33,6 +33,17 @@ public protocol AIProvider: Sendable {
         temperature: Double
     ) async throws -> AIMessage
 
+    /// Streaming chat completion — yields content tokens as they arrive.
+    ///
+    /// Default implementation falls back to the blocking `chat()` call
+    /// and yields the entire response at once. Providers that support SSE
+    /// (OpenAI, OpenRouter) override this for real token-by-token streaming.
+    func streamChat(
+        messages: [AIMessage],
+        model: String?,
+        temperature: Double
+    ) -> AsyncThrowingStream<String, Error>
+
     /// Tests connectivity and configuration. Default implementation sends a minimal chat.
     func checkConnection() async -> Bool
 }
@@ -41,6 +52,32 @@ public extension AIProvider {
     /// Default: treat key-based configuration as usable; network is not preflighted.
     var reachability: AIProviderReachability {
         isConfigured ? .reachable : .unreachable
+    }
+
+    /// Default streaming: falls back to blocking chat() and yields the full response.
+    func streamChat(
+        messages: [AIMessage],
+        model: String?,
+        temperature: Double
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let capturedMessages = messages
+            let capturedModel = model
+            let capturedTemp = temperature
+            Task {
+                do {
+                    let response = try await self.chat(
+                        messages: capturedMessages,
+                        model: capturedModel,
+                        temperature: capturedTemp
+                    )
+                    continuation.yield(response.content)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     func checkConnection() async -> Bool {
@@ -144,6 +181,62 @@ public final class OpenAIProvider: AIProvider, Sendable {
             throw AIProviderError.emptyResponse
         }
         return AIMessage(role: .assistant, content: content)
+    }
+
+    public func streamChat(
+        messages: [AIMessage],
+        model: String?,
+        temperature: Double
+    ) -> AsyncThrowingStream<String, Error> {
+        let keychain = self.keychain
+        let providerID = self.id
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let apiKey = try await keychain.getKey(for: providerID)
+                    let modelID = model ?? "gpt-4o"
+
+                    var body = OpenAIChatBody(
+                        model: modelID,
+                        messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                        temperature: temperature
+                    )
+                    body.stream = true
+
+                    var request = URLRequest(url: OpenAIProvider.chatURL)
+                    request.httpMethod = "POST"
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.httpBody = try JSONEncoder().encode(body)
+
+                    let (asyncBytes, httpResponse) = try await aiURLSession.bytes(for: request)
+
+                    if let http = httpResponse as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        var errorData = Data()
+                        for try await byte in asyncBytes { errorData.append(byte) }
+                        _ = try validateHTTPResponse(errorData, httpResponse, provider: providerID)
+                    }
+
+                    for try await line in asyncBytes.lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst(6))
+
+                        if payload == "[DONE]" { break }
+
+                        guard let data = payload.data(using: .utf8),
+                              let chunk = try? JSONDecoder().decode(OpenAIStreamChunk.self, from: data),
+                              let content = chunk.choices?.first?.delta?.content,
+                              !content.isEmpty else { continue }
+
+                        continuation.yield(content)
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 }
 
@@ -479,6 +572,63 @@ public final class OpenRouterProvider: AIProvider, Sendable {
         }
         return AIMessage(role: .assistant, content: content)
     }
+
+    public func streamChat(
+        messages: [AIMessage],
+        model: String?,
+        temperature: Double
+    ) -> AsyncThrowingStream<String, Error> {
+        let keychain = self.keychain
+        let providerID = self.id
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let apiKey = try await keychain.getKey(for: providerID)
+                    let modelID = model ?? "anthropic/claude-sonnet-4"
+
+                    var body = OpenAIChatBody(
+                        model: modelID,
+                        messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                        temperature: temperature
+                    )
+                    body.stream = true
+
+                    var request = URLRequest(url: OpenRouterProvider.chatURL)
+                    request.httpMethod = "POST"
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
+                    request.httpBody = try JSONEncoder().encode(body)
+
+                    let (asyncBytes, httpResponse) = try await aiURLSession.bytes(for: request)
+
+                    if let http = httpResponse as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                        var errorData = Data()
+                        for try await byte in asyncBytes { errorData.append(byte) }
+                        _ = try validateHTTPResponse(errorData, httpResponse, provider: providerID)
+                    }
+
+                    for try await line in asyncBytes.lines {
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst(6))
+
+                        if payload == "[DONE]" { break }
+
+                        guard let data = payload.data(using: .utf8),
+                              let chunk = try? JSONDecoder().decode(OpenAIStreamChunk.self, from: data),
+                              let content = chunk.choices?.first?.delta?.content,
+                              !content.isEmpty else { continue }
+
+                        continuation.yield(content)
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Provider Registry
@@ -745,6 +895,7 @@ struct OpenAIChatBody: Codable, Sendable {
     let model: String
     let messages: [OpenAIChatMessage]
     let temperature: Double
+    var stream: Bool?
 }
 
 struct OpenAIChatMessage: Codable, Sendable {
@@ -830,4 +981,21 @@ struct GeminiChatResponse: Codable, Sendable {
 
 struct GeminiCandidate: Codable, Sendable {
     let content: GeminiContent
+}
+
+// MARK: - SSE Streaming DTOs (OpenAI-compatible format, used by OpenAI + OpenRouter)
+
+/// A single SSE chunk from an OpenAI-compatible streaming response.
+/// `data: {"id":"...","choices":[{"delta":{"content":"token"}}]}`
+struct OpenAIStreamChunk: Codable, Sendable {
+    let choices: [OpenAIStreamChoice]?
+}
+
+struct OpenAIStreamChoice: Codable, Sendable {
+    let delta: OpenAIStreamDelta?
+    let finish_reason: String?
+}
+
+struct OpenAIStreamDelta: Codable, Sendable {
+    let content: String?
 }

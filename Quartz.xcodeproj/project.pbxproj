@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FC4D86D22F644172004187F7 /* QuartzKit in Frameworks */ = {isa = PBXBuildFile; productRef = FC4D86D12F644172004187F7 /* QuartzKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		FC4D86A82F644172004187F7 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -28,10 +32,6 @@
 		FC4D86A72F644172004187F7 /* QuartzTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartzTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC4D86B12F644172004187F7 /* QuartzUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartzUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXBuildFile section */
-		FC4D86D22F644172004187F7 /* QuartzKit in Frameworks */ = {isa = PBXBuildFile; productRef = FC4D86D12F644172004187F7 /* QuartzKit */; };
-/* End PBXBuildFile section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FC4D869C2F644170004187F7 /* Quartz */ = {
@@ -399,6 +399,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = Quartz/Quartz.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -409,6 +410,12 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Quartz Notes";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Quartz uses the camera to capture photos and scan documents for your notes.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Quartz uses Face ID to protect your notes with App Lock.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Quartz needs microphone access to record audio notes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Quartz uses your photo library to insert images into notes.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Quartz uses speech recognition to transcribe your audio notes.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -419,15 +426,12 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_NSFaceIDUsageDescription = "Quartz uses Face ID to protect your notes with App Lock.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Quartz needs microphone access to record audio notes.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Quartz uses speech recognition to transcribe your audio notes.";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = olli.Quartz;
+				PRODUCT_BUNDLE_IDENTIFIER = olli.QuartzNotes;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -449,6 +453,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = Quartz/Quartz.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -459,6 +464,12 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Quartz Notes";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Quartz uses the camera to capture photos and scan documents for your notes.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Quartz uses Face ID to protect your notes with App Lock.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Quartz needs microphone access to record audio notes.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Quartz uses your photo library to insert images into notes.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Quartz uses speech recognition to transcribe your audio notes.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -469,15 +480,12 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_NSFaceIDUsageDescription = "Quartz uses Face ID to protect your notes with App Lock.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Quartz needs microphone access to record audio notes.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Quartz uses speech recognition to transcribe your audio notes.";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = olli.Quartz;
+				PRODUCT_BUNDLE_IDENTIFIER = olli;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;

@@ -52,6 +52,40 @@ public actor NoteChatService {
         )
     }
 
+    /// Streaming variant — returns an `AsyncThrowingStream` of content tokens.
+    ///
+    /// Uses the same system prompt construction and 100K truncation as `sendMessage`.
+    /// Providers with real SSE support (OpenAI, OpenRouter) stream token-by-token;
+    /// others fall back to yielding the full response at once.
+    public func streamMessage(
+        _ userMessage: String,
+        noteContent: String,
+        noteTitle: String,
+        chatHistory: [AIMessage] = [],
+        temperature: Double = 0.7
+    ) async throws -> AsyncThrowingStream<String, Error> {
+        let provider = await providerRegistry.selectedProvider
+        let modelID = await providerRegistry.selectedModelID
+
+        guard let provider else {
+            throw NoteChatError.noProviderConfigured
+        }
+
+        let systemPrompt = buildSystemPrompt(noteTitle: noteTitle, noteContent: noteContent)
+
+        var messages: [AIMessage] = [
+            AIMessage(role: .system, content: systemPrompt)
+        ]
+        messages.append(contentsOf: chatHistory)
+        messages.append(AIMessage(role: .user, content: userMessage))
+
+        return provider.streamChat(
+            messages: messages,
+            model: modelID,
+            temperature: temperature
+        )
+    }
+
     // MARK: - Private
 
     private func buildSystemPrompt(noteTitle: String, noteContent: String) -> String {

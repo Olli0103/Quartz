@@ -34,7 +34,7 @@ public struct SettingsView: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .tabItem {
-                    Label(String(localized: "Data", bundle: .module), systemImage: "externaldrive")
+                    Label(String(localized: "Data & Sync", bundle: .module), systemImage: "arrow.triangle.2.circlepath.icloud")
                 }
 
             SecuritySettingsView()
@@ -96,13 +96,13 @@ public struct SettingsView: View {
                         DataSettingsView()
                     } label: {
                         SettingsRow(
-                            icon: "externaldrive",
+                            icon: "arrow.triangle.2.circlepath.icloud",
                             iconColor: QuartzColors.assetOrange,
-                            title: String(localized: "Data", bundle: .module)
+                            title: String(localized: "Data & Sync", bundle: .module)
                         )
                     }
                 } header: {
-                    Text(String(localized: "Data & Import", bundle: .module))
+                    Text(String(localized: "Data & Sync", bundle: .module))
                 }
 
                 Section {

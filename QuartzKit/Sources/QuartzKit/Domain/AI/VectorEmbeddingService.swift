@@ -2,6 +2,7 @@ import Foundation
 import NaturalLanguage
 @preconcurrency import Accelerate
 import CryptoKit
+import os
 
 // MARK: - Embedding Entry
 
@@ -34,6 +35,7 @@ public actor VectorEmbeddingService {
     private let indexURL: URL
     private let chunkSize: Int
     private let language: NLLanguage
+    private let logger = Logger(subsystem: "com.quartz", category: "Embeddings")
 
     /// Dimension of the embedding vectors.
     public var embeddingDimension: Int { 512 }
@@ -67,11 +69,14 @@ public actor VectorEmbeddingService {
     public func loadIndex() throws {
         guard FileManager.default.fileExists(atPath: indexURL.path()) else {
             index = []
+            logger.info("loadIndex: no index file found, starting fresh")
             return
         }
 
         let data = try CoordinatedFileWriter.shared.read(from: indexURL)
         index = try Self.decodeBinary(data)
+        let uniqueNotes = Set(index.map(\.noteID)).count
+        logger.info("loadIndex: loaded \(self.index.count) chunks from \(uniqueNotes) notes")
     }
 
     /// Saves the embedding index to disk (binary format).
@@ -203,9 +208,13 @@ public actor VectorEmbeddingService {
     /// Indexes a note: chunk text → generate embeddings → store in index.
     public func indexNote(noteID: UUID, content: String) throws {
         // Remove old entries
+        let removedCount = index.filter { $0.noteID == noteID }.count
         index.removeAll { $0.noteID == noteID }
 
-        guard !content.isEmpty else { return }
+        guard !content.isEmpty else {
+            logger.debug("indexNote: empty content for \(noteID), skipped")
+            return
+        }
 
         // Truncate very large documents to prevent excessive memory usage
         let truncated = content.count > Self.maxIndexableContentSize
@@ -216,6 +225,7 @@ public actor VectorEmbeddingService {
         let chunks = chunkText(truncated)
 
         // Generate embeddings
+        var addedCount = 0
         for (i, chunk) in chunks.enumerated() {
             if let embedding = generateEmbedding(for: chunk) {
                 let entry = EmbeddingEntry(
@@ -225,8 +235,11 @@ public actor VectorEmbeddingService {
                     embedding: embedding
                 )
                 index.append(entry)
+                addedCount += 1
             }
         }
+
+        logger.debug("indexNote: \(noteID) — \(chunks.count) chunks, \(addedCount) embedded (removed \(removedCount) old). Total index: \(self.index.count)")
     }
 
     /// Removes all embeddings for a note.
@@ -249,6 +262,7 @@ public actor VectorEmbeddingService {
         threshold: Float = 0.3
     ) -> [SearchResult] {
         guard let queryEmbedding = generateEmbedding(for: query) else {
+            logger.warning("search: failed to generate embedding for query, returning empty")
             return []
         }
 
@@ -264,14 +278,23 @@ public actor VectorEmbeddingService {
             }
         }
 
-        return results
+        let sorted = results
             .sorted { $0.similarity > $1.similarity }
             .prefix(limit)
             .map { $0 }
+
+        let uniqueNotes = Set(sorted.map(\.entry.noteID)).count
+        let topScore = sorted.first?.similarity ?? 0
+        logger.debug("search: query='\(query.prefix(50))' index=\(self.index.count) threshold=\(threshold) matches=\(results.count) returned=\(sorted.count) uniqueNotes=\(uniqueNotes) topScore=\(topScore)")
+
+        return sorted
     }
 
     /// Number of indexed chunks.
     public var entryCount: Int { index.count }
+
+    /// Number of unique notes in the index.
+    public var indexedNoteCount: Int { Set(index.map(\.noteID)).count }
 
     /// All indexed note IDs.
     public var indexedNoteIDs: Set<UUID> {

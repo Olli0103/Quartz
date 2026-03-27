@@ -25,10 +25,11 @@ public final class FocusModeManager {
     public var dimmedLineOpacity: Double = 0.3
 
     public init() {
+        // Focus mode always starts OFF — it's a session-only state, not persisted across launches.
+        // Users expect the full 3-pane layout when they open the app.
+        isFocusModeActive = false
+
         let defaults = UserDefaults.standard
-        if defaults.object(forKey: Self.focusKey) != nil {
-            isFocusModeActive = defaults.bool(forKey: Self.focusKey)
-        }
         if defaults.object(forKey: Self.typewriterKey) != nil {
             isTypewriterModeActive = defaults.bool(forKey: Self.typewriterKey)
         }

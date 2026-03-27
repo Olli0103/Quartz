@@ -1,11 +1,9 @@
 import SwiftUI
 
 /// Appearance settings: theme, accent color, font size, vibrant transparency.
-/// Matches the design with large theme cards, accent swatches, and font preview.
 public struct AppearanceSettingsView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .body) private var baseBodySize: CGFloat = 17
 
     private static let accentOptions: [(UInt, String)] = [
         (0x007AFF, "Blue"),
@@ -21,28 +19,40 @@ public struct AppearanceSettingsView: View {
 
     public var body: some View {
         Form {
+            // MARK: - Theme
             Section {
-                HStack(spacing: 12) {
-                    ForEach(AppearanceManager.Theme.allCases, id: \.self) { theme in
-                        ThemeCard(
-                            theme: theme,
-                            isSelected: appearance.theme == theme
-                        ) {
-                            withAnimation(reduceMotion ? .default : QuartzAnimation.standard) {
-                                appearance.theme = theme
-                            }
+                Picker(selection: Binding(
+                    get: { appearance.theme },
+                    set: { newTheme in
+                        withAnimation(reduceMotion ? .default : QuartzAnimation.standard) {
+                            appearance.theme = newTheme
                         }
                     }
+                )) {
+                    ForEach(AppearanceManager.Theme.allCases, id: \.self) { theme in
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(themeFill(for: theme))
+                                .frame(width: 24, height: 16)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                                }
+                            Text(theme.displayName)
+                        }
+                        .tag(theme)
+                    }
+                } label: {
+                    Text(String(localized: "Theme", bundle: .module))
                 }
-                .padding(.vertical, 8)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .pickerStyle(.inline)
             } header: {
                 Text(String(localized: "Theme", bundle: .module))
             }
 
+            // MARK: - Accent Color
             Section {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     ForEach(Array(Self.accentOptions.enumerated()), id: \.offset) { _, item in
                         Button {
                             withAnimation(reduceMotion ? .default : QuartzAnimation.soft) {
@@ -52,32 +62,24 @@ public struct AppearanceSettingsView: View {
                             accentSwatch(color: Color(hex: item.0), isSelected: appearance.accentColorHex == item.0)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(item.1)
+                        .accessibilityAddTraits(appearance.accentColorHex == item.0 ? .isSelected : [])
                     }
-                    Button {
-                        // Custom color – future enhancement
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().strokeBorder(.separator, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
+                    Spacer()
                 }
-                .padding(.vertical, 8)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .padding(.vertical, 4)
             } header: {
                 Text(String(localized: "Accent Color", bundle: .module))
             }
 
+            // MARK: - Editor Font Size
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(String(localized: "Editor Font Size", bundle: .module))
                             .font(.subheadline)
                         Spacer()
-                        Text("\(Int(baseBodySize * appearance.editorFontScale * 0.85))px")
+                        Text("\(Int(appearance.editorFontSize))pt")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(appearance.accentColor)
                             .monospacedDigit()
@@ -91,33 +93,30 @@ public struct AppearanceSettingsView: View {
 
                     Slider(
                         value: Binding(
-                            get: { appearance.editorFontScale },
-                            set: { appearance.editorFontScale = $0 }
+                            get: { appearance.editorFontSize },
+                            set: { appearance.editorFontSize = $0 }
                         ),
-                        in: 0.8...2.0,
-                        step: 0.1
+                        in: 12...24,
+                        step: 1
                     )
                     .tint(appearance.accentColor)
 
-                    Text(String(localized: "The quick brown fox jumps over the lazy dog. Quartz makes note-taking effortless and beautiful.", bundle: .module))
-                        .font(.system(size: baseBodySize * appearance.editorFontScale * 0.85))
+                    Text(String(localized: "The quick brown fox jumps over the lazy dog.", bundle: .module))
+                        .font(.system(size: appearance.editorFontSize))
                         .foregroundStyle(.secondary)
-                        .padding(16)
+                        .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(.fill.quaternary.opacity(0.5))
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.fill.quaternary)
                         )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 2, dash: [8]))
-                        }
-                        .animation(reduceMotion ? .default : QuartzAnimation.fontScale, value: appearance.editorFontScale)
+                        .animation(.smooth(duration: 0.2), value: appearance.editorFontSize)
                 }
             } header: {
                 Text(String(localized: "Editor", bundle: .module))
             }
 
+            // MARK: - Visual Effects
             Section {
                 Toggle(isOn: Binding(
                     get: { appearance.vibrantTransparency },
@@ -125,15 +124,32 @@ public struct AppearanceSettingsView: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(String(localized: "Vibrant Transparency", bundle: .module))
-                        Text(String(localized: "Apply a glass effect to sidebar and title bar", bundle: .module))
+                        Text(String(localized: "Apply a translucent glass effect to sidebar and toolbars", bundle: .module))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 .tint(appearance.accentColor)
+
+                Toggle(isOn: Binding(
+                    get: { appearance.pureDarkMode },
+                    set: { appearance.pureDarkMode = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "Pure Dark Mode", bundle: .module))
+                        Text(String(localized: "True black background for OLED displays", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tint(appearance.accentColor)
+                .disabled(appearance.theme == .light)
+            } header: {
+                Text(String(localized: "Visual Effects", bundle: .module))
             }
 
             #if os(macOS)
+            // MARK: - Dashboard
             Section {
                 Toggle(isOn: Binding(
                     get: { appearance.showDashboardOnLaunch },
@@ -156,64 +172,34 @@ public struct AppearanceSettingsView: View {
         .navigationTitle(String(localized: "Appearance", bundle: .module))
     }
 
+    // MARK: - Accent Swatch
+
     private func accentSwatch(color: Color, isSelected: Bool) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: 32, height: 32)
-            .overlay {
+        ZStack {
+            Circle()
+                .fill(color)
+                .frame(width: 28, height: 28)
+
+            if isSelected {
                 Circle()
-                    .strokeBorder(isSelected ? color : .clear, lineWidth: 3)
+                    .strokeBorder(.white, lineWidth: 2)
+                    .frame(width: 28, height: 28)
+
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
             }
-    }
-}
-
-// MARK: - Theme Card
-
-private struct ThemeCard: View {
-    let theme: AppearanceManager.Theme
-    let isSelected: Bool
-    let action: () -> Void
-    @Environment(\.appearanceManager) private var appearance
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 12) {
-                // Mini preview
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(previewFill)
-                    .frame(height: 48)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(
-                                isSelected ? appearance.accentColor : .clear,
-                                lineWidth: 2.5
-                            )
-                    }
-                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
-
-                // Selected indicator
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(appearance.accentColor)
-                        .transition(.scale.combined(with: .opacity))
-                }
-
-                Text(theme.displayName)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isSelected)
         }
-        .buttonStyle(QuartzCardButtonStyle())
-        .accessibilityLabel(String(localized: "\(theme.displayName) theme", bundle: .module))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .frame(width: 34, height: 34)
+        .background(
+            Circle()
+                .strokeBorder(isSelected ? color : .clear, lineWidth: 2.5)
+        )
     }
 
-    private var previewFill: some ShapeStyle {
+    // MARK: - Theme Fill
+
+    private func themeFill(for theme: AppearanceManager.Theme) -> some ShapeStyle {
         switch theme {
         case .light:
             return AnyShapeStyle(Color.white)

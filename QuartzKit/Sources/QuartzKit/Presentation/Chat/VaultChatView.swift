@@ -1,20 +1,34 @@
 import SwiftUI
 
-/// Chat interface for asking questions across the entire vault using semantic search.
+/// Streaming chat interface for vault-wide Q&A with semantic search and citations.
+///
+/// Uses `VaultChatSession2` for 30fps streaming, renders inline `[Source N]`
+/// citation badges via `VaultCitationRenderer`, and shows `VaultSourceCard`
+/// components below AI responses.
+///
+/// **Ref:** Phase F4 Spec — VaultChatView
 public struct VaultChatView: View {
-    @State private var session: VaultChatSession
+    let session: VaultChatSession2
+    var onNavigateToNote: ((UUID) -> Void)?
+    var onReindex: (() -> Void)?
+
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appearanceManager) private var appearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let onNavigateToNote: ((UUID) -> Void)?
+    @ScaledMetric(relativeTo: .callout) private var bubblePadding: CGFloat = 12
+    @ScaledMetric(relativeTo: .callout) private var bubbleSpacer: CGFloat = 60
 
     public init(
-        session: VaultChatSession,
-        onNavigateToNote: ((UUID) -> Void)? = nil
+        session: VaultChatSession2,
+        onNavigateToNote: ((UUID) -> Void)? = nil,
+        onReindex: (() -> Void)? = nil
     ) {
-        _session = State(initialValue: session)
+        self.session = session
         self.onNavigateToNote = onNavigateToNote
+        self.onReindex = onReindex
     }
 
     public var body: some View {
@@ -33,20 +47,26 @@ public struct VaultChatView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Close", bundle: .module)) { dismiss() }
+                    Button(String(localized: "Close", bundle: .module)) {
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
+                        QuartzFeedback.destructive()
                         session.clear()
                     } label: {
                         Image(systemName: "trash")
+                            .symbolRenderingMode(.hierarchical)
                     }
-                    .disabled(session.messages.isEmpty)
+                    .disabled(session.messages.isEmpty && session.streamingState == .idle)
+                    .accessibilityLabel(String(localized: "Clear chat history", bundle: .module))
                 }
             }
         }
         #if os(macOS)
-        .frame(minWidth: 440, idealWidth: 520, minHeight: 480, idealHeight: 640)
+        .frame(minWidth: 520, idealWidth: 600, minHeight: 520, idealHeight: 720)
+        .onAppear { isInputFocused = true }
         #endif
     }
 
@@ -55,42 +75,228 @@ public struct VaultChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
-                    if session.messages.isEmpty {
+                LazyVStack(spacing: 16) {
+                    if session.messages.isEmpty && session.streamingState == .idle {
                         emptyState
                     }
 
                     ForEach(session.messages) { message in
-                        VaultMessageBubble(
-                            message: message,
-                            onSourceTap: onNavigateToNote
-                        )
-                        .id(message.id)
+                        messageBubble(for: message)
+                            .id(message.id)
                     }
 
-                    if session.isLoading {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(String(localized: "Searching vault…", bundle: .module))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .id("loading")
+                    // Streaming states
+                    if session.streamingState == .waiting {
+                        waitingIndicator
+                            .id("streaming-indicator")
+                    } else if session.streamingState == .streaming {
+                        streamingBubble
+                            .id("streaming-indicator")
                     }
+
+                    Color.clear.frame(height: 1).id("bottom-anchor")
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, 16)
             }
             .onChange(of: session.messages.count) { _, _ in
-                withAnimation {
-                    if let last = session.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: session.streamingContent) { _, _ in
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: session.streamingState) { _, newState in
+                if newState == .waiting || newState == .streaming {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if reduceMotion {
+            proxy.scrollTo("bottom-anchor", anchor: .bottom)
+        } else {
+            withAnimation(QuartzAnimation.soft) {
+                proxy.scrollTo("bottom-anchor", anchor: .bottom)
+            }
+        }
+    }
+
+    // MARK: - Message Bubble
+
+    private func messageBubble(for message: VaultChatMessage2) -> some View {
+        HStack(alignment: .top) {
+            if message.role == .user {
+                Spacer(minLength: min(bubbleSpacer, 100))
+            }
+
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
+                // AI identity marker
+                if message.role == .assistant {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 4)
+                }
+
+                // Message content
+                Group {
+                    if message.role == .assistant && !message.citations.isEmpty {
+                        VaultCitationRenderer(text: message.content, citations: message.citations)
+                    } else if message.role == .assistant {
+                        renderedMarkdown(message.content)
+                    } else {
+                        Text(message.content)
+                    }
+                }
+                .font(.callout)
+                .textSelection(.enabled)
+                .padding(bubblePadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(message.role == .user
+                              ? AnyShapeStyle(appearance.accentColor.opacity(0.12))
+                              : AnyShapeStyle(Color.secondary.opacity(0.1)))
+                )
+
+                // Source cards for AI responses with citations
+                if message.role == .assistant && !message.citations.isEmpty {
+                    sourcesSection(for: message.citations)
+                }
+
+                // Incomplete indicator
+                if !message.isComplete {
+                    Text(String(localized: "Incomplete response", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            if message.role != .user {
+                Spacer(minLength: min(bubbleSpacer, 100))
+            }
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            message.role == .user
+                ? String(localized: "You asked: \(message.content)", bundle: .module)
+                : String(localized: "AI response: \(message.content). Citing \(message.citations.count) sources.", bundle: .module)
+        )
+    }
+
+    // MARK: - Sources Section
+
+    private func sourcesSection(for citations: [Citation]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "Sources", bundle: .module))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+                .padding(.leading, 4)
+
+            VStack(spacing: 8) {
+                ForEach(citations) { citation in
+                    VaultSourceCard(citation: citation) { noteID in
+                        onNavigateToNote?(noteID)
+                        dismiss()
                     }
                 }
             }
         }
+    }
+
+    /// Renders markdown content using AttributedString for inline formatting.
+    @ViewBuilder
+    private func renderedMarkdown(_ text: String) -> some View {
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            Text(attributed)
+        } else {
+            Text(text)
+        }
+    }
+
+    // MARK: - Streaming States
+
+    private var waitingIndicator: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 4)
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "Searching vault…", bundle: .module))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(bubblePadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.secondary.opacity(0.1))
+                )
+            }
+            Spacer(minLength: min(bubbleSpacer, 100))
+        }
+        .padding(.horizontal, 16)
+        .accessibilityLabel(String(localized: "Searching vault and generating response", bundle: .module))
+    }
+
+    private var streamingBubble: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 4)
+
+                HStack(spacing: 0) {
+                    if !session.currentCitations.isEmpty {
+                        VaultCitationRenderer(
+                            text: session.streamingContent,
+                            citations: session.currentCitations
+                        )
+                        .font(.callout)
+                    } else {
+                        renderedMarkdown(session.streamingContent)
+                            .font(.callout)
+                    }
+
+                    // Blinking cursor
+                    if reduceMotion {
+                        Text("…")
+                            .font(.callout)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Text("|")
+                            .font(.callout.weight(.light))
+                            .foregroundStyle(.secondary)
+                            .opacity(1)
+                            .animation(
+                                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                                value: session.streamingState
+                            )
+                    }
+                }
+                .textSelection(.enabled)
+                .padding(bubblePadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.secondary.opacity(0.1))
+                )
+            }
+            Spacer(minLength: min(bubbleSpacer, 100))
+        }
+        .padding(.horizontal, 16)
+        .accessibilityLabel(String(localized: "AI is responding", bundle: .module))
+        .accessibilityValue(session.streamingContent)
     }
 
     // MARK: - Empty State
@@ -102,23 +308,63 @@ public struct VaultChatView: View {
                 .foregroundStyle(.quaternary)
 
             Text(String(localized: "Ask anything about your vault", bundle: .module))
-                .font(.subheadline)
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            Text(String(localized: "Uses semantic search to find relevant notes and answer with AI.", bundle: .module))
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+            if session.indexedNoteCount > 0 {
+                Text("\(session.indexedNoteCount) notes indexed (\(session.indexedChunkCount) chunks)")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text(String(localized: "No notes indexed yet.", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+
+                if let onReindex {
+                    Button {
+                        QuartzFeedback.primaryAction()
+                        onReindex()
+                    } label: {
+                        Label(String(localized: "Build Index", bundle: .module), systemImage: "arrow.triangle.2.circlepath")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
 
             VStack(spacing: 6) {
-                suggestionButton("What are my main topics?")
-                suggestionButton("Summarize my recent ideas")
-                suggestionButton("Find connections between notes")
+                suggestionPill(String(localized: "What are my main topics?", bundle: .module))
+                suggestionPill(String(localized: "Summarize my recent ideas", bundle: .module))
+                suggestionPill(String(localized: "Find connections between notes", bundle: .module))
             }
+            .padding(.top, 4)
         }
         .padding(.vertical, 32)
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func suggestionPill(_ text: String) -> some View {
+        Button {
+            QuartzFeedback.selection()
+            inputText = text
+            sendMessage()
+        } label: {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(appearance.accentColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(appearance.accentColor.opacity(0.1))
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "Suggestion: \(text)", bundle: .module))
+        .accessibilityHint(String(localized: "Double tap to ask this question", bundle: .module))
     }
 
     // MARK: - Error Banner
@@ -126,43 +372,52 @@ public struct VaultChatView: View {
     private func errorBanner(_ error: VaultChatError) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.yellow)
-            Text(error.errorDescription ?? "An error occurred.")
+            Text(error.errorDescription ?? String(localized: "An error occurred.", bundle: .module))
                 .font(.callout)
                 .lineLimit(3)
             Spacer()
+
+            if case .indexEmpty = error, let onReindex {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    session.error = nil
+                    onReindex()
+                } label: {
+                    Label(String(localized: "Build Index", bundle: .module), systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Button {
+                    QuartzFeedback.selection()
+                    session.retry()
+                } label: {
+                    Text(String(localized: "Retry", bundle: .module))
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
             Button {
                 session.error = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
+                    .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Dismiss error", bundle: .module))
         }
         .padding(10)
         .quartzMaterialBackground(cornerRadius: 10)
         .padding(.horizontal, 12)
         .padding(.top, 8)
-    }
-
-    // MARK: - Suggestion Button
-
-    private func suggestionButton(_ text: String) -> some View {
-        Button {
-            inputText = text
-            sendMessage()
-        } label: {
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(QuartzColors.accent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(QuartzColors.accent.opacity(0.1))
-                )
-        }
-        .buttonStyle(.plain)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(QuartzAnimation.status, value: session.error != nil)
     }
 
     // MARK: - Input Bar
@@ -183,23 +438,29 @@ public struct VaultChatView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(.fill.tertiary)
             )
+            #if os(iOS)
+            .submitLabel(.send)
+            #endif
 
             Button {
                 sendMessage()
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(
-                        inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? Color.secondary.opacity(0.3)
-                        : QuartzColors.accent
-                    )
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isSendDisabled ? Color.secondary.opacity(0.3) : appearance.accentColor)
             }
             .buttonStyle(.plain)
-            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.isLoading)
+            .disabled(isSendDisabled)
+            .accessibilityLabel(String(localized: "Send message", bundle: .module))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var isSendDisabled: Bool {
+        inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || session.streamingState != .idle
     }
 
     // MARK: - Actions
@@ -207,133 +468,8 @@ public struct VaultChatView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        QuartzFeedback.primaryAction()
         inputText = ""
-        Task { await session.ask(text) }
-    }
-}
-
-// MARK: - Vault Message Bubble
-
-private struct VaultMessageBubble: View {
-    let message: VaultChatMessage
-    var onSourceTap: ((UUID) -> Void)?
-
-    var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 60) }
-
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                Text(message.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(message.role == .user
-                                  ? AnyShapeStyle(QuartzColors.accent.opacity(0.12))
-                                  : AnyShapeStyle(.tertiary.opacity(0.15)))
-                    )
-
-                if message.role == .assistant, !message.sources.isEmpty {
-                    sourcesView(message.sources)
-                }
-            }
-
-            if message.role != .user { Spacer(minLength: 60) }
-        }
-        .padding(.horizontal, 16)
-    }
-
-    @Environment(\.layoutDirection) private var layoutDirection
-
-    private func sourcesView(_ sources: [VaultSource]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(String(localized: "Sources", bundle: .module))
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-
-            FlowLayout(spacing: 4, layoutDirection: layoutDirection) {
-                ForEach(sources) { source in
-                    sourceChip(source)
-                }
-            }
-        }
-        .padding(.leading, 4)
-    }
-
-    private func sourceChip(_ source: VaultSource) -> some View {
-        Button {
-            onSourceTap?(source.noteID)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "doc.text")
-                    .font(.caption2)
-                Text(source.noteTitle)
-                    .font(.caption2)
-                    .lineLimit(1)
-            }
-            .foregroundStyle(QuartzColors.accent)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(QuartzColors.accent.opacity(0.08))
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Flow Layout
-
-/// Simple horizontal wrapping layout for source chips. Supports RTL via layoutDirection.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-    var layoutDirection: LayoutDirection = .leftToRight
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        let isRTL = layoutDirection == .rightToLeft
-        for (index, subview) in subviews.enumerated() {
-            guard index < result.origins.count else { continue }
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let x: CGFloat
-            if isRTL {
-                x = bounds.maxX - result.origins[index].x - size.width
-            } else {
-                x = bounds.minX + result.origins[index].x
-            }
-            let origin = CGPoint(x: x, y: bounds.minY + result.origins[index].y)
-            subview.place(at: origin, proposal: .unspecified)
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
-        var origins: [CGPoint] = []
-        var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if currentX + size.width > maxWidth, currentX > 0 {
-                currentX = 0
-                currentY += rowHeight + spacing
-                rowHeight = 0
-            }
-            origins.append(CGPoint(x: currentX, y: currentY))
-            rowHeight = max(rowHeight, size.height)
-            currentX += size.width + spacing
-        }
-
-        let totalHeight = currentY + rowHeight
-        return (origins, CGSize(width: maxWidth, height: totalHeight))
+        session.send(text)
     }
 }

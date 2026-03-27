@@ -245,13 +245,31 @@ public actor CloudSyncService {
 
     // MARK: - Ubiquity Container
 
+    /// The app-owned iCloud ubiquity container identifier.
+    public static let containerIdentifier = "iCloud.olli.QuartzNotes"
+
+    /// Returns the Documents directory inside the app's iCloud ubiquity container.
+    ///
+    /// **Must be called from a background thread.** The first call may block while
+    /// the system creates the container directory structure.
     public static func ubiquityContainerURL() -> URL? {
-        FileManager.default.url(forUbiquityContainerIdentifier: nil)?
+        FileManager.default.url(forUbiquityContainerIdentifier: containerIdentifier)?
             .appending(path: "Documents")
     }
 
+    /// Whether the user is signed in to iCloud (checks identity token).
+    /// This is safe to call from the main thread.
     public static var isAvailable: Bool {
         FileManager.default.ubiquityIdentityToken != nil
+    }
+
+    /// Resolves the ubiquity container URL on a background thread.
+    /// Returns `nil` if iCloud is unavailable or the container can't be created.
+    public static func resolveContainerURL() async -> URL? {
+        guard isAvailable else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            ubiquityContainerURL()
+        }.value
     }
 
     // MARK: - Private

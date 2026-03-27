@@ -1,7 +1,6 @@
 import SwiftUI
 
 /// Dropdown menu for quickly selecting heading levels (H1-H6) or converting to paragraph.
-/// Provides keyboard shortcuts Cmd+1 through Cmd+6 for direct heading selection.
 struct HeadingDropdown: View {
     let onHeading: (FormattingAction) -> Void
 
@@ -27,10 +26,15 @@ struct HeadingDropdown: View {
             }
         } label: {
             Image(systemName: "textformat.size.larger")
-                .font(.system(size: iconSize, weight: iconWeight))
+                .font(.body.weight(.medium))
+                .imageScale(.large)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.primary)
+                #if os(macOS)
+                .frame(minWidth: 32, minHeight: 32)
+                #else
                 .frame(minWidth: 44, minHeight: 44)
+                #endif
         }
         .menuStyle(.borderlessButton)
         .accessibilityLabel(String(localized: "Heading level", bundle: .module))
@@ -60,29 +64,4 @@ struct HeadingDropdown: View {
                 .foregroundStyle(.secondary)
         }
     }
-
-    private var iconSize: CGFloat {
-        #if os(macOS)
-        17
-        #else
-        14
-        #endif
-    }
-
-    private var iconWeight: Font.Weight {
-        #if os(macOS)
-        .semibold
-        #else
-        .medium
-        #endif
-    }
 }
-
-#if DEBUG
-#Preview {
-    HeadingDropdown { action in
-        print("Selected: \(action)")
-    }
-    .padding()
-}
-#endif

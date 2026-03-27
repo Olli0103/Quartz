@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Agent",
+      "WebSearch",
+      "WebFetch",
+      "Bash(git *)",
+      "Bash(swift build *)",
+      "Bash(swift test *)",
+      "Bash(xcodebuild *)",
+      "Bash(xcrun *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(cat *)",
+      "Bash(curl *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)"
+    ]
+  },
+  "env": {
+    "PROJECT_NAME": "Quartz",
+    "SWIFT_VERSION": "6.0",
+    "IOS_DEPLOYMENT_TARGET": "18.0",
+    "MACOS_DEPLOYMENT_TARGET": "15.0"
+  }
+}

@@ -67,7 +67,7 @@ public struct MarkdownTextViewRepresentable: View {
 
 #if os(iOS) || os(macOS)
 @MainActor
-private enum MarkdownTextKit2Stack {
+enum MarkdownTextKit2Stack {
     static func makeContentManager() -> MarkdownTextContentManager {
         MarkdownTextContentManager()
     }

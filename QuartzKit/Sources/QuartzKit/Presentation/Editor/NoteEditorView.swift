@@ -61,7 +61,6 @@ public struct NoteEditorView: View {
     #endif
     @State private var showSavedOverlay = false
     @State private var isPreviewMode = false
-    @State private var showCommandPalette = false
     @State private var showExternalModificationSheet = false
     @State private var diskBodyForMerge = ""
     private let formatter = MarkdownFormatter()
@@ -195,13 +194,7 @@ public struct NoteEditorView: View {
             // CENTER: Formatting toolbar
             ToolbarItemGroup(placement: .principal) {
                 MacEditorToolbar(
-                    isPreviewMode: isPreviewMode,
-                    onPreviewToggle: {
-                        QuartzFeedback.toggle()
-                        withPreviewTransition { isPreviewMode.toggle() }
-                    },
-                    onFormatting: applyFormatting,
-                    onImagePick: { showImagePicker = true }
+                    onFormatting: applyFormatting
                 )
                 .hidesInFocusMode()
             }
@@ -228,11 +221,6 @@ public struct NoteEditorView: View {
             ToolbarItem(placement: .primaryAction) {
                 toolbarActions
             }
-        }
-        .background {
-            Button("") { showCommandPalette = true }
-                .keyboardShortcut("k", modifiers: .command)
-                .hidden()
         }
         .keyboardShortcut(for: .bold) { applyFormatting(.bold) }
         .keyboardShortcut(for: .italic) { applyFormatting(.italic) }
@@ -261,13 +249,7 @@ public struct NoteEditorView: View {
         .overlay(alignment: .bottom) {
             if !isPreviewMode {
                 IosEditorToolbar(
-                    isPreviewMode: isPreviewMode,
-                    onPreviewToggle: {
-                        QuartzFeedback.toggle()
-                        withPreviewTransition { isPreviewMode.toggle() }
-                    },
                     onFormatting: applyFormatting,
-                    onImagePick: { showImageSourceSheet = true },
                     onSave: {
                         QuartzFeedback.primaryAction()
                         Task { await viewModel.manualSave() }
@@ -475,36 +457,6 @@ public struct NoteEditorView: View {
             isPreviewMode = false
             quickLookPreviewURL = nil
         }
-        .overlay {
-            if showCommandPalette {
-                CommandPaletteView(
-                    isPresented: $showCommandPalette,
-                    fileTree: viewModel.fileTree,
-                    vaultRootURL: viewModel.vaultRootURL,
-                    onSelectNote: { [viewModel] url in
-                        Task { @MainActor in
-                            await viewModel.loadNote(at: url)
-                        }
-                    },
-                    onNewNote: onNewNote,
-                    onSearch: onSearch,
-                    onTogglePreview: {
-                        QuartzFeedback.toggle()
-                        withPreviewTransition { isPreviewMode.toggle() }
-                    },
-                    onToggleFocusMode: {
-                        QuartzFeedback.toggle()
-                        withFocusChromeTransition { focusMode.isFocusModeActive.toggle() }
-                    },
-                    onSave: {
-                        Task { await viewModel.manualSave() }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .zIndex(100)
-            }
-        }
-        .animation(QuartzAnimation.content, value: showCommandPalette)
         .sheet(isPresented: $showExternalModificationSheet) {
             ExternalModificationMergeView(
                 localText: viewModel.content,
@@ -625,14 +577,13 @@ public struct NoteEditorView: View {
             let data = viewModel.generatePDFData(title: note.displayName, body: viewModel.content)
             pdfDocument = PDFFileDocument(data: data)
             showPDFExporter = true
-        case .plainText:
-            plainTextExportFilename = baseName + ".txt"
-            plainTextExportDocument = TextExportDocument(content: viewModel.content)
-            showPlainTextExporter = true
         case .markdown:
             markdownExportFilename = baseName + ".md"
             markdownExportDocument = TextExportDocument(content: viewModel.content)
             showMarkdownExporter = true
+        case .html, .rtf:
+            // Handled by the new NoteExportService in Part 2
+            break
         }
     }
     #endif
@@ -1449,6 +1400,7 @@ private struct TextExportDocument: FileDocument {
 struct EditorFormatButton: View {
     let action: FormattingAction
     let icon: String
+    var isActive: Bool = false
     let onTap: () -> Void
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1463,7 +1415,7 @@ struct EditorFormatButton: View {
             .font(.callout.weight(.medium))
             #endif
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(isPressed ? appearance.accentColor : .primary)
+            .foregroundStyle(isActive || isPressed ? appearance.accentColor : .primary)
             #if os(iOS)
             .frame(minWidth: 44, minHeight: 44)
             #else
@@ -1487,10 +1439,12 @@ struct EditorFormatButton: View {
                     .onEnded { _ in isPressed = false }
             )
             .accessibilityLabel(action.label)
+            .accessibilityAddTraits(isActive ? [.isSelected] : [])
             .help(action.shortcut.map { "\(action.label) (\($0))" } ?? action.label)
     }
 
     private var backgroundColor: Color {
+        if isActive { return appearance.accentColor.opacity(0.15) }
         if isPressed { return appearance.accentColor.opacity(0.25) }
         #if os(macOS)
         if isHovered { return Color.primary.opacity(0.08) }

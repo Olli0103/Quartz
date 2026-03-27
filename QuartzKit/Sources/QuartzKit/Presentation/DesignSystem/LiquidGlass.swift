@@ -227,13 +227,29 @@ public struct QuartzAmbientMeshBackground: View {
     }
 }
 
+// MARK: - Pure Dark Mode Shell Background
+
+private struct QuartzAmbientShellBackgroundModifier: ViewModifier {
+    @Environment(\.appearanceManager) private var appearance
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content.background {
+            if appearance.pureDarkMode && colorScheme == .dark {
+                Color.black.ignoresSafeArea()
+            } else {
+                QuartzAmbientMeshBackground(style: .shell)
+                    .ignoresSafeArea()
+            }
+        }
+    }
+}
+
 public extension View {
     /// Subtle ambient mesh (or gradient) behind content, edge-to-edge — for the main app shell.
+    /// When Pure Dark Mode is enabled and the system is in dark mode, uses true black (#000) instead.
     func quartzAmbientShellBackground() -> some View {
-        background {
-            QuartzAmbientMeshBackground(style: .shell)
-                .ignoresSafeArea()
-        }
+        modifier(QuartzAmbientShellBackgroundModifier())
     }
 
     /// Mesh under material for a chrome strip (e.g. editor header). Does not add animated effects.
@@ -583,11 +599,14 @@ public struct ShimmerModifier: ViewModifier {
             content
                 .overlay {
                     GeometryReader { geo in
+                        let loc0 = max(0, min(1, phase - 0.3))
+                        let loc1 = max(loc0, min(1, phase))
+                        let loc2 = max(loc1, min(1, phase + 0.3))
                         LinearGradient(
                             stops: [
-                                .init(color: .clear, location: max(0, phase - 0.3)),
-                                .init(color: .white.opacity(0.15), location: phase),
-                                .init(color: .clear, location: min(1, phase + 0.3)),
+                                .init(color: .clear, location: loc0),
+                                .init(color: .white.opacity(0.15), location: loc1),
+                                .init(color: .clear, location: loc2),
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing

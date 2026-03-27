@@ -48,32 +48,110 @@ public struct EditorSettingsView: View {
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(String(localized: "Editor Font Size", bundle: .module))
-                        Spacer()
-                        Text("\(Int(appearance.editorFontScale * 100))%")
-                            .font(.body.weight(.medium).monospacedDigit())
-                            .foregroundStyle(.secondary)
+                // Font Family
+                Picker(String(localized: "Font", bundle: .module), selection: Binding(
+                    get: { appearance.editorFontFamily },
+                    set: { appearance.editorFontFamily = $0 }
+                )) {
+                    ForEach(AppearanceManager.EditorFontFamily.allCases, id: \.self) { family in
+                        Text(family.displayName).tag(family)
                     }
+                }
 
+                // Font Size
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(String(localized: "Size", bundle: .module))
+                        Spacer()
+                        Text("\(Int(appearance.editorFontSize))pt")
+                            .font(.body.weight(.medium).monospacedDigit())
+                            .foregroundStyle(appearance.accentColor)
+                    }
                     Slider(
                         value: Binding(
-                            get: { appearance.editorFontScale },
-                            set: { appearance.editorFontScale = $0 }
+                            get: { appearance.editorFontSize },
+                            set: { appearance.editorFontSize = $0 }
                         ),
-                        in: 0.8...2.0,
-                        step: 0.1
-                    ) {
-                        Text(String(localized: "Font Size", bundle: .module))
-                    }
+                        in: 12...24,
+                        step: 1
+                    )
                     .tint(appearance.accentColor)
                 }
+
+                // Line Spacing
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(String(localized: "Line Spacing", bundle: .module))
+                        Spacer()
+                        Text(String(format: "%.1fx", appearance.editorLineSpacing))
+                            .font(.body.weight(.medium).monospacedDigit())
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { appearance.editorLineSpacing },
+                            set: { appearance.editorLineSpacing = $0 }
+                        ),
+                        in: 1.0...2.5,
+                        step: 0.1
+                    )
+                    .tint(appearance.accentColor)
+                }
+
+                // Max Width
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(String(localized: "Text Width", bundle: .module))
+                        Spacer()
+                        Text("\(Int(appearance.editorMaxWidth))pt")
+                            .font(.body.weight(.medium).monospacedDigit())
+                            .foregroundStyle(appearance.accentColor)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { appearance.editorMaxWidth },
+                            set: { appearance.editorMaxWidth = $0 }
+                        ),
+                        in: 400...1200,
+                        step: 10
+                    )
+                    .tint(appearance.accentColor)
+                }
+
+                // Live Preview
+                typographyPreview
             } header: {
                 Text(String(localized: "Typography", bundle: .module))
             }
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "Editor", bundle: .module))
+    }
+
+    // MARK: - Typography Preview
+
+    private var typographyPreview: some View {
+        Text("The quick brown fox jumps over the lazy dog. Here is a sample of your current typography settings — headings, body text, and code.")
+            .font(previewFont)
+            .lineSpacing((appearance.editorLineSpacing - 1.0) * appearance.editorFontSize)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: min(appearance.editorMaxWidth, .infinity), alignment: .leading)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.fill.quaternary)
+            )
+            .animation(.smooth(duration: 0.2), value: appearance.editorFontSize)
+            .animation(.smooth(duration: 0.2), value: appearance.editorFontFamily)
+            .animation(.smooth(duration: 0.2), value: appearance.editorLineSpacing)
+    }
+
+    private var previewFont: Font {
+        switch appearance.editorFontFamily {
+        case .system:     .system(size: appearance.editorFontSize)
+        case .serif:      .system(size: appearance.editorFontSize, design: .serif)
+        case .monospaced: .system(size: appearance.editorFontSize, design: .monospaced)
+        case .rounded:    .system(size: appearance.editorFontSize, design: .rounded)
+        }
     }
 }

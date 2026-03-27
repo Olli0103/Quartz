@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings view for data import/export operations.
+/// Settings view for data, sync, and backup operations.
 public struct DataSettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.appearanceManager) private var appearance
@@ -9,10 +9,44 @@ public struct DataSettingsView: View {
     @State private var isImporting = false
     @State private var importError: String?
 
+    // Self-resolving iCloud & backup state
+    @State private var isICloudAvailable = false
+    @State private var isVaultInICloud = false
+    @State private var isMigrating = false
+    @State private var availableBackups: [BackupEntry] = []
+    @State private var isBackupInProgress = false
+    @State private var backupProgress: Double = 0
+    @State private var noteCount: Int = 0
+
+    private let backupService = VaultBackupService()
+
     public init() {}
 
     public var body: some View {
         Form {
+            SyncSettingsSection(
+                syncStatus: .notApplicable,
+                lastSyncTimestamp: UserDefaults.standard.object(forKey: "quartzLastSyncTimestamp") as? Date,
+                conflictCount: 0,
+                isVaultInICloud: isVaultInICloud,
+                isICloudAvailable: isICloudAvailable,
+                onEnableICloudSync: { migrateToICloud() }
+            )
+
+            BackupSettingsSection(
+                availableBackups: availableBackups,
+                isBackupInProgress: isBackupInProgress,
+                backupProgress: backupProgress,
+                onExportBackup: { exportBackup() }
+            )
+
+            if let vault = appState.currentVault {
+                VaultInfoSection(
+                    vaultName: vault.name,
+                    noteCount: noteCount
+                )
+            }
+
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Label(String(localized: "Import Notes", bundle: .module), systemImage: "square.and.arrow.down")
@@ -115,7 +149,7 @@ public struct DataSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(String(localized: "Data", bundle: .module))
+        .navigationTitle(String(localized: "Data & Sync", bundle: .module))
         #if os(macOS)
         .fileImporter(
             isPresented: $showFilePicker,
@@ -133,6 +167,100 @@ public struct DataSettingsView: View {
             handleImportSelection(result)
         }
         #endif
+        .task {
+            await resolveState()
+        }
+    }
+
+    // MARK: - Self-Resolving State
+
+    private func resolveState() async {
+        // Resolve iCloud availability on background thread
+        let containerURL = await CloudSyncService.resolveContainerURL()
+        isICloudAvailable = containerURL != nil
+
+        // Check if current vault is in iCloud
+        if let root = appState.currentVault?.rootURL {
+            let path = root.path(percentEncoded: false)
+            isVaultInICloud = FileManager.default.isUbiquitousItem(at: root)
+                || path.contains("com~apple~CloudDocs")
+                || path.contains("/Mobile Documents/")
+
+            // Load backups
+            let backups = await backupService.listBackups(vaultRoot: root)
+            availableBackups = backups
+
+            // Count notes
+            noteCount = countNotes(in: root)
+        }
+    }
+
+    private func countNotes(in root: URL) -> Int {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        var count = 0
+        while let url = enumerator.nextObject() as? URL {
+            if url.pathExtension.lowercased() == "md" { count += 1 }
+        }
+        return count
+    }
+
+    // MARK: - Actions
+
+    private func migrateToICloud() {
+        guard let localRoot = appState.currentVault?.rootURL else { return }
+        isMigrating = true
+        Task {
+            guard let containerURL = await CloudSyncService.resolveContainerURL() else {
+                isMigrating = false
+                return
+            }
+            let fm = FileManager.default
+            let vaultName = localRoot.lastPathComponent
+            let iCloudVaultURL = containerURL.appending(path: vaultName, directoryHint: .isDirectory)
+
+            do {
+                if !fm.fileExists(atPath: containerURL.path(percentEncoded: false)) {
+                    try fm.createDirectory(at: containerURL, withIntermediateDirectories: true)
+                }
+                if !fm.fileExists(atPath: iCloudVaultURL.path(percentEncoded: false)) {
+                    try fm.copyItem(at: localRoot, to: iCloudVaultURL)
+                }
+                // Switch vault to the iCloud copy
+                var vault = VaultConfig(name: vaultName, rootURL: iCloudVaultURL, storageType: .iCloudDrive)
+                vault.isDefault = true
+                appState.switchVault(to: vault)
+                isVaultInICloud = true
+            } catch {
+                print("[iCloud] Migration failed: \(error)")
+            }
+            isMigrating = false
+        }
+    }
+
+    private func exportBackup() {
+        guard let root = appState.currentVault?.rootURL else { return }
+        isBackupInProgress = true
+        backupProgress = 0
+        Task.detached(priority: .utility) { [backupService] in
+            _ = try? await backupService.createBackup(vaultRoot: root) { progress in
+                Task { @MainActor in
+                    backupProgress = progress.fraction
+                }
+            }
+            await MainActor.run { [weak backupService] in
+                isBackupInProgress = false
+                backupProgress = 1
+                if let root = appState.currentVault?.rootURL, let backupService {
+                    Task {
+                        availableBackups = await backupService.listBackups(vaultRoot: root)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder

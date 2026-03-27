@@ -93,7 +93,9 @@ public struct FontTraits: Sendable {
 /// Actor that parses markdown on a background thread and returns highlight spans.
 /// Debouncing and async parsing keep the main thread free for 120fps.
 public actor MarkdownASTHighlighter {
-    private let baseFontSize: CGFloat
+    private(set) public var baseFontSize: CGFloat
+    public var fontFamily: AppearanceManager.EditorFontFamily = .system
+    public var lineSpacing: CGFloat = 1.5
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 80_000_000 // 80ms in nanoseconds
 
@@ -108,6 +110,12 @@ public actor MarkdownASTHighlighter {
         self.baseFontSize = baseFontSize
     }
 
+    /// Updates font family and line spacing from the main actor.
+    public func updateSettings(fontFamily: AppearanceManager.EditorFontFamily, lineSpacing: CGFloat) {
+        self.fontFamily = fontFamily
+        self.lineSpacing = lineSpacing
+    }
+
     /// Parses markdown and returns highlight spans. Cancels any in-flight parse.
     /// Call from background; result is applied on main thread.
     public func parse(_ markdown: String) async -> [HighlightSpan] {
@@ -118,9 +126,9 @@ public actor MarkdownASTHighlighter {
             return []
         }
 
-        let task = Task<[HighlightSpan], Never> { [baseFontSize] in
+        let task = Task<[HighlightSpan], Never> { [baseFontSize, fontFamily] in
             await Task.yield()
-            return Self.parseSync(markdown, baseFontSize: baseFontSize)
+            return Self.parseSync(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily)
         }
         parseTask = task
         return await task.value
@@ -141,14 +149,14 @@ public actor MarkdownASTHighlighter {
         return await parse(markdown)
     }
 
-    private static func parseSync(_ markdown: String, baseFontSize: CGFloat) -> [HighlightSpan] {
+    private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
-        collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, into: &spans)
+        collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
     }
 
-    private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, into spans: inout [HighlightSpan]) {
+    private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, into spans: inout [HighlightSpan]) {
         if let range = markup.range, let nsRange = sourceRangeToNSRange(range, in: source), nsRange.length > 0 {
             if let heading = markup as? Heading {
                 let scale: CGFloat = switch heading.level {
@@ -158,39 +166,30 @@ public actor MarkdownASTHighlighter {
                 case 4: 1.12
                 default: 1.05
                 }
-                #if canImport(UIKit)
-                let font = UIFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
-                // Mute the # prefix characters
                 let headingText = (source as NSString).substring(with: nsRange)
                 if let prefixEnd = headingText.firstIndex(of: " "),
                    headingText.hasPrefix("#") {
                     let prefixLength = headingText.distance(from: headingText.startIndex, to: prefixEnd) + 1
                     let prefixRange = NSRange(location: nsRange.location, length: prefixLength)
-                    spans.append(HighlightSpan(range: prefixRange, font: font, color: UIColor.tertiaryLabel, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    let mutedColor: PlatformColor
+                    #if canImport(UIKit)
+                    mutedColor = UIColor.tertiaryLabel
+                    #elseif canImport(AppKit)
+                    mutedColor = NSColor.tertiaryLabelColor
+                    #endif
+                    spans.append(HighlightSpan(range: prefixRange, font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
                 }
-                #elseif canImport(AppKit)
-                let font = NSFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
-                // Mute the # prefix characters
-                let headingText = (source as NSString).substring(with: nsRange)
-                if let prefixEnd = headingText.firstIndex(of: " "),
-                   headingText.hasPrefix("#") {
-                    let prefixLength = headingText.distance(from: headingText.startIndex, to: prefixEnd) + 1
-                    let prefixRange = NSRange(location: nsRange.location, length: prefixLength)
-                    spans.append(HighlightSpan(range: prefixRange, font: font, color: NSColor.tertiaryLabelColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
-                }
-                #endif
                 return
             }
             if markup is Strong {
-                let syntaxLen = 2 // ** or __
+                let syntaxLen = 2
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, weight: .bold)
                 let mutedColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.systemFont(ofSize: baseFontSize, weight: .bold)
                 mutedColor = UIColor.tertiaryLabel
                 #elseif canImport(AppKit)
-                let font = NSFont.systemFont(ofSize: baseFontSize, weight: .bold)
                 mutedColor = NSColor.tertiaryLabelColor
                 #endif
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
@@ -202,13 +201,12 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is Emphasis {
-                let syntaxLen = 1 // * or _
+                let syntaxLen = 1
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, italic: true)
                 let mutedColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.italicSystemFont(ofSize: baseFontSize)
                 mutedColor = UIColor.tertiaryLabel
                 #elseif canImport(AppKit)
-                let font = NSFontManager.shared.convert(NSFont.systemFont(ofSize: baseFontSize), toHaveTrait: .italicFontMask)
                 mutedColor = NSColor.tertiaryLabelColor
                 #endif
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
@@ -220,14 +218,13 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is InlineCode {
-                let syntaxLen = 1 // `
+                let syntaxLen = 1
+                let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
                 let mutedColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
                 mutedColor = UIColor.tertiaryLabel
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false))
                 #elseif canImport(AppKit)
-                let font = NSFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
                 mutedColor = NSColor.tertiaryLabelColor
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
                 #endif
@@ -239,24 +236,24 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is CodeBlock {
+                let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
                 #if canImport(UIKit)
-                let font = UIFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false))
                 #elseif canImport(AppKit)
-                let font = NSFont.monospacedSystemFont(ofSize: baseFontSize * 0.9, weight: .regular)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
                 #endif
                 return
             }
             if markup is Strikethrough {
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+                let mutedColor: PlatformColor
+                let strikeColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.systemFont(ofSize: baseFontSize)
-                let mutedColor = UIColor.tertiaryLabel
-                let strikeColor: PlatformColor = UIColor.secondaryLabel
+                mutedColor = UIColor.tertiaryLabel
+                strikeColor = UIColor.secondaryLabel
                 #elseif canImport(AppKit)
-                let font = NSFont.systemFont(ofSize: baseFontSize)
-                let mutedColor = NSColor.tertiaryLabelColor
-                let strikeColor: PlatformColor = NSColor.secondaryLabelColor
+                mutedColor = NSColor.tertiaryLabelColor
+                strikeColor = NSColor.secondaryLabelColor
                 #endif
                 spans.append(HighlightSpan(range: nsRange, font: font, color: strikeColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: true))
                 // Mute ~~ delimiters
@@ -267,13 +264,42 @@ public actor MarkdownASTHighlighter {
                 }
                 return
             }
+            if markup is Markdown.Table {
+                // Don't override the font or background — keep standard proportional body text.
+                // Instead, dim the pipe | and dash - syntax characters so the grid fades away
+                // while the cell content stays readable.
+                let tableText = (source as NSString).substring(with: nsRange)
+                let bodyFont = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+                let mutedColor: PlatformColor
+                #if canImport(UIKit)
+                mutedColor = UIColor.quaternaryLabel
+                #elseif canImport(AppKit)
+                mutedColor = NSColor.quaternaryLabelColor
+                #endif
+
+                // Scan for | and - characters within the table range and mute them
+                for (i, ch) in tableText.enumerated() {
+                    if ch == "|" || ch == "-" {
+                        let charRange = NSRange(location: nsRange.location + i, length: 1)
+                        spans.append(HighlightSpan(
+                            range: charRange,
+                            font: bodyFont,
+                            color: mutedColor,
+                            traits: FontTraits(bold: false, italic: false),
+                            backgroundColor: nil,
+                            strikethrough: false,
+                            isOverlay: true
+                        ))
+                    }
+                }
+                // Don't return — let children (cell contents) get their normal inline styling
+            }
             if markup is BlockQuote {
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, italic: true)
                 let quoteColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.italicSystemFont(ofSize: baseFontSize)
                 quoteColor = UIColor.secondaryLabel
                 #elseif canImport(AppKit)
-                let font = NSFontManager.shared.convert(NSFont.systemFont(ofSize: baseFontSize), toHaveTrait: .italicFontMask)
                 quoteColor = NSColor.secondaryLabelColor
                 #endif
                 spans.append(HighlightSpan(range: nsRange, font: font, color: quoteColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
@@ -281,19 +307,19 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is Link {
+                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+                let linkColor: PlatformColor
                 #if canImport(UIKit)
-                let font = UIFont.systemFont(ofSize: baseFontSize)
-                let linkColor = UIColor.systemBlue
+                linkColor = UIColor.systemBlue
                 #elseif canImport(AppKit)
-                let font = NSFont.systemFont(ofSize: baseFontSize)
-                let linkColor = NSColor.linkColor
+                linkColor = NSColor.linkColor
                 #endif
                 spans.append(HighlightSpan(range: nsRange, font: font, color: linkColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false))
                 return
             }
         }
         for child in markup.children {
-            collectSpans(from: child, in: source, baseFontSize: baseFontSize, into: &spans)
+            collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         }
     }
 }

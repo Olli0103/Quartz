@@ -68,6 +68,9 @@ public struct SidebarView: View {
     @Binding var selectedNoteURL: URL?
     var onMapViewTap: (() -> Void)?
     var onDoubleClick: ((URL) -> Void)?
+    var onSourceChanged: ((SourceSelection) -> Void)?
+    var onVaultChat: (() -> Void)?
+    var onSearchChanged: ((String) -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
     @State private var showNewFolderDialog = false
@@ -95,21 +98,22 @@ public struct SidebarView: View {
         viewModel: SidebarViewModel,
         selectedNoteURL: Binding<URL?>,
         onMapViewTap: (() -> Void)? = nil,
-        onDoubleClick: ((URL) -> Void)? = nil
+        onDoubleClick: ((URL) -> Void)? = nil,
+        onSourceChanged: ((SourceSelection) -> Void)? = nil,
+        onVaultChat: (() -> Void)? = nil,
+        onSearchChanged: ((String) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self._selectedNoteURL = selectedNoteURL
         self.onMapViewTap = onMapViewTap
         self.onDoubleClick = onDoubleClick
+        self.onSourceChanged = onSourceChanged
+        self.onVaultChat = onVaultChat
+        self.onSearchChanged = onSearchChanged
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            newNoteButton
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity)
 
             // Native List with selection binding - SwiftUI handles selection automatically
             List(selection: $selectedNoteURL) {
@@ -151,26 +155,31 @@ public struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
-            #if os(macOS)
-            .searchable(text: $searchQuery, prompt: Text(String(localized: "Search notes, tags…", bundle: .module)))
-            #endif
         }
-        #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 68)
         }
-        #endif
+        .onChange(of: selectedNoteURL) { _, newURL in
+            if let url = newURL {
+                let parentURL = url.deletingLastPathComponent()
+                onSourceChanged?(.folder(parentURL))
+            }
+        }
         .onChange(of: searchQuery) { _, newValue in
             searchDebounceTask?.cancel()
             searchDebounceTask = Task {
                 try? await Task.sleep(for: .milliseconds(200))
                 guard !Task.isCancelled else { return }
                 viewModel.searchText = newValue
+                onSearchChanged?(newValue)
             }
         }
-        #if os(iOS)
-        .overlay(alignment: .bottom) { iosFloatingSearchBar }
-        #endif
+        .overlay(alignment: .bottom) { floatingSearchBar }
+        .overlay(alignment: .bottom) {
+            if let progress = viewModel.indexingProgress {
+                indexingStatusBar(current: progress.current, total: progress.total)
+            }
+        }
         .overlay {
             if viewModel.isLoading {
                 ProgressView()
@@ -253,9 +262,12 @@ public struct SidebarView: View {
     private var fileTreeContent: some View {
         OutlineGroup(viewModel.filteredTree, children: \.children) { node in
             if node.isNote {
-                // Notes are selectable - .tag() connects to List(selection:)
+                // Notes are selectable via custom listRowBackground (no .tag to avoid system highlight)
                 FileNodeRow(node: node)
-                    .tag(node.url)  // This makes the row selectable via List(selection:)
+                    .tag(node.url)
+                    #if os(macOS)
+                    .background(TableViewSelectionRemover())
+                    #endif
                     .draggable(SidebarItemTransferable(url: node.url)) {
                         Label(node.name, systemImage: "doc.text")
                             .padding(8)
@@ -294,11 +306,14 @@ public struct SidebarView: View {
                     #endif
                     .listRowBackground(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(dropTargetURL == node.url ? appearance.accentColor.opacity(0.14) : Color.clear)
+                            .fill(noteRowFill(for: node.url))
                     )
             } else {
                 // Folders are not selectable but can be drag targets
                 FileNodeRow(node: node)
+                    #if os(macOS)
+                    .background(TableViewSelectionRemover())
+                    #endif
                     .draggable(SidebarItemTransferable(url: node.url))
                     .dropDestination(for: SidebarItemTransferable.self) { items, _ in
                         handleDrop(items: items, onto: node.url)
@@ -344,6 +359,24 @@ public struct SidebarView: View {
         }
 
         return true
+    }
+
+    // MARK: - Row Backgrounds
+
+    private func noteRowBackground(for url: URL) -> some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(noteRowFill(for: url))
+    }
+
+    private func noteRowFill(for url: URL) -> Color {
+        if dropTargetURL == url { return appearance.accentColor.opacity(0.14) }
+        if selectedNoteURL == url { return appearance.accentColor.opacity(0.12) }
+        return .clear
+    }
+
+    private func folderRowBackground(for url: URL) -> some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(dropTargetURL == url ? appearance.accentColor.opacity(0.14) : Color.clear)
     }
 
     // MARK: - Context Menus
@@ -486,10 +519,31 @@ public struct SidebarView: View {
         return result
     }
 
-    // MARK: - iOS Search Bar
+    // MARK: - Indexing Status Bar
 
-    #if os(iOS)
-    private var iosFloatingSearchBar: some View {
+    private func indexingStatusBar(current: Int, total: Int) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: Double(current), total: Double(max(1, total)))
+                .progressViewStyle(.linear)
+                .tint(appearance.accentColor)
+
+            Text("\(current)/\(total)")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 60) // above the search bar
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(QuartzAnimation.status, value: total)
+    }
+
+    // MARK: - Floating Search Bar
+
+    private var floatingSearchBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.body.weight(.medium))
@@ -500,11 +554,15 @@ public struct SidebarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 12, preferRegularMaterial: true)
+        .background(.thinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(.separator.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
     }
-    #endif
 
     // MARK: - New Note Button
 
@@ -609,9 +667,34 @@ public struct SidebarView: View {
             #if os(macOS)
             dashboardRow
             #endif
-            quickAccessRow(icon: "folder.fill", iconColor: appearance.accentColor, label: String(localized: "All Notes", bundle: .module), filter: .all)
-            quickAccessRow(icon: "star.fill", iconColor: .yellow, label: String(localized: "Favorites", bundle: .module), filter: .favorites)
-            quickAccessRow(icon: "clock.fill", iconColor: .secondary, label: String(localized: "Recent", bundle: .module), filter: .recent)
+            quickAccessRow(icon: "doc.text", iconColor: .primary, label: String(localized: "All Notes", bundle: .module), filter: .all)
+            quickAccessRow(icon: "star", iconColor: .primary, label: String(localized: "Favorites", bundle: .module), filter: .favorites)
+            quickAccessRow(icon: "clock", iconColor: .primary, label: String(localized: "Recent", bundle: .module), filter: .recent)
+
+            if onVaultChat != nil {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    onVaultChat?()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: sidebarIconSize, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .symbolRenderingMode(.hierarchical)
+                            .frame(width: sidebarIconSize + 4)
+                        Text(String(localized: "Vault Chat", bundle: .module))
+                            .font(.body)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    #if os(iOS)
+                    .frame(minHeight: QuartzHIG.minTouchTarget)
+                    #endif
+                }
+                .buttonStyle(.plain)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
@@ -624,9 +707,9 @@ public struct SidebarView: View {
             selectedNoteURL = nil
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "square.grid.2x2.fill")
+                Image(systemName: "square.grid.2x2")
                     .font(.system(size: sidebarIconSize, weight: .medium))
-                    .foregroundStyle(QuartzColors.accent)
+                    .foregroundStyle(.primary)
                     .frame(width: sidebarIconSize + 4)
                 Text(String(localized: "Dashboard", bundle: .module))
                     .font(.body)
@@ -634,7 +717,7 @@ public struct SidebarView: View {
                 if selectedNoteURL == nil {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(.primary)
                 }
             }
             .contentShape(Rectangle())
@@ -655,6 +738,12 @@ public struct SidebarView: View {
             QuartzFeedback.selection()
             withAnimation(QuartzAnimation.standard) {
                 viewModel.activeFilter = filter
+                viewModel.selectedTag = nil
+            }
+            switch filter {
+            case .all: onSourceChanged?(.allNotes)
+            case .favorites: onSourceChanged?(.favorites)
+            case .recent: onSourceChanged?(.recent)
             }
         } label: {
             HStack(spacing: 10) {
@@ -668,7 +757,7 @@ public struct SidebarView: View {
                 if viewModel.activeFilter == filter {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(appearance.accentColor)
+                        .foregroundStyle(.primary)
                 }
             }
             .contentShape(Rectangle())
@@ -739,6 +828,23 @@ public struct SidebarView: View {
                 .textCase(.uppercase)
                 .tracking(0.5)
             Spacer()
+
+            Button {
+                QuartzFeedback.primaryAction()
+                if let root = viewModel.vaultRootURL {
+                    newItemParent = root
+                    newItemName = ""
+                    showNewFolderDialog = true
+                }
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.primary)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "New Folder", bundle: .module))
+
             Menu {
                 ForEach(SidebarSortOrder.allCases, id: \.rawValue) { order in
                     Button {
@@ -764,12 +870,13 @@ public struct SidebarView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
                     .symbolRenderingMode(.hierarchical)
                     .frame(minWidth: QuartzHIG.minTouchTarget, minHeight: QuartzHIG.minTouchTarget)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .tint(.primary)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
