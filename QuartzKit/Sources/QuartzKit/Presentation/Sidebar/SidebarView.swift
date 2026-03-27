@@ -876,7 +876,7 @@ public struct SidebarView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(.primary)
                     .symbolRenderingMode(.hierarchical)
                     .frame(minWidth: QuartzHIG.minTouchTarget, minHeight: QuartzHIG.minTouchTarget)
@@ -884,6 +884,7 @@ public struct SidebarView: View {
             }
             .menuStyle(.borderlessButton)
             .tint(.primary)
+            .accessibilityLabel(String(localized: "More options", bundle: .module))
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

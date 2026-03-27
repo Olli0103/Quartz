@@ -285,6 +285,7 @@ public enum QuartzMaterialLayer: Sendable {
 public struct QuartzLiquidGlassModifier: ViewModifier {
     var enabled: Bool
     var cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public init(enabled: Bool, cornerRadius: CGFloat = 20) {
         self.enabled = enabled
@@ -304,7 +305,7 @@ public struct QuartzLiquidGlassModifier: ViewModifier {
             content
                 .background {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(reduceTransparency ? AnyShapeStyle(.background) : AnyShapeStyle(.ultraThinMaterial))
                 }
             #endif
         } else {
@@ -352,6 +353,7 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
     var shadowRadius: CGFloat
     var preferRegularMaterial: Bool
     var layer: QuartzMaterialLayer
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public init(cornerRadius: CGFloat = 16, shadowRadius: CGFloat = 0, preferRegularMaterial: Bool = false, layer: QuartzMaterialLayer = .sidebar) {
         self.cornerRadius = cornerRadius
@@ -374,9 +376,9 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
         content
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(materialForLayer)
+                    .fill(reduceTransparency ? AnyShapeStyle(.background) : materialForLayer)
             }
-            .shadow(color: shadowRadius > 0 ? .black.opacity(layer == .floating ? 0.08 : 0.06) : .clear, radius: shadowRadius, y: shadowRadius / 4)
+            .shadow(color: (shadowRadius > 0 && !reduceTransparency) ? .black.opacity(layer == .floating ? 0.08 : 0.06) : .clear, radius: shadowRadius, y: shadowRadius / 4)
             .zIndex(layer == .floating ? 10 : 0)
         #endif
     }
@@ -391,7 +393,7 @@ public struct QuartzMaterialBackgroundModifier: ViewModifier {
     }
     #endif
 
-    private var materialForLayer: some ShapeStyle {
+    private var materialForLayer: AnyShapeStyle {
         switch (layer, preferRegularMaterial) {
         case (.floating, _): return AnyShapeStyle(.regularMaterial)
         case (.sidebar, true): return AnyShapeStyle(.regularMaterial)

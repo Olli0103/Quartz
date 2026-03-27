@@ -75,7 +75,7 @@ public struct DashboardView: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(timeBasedGreeting)
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.largeTitle.bold())
                 Text(currentDateString)
                     .font(.title3)
                     .foregroundStyle(.secondary)
@@ -158,6 +158,8 @@ public struct DashboardView: View {
                 .font(.body.weight(.medium))
                 .foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(value) \(label)")
     }
 
     // MARK: - Quick Capture Bar
@@ -165,8 +167,9 @@ public struct DashboardView: View {
     private var quickCaptureBar: some View {
         HStack(spacing: 10) {
             Image(systemName: "bolt.fill")
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField(
                 String(localized: "What's on your mind? Press Enter to append to Daily Note…", bundle: .module),
                 text: $quickCaptureText
@@ -180,15 +183,18 @@ public struct DashboardView: View {
                     submitQuickCapture()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(.primary.opacity(0.6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "Send quick capture", bundle: .module))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .glassPane()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "Quick capture", bundle: .module))
     }
 
     private func submitQuickCapture() {
@@ -338,9 +344,10 @@ public struct DashboardView: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "doc.text")
-                                    .font(.system(size: 14))
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 20)
+                                    .accessibilityHidden(true)
                                 Text(note.frontmatter?.title ?? note.name.replacingOccurrences(of: ".md", with: ""))
                                     .font(.body)
                                     .lineLimit(1)
@@ -407,12 +414,14 @@ public struct DashboardView: View {
                                 toggleTask(item)
                             } label: {
                                 Image(systemName: "circle")
-                                    .font(.system(size: 18, weight: .light))
+                                    .font(.body.weight(.light))
                                     .foregroundStyle(.primary.opacity(0.5))
                                     .frame(width: 22, height: 22)
                             }
                             .buttonStyle(.plain)
                             .disabled(togglingTaskID == item.id)
+                            .accessibilityLabel(String(localized: "Complete task", bundle: .module))
+                            .accessibilityAddTraits(.isButton)
 
                             Button {
                                 QuartzFeedback.selection()
@@ -676,17 +685,24 @@ public struct DashboardView: View {
     }
 }
 
-// MARK: - Liquid Glass Pane
+// MARK: - Liquid Glass Pane (Accessibility-Aware)
 
 private struct GlassPaneModifier: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
     func body(content: Content) -> some View {
+        let highContrast = reduceTransparency || contrast == .increased
         content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(highContrast ? AnyShapeStyle(.background) : AnyShapeStyle(.regularMaterial))
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    .strokeBorder(Color.primary.opacity(highContrast ? 0.2 : 0.08), lineWidth: highContrast ? 1 : 0.5)
             )
-            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+            .shadow(color: .black.opacity(highContrast ? 0 : 0.04), radius: 6, y: 2)
     }
 }
 
