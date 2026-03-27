@@ -107,6 +107,75 @@ public actor AssetManager {
     }
     #endif
 
+    // MARK: - Generic Asset Import (Drag-and-Drop)
+
+    /// Supported media types for drag-and-drop import.
+    public static let supportedImageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "svg", "tiff", "tif", "bmp", "heic", "heif"
+    ]
+
+    public static let supportedDocumentExtensions: Set<String> = [
+        "pdf"
+    ]
+
+    public static var supportedExtensions: Set<String> {
+        supportedImageExtensions.union(supportedDocumentExtensions)
+    }
+
+    /// Checks whether a file URL has a supported media extension.
+    public static func isSupportedAsset(_ url: URL) -> Bool {
+        supportedExtensions.contains(url.pathExtension.lowercased())
+    }
+
+    /// Imports any supported asset file into the vault and returns the Markdown link string.
+    ///
+    /// - Images produce `![altText](assets/file.png)`
+    /// - PDFs produce `[fileName](assets/file.pdf)`
+    ///
+    /// - Parameters:
+    ///   - sourceURL: Source URL of the file on disk
+    ///   - vaultRoot: Root URL of the vault
+    ///   - noteURL: URL of the current note (for relative path calculation)
+    /// - Returns: Markdown link string to insert into the editor
+    public func importAsset(
+        from sourceURL: URL,
+        vaultRoot: URL,
+        noteURL: URL
+    ) async throws -> String {
+        // Prevent symlink-based path traversal
+        let resourceValues = try sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if resourceValues.isSymbolicLink == true {
+            throw AssetError.symlinkNotAllowed
+        }
+
+        let ext = sourceURL.pathExtension.lowercased()
+        guard Self.supportedExtensions.contains(ext) else {
+            throw AssetError.unsupportedFileType(sourceURL.pathExtension)
+        }
+
+        let assetsFolder = try ensureAssetsFolder(in: vaultRoot)
+        let destinationURL = uniqueDestination(
+            for: sourceURL.lastPathComponent,
+            in: assetsFolder
+        )
+
+        try writer.copyItem(from: sourceURL, to: destinationURL)
+
+        let relativePath = self.relativePath(
+            from: noteURL.deletingLastPathComponent(),
+            to: destinationURL
+        )
+
+        let altText = destinationURL.deletingPathExtension().lastPathComponent
+
+        if Self.supportedImageExtensions.contains(ext) {
+            return "![\(altText)](\(relativePath))"
+        } else {
+            // Non-image assets (PDFs) use regular link syntax
+            return "[\(altText)](\(relativePath))"
+        }
+    }
+
     /// Deletes an asset and removes the associated link from the Markdown.
     public func deleteAsset(at url: URL) throws {
         try writer.removeItem(at: url)
@@ -191,6 +260,7 @@ public enum AssetError: LocalizedError, Sendable {
     case conversionFailed
     case fileNotFound(URL)
     case symlinkNotAllowed
+    case unsupportedFileType(String)
 
     public var errorDescription: String? {
         switch self {
@@ -200,6 +270,8 @@ public enum AssetError: LocalizedError, Sendable {
             String(localized: "Asset not found: \(url.lastPathComponent)", bundle: .module)
         case .symlinkNotAllowed:
             String(localized: "Symbolic links are not supported for asset import", bundle: .module)
+        case .unsupportedFileType(let ext):
+            String(localized: "Unsupported file type: \(ext)", bundle: .module)
         }
     }
 }

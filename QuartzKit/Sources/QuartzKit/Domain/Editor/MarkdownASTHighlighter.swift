@@ -50,8 +50,11 @@ public struct HighlightSpan: @unchecked Sendable {
     /// When true, only the foreground color is applied (overlays on existing attributes).
     /// Used for muting syntax delimiter characters (e.g., `#`, `**`, `` ` ``).
     public let isOverlay: Bool
+    /// When set, an NSTextAttachment is applied to the first character of the range.
+    /// Used for inline image rendering — the attachment replaces the `!` character visually.
+    public let attachment: NSTextAttachment?
 
-    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false) {
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil) {
         self.range = range
         self.font = font
         self.color = color
@@ -59,6 +62,7 @@ public struct HighlightSpan: @unchecked Sendable {
         self.backgroundColor = backgroundColor
         self.strikethrough = strikethrough
         self.isOverlay = isOverlay
+        self.attachment = attachment
     }
 }
 
@@ -96,6 +100,10 @@ public actor MarkdownASTHighlighter {
     private(set) public var baseFontSize: CGFloat
     public var fontFamily: AppearanceManager.EditorFontFamily = .system
     public var lineSpacing: CGFloat = 1.5
+    /// Root URL of the current vault. Used to resolve relative image paths in `![](assets/...)`.
+    public var vaultRootURL: URL?
+    /// URL of the currently open note. Used for relative path resolution.
+    public var noteURL: URL?
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 80_000_000 // 80ms in nanoseconds
 
@@ -111,9 +119,11 @@ public actor MarkdownASTHighlighter {
     }
 
     /// Updates font family and line spacing from the main actor.
-    public func updateSettings(fontFamily: AppearanceManager.EditorFontFamily, lineSpacing: CGFloat) {
+    public func updateSettings(fontFamily: AppearanceManager.EditorFontFamily, lineSpacing: CGFloat, vaultRootURL: URL? = nil, noteURL: URL? = nil) {
         self.fontFamily = fontFamily
         self.lineSpacing = lineSpacing
+        if let vaultRootURL { self.vaultRootURL = vaultRootURL }
+        if let noteURL { self.noteURL = noteURL }
     }
 
     /// Parses markdown and returns highlight spans. Cancels any in-flight parse.
@@ -126,9 +136,9 @@ public actor MarkdownASTHighlighter {
             return []
         }
 
-        let task = Task<[HighlightSpan], Never> { [baseFontSize, fontFamily] in
+        let task = Task<[HighlightSpan], Never> { [baseFontSize, fontFamily, vaultRootURL, noteURL] in
             await Task.yield()
-            return Self.parseSync(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily)
+            return Self.parseSync(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL)
         }
         parseTask = task
         return await task.value
@@ -149,14 +159,14 @@ public actor MarkdownASTHighlighter {
         return await parse(markdown)
     }
 
-    private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily) -> [HighlightSpan] {
+    private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
-        collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+        collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         return spans
     }
 
-    private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, into spans: inout [HighlightSpan]) {
+    private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
         if let range = markup.range, let nsRange = sourceRangeToNSRange(range, in: source), nsRange.length > 0 {
             if let heading = markup as? Heading {
                 let scale: CGFloat = switch heading.level {
@@ -306,6 +316,66 @@ public actor MarkdownASTHighlighter {
                 // Don't recurse into children — blockquote styles the whole range
                 return
             }
+            if let image = markup as? Markdown.Image {
+                // Inline image rendering: resolve the relative path, load the image,
+                // and produce an attachment span that replaces the raw syntax visually.
+                let attachment = resolveImageAttachment(
+                    source: image.source,
+                    vaultRootURL: vaultRootURL,
+                    noteURL: noteURL
+                )
+
+                let bodyFont = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+
+                if nsRange.length >= 2 {
+                    // First character: will be replaced with U+FFFC in applyHighlightSpans.
+                    // Use normal body font so the line fragment has room for the image.
+                    spans.append(HighlightSpan(
+                        range: NSRange(location: nsRange.location, length: 1),
+                        font: bodyFont,
+                        color: nil,
+                        traits: FontTraits(bold: false, italic: false),
+                        backgroundColor: nil,
+                        strikethrough: false,
+                        attachment: attachment
+                    ))
+
+                    // Remaining characters: hide the raw `[alt](path)` syntax
+                    let invisibleFont = EditorFontFactory.makeFont(family: fontFamily, size: 0.1)
+                    let clearColor: PlatformColor
+                    #if canImport(UIKit)
+                    clearColor = UIColor.clear
+                    #elseif canImport(AppKit)
+                    clearColor = NSColor.clear
+                    #endif
+
+                    spans.append(HighlightSpan(
+                        range: NSRange(location: nsRange.location + 1, length: nsRange.length - 1),
+                        font: invisibleFont,
+                        color: clearColor,
+                        traits: FontTraits(bold: false, italic: false),
+                        backgroundColor: nil,
+                        strikethrough: false
+                    ))
+                } else {
+                    // Edge case: single character image node — just style as link
+                    let linkColor: PlatformColor
+                    #if canImport(UIKit)
+                    linkColor = UIColor.systemBlue
+                    #elseif canImport(AppKit)
+                    linkColor = NSColor.linkColor
+                    #endif
+                    spans.append(HighlightSpan(
+                        range: nsRange,
+                        font: bodyFont,
+                        color: linkColor,
+                        traits: FontTraits(bold: false, italic: false),
+                        backgroundColor: nil,
+                        strikethrough: false
+                    ))
+                }
+                return
+            }
             if markup is Link {
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
                 let linkColor: PlatformColor
@@ -319,7 +389,51 @@ public actor MarkdownASTHighlighter {
             }
         }
         for child in markup.children {
-            collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+            collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         }
+    }
+
+    // MARK: - Image Resolution
+
+    /// Resolves a relative image path to a `ScaledTextAttachment`, or returns nil
+    /// if the path is invalid, the file doesn't exist, or the image can't be loaded.
+    /// Runs synchronously — acceptable for V1 since images are small local files.
+    private static func resolveImageAttachment(
+        source: String?,
+        vaultRootURL: URL?,
+        noteURL: URL?
+    ) -> NSTextAttachment? {
+        guard let source, !source.isEmpty else { return nil }
+
+        // Skip remote URLs — only render local vault images
+        if source.hasPrefix("http://") || source.hasPrefix("https://") {
+            return nil
+        }
+
+        // Resolve relative path against the note's directory (or vault root as fallback)
+        let baseURL: URL?
+        if let noteURL {
+            baseURL = noteURL.deletingLastPathComponent()
+        } else {
+            baseURL = vaultRootURL
+        }
+        guard let baseURL else { return nil }
+
+        let resolvedURL = baseURL.appendingPathComponent(source).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: resolvedURL.path(percentEncoded: false)) else {
+            return nil
+        }
+
+        #if canImport(AppKit)
+        guard let image = NSImage(contentsOf: resolvedURL) else { return nil }
+        let attachment = ScaledTextAttachment()
+        attachment.image = image
+        return attachment
+        #elseif canImport(UIKit)
+        guard let image = UIImage(contentsOfFile: resolvedURL.path(percentEncoded: false)) else { return nil }
+        let attachment = ScaledTextAttachment()
+        attachment.image = image
+        return attachment
+        #endif
     }
 }

@@ -58,6 +58,10 @@ public final class EditorSession {
     /// Set when an external modification is detected while the user has unsaved edits.
     public var externalModificationDetected: Bool = false
 
+    /// Guard flag: true while `applyHighlightSpans` is modifying the text storage.
+    /// Prevents `textDidChange` from re-triggering highlights during attachment insertion.
+    public private(set) var isApplyingHighlights: Bool = false
+
     // MARK: - Active Text View (weak ref)
 
     /// The native text view managed by the representable. Weak to avoid retain cycle.
@@ -129,6 +133,16 @@ public final class EditorSession {
             // Clear undo stack again after text assignment (assignment may register undo)
             clearUndoStack()
 
+            // Update highlighter with vault/note context for inline image resolution
+            Task {
+                await highlighter?.updateSettings(
+                    fontFamily: highlighterFontFamily,
+                    lineSpacing: highlighterLineSpacing,
+                    vaultRootURL: vaultRootURL,
+                    noteURL: url
+                )
+            }
+
             // Trigger highlighting and analysis
             highlightImmediately()
             scheduleAnalysis()
@@ -186,6 +200,9 @@ public final class EditorSession {
     /// Called by the text view delegate when the user edits text.
     /// This is the ONLY path that updates `currentText` — SwiftUI never does.
     public func textDidChange(_ newText: String) {
+        // Skip feedback from programmatic attachment insertion during highlighting
+        guard !isApplyingHighlights else { return }
+
         let previousText = currentText
         currentText = newText
         guard newText != previousText else { return }
@@ -279,6 +296,8 @@ public final class EditorSession {
     /// Used after formatting actions where stale overlay attributes may have shifted.
     private func applyHighlightSpansForced(_ spans: [HighlightSpan]) {
         guard !isComposing else { return }
+        isApplyingHighlights = true
+        defer { isApplyingHighlights = false }
 
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
@@ -332,6 +351,14 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
             storage.addAttribute(.foregroundColor, value: color, range: r)
+        }
+        // Apply inline image attachments — replace first char with U+FFFC
+        for span in spans where span.attachment != nil {
+            let r = span.range
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            let attachRange = NSRange(location: r.location, length: 1)
+            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
+            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
         }
         storage.endEditing()
 
@@ -394,6 +421,14 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
             storage.addAttribute(.foregroundColor, value: color, range: r)
+        }
+        // Apply inline image attachments — replace first char with U+FFFC
+        for span in spans where span.attachment != nil {
+            let r = span.range
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            let attachRange = NSRange(location: r.location, length: 1)
+            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
+            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
         }
         storage.endEditing()
 
@@ -566,6 +601,8 @@ public final class EditorSession {
     /// Applies highlight spans to the native text view with IME guard.
     private func applyHighlightSpans(_ spans: [HighlightSpan]) {
         guard !isComposing else { return }
+        isApplyingHighlights = true
+        defer { isApplyingHighlights = false }
 
         #if canImport(UIKit)
         guard let textView = activeTextView, let cm = contentManager else { return }
@@ -625,6 +662,14 @@ public final class EditorSession {
             if !colorsEqual(existing[.foregroundColor] as? UIColor, color as? UIColor) {
                 storage.addAttribute(.foregroundColor, value: color, range: r)
             }
+        }
+        // Apply inline image attachments — replace first char with U+FFFC
+        for span in spans where span.attachment != nil {
+            let r = span.range
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            let attachRange = NSRange(location: r.location, length: 1)
+            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
+            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
         }
         storage.endEditing()
 
@@ -693,6 +738,14 @@ public final class EditorSession {
             if !colorsEqual(existing[.foregroundColor] as? NSColor, color as? NSColor) {
                 storage.addAttribute(.foregroundColor, value: color, range: r)
             }
+        }
+        // Apply inline image attachments — replace first char with U+FFFC
+        for span in spans where span.attachment != nil {
+            let r = span.range
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            let attachRange = NSRange(location: r.location, length: 1)
+            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
+            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
         }
         storage.endEditing()
 

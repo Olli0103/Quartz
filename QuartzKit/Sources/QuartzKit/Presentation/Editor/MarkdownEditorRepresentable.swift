@@ -204,6 +204,139 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
 
 #elseif os(macOS)
 
+// MARK: - Custom NSTextView Subclass (Drag-and-Drop)
+
+/// Custom NSTextView subclass that intercepts file drops (images, PDFs) and
+/// imports them into the vault as Markdown links. Regular text drags pass through
+/// to the standard NSTextView behavior.
+@MainActor
+final class MarkdownEditorNSTextView: NSTextView {
+    weak var editorSession: EditorSession?
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        registerForDraggedTypes([.fileURL])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    // MARK: - NSDraggingDestination
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if hasFileURLs(in: sender) {
+            return .copy
+        }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if hasFileURLs(in: sender) {
+            return .copy
+        }
+        return super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let fileURLs = extractSupportedFileURLs(from: sender), !fileURLs.isEmpty else {
+            // Not a file drop we handle — let NSTextView handle text/RTF drags
+            return super.performDragOperation(sender)
+        }
+
+        guard let session = editorSession,
+              let vaultRoot = session.vaultRootURL,
+              let noteURL = session.note?.fileURL else {
+            return false
+        }
+
+        // Calculate the character index at the drop point
+        let dropPoint = convert(sender.draggingLocation, from: nil)
+        let charIndex = characterIndexForInsertion(at: dropPoint)
+        guard charIndex != NSNotFound else { return false }
+
+        // Import each file asynchronously
+        let assetManager = AssetManager()
+        let insertionIndex = charIndex
+
+        Task { @MainActor [weak self, weak session] in
+            guard let self, let session else { return }
+
+            var markdownFragments: [String] = []
+
+            for fileURL in fileURLs {
+                do {
+                    let markdownLink = try await assetManager.importAsset(
+                        from: fileURL,
+                        vaultRoot: vaultRoot,
+                        noteURL: noteURL
+                    )
+                    markdownFragments.append(markdownLink)
+                } catch {
+                    session.errorMessage = error.localizedDescription
+                }
+            }
+
+            guard !markdownFragments.isEmpty else { return }
+
+            // Join multiple assets with newlines, ensure surrounding newlines for block elements
+            let insertText = markdownFragments.joined(separator: "\n")
+
+            // Ensure we insert on a new line for clean formatting
+            let text = session.currentText as NSString
+            let needsLeadingNewline = insertionIndex > 0
+                && insertionIndex <= text.length
+                && text.character(at: insertionIndex - 1) != UInt16(UnicodeScalar("\n").value)
+            let needsTrailingNewline = insertionIndex < text.length
+                && text.character(at: insertionIndex) != UInt16(UnicodeScalar("\n").value)
+
+            let finalText = (needsLeadingNewline ? "\n" : "")
+                + insertText
+                + (needsTrailingNewline ? "\n" : "")
+
+            let range = NSRange(location: insertionIndex, length: 0)
+            let cursorAfter = NSRange(
+                location: insertionIndex + (finalText as NSString).length,
+                length: 0
+            )
+
+            session.applyExternalEdit(
+                replacement: finalText,
+                range: range,
+                cursorAfter: cursorAfter
+            )
+        }
+
+        return true
+    }
+
+    // MARK: - Helpers
+
+    /// Returns true if the pasteboard contains file URLs with supported extensions.
+    private func hasFileURLs(in sender: NSDraggingInfo) -> Bool {
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] else {
+            return false
+        }
+        return urls.contains { AssetManager.isSupportedAsset($0) }
+    }
+
+    /// Extracts file URLs with supported media extensions from the drag pasteboard.
+    private func extractSupportedFileURLs(from sender: NSDraggingInfo) -> [URL]? {
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] else {
+            return nil
+        }
+        let supported = urls.filter { AssetManager.isSupportedAsset($0) }
+        return supported.isEmpty ? nil : supported
+    }
+}
+
 public struct MarkdownEditorRepresentable: NSViewRepresentable {
     let session: EditorSession
     var editorFontScale: CGFloat
@@ -233,7 +366,8 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, container) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
-        let textView = NSTextView(frame: .zero, textContainer: container)
+        let textView = MarkdownEditorNSTextView(frame: .zero, textContainer: container)
+        textView.editorSession = session
         textView.delegate = context.coordinator
         textView.font = EditorFontFactory.makeFont(family: editorFontFamily, size: baseFontSize)
         textView.textColor = .labelColor
