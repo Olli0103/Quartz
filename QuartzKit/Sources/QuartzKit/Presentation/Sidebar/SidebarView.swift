@@ -784,7 +784,7 @@ public struct SidebarView: View {
     // MARK: - Tags Section
 
     private var tagsSection: some View {
-        VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(String(localized: "Tags", bundle: .module))
                     .font(sidebarSectionFont)
@@ -803,26 +803,48 @@ public struct SidebarView: View {
             }
             .padding(.bottom, Self.sectionHeaderBottomPadding)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 8) {
-                    ForEach(viewModel.tagInfos.prefix(12)) { tag in
-                        Button {
-                            QuartzFeedback.selection()
-                            withAnimation(QuartzAnimation.standard) {
-                                viewModel.selectedTag = viewModel.selectedTag == tag.name ? nil : tag.name
-                            }
-                        } label: {
-                            QuartzTagBadge(text: tag.name, isSelected: viewModel.selectedTag == tag.name)
-                        }
-                        .buttonStyle(QuartzBounceButtonStyle())
-                    }
-                }
-                .padding(.vertical, tagsChipRowVerticalPadding)
+            ForEach(viewModel.tagInfos.prefix(20)) { tag in
+                tagRow(tag)
             }
-            .frame(minHeight: 44)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+    }
+
+    private func tagRow(_ tag: TagInfo) -> some View {
+        let isSelected = viewModel.selectedTag == tag.name
+        return Button {
+            QuartzFeedback.selection()
+            withAnimation(QuartzAnimation.standard) {
+                viewModel.selectedTag = isSelected ? nil : tag.name
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "number")
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? appearance.accentColor : .secondary)
+                    .frame(width: 16)
+                Text(tag.name)
+                    .font(.callout)
+                    .foregroundStyle(isSelected ? appearance.accentColor : .primary)
+                    .lineLimit(1)
+                Spacer()
+                Text("\(tag.count)")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? appearance.accentColor.opacity(0.1) : Color.clear)
+        )
     }
 
     // MARK: - Folders Section Header

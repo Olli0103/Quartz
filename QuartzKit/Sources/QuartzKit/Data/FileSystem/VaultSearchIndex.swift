@@ -12,6 +12,7 @@ public actor VaultSearchIndex {
         let url: URL
         let title: String
         let titleLower: String
+        /// All tags: frontmatter + inline #tags extracted from body.
         let tags: [String]
         let tagsLower: [String]
         let body: String
@@ -22,6 +23,13 @@ public actor VaultSearchIndex {
     private var entries: [URL: IndexEntry] = [:]
     private let vaultProvider: any VaultProviding
     private let logger = Logger(subsystem: "com.quartz", category: "VaultSearchIndex")
+
+    /// Regex for inline `#tag` extraction. Matches `#word` only after whitespace
+    /// (never at line start — that's a heading). Captures alphanumeric + underscore + hyphen tags.
+    private static let inlineTagRegex = try! NSRegularExpression(
+        pattern: #"(?<=\s)#([a-zA-Z][a-zA-Z0-9_-]*)"#,
+        options: []
+    )
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -43,14 +51,28 @@ public actor VaultSearchIndex {
         do {
             let note = try await vaultProvider.readNote(at: url)
             let title = note.displayName
-            let tags = note.frontmatter.tags
+            let frontmatterTags = note.frontmatter.tags
             let body = note.body
+
+            // Extract inline #tags from body (outside code blocks)
+            let inlineTags = Self.extractInlineTags(from: body)
+
+            // Merge frontmatter + inline tags, deduplicated
+            var tagSet = Set(frontmatterTags.map { $0.lowercased() })
+            var allTags = frontmatterTags
+            for tag in inlineTags {
+                let lower = tag.lowercased()
+                if tagSet.insert(lower).inserted {
+                    allTags.append(tag)
+                }
+            }
+
             entries[url] = IndexEntry(
                 url: url,
                 title: title,
                 titleLower: title.lowercased(),
-                tags: tags,
-                tagsLower: tags.map { $0.lowercased() },
+                tags: allTags,
+                tagsLower: allTags.map { $0.lowercased() },
                 body: body,
                 bodyLower: body.lowercased(),
                 modifiedAt: note.frontmatter.modifiedAt
@@ -65,6 +87,21 @@ public actor VaultSearchIndex {
     public func removeEntry(for url: URL) {
         entries.removeValue(forKey: url)
     }
+
+    /// Returns all unique tags across the vault, mapped to the note URLs that contain them.
+    /// Tags are lowercased for deduplication; the display form uses the first occurrence.
+    public func allTags() -> [String: [URL]] {
+        var tagMap: [String: [URL]] = [:]
+        for entry in entries.values {
+            for tag in entry.tags {
+                tagMap[tag.lowercased(), default: []].append(entry.url)
+            }
+        }
+        return tagMap
+    }
+
+    /// Returns the total number of indexed notes.
+    public var entryCount: Int { entries.count }
 
     /// Searches the index and returns results sorted by relevance.
     ///
@@ -164,6 +201,37 @@ public actor VaultSearchIndex {
             }
         }
         return urls
+    }
+
+    /// Extracts inline `#tag` patterns from markdown body text.
+    /// Skips tags inside fenced code blocks (``` ... ```).
+    private static func extractInlineTags(from body: String) -> [String] {
+        // Strip fenced code blocks to avoid matching tags in code
+        let codeBlockPattern = try! NSRegularExpression(pattern: #"```[\s\S]*?```"#, options: [])
+        let mutableBody = NSMutableString(string: body)
+        codeBlockPattern.replaceMatches(
+            in: mutableBody,
+            range: NSRange(location: 0, length: mutableBody.length),
+            withTemplate: ""
+        )
+        let cleanBody = mutableBody as String
+
+        let nsString = cleanBody as NSString
+        let fullRange = NSRange(location: 0, length: nsString.length)
+        let matches = inlineTagRegex.matches(in: cleanBody, range: fullRange)
+
+        var tags: [String] = []
+        var seen = Set<String>()
+        for match in matches {
+            guard match.numberOfRanges >= 2 else { continue }
+            let tagRange = match.range(at: 1)
+            let tag = nsString.substring(with: tagRange)
+            let lower = tag.lowercased()
+            if seen.insert(lower).inserted {
+                tags.append(tag)
+            }
+        }
+        return tags
     }
 
     /// Extracts the context around the first match in the body.

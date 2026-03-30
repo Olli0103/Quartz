@@ -9,19 +9,24 @@ public struct InspectorSidebar: View {
     let note: NoteDocument?
     let vaultRootURL: URL?
     var onScrollToHeading: ((HeadingItem) -> Void)?
+    var onUpdateTags: (([String]) -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
+    @State private var newTagText: String = ""
+    @FocusState private var isTagFieldFocused: Bool
 
     public init(
         store: InspectorStore,
         note: NoteDocument?,
         vaultRootURL: URL?,
-        onScrollToHeading: ((HeadingItem) -> Void)? = nil
+        onScrollToHeading: ((HeadingItem) -> Void)? = nil,
+        onUpdateTags: (([String]) -> Void)? = nil
     ) {
         self.store = store
         self.note = note
         self.vaultRootURL = vaultRootURL
         self.onScrollToHeading = onScrollToHeading
+        self.onUpdateTags = onUpdateTags
     }
 
     public var body: some View {
@@ -35,8 +40,8 @@ public struct InspectorSidebar: View {
                         .padding(.bottom, 16)
                 }
 
-                if let note, !note.frontmatter.tags.isEmpty {
-                    tagsSection(tags: note.frontmatter.tags)
+                if note != nil {
+                    tagsSection
                         .padding(.bottom, 16)
                 }
 
@@ -131,28 +136,93 @@ public struct InspectorSidebar: View {
         }
     }
 
-    // MARK: - Tags Section
+    // MARK: - Tags Section (Editable)
 
-    private func tagsSection(tags: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var tagsSection: some View {
+        let tags = note?.frontmatter.tags ?? []
+        return VStack(alignment: .leading, spacing: 8) {
             sectionHeader("TAGS", icon: "tag")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(tags, id: \.self) { tag in
-                        Text("#\(tag)")
-                            .font(.caption)
-                            .foregroundStyle(QuartzColors.tagColor(for: tag))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(QuartzColors.tagColor(for: tag).opacity(0.12))
-                            )
-                    }
+            // Existing tags as removable chips
+            if !tags.isEmpty {
+                tagChipsView(tags: tags)
+            }
+
+            // Add tag input field
+            HStack(spacing: 6) {
+                Image(systemName: "plus.circle")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                TextField("Add tag…", text: $newTagText)
+                    .font(.callout)
+                    .textFieldStyle(.plain)
+                    .focused($isTagFieldFocused)
+                    .onSubmit { addTag() }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.secondary.opacity(0.06))
+            )
+        }
+    }
+
+    private func tagChipsView(tags: [String]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    tagChip(tag)
                 }
             }
         }
+    }
+
+    private func tagChip(_ tag: String) -> some View {
+        HStack(spacing: 4) {
+            Text("#\(tag)")
+                .font(.caption)
+                .foregroundStyle(QuartzColors.tagColor(for: tag))
+            if onUpdateTags != nil {
+                Button {
+                    removeTag(tag)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove tag \(tag)")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(QuartzColors.tagColor(for: tag).opacity(0.12))
+        )
+    }
+
+    private func addTag() {
+        let tag = newTagText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+            .replacingOccurrences(of: " ", with: "-")
+        guard !tag.isEmpty else { return }
+        guard var tags = note?.frontmatter.tags else { return }
+        guard !tags.contains(where: { $0.lowercased() == tag.lowercased() }) else {
+            newTagText = ""
+            return
+        }
+        tags.append(tag)
+        onUpdateTags?(tags)
+        newTagText = ""
+    }
+
+    private func removeTag(_ tag: String) {
+        guard var tags = note?.frontmatter.tags else { return }
+        tags.removeAll { $0 == tag }
+        onUpdateTags?(tags)
     }
 
     // MARK: - Metadata Section

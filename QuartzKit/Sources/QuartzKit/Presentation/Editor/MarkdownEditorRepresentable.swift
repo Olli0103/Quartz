@@ -209,9 +209,18 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
 /// Custom NSTextView subclass that intercepts file drops (images, PDFs) and
 /// imports them into the vault as Markdown links. Regular text drags pass through
 /// to the standard NSTextView behavior.
+///
+/// Also overrides `drawBackground(in:)` to render uniform-width table blocks
+/// with zebra striping, header shading, and rounded borders.
 @MainActor
 final class MarkdownEditorNSTextView: NSTextView {
     weak var editorSession: EditorSession?
+
+    /// Info about a single table line's layout for custom drawing.
+    private struct TableLineInfo {
+        let rect: CGRect
+        let style: QuartzTableRowStyle
+    }
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -221,6 +230,119 @@ final class MarkdownEditorNSTextView: NSTextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    // MARK: - Custom Table Background Drawing
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+
+        guard let storage = textStorage, let layoutManager = textLayoutManager,
+              let contentStorage = layoutManager.textContentManager as? NSTextContentStorage else { return }
+
+        // The text container origin transforms fragment coords → view coords.
+        // layoutFragmentFrame is in the text container's coordinate space.
+        let origin = textContainerOrigin
+
+        // Collect all table line fragments grouped into contiguous table blocks
+        var tableBlocks: [[TableLineInfo]] = []
+        var currentBlock: [TableLineInfo] = []
+        let docStart = layoutManager.documentRange.location
+
+        layoutManager.enumerateTextLayoutFragments(
+            from: docStart,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let charOffset = contentStorage.offset(from: docStart, to: fragment.rangeInElement.location)
+            guard charOffset >= 0, charOffset < storage.length else {
+                if !currentBlock.isEmpty {
+                    tableBlocks.append(currentBlock)
+                    currentBlock = []
+                }
+                return true
+            }
+
+            if let styleRaw = storage.attribute(.quartzTableRowStyle, at: charOffset, effectiveRange: nil) as? Int,
+               let style = QuartzTableRowStyle(rawValue: styleRaw) {
+                currentBlock.append(TableLineInfo(rect: fragment.layoutFragmentFrame, style: style))
+            } else {
+                if !currentBlock.isEmpty {
+                    tableBlocks.append(currentBlock)
+                    currentBlock = []
+                }
+            }
+            return true
+        }
+        if !currentBlock.isEmpty {
+            tableBlocks.append(currentBlock)
+        }
+
+        guard !tableBlocks.isEmpty else { return }
+
+        // Colors — adaptive for light/dark mode
+        let headerBg = NSColor.controlBackgroundColor.blended(
+            withFraction: 0.06, of: NSColor.labelColor
+        ) ?? NSColor.controlBackgroundColor
+        let altRowBg = NSColor.controlBackgroundColor.blended(
+            withFraction: 0.025, of: NSColor.labelColor
+        ) ?? NSColor.controlBackgroundColor
+        let borderColor = NSColor.separatorColor
+        let dividerLineColor = NSColor.separatorColor
+
+        let hPad: CGFloat = 8 // horizontal padding around the table block
+
+        for block in tableBlocks {
+            guard !block.isEmpty else { continue }
+
+            // Compute uniform bounding box from ALL fragments in this table block.
+            // Fragment rects are in text container coords — apply origin to get view coords.
+            let trueMinX = block.map { $0.rect.minX }.min()! + origin.x
+            let trueMaxRight = block.map { $0.rect.maxX }.max()! + origin.x
+            let trueMaxWidth = trueMaxRight - trueMinX
+            let trueMinY = block.first!.rect.minY + origin.y
+            let trueMaxY = block.last!.rect.maxY + origin.y
+
+            let tableBounds = NSRect(
+                x: trueMinX - hPad,
+                y: trueMinY,
+                width: trueMaxWidth + hPad * 2,
+                height: trueMaxY - trueMinY
+            )
+
+            // Draw each row background at uniform width
+            for line in block {
+                let lineY = line.rect.minY + origin.y
+                let lineH = line.rect.height
+                let rowRect = NSRect(x: tableBounds.minX, y: lineY, width: tableBounds.width, height: lineH)
+
+                switch line.style {
+                case .header:
+                    headerBg.setFill()
+                    rowRect.fill()
+                case .divider:
+                    // 1px horizontal separator at the vertical center of the divider row
+                    let separatorY = lineY + lineH / 2
+                    let linePath = NSBezierPath()
+                    linePath.move(to: NSPoint(x: tableBounds.minX + 4, y: separatorY))
+                    linePath.line(to: NSPoint(x: tableBounds.maxX - 4, y: separatorY))
+                    linePath.lineWidth = 1
+                    dividerLineColor.setStroke()
+                    linePath.stroke()
+                case .bodyEven:
+                    break // transparent
+                case .bodyOdd:
+                    altRowBg.setFill()
+                    rowRect.fill()
+                }
+            }
+
+            // Outer border: subtle rounded rectangle
+            let borderRect = tableBounds.insetBy(dx: -1, dy: -1)
+            let borderPath = NSBezierPath(roundedRect: borderRect, xRadius: 4, yRadius: 4)
+            borderPath.lineWidth = 0.5
+            borderColor.setStroke()
+            borderPath.stroke()
+        }
     }
 
     // MARK: - NSDraggingDestination

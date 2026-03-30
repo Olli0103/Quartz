@@ -258,6 +258,18 @@ public final class EditorSession {
         #endif
     }
 
+    // MARK: - Tag Editing
+
+    /// Updates the note's frontmatter tags and triggers a save.
+    /// Called from the inspector panel's tag editor.
+    public func updateTags(_ newTags: [String]) {
+        guard var currentNote = note else { return }
+        currentNote.frontmatter.tags = newTags
+        note = currentNote
+        isDirty = true
+        scheduleAutosave()
+    }
+
     // MARK: - Formatting Commands
 
     /// Applies a formatting action surgically via `applyExternalEdit`.
@@ -325,11 +337,14 @@ public final class EditorSession {
                 segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
                                 [.font: defaultFont, .foregroundColor: defaultColor]))
             }
-            segments.append((r, [
+            var attrs: [NSAttributedString.Key: Any] = [
                 .font: span.font, .foregroundColor: span.color ?? defaultColor,
                 .backgroundColor: span.backgroundColor ?? UIColor.clear,
                 .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]))
+            ]
+            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
+            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
+            segments.append((r, attrs))
             lastEnd = r.location + r.length
         }
         if lastEnd < storageLength {
@@ -349,8 +364,13 @@ public final class EditorSession {
         }
         for span in spans where span.isOverlay {
             let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
-            storage.addAttribute(.foregroundColor, value: color, range: r)
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            if let color = span.color {
+                storage.addAttribute(.foregroundColor, value: color, range: r)
+            }
+            if let kern = span.kern {
+                storage.addAttribute(.kern, value: kern, range: r)
+            }
         }
         // Apply inline image attachments — replace first char with U+FFFC
         for span in spans where span.attachment != nil {
@@ -395,11 +415,14 @@ public final class EditorSession {
                 segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
                                 [.font: defaultFont, .foregroundColor: defaultColor]))
             }
-            segments.append((r, [
+            var attrs: [NSAttributedString.Key: Any] = [
                 .font: span.font, .foregroundColor: span.color ?? defaultColor,
                 .backgroundColor: span.backgroundColor ?? NSColor.clear,
                 .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]))
+            ]
+            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
+            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
+            segments.append((r, attrs))
             lastEnd = r.location + r.length
         }
         if lastEnd < storageLength {
@@ -419,8 +442,13 @@ public final class EditorSession {
         }
         for span in spans where span.isOverlay {
             let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
-            storage.addAttribute(.foregroundColor, value: color, range: r)
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            if let color = span.color {
+                storage.addAttribute(.foregroundColor, value: color, range: r)
+            }
+            if let kern = span.kern {
+                storage.addAttribute(.kern, value: kern, range: r)
+            }
         }
         // Apply inline image attachments — replace first char with U+FFFC
         for span in spans where span.attachment != nil {
@@ -630,11 +658,14 @@ public final class EditorSession {
                 segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
                                 [.font: defaultFont, .foregroundColor: defaultColor]))
             }
-            segments.append((r, [
+            var attrs: [NSAttributedString.Key: Any] = [
                 .font: span.font, .foregroundColor: span.color ?? defaultColor,
                 .backgroundColor: span.backgroundColor ?? UIColor.clear,
                 .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]))
+            ]
+            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
+            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
+            segments.append((r, attrs))
             lastEnd = r.location + r.length
         }
         if lastEnd < storageLength {
@@ -651,16 +682,22 @@ public final class EditorSession {
             guard range.length > 0 else { continue }
             let existing = storage.attributes(at: range.location, effectiveRange: nil)
             if !fontsEqual(existing[.font] as? UIFont, targetAttrs[.font] as? UIFont) ||
-               !colorsEqual(existing[.foregroundColor] as? UIColor, targetAttrs[.foregroundColor] as? UIColor) {
+               !colorsEqual(existing[.foregroundColor] as? UIColor, targetAttrs[.foregroundColor] as? UIColor) ||
+               existing[.paragraphStyle] as? NSParagraphStyle != targetAttrs[.paragraphStyle] as? NSParagraphStyle {
                 storage.setAttributes(targetAttrs, range: range)
             }
         }
         for span in spans where span.isOverlay {
             let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
-            let existing = storage.attributes(at: r.location, effectiveRange: nil)
-            if !colorsEqual(existing[.foregroundColor] as? UIColor, color as? UIColor) {
-                storage.addAttribute(.foregroundColor, value: color, range: r)
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            if let color = span.color {
+                let existing = storage.attributes(at: r.location, effectiveRange: nil)
+                if !colorsEqual(existing[.foregroundColor] as? UIColor, color as? UIColor) {
+                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                }
+            }
+            if let kern = span.kern {
+                storage.addAttribute(.kern, value: kern, range: r)
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
@@ -706,11 +743,14 @@ public final class EditorSession {
                 segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
                                 [.font: defaultFont, .foregroundColor: defaultColor]))
             }
-            segments.append((r, [
+            var attrs: [NSAttributedString.Key: Any] = [
                 .font: span.font, .foregroundColor: span.color ?? defaultColor,
                 .backgroundColor: span.backgroundColor ?? NSColor.clear,
                 .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]))
+            ]
+            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
+            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
+            segments.append((r, attrs))
             lastEnd = r.location + r.length
         }
         if lastEnd < storageLength {
@@ -727,16 +767,22 @@ public final class EditorSession {
             guard range.length > 0 else { continue }
             let existing = storage.attributes(at: range.location, effectiveRange: nil)
             if !fontsEqual(existing[.font] as? NSFont, targetAttrs[.font] as? NSFont) ||
-               !colorsEqual(existing[.foregroundColor] as? NSColor, targetAttrs[.foregroundColor] as? NSColor) {
+               !colorsEqual(existing[.foregroundColor] as? NSColor, targetAttrs[.foregroundColor] as? NSColor) ||
+               existing[.paragraphStyle] as? NSParagraphStyle != targetAttrs[.paragraphStyle] as? NSParagraphStyle {
                 storage.setAttributes(targetAttrs, range: range)
             }
         }
         for span in spans where span.isOverlay {
             let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength, let color = span.color else { continue }
-            let existing = storage.attributes(at: r.location, effectiveRange: nil)
-            if !colorsEqual(existing[.foregroundColor] as? NSColor, color as? NSColor) {
-                storage.addAttribute(.foregroundColor, value: color, range: r)
+            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
+            if let color = span.color {
+                let existing = storage.attributes(at: r.location, effectiveRange: nil)
+                if !colorsEqual(existing[.foregroundColor] as? NSColor, color as? NSColor) {
+                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                }
+            }
+            if let kern = span.kern {
+                storage.addAttribute(.kern, value: kern, range: r)
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC

@@ -190,6 +190,9 @@ public struct EditorContainerView: View {
                 vaultRootURL: session.vaultRootURL,
                 onScrollToHeading: { heading in
                     session.scrollToHeading(heading)
+                },
+                onUpdateTags: { newTags in
+                    session.updateTags(newTags)
                 }
             )
             .inspectorColumnWidth(min: 220, ideal: 260, max: 320)

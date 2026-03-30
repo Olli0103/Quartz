@@ -8,6 +8,24 @@ import AppKit
 
 // MARK: - Background AST Parser (120fps Guarantee)
 
+// MARK: - Table Row Style (Custom Attribute)
+
+/// Identifies a table row's role for custom background drawing.
+/// Stored as a custom `NSAttributedString.Key` so `drawBackground(in:)`
+/// can find contiguous table lines and paint uniform-width blocks.
+public enum QuartzTableRowStyle: Int, Sendable {
+    case header = 0
+    case divider = 1
+    case bodyEven = 2
+    case bodyOdd = 3
+}
+
+public extension NSAttributedString.Key {
+    /// Custom attribute marking a line as part of a markdown table.
+    /// Value is `QuartzTableRowStyle.rawValue` (Int).
+    static let quartzTableRowStyle = NSAttributedString.Key("QuartzTableRowStyle")
+}
+
 /// Converts swift-markdown `SourceRange` (line:column) to `NSRange`.
 /// Column is UTF-8 bytes from line start; we convert to character offset.
 private func sourceRangeToNSRange(_ range: SourceRange, in source: String) -> NSRange? {
@@ -53,8 +71,15 @@ public struct HighlightSpan: @unchecked Sendable {
     /// When set, an NSTextAttachment is applied to the first character of the range.
     /// Used for inline image rendering — the attachment replaces the `!` character visually.
     public let attachment: NSTextAttachment?
+    /// When set, a paragraph style is applied to the range. Used for table spacing.
+    public let paragraphStyle: NSParagraphStyle?
+    /// When set, marks this span as a table row for custom background drawing.
+    public let tableRowStyle: QuartzTableRowStyle?
+    /// When set, applies NSAttributedString.Key.kern to the range.
+    /// Used for elastic table column alignment.
+    public let kern: CGFloat?
 
-    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil) {
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil) {
         self.range = range
         self.font = font
         self.color = color
@@ -63,6 +88,9 @@ public struct HighlightSpan: @unchecked Sendable {
         self.strikethrough = strikethrough
         self.isOverlay = isOverlay
         self.attachment = attachment
+        self.paragraphStyle = paragraphStyle
+        self.tableRowStyle = tableRowStyle
+        self.kern = kern
     }
 }
 
@@ -275,34 +303,169 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is Markdown.Table {
-                // Don't override the font or background — keep standard proportional body text.
-                // Instead, dim the pipe | and dash - syntax characters so the grid fades away
-                // while the cell content stays readable.
-                let tableText = (source as NSString).substring(with: nsRange)
-                let bodyFont = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+                // Rich table rendering: monospaced font, zebra stripes, dynamic kerning
+                // for perfect column alignment without mutating the markdown source.
+                let monoFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
+                // NO bold font — all rows use identical monoFont for perfect column alignment.
+                // Header is distinguished by background color only (via drawBackground).
+
+                // Monospaced character width — all chars are the same width
+                let monoCharWidth: CGFloat = {
+                    let attrs: [NSAttributedString.Key: Any] = [.font: monoFont]
+                    return ("M" as NSString).size(withAttributes: attrs).width
+                }()
+
                 let mutedColor: PlatformColor
+                let clearColor: PlatformColor
                 #if canImport(UIKit)
-                mutedColor = UIColor.quaternaryLabel
+                mutedColor = UIColor.tertiaryLabel
+                clearColor = UIColor.clear
                 #elseif canImport(AppKit)
-                mutedColor = NSColor.quaternaryLabelColor
+                mutedColor = NSColor.tertiaryLabelColor
+                clearColor = NSColor.clear
                 #endif
 
-                // Scan for | and - characters within the table range and mute them
-                for (i, ch) in tableText.enumerated() {
-                    if ch == "|" || ch == "-" {
-                        let charRange = NSRange(location: nsRange.location + i, length: 1)
-                        spans.append(HighlightSpan(
-                            range: charRange,
-                            font: bodyFont,
-                            color: mutedColor,
-                            traits: FontTraits(bold: false, italic: false),
-                            backgroundColor: nil,
-                            strikethrough: false,
-                            isOverlay: true
-                        ))
+                // Paragraph styles
+                let firstLineParagraph = NSMutableParagraphStyle()
+                firstLineParagraph.paragraphSpacingBefore = 8
+                firstLineParagraph.paragraphSpacing = 0
+                firstLineParagraph.lineSpacing = 2
+                firstLineParagraph.headIndent = 0
+                firstLineParagraph.firstLineHeadIndent = 0
+
+                let tableParagraph = NSMutableParagraphStyle()
+                tableParagraph.paragraphSpacingBefore = 0
+                tableParagraph.paragraphSpacing = 0
+                tableParagraph.lineSpacing = 2
+                tableParagraph.headIndent = 0
+                tableParagraph.firstLineHeadIndent = 0
+
+                // --- Phase 1: Parse all lines into cells, compute max column widths ---
+                let tableText = (source as NSString).substring(with: nsRange)
+                let tableLines = tableText.components(separatedBy: .newlines)
+
+                var parsedRows: [[String]] = []
+                for line in tableLines {
+                    if line.isEmpty {
+                        parsedRows.append([])
+                    } else {
+                        // Parse ALL rows including the divider — we need cell widths for kerning
+                        parsedRows.append(Self.splitTableRow(line))
                     }
                 }
-                // Don't return — let children (cell contents) get their normal inline styling
+
+                // Max character width per column (skip divider line for width calc)
+                var maxColWidths: [Int] = []
+                for (lineIdx, cells) in parsedRows.enumerated() {
+                    let isDivider = lineIdx == 1 && tableLines.count > 1 && Self.isTableDividerLine(tableLines[lineIdx])
+                    if isDivider { continue } // divider dashes don't count toward column width
+                    for (colIdx, cell) in cells.enumerated() {
+                        if colIdx >= maxColWidths.count {
+                            maxColWidths.append(cell.count)
+                        } else if cell.count > maxColWidths[colIdx] {
+                            maxColWidths[colIdx] = cell.count
+                        }
+                    }
+                }
+
+                // --- Phase 2: Emit spans with dynamic kerning ---
+                var lineOffset = nsRange.location
+                var bodyRowIndex = 0
+
+                for (lineIdx, line) in tableLines.enumerated() {
+                    let lineLength = (line as NSString).length
+                    guard lineLength > 0 else {
+                        lineOffset += lineLength + 1
+                        continue
+                    }
+
+                    let hasTrailingNewline = (lineOffset + lineLength) < (nsRange.location + nsRange.length)
+                    let spanLength = hasTrailingNewline ? lineLength + 1 : lineLength
+                    let lineRange = NSRange(location: lineOffset, length: spanLength)
+
+                    let isDividerLine = lineIdx == 1 && Self.isTableDividerLine(line)
+                    let isHeaderLine = lineIdx == 0
+                    let paraStyle = lineIdx == 0 ? firstLineParagraph : tableParagraph
+
+                    // --- Primary span (font, paragraph, table row style) ---
+                    if isDividerLine {
+                        // Divider: ALL text invisible (dashes AND pipes).
+                        // drawBackground paints a clean 1px separator line.
+                        spans.append(HighlightSpan(
+                            range: lineRange, font: monoFont, color: clearColor,
+                            traits: FontTraits(bold: false, italic: false),
+                            backgroundColor: nil, strikethrough: false,
+                            paragraphStyle: paraStyle, tableRowStyle: .divider
+                        ))
+                    } else if isHeaderLine {
+                        // Header: same monoFont (NOT bold) — distinguished by bg color only
+                        spans.append(HighlightSpan(
+                            range: lineRange, font: monoFont, color: nil,
+                            traits: FontTraits(bold: false, italic: false),
+                            backgroundColor: nil, strikethrough: false,
+                            paragraphStyle: paraStyle, tableRowStyle: .header
+                        ))
+                    } else {
+                        let rowStyle: QuartzTableRowStyle = (bodyRowIndex % 2 == 0) ? .bodyEven : .bodyOdd
+                        spans.append(HighlightSpan(
+                            range: lineRange, font: monoFont, color: nil,
+                            traits: FontTraits(bold: false, italic: false),
+                            backgroundColor: nil, strikethrough: false,
+                            paragraphStyle: paraStyle, tableRowStyle: rowStyle
+                        ))
+                        bodyRowIndex += 1
+                    }
+
+                    // --- Overlay: dim pipe characters (skip divider — fully invisible) ---
+                    if !isDividerLine {
+                        for (charIdx, ch) in line.enumerated() {
+                            if ch == "|" {
+                                spans.append(HighlightSpan(
+                                    range: NSRange(location: lineOffset + charIdx, length: 1),
+                                    font: monoFont,
+                                    color: mutedColor,
+                                    traits: FontTraits(bold: false, italic: false),
+                                    backgroundColor: nil, strikethrough: false,
+                                    isOverlay: true
+                                ))
+                            }
+                        }
+                    }
+
+                    // --- Dynamic kerning: stretch cells to align columns ---
+                    // Applies to ALL rows including the divider so pipes align vertically.
+                    let cells = parsedRows[lineIdx]
+                    var scanIdx = 0
+                    if line.hasPrefix("|") { scanIdx = 1 }
+
+                    for (colIdx, cell) in cells.enumerated() {
+                        guard colIdx < maxColWidths.count else { break }
+                        let maxW = maxColWidths[colIdx]
+                        let missing = maxW - cell.count
+
+                        if missing > 0, cell.count > 0 {
+                            let lastCharInCell = scanIdx + cell.count - 1
+                            if lastCharInCell >= 0, lastCharInCell < lineLength {
+                                let kernAmount = CGFloat(missing) * monoCharWidth
+                                spans.append(HighlightSpan(
+                                    range: NSRange(location: lineOffset + lastCharInCell, length: 1),
+                                    font: monoFont,
+                                    color: nil,
+                                    traits: FontTraits(bold: false, italic: false),
+                                    backgroundColor: nil, strikethrough: false,
+                                    isOverlay: true,
+                                    kern: kernAmount
+                                ))
+                            }
+                        }
+
+                        scanIdx += cell.count + 1
+                    }
+
+                    lineOffset += lineLength + 1
+                }
+
+                return
             }
             if markup is BlockQuote {
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, italic: true)
@@ -391,6 +554,30 @@ public actor MarkdownASTHighlighter {
         for child in markup.children {
             collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         }
+    }
+
+    // MARK: - Table Helpers
+
+    /// Returns true if the line is a table header divider (e.g., `|---|---|---:|`).
+    private static func isTableDividerLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+        // A divider line contains only |, -, :, and spaces
+        return trimmed.allSatisfy { $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " }
+            && trimmed.contains("-")
+    }
+
+    /// Splits a markdown table row `| A | B | C |` into cell content strings `["A ", "B ", "C "]`.
+    /// Preserves internal whitespace exactly as written — the kern calculation uses
+    /// the raw character count so the visual width matches.
+    private static func splitTableRow(_ line: String) -> [String] {
+        var trimmed = line
+        // Strip leading pipe
+        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+        // Strip trailing pipe
+        if trimmed.hasSuffix("|") { trimmed.removeLast() }
+        // Split on | — each segment is one cell's content
+        return trimmed.components(separatedBy: "|")
     }
 
     // MARK: - Image Resolution

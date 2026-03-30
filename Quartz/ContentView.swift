@@ -395,6 +395,7 @@ struct ContentView: View {
             if let url = output.object as? URL {
                 viewModel?.spotlightIndexNote(at: url)
                 viewModel?.updatePreviewForNote(at: url)
+                viewModel?.updateSearchIndex(for: url)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .quartzSpotlightNotesRemoved)) { output in

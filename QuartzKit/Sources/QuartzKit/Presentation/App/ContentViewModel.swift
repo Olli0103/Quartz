@@ -337,6 +337,25 @@ public final class ContentViewModel {
         }
     }
 
+    // MARK: - Incremental Search Index Updates
+
+    /// Incrementally updates the in-app search index for a single saved note.
+    /// Called on every note save via `.quartzNoteSaved` notification.
+    public func updateSearchIndex(for url: URL) {
+        Task {
+            await searchIndex?.updateEntry(for: url)
+        }
+    }
+
+    /// Removes search index entries for deleted notes.
+    public func removeSearchEntries(for urls: [URL]) {
+        Task {
+            for url in urls {
+                await searchIndex?.removeEntry(for: url)
+            }
+        }
+    }
+
     // MARK: - Core Spotlight
 
     /// Called when a note file is saved (autosave or explicit).
