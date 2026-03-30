@@ -54,7 +54,7 @@ struct ContentView: View {
             editorSession: viewModel?.editorSession,
             documentChatSession: viewModel?.documentChatSession,
             onMapViewTap: {
-                coordinator.activeSheet = .knowledgeGraph
+                workspaceStore.showGraph = true
             },
             onDoubleClick: { url in
                 #if os(macOS)

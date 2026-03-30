@@ -53,6 +53,10 @@ public final class ContentViewModel {
     private var embeddingReindexTask: Task<Void, Never>?
     /// Observer token for `.quartzNoteSaved` notifications.
     private var noteSavedObserver: Any?
+    /// Background semantic link discovery engine.
+    public var semanticLinkService: SemanticLinkService?
+    /// Shared graph edge store for wiki-link and semantic edges.
+    public let graphEdgeStore = GraphEdgeStore()
 
     public init(appState: AppState) {
         self.appState = appState
@@ -83,6 +87,13 @@ public final class ContentViewModel {
         let embedding = VectorEmbeddingService(vaultURL: vault.rootURL)
         embeddingService = embedding
 
+        // Initialize background semantic link service
+        semanticLinkService = SemanticLinkService(
+            embeddingService: embedding,
+            edgeStore: graphEdgeStore,
+            vaultRootURL: vault.rootURL
+        )
+
         let frontmatterParser = ServiceContainer.shared.resolveFrontmatterParser()
         let previewRepo = NotePreviewRepository(vaultRoot: vault.rootURL)
         previewRepository = previewRepo
@@ -102,6 +113,7 @@ public final class ContentViewModel {
             inspectorStore: inspectorStore
         )
         session.vaultRootURL = vault.rootURL
+        session.graphEdgeStore = graphEdgeStore
         editorSession = session
 
         // Create DocumentChatSession ONCE per vault — reuses the same EditorSession.
@@ -430,6 +442,7 @@ public final class ContentViewModel {
         // If this is the active note, use live text (avoids stale disk read)
         let liveText: String? = (editorSession?.note?.fileURL == url) ? editorSession?.currentText : nil
 
+        let semanticService = self.semanticLinkService
         Task.detached(priority: .utility) {
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
             let content = liveText ?? (try? String(contentsOf: url, encoding: .utf8))
@@ -437,6 +450,8 @@ public final class ContentViewModel {
                 try? await embedding.indexNote(noteID: stableID, content: content)
                 try? await embedding.saveIndex()
             }
+            // Trigger background semantic link discovery after embedding update
+            await semanticService?.scheduleAnalysis(for: url)
         }
     }
 

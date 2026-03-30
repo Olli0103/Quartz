@@ -24,6 +24,9 @@ public extension NSAttributedString.Key {
     /// Custom attribute marking a line as part of a markdown table.
     /// Value is `QuartzTableRowStyle.rawValue` (Int).
     static let quartzTableRowStyle = NSAttributedString.Key("QuartzTableRowStyle")
+    /// Custom attribute marking a wiki-link span. Value is the linked note title (String).
+    /// Used by the text view to intercept clicks and navigate to the linked note.
+    static let quartzWikiLink = NSAttributedString.Key("QuartzWikiLink")
 }
 
 /// Converts swift-markdown `SourceRange` (line:column) to `NSRange`.
@@ -78,8 +81,11 @@ public struct HighlightSpan: @unchecked Sendable {
     /// When set, applies NSAttributedString.Key.kern to the range.
     /// Used for elastic table column alignment.
     public let kern: CGFloat?
+    /// When set, marks this span as a wiki-link. Value is the linked note title.
+    /// Applied as NSAttributedString.Key.quartzWikiLink and underline styling.
+    public let wikiLinkTitle: String?
 
-    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil) {
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil, wikiLinkTitle: String? = nil) {
         self.range = range
         self.font = font
         self.color = color
@@ -91,6 +97,7 @@ public struct HighlightSpan: @unchecked Sendable {
         self.paragraphStyle = paragraphStyle
         self.tableRowStyle = tableRowStyle
         self.kern = kern
+        self.wikiLinkTitle = wikiLinkTitle
     }
 }
 
@@ -191,6 +198,8 @@ public actor MarkdownASTHighlighter {
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
         collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
+        // Post-AST pass: highlight [[wiki-links]] which swift-markdown treats as plain text
+        appendWikiLinkSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
     }
 
@@ -554,6 +563,113 @@ public actor MarkdownASTHighlighter {
         for child in markup.children {
             collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         }
+    }
+
+    // MARK: - Wiki-Link Highlighting
+
+    /// Post-AST pass that finds `[[wiki-links]]` via regex and emits highlight spans.
+    /// The AST parser treats these as plain text, so we overlay accent color + underline.
+    ///
+    /// Skips wiki-links inside fenced code blocks and inline code to match `WikiLinkExtractor`.
+    private static func appendWikiLinkSpans(
+        in source: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsSource = source as NSString
+        guard nsSource.length > 0 else { return }
+
+        // Build a set of code ranges to skip
+        let codeRanges = codeBlockNSRanges(in: source)
+        let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+
+        let accentColor: PlatformColor
+        let bracketColor: PlatformColor
+        #if canImport(UIKit)
+        accentColor = UIColor.tintColor
+        bracketColor = UIColor.tertiaryLabel
+        #elseif canImport(AppKit)
+        accentColor = NSColor.controlAccentColor
+        bracketColor = NSColor.tertiaryLabelColor
+        #endif
+
+        guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#) else { return }
+        let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+
+        for match in matches {
+            let fullNSRange = match.range
+            guard match.numberOfRanges >= 2 else { continue }
+            let contentRange = match.range(at: 1) // Capture group: the content inside [[ ]]
+
+            // Skip wiki-links inside code blocks
+            let isInCode = codeRanges.contains { NSIntersectionRange($0, fullNSRange).length > 0 }
+            guard !isInCode else { continue }
+            guard fullNSRange.location >= 0, fullNSRange.location + fullNSRange.length <= nsSource.length else { continue }
+
+            // Parse the target title from the raw content
+            let rawContent = nsSource.substring(with: contentRange)
+            let wikiLink = WikiLink(raw: rawContent)
+            let targetTitle = wikiLink.target
+
+            // The inner content range: skip the leading [[ (2 chars) and trailing ]] (2 chars)
+            let innerRange = NSRange(location: fullNSRange.location + 2, length: fullNSRange.length - 4)
+            guard innerRange.length > 0 else { continue }
+
+            // Primary span: accent color + wiki-link attribute on the inner text
+            spans.append(HighlightSpan(
+                range: innerRange,
+                font: font,
+                color: accentColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                wikiLinkTitle: targetTitle
+            ))
+
+            // Mute the [[ and ]] bracket delimiters
+            let openBrackets = NSRange(location: fullNSRange.location, length: 2)
+            let closeBrackets = NSRange(location: fullNSRange.location + fullNSRange.length - 2, length: 2)
+            spans.append(HighlightSpan(
+                range: openBrackets,
+                font: font,
+                color: bracketColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+            spans.append(HighlightSpan(
+                range: closeBrackets,
+                font: font,
+                color: bracketColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+        }
+    }
+
+    /// Returns NSRanges for all fenced code blocks and inline code spans.
+    private static func codeBlockNSRanges(in source: String) -> [NSRange] {
+        var ranges: [NSRange] = []
+        let nsSource = source as NSString
+
+        // Fenced code blocks
+        if let fencedRegex = try? NSRegularExpression(pattern: "```[\\s\\S]*?```") {
+            let fencedMatches = fencedRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+            ranges.append(contentsOf: fencedMatches.map(\.range))
+        }
+
+        // Inline code
+        if let inlineRegex = try? NSRegularExpression(pattern: "`[^`]+`") {
+            let inlineMatches = inlineRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+            ranges.append(contentsOf: inlineMatches.map(\.range))
+        }
+
+        return ranges
     }
 
     // MARK: - Table Helpers

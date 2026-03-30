@@ -63,6 +63,11 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         // One-time initial text load
         textView.text = session.currentText
 
+        // Add tap gesture for wiki-link navigation
+        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tapGesture.delegate = context.coordinator
+        textView.addGestureRecognizer(tapGesture)
+
         // Wire session to text view (weak ref)
         session.activeTextView = textView
         session.contentManager = contentManager
@@ -130,7 +135,7 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    public final class Coordinator: NSObject, UITextViewDelegate {
+    public final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         let session: EditorSession
         weak var textView: UITextView?
         private let listContinuation = MarkdownListContinuation()
@@ -142,6 +147,25 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         init(session: EditorSession) {
             self.session = session
             super.init()
+        }
+
+        // MARK: - Wiki-Link Tap
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard let textView = gesture.view as? UITextView else { return }
+            let point = gesture.location(in: textView)
+            guard let position = textView.closestPosition(to: point) else { return }
+            let charIndex = textView.offset(from: textView.beginningOfDocument, to: position)
+            guard charIndex >= 0, charIndex < textView.textStorage.length else { return }
+
+            if let linkedTitle = textView.textStorage.attribute(.quartzWikiLink, at: charIndex, effectiveRange: nil) as? String {
+                session.navigateToWikiLink(title: linkedTitle)
+            }
+        }
+
+        /// Allow the tap gesture to work simultaneously with the text view's built-in gestures.
+        public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
         }
 
         // MARK: - Scroll Tracking (UITextView inherits UIScrollView)
@@ -343,6 +367,34 @@ final class MarkdownEditorNSTextView: NSTextView {
             borderColor.setStroke()
             borderPath.stroke()
         }
+    }
+
+    // MARK: - Wiki-Link Click Interception
+
+    override func mouseDown(with event: NSEvent) {
+        // Only intercept single-clicks (not double-click for word selection)
+        guard event.clickCount == 1 else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndexForInsertion(at: point)
+
+        guard charIndex != NSNotFound,
+              let storage = textStorage,
+              charIndex < storage.length else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        // Check if the clicked character has a QuartzWikiLink attribute
+        if let linkedTitle = storage.attribute(.quartzWikiLink, at: charIndex, effectiveRange: nil) as? String {
+            editorSession?.navigateToWikiLink(title: linkedTitle)
+            return
+        }
+
+        super.mouseDown(with: event)
     }
 
     // MARK: - NSDraggingDestination

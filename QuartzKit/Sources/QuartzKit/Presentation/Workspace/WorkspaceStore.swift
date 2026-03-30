@@ -46,12 +46,23 @@ public final class WorkspaceStore {
         didSet {
             if selectedNoteURL != nil {
                 showDashboard = false
+                showGraph = false
             }
         }
     }
 
     /// Whether the detail pane shows the Dashboard instead of a note editor.
     public var showDashboard: Bool = true
+
+    /// Whether the detail pane shows the Knowledge Graph.
+    public var showGraph: Bool = false {
+        didSet {
+            if showGraph {
+                showDashboard = false
+                selectedNoteURL = nil
+            }
+        }
+    }
 
     // MARK: - Column Visibility
 

@@ -77,3 +77,123 @@ public struct GraphCache: Sendable {
         try data.write(to: cacheURL, options: .atomic)
     }
 }
+
+// MARK: - Live Graph Edge Store
+
+/// In-memory store of wiki-link connections between notes.
+/// Used by the knowledge graph to draw edges and by the editor to resolve wiki-link navigation.
+///
+/// Call `updateConnections(for:linkedTitles:allVaultURLs:)` after parsing a note
+/// to keep the edge map current.
+public actor GraphEdgeStore {
+    /// Maps a source note URL to the URLs it links to via `[[wiki-links]]`.
+    public private(set) var edges: [URL: [URL]] = [:]
+
+    /// Maps a source note URL to semantically related note URLs.
+    /// Discovered by background AI analysis — non-destructive, never alters markdown files.
+    public private(set) var semanticEdges: [URL: [URL]] = [:]
+
+    /// Reverse lookup: title (lowercased, no extension) → URL.
+    /// Rebuilt whenever `updateConnections` is called with a new vault snapshot.
+    private var titleIndex: [String: URL] = [:]
+
+    public init() {}
+
+    /// Updates the edge map for a single note.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: The note that contains the wiki-links.
+    ///   - linkedTitles: Extracted wiki-link target titles (from `WikiLinkExtractor`).
+    ///   - allVaultURLs: All `.md` file URLs in the vault (used to resolve titles to URLs).
+    public func updateConnections(
+        for sourceURL: URL,
+        linkedTitles: [String],
+        allVaultURLs: [URL]
+    ) {
+        // Rebuild the title index from the vault snapshot
+        rebuildTitleIndex(from: allVaultURLs)
+
+        // Resolve each linked title to a URL
+        var resolved: [URL] = []
+        for title in linkedTitles {
+            let key = title.lowercased().trimmingCharacters(in: .whitespaces)
+            if let url = titleIndex[key], url != sourceURL {
+                resolved.append(url)
+            }
+        }
+        edges[sourceURL] = resolved
+    }
+
+    /// Resolves a wiki-link title to a note URL, if it exists in the vault.
+    public func resolveTitle(_ title: String) -> URL? {
+        let key = title.lowercased().trimmingCharacters(in: .whitespaces)
+        return titleIndex[key]
+    }
+
+    /// Rebuilds the full edge map from a batch of (source, titles) pairs.
+    public func rebuildAll(
+        connections: [(sourceURL: URL, linkedTitles: [String])],
+        allVaultURLs: [URL]
+    ) {
+        rebuildTitleIndex(from: allVaultURLs)
+        edges.removeAll()
+
+        for (sourceURL, linkedTitles) in connections {
+            var resolved: [URL] = []
+            for title in linkedTitles {
+                let key = title.lowercased().trimmingCharacters(in: .whitespaces)
+                if let url = titleIndex[key], url != sourceURL {
+                    resolved.append(url)
+                }
+            }
+            edges[sourceURL] = resolved
+        }
+    }
+
+    /// All unique destination URLs linked from any source.
+    public var allLinkedURLs: Set<URL> {
+        Set(edges.values.flatMap { $0 })
+    }
+
+    // MARK: - Semantic Edges
+
+    /// Updates the semantic connections for a single note.
+    /// Called by the background semantic linking engine after vector similarity search.
+    ///
+    /// - Parameters:
+    ///   - url: The source note URL.
+    ///   - related: URLs of semantically similar notes (filtered by high threshold).
+    public func updateSemanticConnections(for url: URL, related: [URL]) {
+        semanticEdges[url] = related
+    }
+
+    /// Returns the semantically related note URLs for a given note.
+    public func semanticRelations(for url: URL) -> [URL] {
+        semanticEdges[url] ?? []
+    }
+
+    /// Removes semantic edges for a deleted note.
+    public func removeSemanticConnections(for url: URL) {
+        semanticEdges.removeValue(forKey: url)
+        // Also remove this URL from other notes' semantic edges
+        for (key, var related) in semanticEdges {
+            if related.contains(url) {
+                related.removeAll { $0 == url }
+                semanticEdges[key] = related
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func rebuildTitleIndex(from urls: [URL]) {
+        titleIndex.removeAll(keepingCapacity: true)
+        for url in urls {
+            let name = url.deletingPathExtension().lastPathComponent.lowercased()
+            // First-match wins (avoids ambiguity from duplicate titles in nested folders)
+            if titleIndex[name] == nil {
+                titleIndex[name] = url
+            }
+        }
+    }
+}

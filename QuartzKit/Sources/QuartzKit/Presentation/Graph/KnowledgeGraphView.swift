@@ -72,6 +72,112 @@ public final class GraphViewModel {
 
     public init() {}
 
+    // MARK: - Live Simulation
+
+    private var simulationTask: Task<Void, Never>?
+    /// True while the physics simulation is actively running (settling).
+    public var isSimulating: Bool = false
+
+    /// Starts the live physics simulation that runs at ~60fps and settles over time.
+    /// The simulation decays its energy each frame and stops when velocity is negligible.
+    public func startLiveSimulation() {
+        stopSimulation()
+        guard nodes.count > 1 else { return }
+        isSimulating = true
+        simulationTask = Task { [weak self] in
+            var totalIterations = 0
+            let maxIterations = 300 // Safety cap (~5 seconds at 60fps)
+            while !Task.isCancelled, let self, totalIterations < maxIterations {
+                self.simulationTick()
+                totalIterations += 1
+                // Check if the system has settled (max velocity below threshold)
+                let maxVelocity = self.nodes.reduce(CGFloat(0)) { maxV, node in
+                    max(maxV, abs(node.vx) + abs(node.vy))
+                }
+                if maxVelocity < 0.5 { break }
+                try? await Task.sleep(for: .milliseconds(16)) // ~60fps
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.isSimulating = false
+            }
+        }
+    }
+
+    /// Runs one tick of the force simulation. Called from the animation loop.
+    private func simulationTick() {
+        let n = nodes.count
+        guard n > 1 else { return }
+
+        let repulsionStrength: CGFloat = 6000
+        let attractionStrength: CGFloat = 0.008
+        let damping: CGFloat = 0.85
+        let centerGravity: CGFloat = 0.01
+        let cellSize = max(36, min(130, 2200 / sqrt(CGFloat(max(n, 2)))))
+
+        // Repulsion via spatial hashing
+        var buckets: [String: [Int]] = [:]
+        buckets.reserveCapacity(n)
+        for i in 0..<n {
+            let gx = Int(floor(nodes[i].x / cellSize))
+            let gy = Int(floor(nodes[i].y / cellSize))
+            buckets["\(gx),\(gy)", default: []].append(i)
+        }
+
+        for i in 0..<n {
+            let gx = Int(floor(nodes[i].x / cellSize))
+            let gy = Int(floor(nodes[i].y / cellSize))
+            for dx in -1...1 {
+                for dy in -1...1 {
+                    guard let bucket = buckets["\(gx + dx),\(gy + dy)"] else { continue }
+                    for j in bucket where j > i {
+                        let dxn = nodes[i].x - nodes[j].x
+                        let dyn = nodes[i].y - nodes[j].y
+                        let dist = max(sqrt(dxn * dxn + dyn * dyn), 1)
+                        let force = repulsionStrength / (dist * dist)
+                        let fx = (dxn / dist) * force
+                        let fy = (dyn / dist) * force
+                        nodes[i].vx += fx
+                        nodes[i].vy += fy
+                        nodes[j].vx -= fx
+                        nodes[j].vy -= fy
+                    }
+                }
+            }
+        }
+
+        // Attraction
+        for edge in edges {
+            guard let iFrom = nodeIndex[edge.from],
+                  let iTo = nodeIndex[edge.to] else { continue }
+            let dx = nodes[iTo].x - nodes[iFrom].x
+            let dy = nodes[iTo].y - nodes[iFrom].y
+            let fx = dx * attractionStrength
+            let fy = dy * attractionStrength
+            nodes[iFrom].vx += fx
+            nodes[iFrom].vy += fy
+            nodes[iTo].vx -= fx
+            nodes[iTo].vy -= fy
+        }
+
+        // Centering + damping
+        for i in 0..<n {
+            nodes[i].vx -= nodes[i].x * centerGravity
+            nodes[i].vy -= nodes[i].y * centerGravity
+            nodes[i].vx *= damping
+            nodes[i].vy *= damping
+            nodes[i].x += nodes[i].vx
+            nodes[i].y += nodes[i].vy
+        }
+    }
+
+    /// Stops any in-flight simulation.
+    public func stopSimulation() {
+        simulationTask?.cancel()
+        simulationTask = nil
+        isSimulating = false
+    }
+
     /// Builds the graph from a file tree and the currently selected note.
     /// Uses disk cache when notes haven't changed to avoid slow rebuilds.
     /// When embeddingService is provided and semanticAutoLinkingEnabled, adds AI-assisted semantic links between similar notes.
@@ -231,7 +337,8 @@ public final class GraphViewModel {
         nodes = builtNodes
         edges = builtEdges
         rebuildNodeIndex()
-        layoutGraph()
+        layoutGraph() // Initial fast layout
+        startLiveSimulation() // Animate settling
 
         // Persist to cache for next time
         if let root = vaultRootURL {
@@ -474,13 +581,17 @@ public struct KnowledgeGraphView: View {
     /// Light cream background per design (#FDFBF8).
     private static let graphBackgroundColor = Color(hex: 0xFDFBF8)
 
+    /// Whether the graph is shown as a full workspace pane (vs modal sheet).
+    private let isEmbedded: Bool
+
     public init(
         fileTree: [FileNode],
         currentNoteURL: URL?,
         vaultRootURL: URL?,
         vaultProvider: (any VaultProviding)?,
         embeddingService: VectorEmbeddingService? = nil,
-        onSelectNote: ((URL) -> Void)? = nil
+        onSelectNote: ((URL) -> Void)? = nil,
+        isEmbedded: Bool = false
     ) {
         self.fileTree = fileTree
         self.currentNoteURL = currentNoteURL
@@ -488,6 +599,7 @@ public struct KnowledgeGraphView: View {
         self.vaultProvider = vaultProvider
         self.embeddingService = embeddingService
         self.onSelectNote = onSelectNote
+        self.isEmbedded = isEmbedded
     }
 
     public var body: some View {
@@ -500,6 +612,12 @@ public struct KnowledgeGraphView: View {
                 emptyState
             } else {
                 graphCanvas
+            }
+
+            // Inline header for embedded mode (toolbar items removed to prevent macOS 26 crash)
+            if isEmbedded {
+                embeddedHeader
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
 
             // Floating node detail card (top-right overlay)
@@ -526,27 +644,14 @@ public struct KnowledgeGraphView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(String(localized: "Graph View", bundle: .module))
-                        .font(.headline)
-                    if !viewModel.nodes.isEmpty {
-                        Text("\(viewModel.nodes.count) \(String(localized: "nodes", bundle: .module))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let note = viewModel.graphTruncationNote {
-                        Text(note)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                    }
-                }
-            }
-        }
-        .searchable(text: $searchText, prompt: Text(String(localized: "Search knowledge…", bundle: .module)))
+        // Only add toolbar items when NOT embedded in the workspace detail column.
+        // macOS 26 beta: NSToolbar crashes (EXC_BREAKPOINT in _insertNewItemWithItemIdentifier)
+        // when toolbar items change across conditional detail-column branches inside NavigationSplitView.
+        .modifier(GraphToolbarModifier(
+            viewModel: viewModel,
+            searchText: $searchText,
+            isEmbedded: isEmbedded
+        ))
         .task(id: semanticAutoLinkingEnabled) {
             await viewModel.buildGraph(
                 fileTree: fileTree,
@@ -562,9 +667,17 @@ public struct KnowledgeGraphView: View {
     // MARK: - Background
 
     private var graphBackground: some View {
-        Rectangle()
-            .fill(Self.graphBackgroundColor)
-            .ignoresSafeArea()
+        Group {
+            if isEmbedded {
+                // Embedded mode: use the ambient mesh for Liquid Glass feel
+                QuartzAmbientMeshBackground(style: .shell)
+                    .ignoresSafeArea()
+            } else {
+                Rectangle()
+                    .fill(Self.graphBackgroundColor)
+                    .ignoresSafeArea()
+            }
+        }
     }
 
     // MARK: - Node Detail Card
@@ -593,7 +706,7 @@ public struct KnowledgeGraphView: View {
                 }
             }
             Button {
-                onSelectNote?(node.url)
+                navigateToNote(node)
             } label: {
                 HStack {
                     Text(String(localized: "Open Note", bundle: .module))
@@ -860,7 +973,12 @@ public struct KnowledgeGraphView: View {
                 )
                 if let tapped = viewModel.nodeAt(point: adjustedInCanvasCoords, in: size, threshold: 20 / zoom) {
                     withAnimation(QuartzAnimation.standard) {
-                        selectedNodeID = tapped.id
+                        if selectedNodeID == tapped.id {
+                            // Second tap on same node → navigate
+                            navigateToNote(tapped)
+                        } else {
+                            selectedNodeID = tapped.id
+                        }
                     }
                 } else {
                     selectedNodeID = nil
@@ -889,7 +1007,7 @@ public struct KnowledgeGraphView: View {
             List(viewModel.nodes) { node in
                 Button {
                     selectedNodeID = node.id
-                    onSelectNote?(node.url)
+                    navigateToNote(node)
                 } label: {
                     VStack(alignment: .leading) {
                         Text(node.title)
@@ -908,6 +1026,21 @@ public struct KnowledgeGraphView: View {
         }
     }
 
+    // MARK: - Navigation Helper
+
+    /// Navigates to a note via the onSelectNote callback AND the wiki-link notification system.
+    /// This ensures both modal (sheet) and embedded (workspace) presentations route correctly.
+    private func navigateToNote(_ node: GraphNode) {
+        QuartzFeedback.primaryAction()
+        onSelectNote?(node.url)
+        // Also post the wiki-link navigation notification for embedded workspace routing
+        NotificationCenter.default.post(
+            name: .quartzWikiLinkNavigation,
+            object: nil,
+            userInfo: ["url": node.url, "title": node.title]
+        )
+    }
+
     private var graphAccessibilityLabel: String {
         let nodeCount = viewModel.nodes.count
         let edgeCount = viewModel.edges.count
@@ -917,5 +1050,64 @@ public struct KnowledgeGraphView: View {
             return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections. Current note: \(currentNode.title) with \(connectedCount) linked notes.", bundle: .module)
         }
         return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections.", bundle: .module)
+    }
+
+    // MARK: - Embedded Header (macOS 26 toolbar crash workaround)
+
+    private var embeddedHeader: some View {
+        VStack(spacing: 2) {
+            Text(String(localized: "Knowledge Graph", bundle: .module))
+                .font(.headline)
+            if !viewModel.nodes.isEmpty {
+                Text("\(viewModel.nodes.count) \(String(localized: "nodes", bundle: .module))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let note = viewModel.graphTruncationNote {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity)
+        .quartzAmbientGlassBackground(style: .editorChrome)
+    }
+}
+
+// MARK: - Graph Toolbar Modifier
+
+/// Conditionally applies toolbar items and searchable only when NOT embedded in the workspace.
+/// macOS 26 beta crashes (EXC_BREAKPOINT in NSToolbar._insertNewItemWithItemIdentifier)
+/// when toolbar items change across conditional branches in NavigationSplitView's detail column.
+private struct GraphToolbarModifier: ViewModifier {
+    let viewModel: GraphViewModel
+    @Binding var searchText: String
+    let isEmbedded: Bool
+
+    func body(content: Content) -> some View {
+        if isEmbedded {
+            // No toolbar items — header is rendered inline to avoid NSToolbar crash
+            content
+        } else {
+            content
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        VStack(spacing: 2) {
+                            Text(String(localized: "Graph View", bundle: .module))
+                                .font(.headline)
+                            if !viewModel.nodes.isEmpty {
+                                Text("\(viewModel.nodes.count) \(String(localized: "nodes", bundle: .module))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .searchable(text: $searchText, prompt: Text(String(localized: "Search knowledge…", bundle: .module)))
+        }
     }
 }

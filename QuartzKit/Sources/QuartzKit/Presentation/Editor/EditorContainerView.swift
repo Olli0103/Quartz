@@ -193,6 +193,17 @@ public struct EditorContainerView: View {
                 },
                 onUpdateTags: { newTags in
                     session.updateTags(newTags)
+                },
+                onNavigateToNote: { url in
+                    QuartzFeedback.primaryAction()
+                    NotificationCenter.default.post(
+                        name: .quartzWikiLinkNavigation,
+                        object: nil,
+                        userInfo: [
+                            "url": url,
+                            "title": url.deletingPathExtension().lastPathComponent
+                        ]
+                    )
                 }
             )
             .inspectorColumnWidth(min: 220, ideal: 260, max: 320)

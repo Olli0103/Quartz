@@ -160,7 +160,19 @@ public struct WorkspaceView: View {
 
     private var detailColumn: some View {
         Group {
-            if store.showDashboard {
+            if store.showGraph {
+                KnowledgeGraphView(
+                    fileTree: sidebarViewModel?.fileTree ?? [],
+                    currentNoteURL: store.selectedNoteURL,
+                    vaultRootURL: sidebarViewModel?.vaultRootURL,
+                    vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
+                    embeddingService: nil,
+                    onSelectNote: { url in
+                        store.selectedNoteURL = url
+                    },
+                    isEmbedded: true
+                )
+            } else if store.showDashboard {
                 DashboardView(
                     sidebarViewModel: sidebarViewModel,
                     vaultProvider: ServiceContainer.shared.resolveVaultProvider(),

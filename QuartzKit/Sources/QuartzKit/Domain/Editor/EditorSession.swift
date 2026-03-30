@@ -97,10 +97,46 @@ public final class EditorSession {
 
     // MARK: - Init
 
+    /// Graph edge store for resolving semantic links in the inspector.
+    public var graphEdgeStore: GraphEdgeStore?
+
+    /// Observer for semantic link update notifications.
+    private var semanticLinkObserver: Any?
+
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
         self.vaultProvider = vaultProvider
         self.frontmatterParser = frontmatterParser
         self.inspectorStore = inspectorStore
+        startSemanticLinkObserver()
+    }
+
+    /// Listens for `.quartzSemanticLinksUpdated` and refreshes the inspector's related notes.
+    private func startSemanticLinkObserver() {
+        semanticLinkObserver = NotificationCenter.default.addObserver(
+            forName: .quartzSemanticLinksUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let updatedURL = notification.object as? URL,
+                  updatedURL == self.note?.fileURL else { return }
+            Task { @MainActor [weak self] in
+                await self?.refreshSemanticLinks()
+            }
+        }
+    }
+
+    /// Fetches semantic links from the edge store and updates the inspector.
+    public func refreshSemanticLinks() async {
+        guard let noteURL = note?.fileURL,
+              let edgeStore = graphEdgeStore else {
+            inspectorStore.relatedNotes = []
+            return
+        }
+        let related = await edgeStore.semanticRelations(for: noteURL)
+        inspectorStore.relatedNotes = related.map { url in
+            (url: url, title: url.deletingPathExtension().lastPathComponent)
+        }
     }
 
     // MARK: - Note Loading
@@ -146,6 +182,9 @@ public final class EditorSession {
             // Trigger highlighting and analysis
             highlightImmediately()
             scheduleAnalysis()
+
+            // Refresh semantic links for the newly loaded note
+            Task { await refreshSemanticLinks() }
 
             startFileWatching(for: url)
         } catch {
@@ -371,6 +410,10 @@ public final class EditorSession {
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
             }
+            if let title = span.wikiLinkTitle {
+                storage.addAttribute(.quartzWikiLink, value: title, range: r)
+                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+            }
         }
         // Apply inline image attachments — replace first char with U+FFFC
         for span in spans where span.attachment != nil {
@@ -448,6 +491,10 @@ public final class EditorSession {
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
+            }
+            if let title = span.wikiLinkTitle {
+                storage.addAttribute(.quartzWikiLink, value: title, range: r)
+                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
@@ -699,6 +746,10 @@ public final class EditorSession {
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
             }
+            if let title = span.wikiLinkTitle {
+                storage.addAttribute(.quartzWikiLink, value: title, range: r)
+                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
+            }
         }
         // Apply inline image attachments — replace first char with U+FFFC
         for span in spans where span.attachment != nil {
@@ -783,6 +834,10 @@ public final class EditorSession {
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
+            }
+            if let title = span.wikiLinkTitle {
+                storage.addAttribute(.quartzWikiLink, value: title, range: r)
+                storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
@@ -1016,6 +1071,52 @@ public final class EditorSession {
         }
     }
 
+    // MARK: - Wiki-Link Navigation
+
+    /// Set when the user clicks a wiki-link in the editor.
+    /// The view layer observes this and navigates to the linked note.
+    public var wikiLinkNavigationRequest: WikiLinkNavigationRequest?
+
+    /// Resolves a wiki-link title to a file URL using the current vault's file tree.
+    /// Matches by filename (case-insensitive, without .md extension).
+    public func resolveWikiLink(title: String) -> URL? {
+        let target = title.lowercased().trimmingCharacters(in: .whitespaces)
+        for node in fileTree {
+            if let url = findNoteURL(matching: target, in: node) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// Triggers navigation to a wiki-link destination.
+    /// Posts a notification that the app shell can observe to open the note.
+    public func navigateToWikiLink(title: String) {
+        guard let url = resolveWikiLink(title: title) else {
+            errorMessage = String(localized: "Note \"\(title)\" not found in vault.", bundle: .module)
+            return
+        }
+        wikiLinkNavigationRequest = WikiLinkNavigationRequest(title: title, url: url)
+        NotificationCenter.default.post(
+            name: .quartzWikiLinkNavigation,
+            object: nil,
+            userInfo: ["url": url, "title": title]
+        )
+    }
+
+    private func findNoteURL(matching target: String, in node: FileNode) -> URL? {
+        let nodeName = node.url.deletingPathExtension().lastPathComponent.lowercased()
+        if nodeName == target && node.url.pathExtension == "md" {
+            return node.url
+        }
+        for child in node.children ?? [] {
+            if let found = findNoteURL(matching: target, in: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
     // MARK: - Cleanup
 
     public func cancelAllTasks() {
@@ -1134,4 +1235,19 @@ public final class EditorSession {
         return a == b
     }
     #endif
+}
+
+// MARK: - Wiki-Link Navigation Types
+
+/// Represents a pending wiki-link navigation request.
+public struct WikiLinkNavigationRequest: Identifiable, Equatable {
+    public let id = UUID()
+    public let title: String
+    public let url: URL
+}
+
+public extension Notification.Name {
+    /// Posted when the user clicks a wiki-link in the editor.
+    /// `userInfo` contains `"url": URL` and `"title": String`.
+    static let quartzWikiLinkNavigation = Notification.Name("quartzWikiLinkNavigation")
 }

@@ -18,6 +18,10 @@ public final class InspectorStore {
     /// Document statistics (word count, char count, reading time).
     public private(set) var stats: NoteStats = .empty
 
+    /// Semantically related notes discovered by background AI analysis.
+    /// Each entry is a (URL, display title) pair for rendering in the inspector.
+    public var relatedNotes: [(url: URL, title: String)] = []
+
     /// ID of the heading currently visible at the top of the editor viewport.
     /// Drives the highlight in the ToC.
     public var activeHeadingID: String?

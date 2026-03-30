@@ -549,13 +549,13 @@ public struct AISettingsView: View {
     private var semanticAutoLinkingSection: some View {
         Section {
             Toggle(isOn: $semanticAutoLinkingEnabled) {
-                Label(String(localized: "Semantic Auto-Linking", bundle: .module), systemImage: "cpu")
+                Label(String(localized: "Auto-Discover Related Notes", bundle: .module), systemImage: "sparkles")
             }
             .tint(QuartzColors.accent)
         } header: {
             Text(String(localized: "Knowledge Graph", bundle: .module))
         } footer: {
-            Text(String(localized: "When enabled, the graph adds dashed semantic links between embedding-based related notes. Uses on-device embeddings only.", bundle: .module))
+            Text(String(localized: "Uses on-device vector embeddings to discover hidden connections between your notes. Adds semantic links to the Knowledge Graph and Related Notes in the inspector. Privacy-safe: all processing happens locally and never alters your text files.", bundle: .module))
         }
     }
 

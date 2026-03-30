@@ -701,6 +701,31 @@ public struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            if onMapViewTap != nil {
+                Button {
+                    QuartzFeedback.primaryAction()
+                    onMapViewTap?()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "circle.hexagongrid")
+                            .font(.system(size: sidebarIconSize, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .symbolRenderingMode(.hierarchical)
+                            .frame(width: sidebarIconSize + 4)
+                        Text(String(localized: "Knowledge Graph", bundle: .module))
+                            .font(.body)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    #if os(iOS)
+                    .frame(minHeight: QuartzHIG.minTouchTarget)
+                    #endif
+                }
+                .buttonStyle(.plain)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
@@ -945,15 +970,6 @@ public struct SidebarView: View {
 
     private var mapViewAndTrashSection: some View {
         VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
-            Button { onMapViewTap?() } label: {
-                Label(String(localized: "Map View", bundle: .module), systemImage: "map")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: QuartzHIG.minTouchTarget)
-            }
-            .buttonStyle(.plain)
-
             Button {
                 QuartzFeedback.selection()
                 openVaultTrashInFinder()

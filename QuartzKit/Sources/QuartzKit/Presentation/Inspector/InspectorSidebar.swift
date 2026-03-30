@@ -10,6 +10,7 @@ public struct InspectorSidebar: View {
     let vaultRootURL: URL?
     var onScrollToHeading: ((HeadingItem) -> Void)?
     var onUpdateTags: (([String]) -> Void)?
+    var onNavigateToNote: ((URL) -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
     @State private var newTagText: String = ""
@@ -20,13 +21,15 @@ public struct InspectorSidebar: View {
         note: NoteDocument?,
         vaultRootURL: URL?,
         onScrollToHeading: ((HeadingItem) -> Void)? = nil,
-        onUpdateTags: (([String]) -> Void)? = nil
+        onUpdateTags: (([String]) -> Void)? = nil,
+        onNavigateToNote: ((URL) -> Void)? = nil
     ) {
         self.store = store
         self.note = note
         self.vaultRootURL = vaultRootURL
         self.onScrollToHeading = onScrollToHeading
         self.onUpdateTags = onUpdateTags
+        self.onNavigateToNote = onNavigateToNote
     }
 
     public var body: some View {
@@ -42,6 +45,11 @@ public struct InspectorSidebar: View {
 
                 if note != nil {
                     tagsSection
+                        .padding(.bottom, 16)
+                }
+
+                if !store.relatedNotes.isEmpty {
+                    relatedNotesSection
                         .padding(.bottom, 16)
                 }
 
@@ -223,6 +231,53 @@ public struct InspectorSidebar: View {
         guard var tags = note?.frontmatter.tags else { return }
         tags.removeAll { $0 == tag }
         onUpdateTags?(tags)
+    }
+
+    // MARK: - Related Notes Section (Semantic AI)
+
+    private var relatedNotesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("RELATED NOTES", icon: "sparkles")
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(store.relatedNotes, id: \.url) { related in
+                    Button {
+                        QuartzFeedback.selection()
+                        onNavigateToNote?(related.url)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.text")
+                                .font(.caption)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(QuartzColors.canvasPurple)
+                                .frame(width: 16)
+
+                            Text(related.title)
+                                .font(.callout)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.clear)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Related note: \(related.title)", bundle: .module))
+                    .accessibilityHint(String(localized: "Double tap to open", bundle: .module))
+                }
+            }
+        }
     }
 
     // MARK: - Metadata Section
