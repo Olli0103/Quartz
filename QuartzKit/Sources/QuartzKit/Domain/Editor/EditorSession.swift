@@ -1024,6 +1024,93 @@ public final class EditorSession {
         fileWatchTask?.cancel()
         wordCountTask?.cancel()
         analysisTask?.cancel()
+        inlineAITask?.cancel()
+    }
+
+    // MARK: - Inline AI
+
+    private var inlineAITask: Task<Void, Never>?
+
+    /// State for the inline AI operation — observed by the UI for loading/error display.
+    public private(set) var isInlineAIProcessing: Bool = false
+    public var inlineAIError: OnDeviceWritingToolsService.AIError?
+
+    /// Invokes the dual-path inline AI (custom provider → Apple Intelligence → error).
+    /// Replaces the current selection with the AI result via `applyExternalEdit` for proper undo.
+    public func invokeInlineAI(instruction: String) {
+        let range = cursorPosition
+        guard range.length > 0 else { return }
+
+        let nsText = currentText as NSString
+        guard range.location + range.length <= nsText.length else { return }
+
+        let selectedText = nsText.substring(with: range)
+        guard !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        isInlineAIProcessing = true
+        inlineAIError = nil
+
+        inlineAITask?.cancel()
+        inlineAITask = Task { [weak self] in
+            let service = OnDeviceWritingToolsService()
+            do {
+                let result = try await service.invokeInlineAI(
+                    instruction: instruction,
+                    selectedText: selectedText
+                )
+                guard !Task.isCancelled, let self else { return }
+                self.applyExternalEdit(
+                    replacement: result,
+                    range: range,
+                    cursorAfter: NSRange(
+                        location: range.location + (result as NSString).length,
+                        length: 0
+                    )
+                )
+                self.isInlineAIProcessing = false
+            } catch let error as OnDeviceWritingToolsService.AIError {
+                guard !Task.isCancelled, let self else { return }
+                self.inlineAIError = error
+                self.isInlineAIProcessing = false
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.inlineAIError = .processingFailed(error.localizedDescription)
+                self.isInlineAIProcessing = false
+            }
+        }
+    }
+
+    // MARK: - Selection Helpers
+
+    /// Returns the currently selected text, or nil if no selection.
+    public func getSelectedText() -> String? {
+        let range = cursorPosition
+        guard range.length > 0 else { return nil }
+
+        let nsText = currentText as NSString
+        guard range.location + range.length <= nsText.length else { return nil }
+
+        let text = nsText.substring(with: range)
+        return text.isEmpty ? nil : text
+    }
+
+    /// Replaces the current selection with new text via `applyExternalEdit`
+    /// for proper UndoManager registration and AST highlighter stability.
+    public func replaceSelection(with newText: String) {
+        let range = cursorPosition
+        guard range.length > 0 else { return }
+
+        let nsText = currentText as NSString
+        guard range.location + range.length <= nsText.length else { return }
+
+        applyExternalEdit(
+            replacement: newText,
+            range: range,
+            cursorAfter: NSRange(
+                location: range.location + (newText as NSString).length,
+                length: 0
+            )
+        )
     }
 
     // MARK: - Helpers

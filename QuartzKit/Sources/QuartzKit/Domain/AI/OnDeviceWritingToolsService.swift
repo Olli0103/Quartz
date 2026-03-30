@@ -1,5 +1,6 @@
 import Foundation
 import NaturalLanguage
+import os
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -8,6 +9,8 @@ import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
+
+private let logger = Logger(subsystem: "com.quartz", category: "OnDeviceWritingTools")
 
 /// On-device writing tools using Apple’s Foundation Models framework (iOS 26+/macOS 26+),
 /// Natural Language, spell checking, and optional configured AI providers.
@@ -66,6 +69,8 @@ public actor OnDeviceWritingToolsService {
         case processingFailed(String)
         case emptyInput
         case featureUnavailable(String)
+        case foundationModelUnavailable
+        case noAIProviderConfigured
 
         public var errorDescription: String? {
             switch self {
@@ -77,6 +82,16 @@ public actor OnDeviceWritingToolsService {
             case .processingFailed(let msg): String(localized: "AI processing failed: \(msg)", bundle: .module)
             case .featureUnavailable(let msg): msg
             case .emptyInput: String(localized: "No text provided for AI processing.", bundle: .module)
+            case .foundationModelUnavailable:
+                String(
+                    localized: "Apple Intelligence is not available on this device. Please configure an AI provider in Settings, or use a device that supports Apple Intelligence.",
+                    bundle: .module
+                )
+            case .noAIProviderConfigured:
+                String(
+                    localized: "Please configure an AI provider in Settings, or use a device that supports Apple Intelligence.",
+                    bundle: .module
+                )
             }
         }
     }
@@ -98,6 +113,70 @@ public actor OnDeviceWritingToolsService {
 
     public init() {}
 
+    // MARK: - Dual-Path Inline AI Router
+
+    /// Routes an inline AI request through the dual-path architecture:
+    /// 1. If a custom API key is configured → use AIProvider
+    /// 2. Else if Apple Intelligence is available → use Foundation Models
+    /// 3. Else → throw noAIProviderConfigured
+    ///
+    /// - Parameters:
+    ///   - instruction: The user's instruction (e.g. "Make it shorter", "Fix grammar")
+    ///   - selectedText: The text to transform
+    /// - Returns: The transformed text
+    public func invokeInlineAI(instruction: String, selectedText: String) async throws -> String {
+        guard !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AIError.emptyInput
+        }
+
+        // Path 1: Custom API key available — route to AIProvider
+        let hasCustomProvider = await isSelectedProviderUsableForWritingTools()
+        if hasCustomProvider {
+            logger.info("Inline AI: routing to custom AIProvider")
+            let prompt = """
+            You are a writing assistant inside a markdown notes app. \
+            Apply the following instruction to the text below and return ONLY the modified text. \
+            Do not include any explanation, preamble, or formatting beyond the result.
+
+            Instruction: \(instruction)
+
+            Text:
+            \(selectedText)
+            """
+            return try await fallbackToAIProvider(prompt: prompt)
+        }
+
+        // Path 2: Apple Intelligence available — route to Foundation Models
+        if isAppleIntelligenceAvailable {
+            logger.info("Inline AI: routing to Apple Intelligence (Foundation Models)")
+            #if canImport(FoundationModels)
+            if #available(iOS 26.0, macOS 26.0, *) {
+                do {
+                    let session = LanguageModelSession()
+                    let prompt = """
+                    Apply the following instruction to the text below and return ONLY the modified text. \
+                    Do not include any explanation.
+
+                    Instruction: \(instruction)
+
+                    Text:
+                    \(selectedText)
+                    """
+                    let response = try await session.respond(to: prompt)
+                    return response.content
+                } catch {
+                    logger.error("Foundation Models inline AI failed: \(error.localizedDescription, privacy: .public)")
+                    throw AIError.foundationModelUnavailable
+                }
+            }
+            #endif
+        }
+
+        // Path 3: Nothing available
+        logger.warning("Inline AI: no provider or Apple Intelligence available")
+        throw AIError.noAIProviderConfigured
+    }
+
     /// Minimum OS version for the bundled writing-tools pipeline (matches availability checks below).
     public var isAvailable: Bool {
         if #available(iOS 18.1, macOS 15.1, *) {
@@ -107,13 +186,33 @@ public actor OnDeviceWritingToolsService {
     }
 
     /// Returns true if Apple's Foundation Models (on-device Apple Intelligence) is available.
+    /// Checks both OS version and actual model availability on the device.
     public var isFoundationModelsAvailable: Bool {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            return SystemLanguageModel.default.isAvailable
+            do {
+                let available = SystemLanguageModel.default.isAvailable
+                if available {
+                    logger.info("Foundation Models available on this device")
+                }
+                return available
+            }
         }
         #endif
         return false
+    }
+
+    /// Returns true if on-device Apple Intelligence can be used for inline AI.
+    /// Verifies OS version AND device capability. Safe to call on any platform/version.
+    public var isAppleIntelligenceAvailable: Bool {
+        #if canImport(FoundationModels)
+        guard #available(macOS 15.2, iOS 18.2, *) else {
+            return false
+        }
+        return isFoundationModelsAvailable
+        #else
+        return false
+        #endif
     }
 
     /// Performs an AI action on the given text.
@@ -185,20 +284,27 @@ public actor OnDeviceWritingToolsService {
         tone: Tone?,
         contextChunks: [String] = []
     ) async throws -> String {
-        // Priority 1: Try Foundation Models (Apple Intelligence) first
-        // DISABLED: Foundation Models on macOS 26 beta causes EXC_BAD_ACCESS (null pointer)
-        // in GenerativeModels.framework. Re-enable when Apple ships a stable release.
-        // The crash is a SIGSEGV which cannot be caught by Swift do/catch.
-        //
-        // #if canImport(FoundationModels)
-        // if #available(iOS 26.0, macOS 26.0, *) {
-        //     if SystemLanguageModel.default.isAvailable {
-        //         do {
-        //             return try await performWithFoundationModels(...)
-        //         } catch { }
-        //     }
-        // }
-        // #endif
+        // Priority 1: Try Foundation Models (Apple Intelligence) when available.
+        // Wrapped in strict availability + do-catch to handle macOS 26 beta crashes.
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            if SystemLanguageModel.default.isAvailable {
+                do {
+                    logger.info("Attempting Foundation Models for action: \(action.rawValue)")
+                    let result = try await performWithFoundationModels(
+                        action: action,
+                        text: text,
+                        tone: tone
+                    )
+                    logger.info("Foundation Models succeeded for action: \(action.rawValue)")
+                    return result
+                } catch {
+                    // Log the failure but don't crash — fall through to provider path.
+                    logger.error("Foundation Models failed: \(error.localizedDescription, privacy: .public). Falling back to AI provider.")
+                }
+            }
+        }
+        #endif
 
         // Priority 2: Try configured AI provider
         let useProvider = await isSelectedProviderUsableForWritingTools()
