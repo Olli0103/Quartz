@@ -145,6 +145,10 @@ public struct DashboardView: View {
             statBlock("\(folderCount)", label: String(localized: "Folders", bundle: .module))
             Divider().frame(height: 36).padding(.horizontal, 28)
             statBlock("\(actionItems.count)", label: String(localized: "Open Tasks", bundle: .module))
+            if writingStreak > 0 {
+                Divider().frame(height: 36).padding(.horizontal, 28)
+                streakBlock
+            }
             Spacer()
         }
     }
@@ -159,7 +163,27 @@ public struct DashboardView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(label)")
+    }
+
+    private var streakBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text("\(writingStreak)")
+                    .font(.title.bold().monospacedDigit())
+                    .foregroundStyle(.primary)
+                Image(systemName: "flame.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            Text(writingStreak == 1
+                 ? String(localized: "Day Streak", bundle: .module)
+                 : String(localized: "Day Streak", bundle: .module))
+                .font(.body.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(writingStreak) day writing streak")
     }
 
     // MARK: - Quick Capture Bar
@@ -311,9 +335,18 @@ public struct DashboardView: View {
     // MARK: - Two-Column Content
 
     private var contentColumns: some View {
-        HStack(alignment: .top, spacing: 24) {
-            recentNotesPane
-            actionItemsPane
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .top, spacing: 24) {
+                recentNotesPane
+                if !pinnedNotes.isEmpty {
+                    pinnedNotesPane
+                } else {
+                    actionItemsPane
+                }
+            }
+            if !pinnedNotes.isEmpty {
+                actionItemsPane
+            }
         }
     }
 
@@ -368,6 +401,48 @@ public struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .glassPane()
+    }
+
+    // MARK: - Pinned / Favorite Notes (Glass Pane)
+
+    private var pinnedNotesPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            glassSectionHeader("PINNED NOTES", icon: nil)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(pinnedNotes.prefix(6).enumerated()), id: \.element.id) { index, note in
+                    if index > 0 {
+                        Divider().padding(.leading, 50)
+                    }
+                    Button {
+                        QuartzFeedback.selection()
+                        onSelectNote(note.url)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "star.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                                .frame(width: 20)
+                                .accessibilityHidden(true)
+                            Text(note.frontmatter?.title ?? note.name.replacingOccurrences(of: ".md", with: ""))
+                                .font(.body)
+                                .lineLimit(1)
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 4)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 20)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.bottom, 12)
+        }
         .glassPane()
     }
 
@@ -606,6 +681,55 @@ public struct DashboardView: View {
 
     private var recentNotes: [FileNode] {
         sidebarViewModel?.recentNotes(limit: 8) ?? []
+    }
+
+    private var pinnedNotes: [FileNode] {
+        guard let vm = sidebarViewModel else { return [] }
+        let allNotes = collectFlatNotes(from: vm.fileTree)
+        return allNotes.filter { vm.isFavorite($0.url) }
+            .sorted { $0.metadata.modifiedAt > $1.metadata.modifiedAt }
+    }
+
+    /// Calculates the number of consecutive days (ending today or yesterday)
+    /// that the user has modified at least one note.
+    private var writingStreak: Int {
+        guard let vm = sidebarViewModel else { return 0 }
+        let allNotes = collectFlatNotes(from: vm.fileTree)
+        guard !allNotes.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Collect unique days that had modifications
+        var activeDays = Set<Int>() // days offset from today (0 = today, 1 = yesterday, etc.)
+        for note in allNotes {
+            let noteDay = calendar.startOfDay(for: note.metadata.modifiedAt)
+            let daysAgo = calendar.dateComponents([.day], from: noteDay, to: today).day ?? 0
+            if daysAgo >= 0 {
+                activeDays.insert(daysAgo)
+            }
+        }
+
+        // Count consecutive days starting from today (or yesterday if nothing today yet)
+        let startDay = activeDays.contains(0) ? 0 : (activeDays.contains(1) ? 1 : -1)
+        guard startDay >= 0 else { return 0 }
+
+        var streak = 0
+        var day = startDay
+        while activeDays.contains(day) {
+            streak += 1
+            day += 1
+        }
+        return streak
+    }
+
+    private func collectFlatNotes(from nodes: [FileNode]) -> [FileNode] {
+        var result: [FileNode] = []
+        for node in nodes {
+            if node.isNote { result.append(node) }
+            if let c = node.children { result.append(contentsOf: collectFlatNotes(from: c)) }
+        }
+        return result
     }
 
     private var noteCount: Int {
