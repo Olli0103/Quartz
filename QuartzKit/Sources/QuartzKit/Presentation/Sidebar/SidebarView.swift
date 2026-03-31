@@ -204,7 +204,7 @@ public struct SidebarView: View {
         .overlay(alignment: .bottom) { floatingSearchBar }
         #if os(iOS)
         .overlay(alignment: .bottomTrailing) {
-            newNoteButton
+            iOSNewNoteButton
                 .padding(.trailing, 16)
                 .padding(.bottom, 72) // above the search bar
         }
@@ -719,6 +719,70 @@ public struct SidebarView: View {
         #endif
         .accessibilityLabel(String(localized: "New Note", bundle: .module))
     }
+
+    // MARK: - iOS Floating Action Button
+
+    #if os(iOS)
+    @State private var fabPressed = false
+
+    /// Liquid Glass floating action button for iOS — HIG-compliant circular FAB.
+    private var iOSNewNoteButton: some View {
+        Menu {
+            ForEach(NoteTemplate.allCases, id: \.rawValue) { template in
+                Button {
+                    QuartzFeedback.primaryAction()
+                    if let root = viewModel.vaultRootURL {
+                        newItemParent = root
+                        newItemName = generateNoteName()
+                        selectedTemplate = template
+                        showNewNoteDialog = true
+                    }
+                } label: {
+                    Label(template.displayName, systemImage: template.icon)
+                }
+            }
+        } label: {
+            ZStack {
+                // Liquid Glass background
+                Circle()
+                    .fill(.ultraThinMaterial)
+                Circle()
+                    .fill(appearance.accentColor.gradient)
+                    .opacity(0.85)
+                Circle()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.6),
+                                .white.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.5
+                    )
+
+                // Plus icon
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 56, height: 56)
+            .shadow(color: appearance.accentColor.opacity(0.4), radius: 12, y: 4)
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            .scaleEffect(fabPressed ? 0.92 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: fabPressed)
+        }
+        .menuStyle(.borderlessButton)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in fabPressed = true }
+                .onEnded { _ in fabPressed = false }
+        )
+        .accessibilityLabel(String(localized: "New Note", bundle: .module))
+        .accessibilityHint(String(localized: "Long press for template options", bundle: .module))
+    }
+    #endif
 
     private func generateNoteName() -> String {
         let df = DateFormatter()
