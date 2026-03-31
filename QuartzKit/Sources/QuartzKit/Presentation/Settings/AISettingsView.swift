@@ -6,7 +6,6 @@ import UIKit
 /// Keys for app-wide settings.
 private enum AppSettingsKeys {
     static let semanticAutoLinkingEnabled = "semanticAutoLinkingEnabled"
-    static let iCloudSyncEnabled = "iCloudSyncEnabled"
 }
 
 /// AI provider configuration: select providers, enter API keys, pick models.
@@ -26,7 +25,6 @@ public struct AISettingsView: View {
     @State private var connectionTestResult: Bool?
     @State private var connectionTesting = false
     @AppStorage(AppSettingsKeys.semanticAutoLinkingEnabled) private var semanticAutoLinkingEnabled = true
-    @AppStorage(AppSettingsKeys.iCloudSyncEnabled) private var iCloudSyncEnabled = true
 
     public init() {}
 
@@ -46,7 +44,6 @@ public struct AISettingsView: View {
             connectionTestSection
             customModelSection
             semanticAutoLinkingSection
-            iCloudSyncSection
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "AI", bundle: .module))
@@ -556,21 +553,6 @@ public struct AISettingsView: View {
             Text(String(localized: "Knowledge Graph", bundle: .module))
         } footer: {
             Text(String(localized: "Uses on-device vector embeddings to discover hidden connections between your notes. Adds semantic links to the Knowledge Graph and Related Notes in the inspector. Privacy-safe: all processing happens locally and never alters your text files.", bundle: .module))
-        }
-    }
-
-    // MARK: - iCloud Sync Section
-
-    private var iCloudSyncSection: some View {
-        Section {
-            Toggle(isOn: $iCloudSyncEnabled) {
-                Label(String(localized: "iCloud Sync", bundle: .module), systemImage: "icloud")
-            }
-            .tint(QuartzColors.accent)
-        } header: {
-            Text(String(localized: "Sync", bundle: .module))
-        } footer: {
-            Text(String(localized: "When enabled, Quartz monitors iCloud Drive vaults for sync status and conflicts. Disable when using local-only vaults.", bundle: .module))
         }
     }
 }
