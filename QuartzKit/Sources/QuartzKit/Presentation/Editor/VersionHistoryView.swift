@@ -9,6 +9,7 @@ import SwiftUI
 public struct VersionHistoryView: View {
     let noteURL: URL
     let noteTitle: String
+    let vaultRoot: URL
     let onRestored: () -> Void
 
     @State private var versions: [NoteVersion] = []
@@ -22,9 +23,10 @@ public struct VersionHistoryView: View {
 
     private let service = VersionHistoryService()
 
-    public init(noteURL: URL, noteTitle: String, onRestored: @escaping () -> Void) {
+    public init(noteURL: URL, noteTitle: String, vaultRoot: URL, onRestored: @escaping () -> Void) {
         self.noteURL = noteURL
         self.noteTitle = noteTitle
+        self.vaultRoot = vaultRoot
         self.onRestored = onRestored
     }
 
@@ -117,11 +119,6 @@ public struct VersionHistoryView: View {
                     Text(version.date, style: .time)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if let device = version.deviceName {
-                        Text(device)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
                 }
                 .padding(.vertical, 4)
                 .tag(version.id)
@@ -213,10 +210,9 @@ public struct VersionHistoryView: View {
 
     private func loadVersions() {
         isLoading = true
-        versions = service.fetchVersions(for: noteURL)
+        versions = service.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
         isLoading = false
 
-        // Auto-select the most recent version
         if let first = versions.first {
             selectedVersion = first
             loadPreview(for: first)
@@ -228,7 +224,7 @@ public struct VersionHistoryView: View {
         errorMessage = nil
         Task.detached(priority: .userInitiated) {
             do {
-                let text = try service.readText(from: version.version)
+                let text = try service.readText(from: version)
                 await MainActor.run { previewText = text }
             } catch {
                 await MainActor.run {
@@ -245,7 +241,7 @@ public struct VersionHistoryView: View {
 
         Task.detached(priority: .userInitiated) {
             do {
-                try service.restore(version: version.version, to: noteURL)
+                try service.restore(version: version, to: noteURL)
                 await MainActor.run {
                     QuartzFeedback.success()
                     isRestoring = false

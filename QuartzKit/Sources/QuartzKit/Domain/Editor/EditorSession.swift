@@ -658,6 +658,15 @@ public final class EditorSession {
             }
             errorMessage = nil
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
+
+            // Save version snapshot for history (background, non-blocking)
+            if let vaultRoot = vaultRootURL {
+                let content = textSnapshot
+                let url = savedURL
+                Task.detached(priority: .utility) {
+                    VersionHistoryService().saveSnapshot(for: url, content: content, vaultRoot: vaultRoot)
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
             scheduleAutosave()

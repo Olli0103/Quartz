@@ -254,10 +254,11 @@ public struct EditorContainerView: View {
             get: { session.inspectorStore.showVersionHistory },
             set: { session.inspectorStore.showVersionHistory = $0 }
         )) {
-            if let noteURL = session.note?.fileURL {
+            if let noteURL = session.note?.fileURL, let vaultRoot = session.vaultRootURL {
                 VersionHistoryView(
                     noteURL: noteURL,
-                    noteTitle: session.note?.displayName ?? "Note"
+                    noteTitle: session.note?.displayName ?? "Note",
+                    vaultRoot: vaultRoot
                 ) {
                     Task { await session.reloadFromDisk() }
                 }
