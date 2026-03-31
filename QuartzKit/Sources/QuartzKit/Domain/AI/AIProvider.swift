@@ -83,8 +83,9 @@ public extension AIProvider {
     func checkConnection() async -> Bool {
         guard isConfigured else { return false }
         do {
+            // Use a minimal request with short timeout to verify connectivity
             let model = availableModels.first?.id
-            _ = try await chat(messages: [AIMessage(role: .user, content: "Hi")], model: model, temperature: 0)
+            _ = try await chat(messages: [AIMessage(role: .user, content: "ping")], model: model, temperature: 0)
             return true
         } catch {
             return false
@@ -158,29 +159,31 @@ public final class OpenAIProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try await keychain.getKey(for: id)
-        let modelID = model ?? "gpt-4o"
+        try await withRetry {
+            let apiKey = try await keychain.getKey(for: id)
+            let modelID = model ?? "gpt-4o"
 
-        let body = OpenAIChatBody(
-            model: modelID,
-            messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
-            temperature: temperature
-        )
+            let body = OpenAIChatBody(
+                model: modelID,
+                messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                temperature: temperature
+            )
 
-        var request = URLRequest(url: Self.chatURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
+            var request = URLRequest(url: Self.chatURL)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await Self.session.data(for: request)
-        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
-        let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+            let (rawData, httpResponse) = try await Self.session.data(for: request)
+            let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
+            let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 
-        guard let content = response.choices.first?.message.content else {
-            throw AIProviderError.emptyResponse
+            guard let content = response.choices.first?.message.content else {
+                throw AIProviderError.emptyResponse
+            }
+            return AIMessage(role: .assistant, content: content)
         }
-        return AIMessage(role: .assistant, content: content)
     }
 
     public func streamChat(
@@ -240,15 +243,73 @@ public final class OpenAIProvider: AIProvider, Sendable {
     }
 }
 
-/// Shared URLSession with reasonable timeouts for AI requests.
+/// Shared URLSession with robust timeouts for AI requests.
+/// LLM responses can take 30-60+ seconds for complex queries.
 /// nonisolated(unsafe) required for global stored property in Swift 6.
 /// URLSession is thread-safe; the property is never mutated after initialization.
 nonisolated(unsafe) private let aiURLSession: URLSession = {
     let config = URLSessionConfiguration.default
-    config.timeoutIntervalForRequest = 30
-    config.timeoutIntervalForResource = 120
+    config.timeoutIntervalForRequest = 60    // Time to receive first byte
+    config.timeoutIntervalForResource = 300  // Total time for entire response (5 min for long streaming)
+    config.waitsForConnectivity = true
+    config.allowsConstrainedNetworkAccess = true
+    config.allowsExpensiveNetworkAccess = true
     return URLSession(configuration: config)
 }()
+
+/// Retry configuration for AI requests.
+private enum AIRetryConfig {
+    static let maxRetries = 3
+    static let baseDelay: TimeInterval = 1.0  // Exponential backoff: 1s, 2s, 4s
+
+    /// Delays for each retry attempt.
+    static func delay(for attempt: Int) -> TimeInterval {
+        baseDelay * pow(2.0, Double(attempt))
+    }
+
+    /// Whether an error is retryable.
+    static func isRetryable(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost:
+                return true
+            default:
+                return false
+            }
+        }
+        if let aiError = error as? AIProviderError {
+            switch aiError {
+            case .rateLimited, .serverError:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+}
+
+/// Executes an async operation with retry logic.
+private func withRetry<T>(
+    maxAttempts: Int = AIRetryConfig.maxRetries,
+    operation: () async throws -> T
+) async throws -> T {
+    var lastError: Error?
+    for attempt in 0..<maxAttempts {
+        do {
+            return try await operation()
+        } catch {
+            lastError = error
+            guard AIRetryConfig.isRetryable(error), attempt < maxAttempts - 1 else {
+                throw error
+            }
+            let delay = AIRetryConfig.delay(for: attempt)
+            try await Task.sleep(for: .seconds(delay))
+        }
+    }
+    throw lastError ?? AIProviderError.networkError("Unknown error after retries")
+}
 
 private extension AIProvider {
     static var session: URLSession { aiURLSession }
@@ -282,37 +343,39 @@ public final class AnthropicProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try await keychain.getKey(for: id)
-        let modelID = model ?? "claude-sonnet-4-6"
+        try await withRetry {
+            let apiKey = try await keychain.getKey(for: id)
+            let modelID = model ?? "claude-sonnet-4-6"
 
-        let systemMsg = messages.first { $0.role == .system }?.content
-        let chatMessages = messages
-            .filter { $0.role != .system }
-            .map { AnthropicMessage(role: $0.role == .user ? "user" : "assistant", content: $0.content) }
+            let systemMsg = messages.first { $0.role == .system }?.content
+            let chatMessages = messages
+                .filter { $0.role != .system }
+                .map { AnthropicMessage(role: $0.role == .user ? "user" : "assistant", content: $0.content) }
 
-        let body = AnthropicChatBody(
-            model: modelID,
-            max_tokens: 4096,
-            system: systemMsg,
-            messages: chatMessages,
-            temperature: temperature
-        )
+            let body = AnthropicChatBody(
+                model: modelID,
+                max_tokens: 4096,
+                system: systemMsg,
+                messages: chatMessages,
+                temperature: temperature
+            )
 
-        var request = URLRequest(url: Self.messagesURL)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
+            var request = URLRequest(url: Self.messagesURL)
+            request.httpMethod = "POST"
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await Self.session.data(for: request)
-        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
-        let response = try JSONDecoder().decode(AnthropicChatResponse.self, from: data)
+            let (rawData, httpResponse) = try await Self.session.data(for: request)
+            let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
+            let response = try JSONDecoder().decode(AnthropicChatResponse.self, from: data)
 
-        guard let content = response.content.first?.text else {
-            throw AIProviderError.emptyResponse
+            guard let content = response.content.first?.text else {
+                throw AIProviderError.emptyResponse
+            }
+            return AIMessage(role: .assistant, content: content)
         }
-        return AIMessage(role: .assistant, content: content)
     }
 }
 
@@ -412,25 +475,27 @@ public final class OllamaProvider: AIProvider, @unchecked Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let modelID = model ?? "llama3.1"
+        try await withRetry {
+            let modelID = model ?? "llama3.1"
 
-        let body = OllamaChatBody(
-            model: modelID,
-            messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
-            stream: false,
-            options: .init(temperature: temperature)
-        )
+            let body = OllamaChatBody(
+                model: modelID,
+                messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                stream: false,
+                options: .init(temperature: temperature)
+            )
 
-        var request = URLRequest(url: baseURL.appending(path: "api/chat"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
+            var request = URLRequest(url: baseURL.appending(path: "api/chat"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await Self.session.data(for: request)
-        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
-        let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+            let (rawData, httpResponse) = try await Self.session.data(for: request)
+            let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
+            let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
 
-        return AIMessage(role: .assistant, content: response.message.content)
+            return AIMessage(role: .assistant, content: response.message.content)
+        }
     }
 }
 
@@ -455,41 +520,43 @@ public final class GeminiProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try await keychain.getKey(for: id)
-        let modelID = model ?? "gemini-2.5-flash"
+        try await withRetry {
+            let apiKey = try await keychain.getKey(for: id)
+            let modelID = model ?? "gemini-2.5-flash"
 
-        let systemMsg = messages.first { $0.role == .system }?.content
-        let chatMessages = messages
-            .filter { $0.role != .system }
-            .map { GeminiContent(role: $0.role == .user ? "user" : "model", parts: [.init(text: $0.content)]) }
+            let systemMsg = messages.first { $0.role == .system }?.content
+            let chatMessages = messages
+                .filter { $0.role != .system }
+                .map { GeminiContent(role: $0.role == .user ? "user" : "model", parts: [.init(text: $0.content)]) }
 
-        let body = GeminiChatBody(
-            contents: chatMessages,
-            systemInstruction: systemMsg.map { GeminiContent(role: "user", parts: [.init(text: $0)]) },
-            generationConfig: GeminiGenerationConfig(temperature: temperature, maxOutputTokens: 8192)
-        )
+            let body = GeminiChatBody(
+                contents: chatMessages,
+                systemInstruction: systemMsg.map { GeminiContent(role: "user", parts: [.init(text: $0)]) },
+                generationConfig: GeminiGenerationConfig(temperature: temperature, maxOutputTokens: 8192)
+            )
 
-        guard let encodedModelID = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            throw AIProviderError.networkError("Invalid model ID: \(modelID)")
+            guard let encodedModelID = modelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+                throw AIProviderError.networkError("Invalid model ID: \(modelID)")
+            }
+            let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(encodedModelID):generateContent"
+            guard let url = URL(string: urlString) else {
+                throw AIProviderError.networkError("Invalid model ID: \(modelID)")
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+            request.httpBody = try JSONEncoder().encode(body)
+
+            let (rawData, httpResponse) = try await Self.session.data(for: request)
+            let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
+            let response = try JSONDecoder().decode(GeminiChatResponse.self, from: data)
+
+            guard let text = response.candidates?.first?.content.parts.first?.text else {
+                throw AIProviderError.emptyResponse
+            }
+            return AIMessage(role: .assistant, content: text)
         }
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(encodedModelID):generateContent"
-        guard let url = URL(string: urlString) else {
-            throw AIProviderError.networkError("Invalid model ID: \(modelID)")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (rawData, httpResponse) = try await Self.session.data(for: request)
-        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
-        let response = try JSONDecoder().decode(GeminiChatResponse.self, from: data)
-
-        guard let text = response.candidates?.first?.content.parts.first?.text else {
-            throw AIProviderError.emptyResponse
-        }
-        return AIMessage(role: .assistant, content: text)
     }
 }
 
@@ -546,31 +613,33 @@ public final class OpenRouterProvider: AIProvider, Sendable {
     }
 
     public func chat(messages: [AIMessage], model: String?, temperature: Double) async throws -> AIMessage {
-        let apiKey = try await keychain.getKey(for: id)
-        let modelID = model ?? "anthropic/claude-sonnet-4"
+        try await withRetry {
+            let apiKey = try await keychain.getKey(for: id)
+            let modelID = model ?? "anthropic/claude-sonnet-4"
 
-        // OpenRouter uses the OpenAI-compatible format
-        let body = OpenAIChatBody(
-            model: modelID,
-            messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
-            temperature: temperature
-        )
+            // OpenRouter uses the OpenAI-compatible format
+            let body = OpenAIChatBody(
+                model: modelID,
+                messages: messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                temperature: temperature
+            )
 
-        var request = URLRequest(url: Self.chatURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
-        request.httpBody = try JSONEncoder().encode(body)
+            var request = URLRequest(url: Self.chatURL)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Quartz Notes", forHTTPHeaderField: "X-Title")
+            request.httpBody = try JSONEncoder().encode(body)
 
-        let (rawData, httpResponse) = try await Self.session.data(for: request)
-        let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
-        let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+            let (rawData, httpResponse) = try await Self.session.data(for: request)
+            let data = try validateHTTPResponse(rawData, httpResponse, provider: id)
+            let response = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
 
-        guard let content = response.choices.first?.message.content else {
-            throw AIProviderError.emptyResponse
+            guard let content = response.choices.first?.message.content else {
+                throw AIProviderError.emptyResponse
+            }
+            return AIMessage(role: .assistant, content: content)
         }
-        return AIMessage(role: .assistant, content: content)
     }
 
     public func streamChat(
