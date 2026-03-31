@@ -62,6 +62,10 @@ public final class EditorSession {
     /// Prevents `textDidChange` from re-triggering highlights during attachment insertion.
     public private(set) var isApplyingHighlights: Bool = false
 
+    /// Guard flag: true while restoring a version from history.
+    /// Prevents file watcher from showing spurious "modified externally" banner.
+    public private(set) var isRestoringVersion: Bool = false
+
     // MARK: - Active Text View (weak ref)
 
     /// The native text view managed by the representable. Weak to avoid retain cycle.
@@ -284,6 +288,16 @@ public final class EditorSession {
     /// Reloads from disk, discarding local edits.
     public func reloadFromDisk() async {
         guard let url = note?.fileURL else { return }
+        externalModificationDetected = false
+        await loadNote(at: url)
+    }
+
+    /// Reloads from disk after a version restore.
+    /// Sets `isRestoringVersion` guard to prevent file watcher from showing spurious warnings.
+    public func reloadAfterVersionRestore() async {
+        guard let url = note?.fileURL else { return }
+        isRestoringVersion = true
+        defer { isRestoringVersion = false }
         externalModificationDetected = false
         await loadNote(at: url)
     }
@@ -1136,6 +1150,9 @@ public final class EditorSession {
     }
 
     private func handleFileChange(_ event: FileChangeEvent) {
+        // Ignore file changes during version restore to prevent spurious warnings
+        guard !isRestoringVersion else { return }
+
         switch event {
         case .modified:
             if isDirty {

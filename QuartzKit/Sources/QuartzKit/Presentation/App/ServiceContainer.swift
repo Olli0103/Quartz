@@ -14,6 +14,7 @@ public final class ServiceContainer {
 
     private var vaultProvider: (any VaultProviding)?
     private var frontmatterParser: (any FrontmatterParsing)?
+    private var versionHistoryService: VersionHistoryService?
     private var isBootstrapped = false
 
     /// Creates a new container. Use `shared` for production;
@@ -26,10 +27,12 @@ public final class ServiceContainer {
     /// before services are resolved.
     public func bootstrap(
         vaultProvider: (any VaultProviding)? = nil,
-        frontmatterParser: (any FrontmatterParsing)? = nil
+        frontmatterParser: (any FrontmatterParsing)? = nil,
+        versionHistoryService: VersionHistoryService? = nil
     ) {
         if let vaultProvider { self.vaultProvider = vaultProvider }
         if let frontmatterParser { self.frontmatterParser = frontmatterParser }
+        if let versionHistoryService { self.versionHistoryService = versionHistoryService }
         isBootstrapped = true
     }
 
@@ -37,6 +40,7 @@ public final class ServiceContainer {
     public func reset() {
         vaultProvider = nil
         frontmatterParser = nil
+        versionHistoryService = nil
         isBootstrapped = false
     }
 
@@ -48,6 +52,10 @@ public final class ServiceContainer {
 
     public func register(frontmatterParser: any FrontmatterParsing) {
         self.frontmatterParser = frontmatterParser
+    }
+
+    public func register(versionHistoryService: VersionHistoryService) {
+        self.versionHistoryService = versionHistoryService
     }
 
     // MARK: - Resolution
@@ -69,5 +77,14 @@ public final class ServiceContainer {
         let parser = FrontmatterParser()
         self.frontmatterParser = parser
         return parser
+    }
+
+    public func resolveVersionHistoryService() -> VersionHistoryService {
+        if let service = versionHistoryService {
+            return service
+        }
+        let service = VersionHistoryService()
+        self.versionHistoryService = service
+        return service
     }
 }

@@ -260,7 +260,8 @@ public struct EditorContainerView: View {
                     noteTitle: session.note?.displayName ?? "Note",
                     vaultRoot: vaultRoot
                 ) {
-                    Task { await session.reloadFromDisk() }
+                    // Use version-restore-aware reload to prevent file watcher spurious warnings
+                    Task { await session.reloadAfterVersionRestore() }
                 }
                 #if os(iOS)
                 .presentationDetents([.large])

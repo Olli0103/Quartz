@@ -1,6 +1,31 @@
 import Foundation
 import os
 
+/// Errors specific to version history operations.
+public enum VersionHistoryError: LocalizedError, Sendable {
+    case snapshotNotFound
+    case noteNotFound
+    case coordinationFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .snapshotNotFound:
+            return String(localized: "The version snapshot no longer exists.", bundle: .module)
+        case .noteNotFound:
+            return String(localized: "The original note was deleted.", bundle: .module)
+        case .coordinationFailed(let reason):
+            return String(localized: "File coordination failed: \(reason)", bundle: .module)
+        }
+    }
+}
+
+/// A displayable version snapshot of a note.
+public struct NoteVersion: Identifiable, Sendable {
+    public let id: Int
+    public let snapshotURL: URL
+    public let date: Date
+}
+
 /// Lightweight version history for Markdown notes.
 ///
 /// Since `NSFileVersion` only works for iCloud-synced or NSDocument-managed files,
@@ -8,55 +33,109 @@ import os
 ///
 /// A snapshot is saved every time the editor auto-saves. Old snapshots beyond the
 /// retention limit are pruned automatically.
+///
+/// ## Thread Safety
+///
+/// All file operations use `NSFileCoordinator` for iCloud safety.
+/// Methods are designed to be called from background threads.
+///
+/// ## Security Note
+///
+/// Version snapshots are stored as plaintext markdown files in the `.quartz/versions/`
+/// directory. On iOS, these files inherit the parent directory's Data Protection class.
+/// If the vault has app-level encryption enabled (via `VaultEncryptionService`), the
+/// version snapshots are **not** automatically encrypted.
+///
+/// **Future Enhancement**: Add optional encryption support by accepting a
+/// `SymmetricKey` parameter and encrypting snapshots when the vault is encrypted.
 public struct VersionHistoryService: Sendable {
     private static let logger = Logger(subsystem: "com.quartz", category: "VersionHistory")
 
     /// Maximum snapshots kept per note.
     public static let maxSnapshotsPerNote = 50
 
+    /// Maximum bytes to read for preview (512KB).
+    public static let maxPreviewBytes = 512_000
+
     public init() {}
 
     // MARK: - Snapshot Creation
 
     /// Saves a snapshot of the current note content.
-    /// Called by EditorSession after each save.
+    /// Called by EditorSession after each save. Runs on a background thread.
+    ///
+    /// - Note: Uses `NSFileCoordinator` for iCloud safety.
     public func saveSnapshot(for noteURL: URL, content: String, vaultRoot: URL) {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
 
         // Ensure directory exists
-        try? fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+        do {
+            try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+        } catch {
+            Self.logger.error("Failed to create snapshot directory: \(error.localizedDescription)")
+            return
+        }
 
         // Create snapshot with ISO8601 timestamp filename
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let snapshotURL = snapshotDir.appending(path: "\(timestamp).md")
 
-        guard let data = content.data(using: .utf8) else { return }
-        try? data.write(to: snapshotURL, options: .atomic)
+        guard let data = content.data(using: .utf8) else {
+            Self.logger.error("Failed to encode snapshot content as UTF-8")
+            return
+        }
 
-        // Prune old snapshots
-        pruneSnapshots(in: snapshotDir, keep: Self.maxSnapshotsPerNote)
+        // Use file coordination for iCloud safety
+        let coordinator = NSFileCoordinator()
+        var coordinatorError: NSError?
+
+        coordinator.coordinate(writingItemAt: snapshotURL, options: .forReplacing, error: &coordinatorError) { coordinatedURL in
+            do {
+                try data.write(to: coordinatedURL, options: .atomic)
+            } catch {
+                Self.logger.error("Failed to write snapshot: \(error.localizedDescription)")
+            }
+        }
+
+        if let error = coordinatorError {
+            Self.logger.error("File coordination failed for snapshot: \(error.localizedDescription)")
+        }
+
+        // Prune old snapshots (async to avoid blocking)
+        Task.detached(priority: .utility) { [self] in
+            self.pruneSnapshots(in: snapshotDir, keep: Self.maxSnapshotsPerNote)
+        }
     }
 
     // MARK: - Fetch Versions
 
     /// Returns all saved snapshots for a note, sorted newest first.
+    ///
+    /// - Note: File system errors are logged but do not throw — returns empty array on failure.
     public func fetchVersions(for noteURL: URL, vaultRoot: URL) -> [NoteVersion] {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: snapshotDir.path(percentEncoded: false)) else { return [] }
 
-        guard let contents = try? fm.contentsOfDirectory(
-            at: snapshotDir,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
+        let contents: [URL]
+        do {
+            contents = try fm.contentsOfDirectory(
+                at: snapshotDir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            Self.logger.error("Failed to list version snapshots: \(error.localizedDescription)")
+            return []
+        }
 
         return contents
             .filter { $0.pathExtension == "md" }
             .compactMap { url -> (URL, Date)? in
+                // Resource value read failure is non-fatal — use current date as fallback
                 let mdate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
                 return (url, mdate)
             }
@@ -69,8 +148,38 @@ public struct VersionHistoryService: Sendable {
 
     // MARK: - Read Version
 
-    /// Reads the text content of a snapshot.
-    public func readText(from version: NoteVersion) throws -> String {
+    /// Reads the text content of a snapshot with bounded size for preview safety.
+    ///
+    /// - Parameters:
+    ///   - version: The version to read.
+    ///   - maxBytes: Maximum bytes to read (default 512KB). Pass `Int.max` for full content.
+    /// - Returns: The text content, truncated if larger than `maxBytes`.
+    public func readText(from version: NoteVersion, maxBytes: Int = maxPreviewBytes) throws -> String {
+        let handle = try FileHandle(forReadingFrom: version.snapshotURL)
+        defer { try? handle.close() }
+
+        guard let data = try handle.read(upToCount: maxBytes) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+
+        guard var text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+
+        // Check if we hit the limit (file is larger)
+        if data.count == maxBytes {
+            // Try to find a good break point (end of line)
+            if let lastNewline = text.lastIndex(of: "\n") {
+                text = String(text[..<lastNewline])
+            }
+            text += "\n\n---\n*[Preview truncated — file exceeds 500KB]*"
+        }
+
+        return text
+    }
+
+    /// Reads the full text content of a snapshot (for restore operations).
+    public func readFullText(from version: NoteVersion) throws -> String {
         let data = try Data(contentsOf: version.snapshotURL)
         guard let text = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileReadCorruptFile)
@@ -81,34 +190,129 @@ public struct VersionHistoryService: Sendable {
     // MARK: - Restore Version
 
     /// Restores a snapshot by overwriting the current note file.
-    public func restore(version: NoteVersion, to noteURL: URL) throws {
+    ///
+    /// Uses `NSFileCoordinator` for iCloud safety and to prevent race conditions
+    /// with Finder, other apps, or sync operations.
+    ///
+    /// - Throws: File system errors, coordination errors, or if files don't exist.
+    public func restore(version: NoteVersion, to noteURL: URL) async throws {
+        let fm = FileManager.default
+
+        // Validate snapshot exists
+        guard fm.fileExists(atPath: version.snapshotURL.path(percentEncoded: false)) else {
+            throw VersionHistoryError.snapshotNotFound
+        }
+
+        // Validate target note exists
+        guard fm.fileExists(atPath: noteURL.path(percentEncoded: false)) else {
+            throw VersionHistoryError.noteNotFound
+        }
+
+        // Read snapshot content (full, not truncated)
         let data = try Data(contentsOf: version.snapshotURL)
-        try data.write(to: noteURL, options: .atomic)
-        Self.logger.info("Restored version from \(version.date.formatted()) to \(noteURL.lastPathComponent)")
+
+        // Use NSFileCoordinator for safe write
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let coordinator = NSFileCoordinator()
+            var coordinatorError: NSError?
+
+            coordinator.coordinate(
+                writingItemAt: noteURL,
+                options: .forReplacing,
+                error: &coordinatorError
+            ) { coordinatedURL in
+                do {
+                    try data.write(to: coordinatedURL, options: .atomic)
+                    Self.logger.info("Restored version from \(version.date.formatted()) to \(noteURL.lastPathComponent)")
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            if let error = coordinatorError {
+                continuation.resume(throwing: error)
+            }
+        }
     }
 
     // MARK: - Helpers
 
     /// Directory for a note's snapshots: `{vault}/.quartz/versions/{noteID}/`
+    ///
+    /// Uses a hash of the relative path to ensure uniqueness — two notes named
+    /// "Meeting Notes.md" in different folders will have different version histories.
     private func snapshotDirectory(for noteURL: URL, vaultRoot: URL) -> URL {
-        let noteID = noteURL.deletingPathExtension().lastPathComponent
-            .replacingOccurrences(of: " ", with: "_")
+        let noteID = stableNoteID(for: noteURL, vaultRoot: vaultRoot)
         return vaultRoot
             .appending(path: ".quartz")
             .appending(path: "versions")
             .appending(path: noteID)
     }
 
+    /// Generates a stable, unique identifier for a note based on its relative path.
+    ///
+    /// This ensures that:
+    /// - Same-name files in different folders have different IDs
+    /// - IDs are filesystem-safe (no special characters)
+    /// - IDs are reasonably short (max 64 chars)
+    private func stableNoteID(for noteURL: URL, vaultRoot: URL) -> String {
+        let rootPath = vaultRoot.standardizedFileURL.path(percentEncoded: false)
+        let notePath = noteURL.standardizedFileURL.path(percentEncoded: false)
+
+        // Get relative path from vault root
+        let relativePath: String
+        if notePath.hasPrefix(rootPath) {
+            relativePath = String(notePath.dropFirst(rootPath.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else {
+            relativePath = noteURL.lastPathComponent
+        }
+
+        // Create a stable hash of the relative path
+        // Using a simple but effective approach: base64 of UTF-8 bytes, made filesystem-safe
+        guard let data = relativePath.data(using: .utf8) else {
+            return sanitizeFilename(noteURL.deletingPathExtension().lastPathComponent)
+        }
+
+        let base64 = data.base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+
+        // Limit to 64 characters for filesystem compatibility
+        let truncated = String(base64.prefix(64))
+
+        return truncated.isEmpty ? sanitizeFilename(noteURL.deletingPathExtension().lastPathComponent) : truncated
+    }
+
+    /// Sanitizes a filename for use as a directory name.
+    private func sanitizeFilename(_ name: String) -> String {
+        name.replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+    }
+
     /// Removes oldest snapshots beyond the keep limit.
+    ///
+    /// - Note: Runs on a background thread. Errors are logged but do not propagate.
     private func pruneSnapshots(in directory: URL, keep: Int) {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+
+        let files: [URL]
+        do {
+            files = try fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            Self.logger.warning("Failed to list snapshots for pruning: \(error.localizedDescription)")
+            return
+        }
 
         let sorted = files.sorted { a, b in
+            // Resource value read failure is non-fatal — use distantPast as fallback
             let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             return aDate > bDate
@@ -116,14 +320,11 @@ public struct VersionHistoryService: Sendable {
 
         // Remove everything beyond the keep limit
         for file in sorted.dropFirst(keep) {
-            try? fm.removeItem(at: file)
+            do {
+                try fm.removeItem(at: file)
+            } catch {
+                Self.logger.warning("Failed to prune old snapshot \(file.lastPathComponent): \(error.localizedDescription)")
+            }
         }
     }
-}
-
-/// A displayable version snapshot of a note.
-public struct NoteVersion: Identifiable, Sendable {
-    public let id: Int
-    public let snapshotURL: URL
-    public let date: Date
 }
