@@ -179,7 +179,8 @@ public actor KnowledgeExtractionService {
 
     private func extractConcepts(for noteURL: URL) async {
         let content: String
-        do { content = try String(contentsOf: noteURL, encoding: .utf8) } catch { return }
+        // CRITICAL: Use coordinated read to prevent race with iCloud sync
+        do { content = try CoordinatedFileWriter.shared.readString(from: noteURL) } catch { return }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 50 else {

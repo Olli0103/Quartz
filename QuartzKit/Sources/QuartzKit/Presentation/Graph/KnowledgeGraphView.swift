@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Graph Data Structures
 
 /// A node in the knowledge graph representing a note or an AI-discovered concept hub.
-public struct GraphNode: Identifiable, Sendable {
+public struct GraphNode: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let url: URL
@@ -28,10 +28,20 @@ public struct GraphNode: Identifiable, Sendable {
         self.connectionCount = connectionCount
         self.isConcept = isConcept
     }
+
+    /// Equatable: Only compare rendering-relevant properties.
+    /// Velocity (vx/vy) changes shouldn't trigger view diffs.
+    public static func == (lhs: GraphNode, rhs: GraphNode) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.x == rhs.x &&
+        lhs.y == rhs.y &&
+        lhs.connectionCount == rhs.connectionCount &&
+        lhs.isConcept == rhs.isConcept
+    }
 }
 
 /// An edge in the knowledge graph connecting two nodes.
-public struct GraphEdge: Identifiable, Sendable {
+public struct GraphEdge: Identifiable, Sendable, Equatable {
     public let id: String
     public let from: String
     public let to: String
@@ -67,7 +77,9 @@ public enum GraphLayoutPolicy: Sendable {
 @MainActor
 public final class GraphViewModel {
     public var nodes: [GraphNode] = []
-    public var edges: [GraphEdge] = []
+    public var edges: [GraphEdge] = [] {
+        didSet { rebuildEdgeCaches() }
+    }
     public var isLoading = true
     public var currentNoteID: String?
     public var graphTruncationNote: String?
@@ -77,7 +89,21 @@ public final class GraphViewModel {
     private let linkExtractor = WikiLinkExtractor()
     private var nodeIndex: [String: Int] = [:]
 
+    /// Public read-only access to node index for O(1) canvas lookups.
+    public var nodeIDToIndex: [String: Int] { nodeIndex }
+
+    /// Cached hard edges (non-semantic) for efficient rendering.
+    public private(set) var hardEdges: [GraphEdge] = []
+    /// Cached semantic edges for efficient rendering.
+    public private(set) var semanticEdges: [GraphEdge] = []
+
     public init() {}
+
+    /// Rebuilds the hard/semantic edge caches when edges change.
+    private func rebuildEdgeCaches() {
+        hardEdges = edges.filter { !$0.isSemantic }
+        semanticEdges = edges.filter { $0.isSemantic }
+    }
 
     // MARK: - Live Simulation
 
@@ -996,13 +1022,18 @@ public struct KnowledgeGraphView: View {
                 let transform = CGAffineTransform(translationX: pan.width + dragOffset.width, y: pan.height + dragOffset.height)
                     .scaledBy(x: zoom, y: zoom)
 
-                // Draw edges — hard links first (behind), then semantic links (on top with glow)
-                let hardEdges = viewModel.edges.filter { !$0.isSemantic }
-                let semanticEdges = viewModel.edges.filter { $0.isSemantic }
+                // PERF: Use cached filtered arrays and O(1) node index lookups
+                let nodeIndex = viewModel.nodeIDToIndex
+                let nodes = viewModel.nodes
 
-                for edge in hardEdges {
-                    guard let fromNode = viewModel.nodes.first(where: { $0.id == edge.from }),
-                          let toNode = viewModel.nodes.first(where: { $0.id == edge.to }) else { continue }
+                // Draw edges — hard links first (behind), then semantic links (on top with glow)
+                for edge in viewModel.hardEdges {
+                    // O(1) lookup instead of O(n) .first(where:)
+                    guard let fromIdx = nodeIndex[edge.from],
+                          let toIdx = nodeIndex[edge.to],
+                          fromIdx < nodes.count, toIdx < nodes.count else { continue }
+                    let fromNode = nodes[fromIdx]
+                    let toNode = nodes[toIdx]
 
                     let fromPos = viewModel.nodePosition(fromNode, in: canvasSize).applying(transform)
                     let toPos = viewModel.nodePosition(toNode, in: canvasSize).applying(transform)
@@ -1020,9 +1051,13 @@ public struct KnowledgeGraphView: View {
                     context.stroke(path, with: .color(edgeColor), lineWidth: lineWidth)
                 }
 
-                for edge in semanticEdges {
-                    guard let fromNode = viewModel.nodes.first(where: { $0.id == edge.from }),
-                          let toNode = viewModel.nodes.first(where: { $0.id == edge.to }) else { continue }
+                for edge in viewModel.semanticEdges {
+                    // O(1) lookup instead of O(n) .first(where:)
+                    guard let fromIdx = nodeIndex[edge.from],
+                          let toIdx = nodeIndex[edge.to],
+                          fromIdx < nodes.count, toIdx < nodes.count else { continue }
+                    let fromNode = nodes[fromIdx]
+                    let toNode = nodes[toIdx]
 
                     let fromPos = viewModel.nodePosition(fromNode, in: canvasSize).applying(transform)
                     let toPos = viewModel.nodePosition(toNode, in: canvasSize).applying(transform)

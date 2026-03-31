@@ -47,6 +47,14 @@ public final class InspectorStore {
     /// Whether the version history sheet is presented.
     public var showVersionHistory: Bool = false
 
+    // MARK: - Intelligence Engine Status
+
+    /// Current Intelligence Engine status — drives the status indicator in the inspector.
+    public var intelligenceStatus: IntelligenceEngineStatus = .idle
+
+    /// Notification observer for engine status updates.
+    nonisolated(unsafe) private var statusObserver: Any?
+
     private static let visibilityKey = "quartz.inspectorVisible"
 
     // MARK: - Init
@@ -61,6 +69,28 @@ public final class InspectorStore {
             #else
             self.isVisible = false
             #endif
+        }
+
+        startStatusObserver()
+    }
+
+    deinit {
+        if let observer = statusObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    /// Observes Intelligence Engine status changes for UI updates.
+    private func startStatusObserver() {
+        statusObserver = NotificationCenter.default.addObserver(
+            forName: .quartzIntelligenceEngineStatusChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let status = notification.userInfo?["status"] as? IntelligenceEngineStatus else { return }
+            Task { @MainActor [weak self] in
+                self?.intelligenceStatus = status
+            }
         }
     }
 

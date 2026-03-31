@@ -83,6 +83,12 @@ public final class EditorSession {
     nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
     nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
 
+    // MARK: - NSFilePresenter Integration
+
+    /// NSFilePresenter for iCloud-safe file change detection.
+    /// Bridges coordinated file system events to the Intelligence Engine.
+    private var filePresenter: NoteFilePresenter?
+
     // MARK: - Inspector Integration
 
     /// Background analysis service for headings + stats.
@@ -1200,6 +1206,11 @@ public final class EditorSession {
 
     private func startFileWatching(for url: URL) {
         stopFileWatching()
+
+        // Start NSFilePresenter for iCloud-coordinated change detection
+        filePresenter = NoteFilePresenter(url: url, delegate: self)
+
+        // Also keep the FileWatcher for local change detection
         let watcher = FileWatcher(url: url)
         fileWatchTask = Task { [weak self] in
             let stream = await watcher.startWatching()
@@ -1213,6 +1224,10 @@ public final class EditorSession {
     private func stopFileWatching() {
         fileWatchTask?.cancel()
         fileWatchTask = nil
+
+        // Invalidate the file presenter
+        filePresenter?.invalidate()
+        filePresenter = nil
     }
 
     private func handleFileChange(_ event: FileChangeEvent) {
@@ -1412,4 +1427,64 @@ public extension Notification.Name {
     /// Posted when the user clicks a wiki-link in the editor.
     /// `userInfo` contains `"url": URL` and `"title": String`.
     static let quartzWikiLinkNavigation = Notification.Name("quartzWikiLinkNavigation")
+}
+
+// MARK: - NoteFilePresenterDelegate
+
+extension EditorSession: NoteFilePresenterDelegate {
+
+    /// Called when the file's contents have changed externally (iCloud sync, Finder, etc.).
+    public func filePresenterDidDetectChange(_ presenter: NoteFilePresenter) {
+        // Ignore during version restore
+        guard !isRestoringVersion else { return }
+
+        // Post notification so Intelligence Engine can re-index the file
+        if let url = presenter.presentedItemURL {
+            NotificationCenter.default.post(name: .quartzFilePresenterDidChange, object: url)
+        }
+
+        // Handle UI update
+        if isDirty {
+            externalModificationDetected = true
+        } else {
+            Task { await reloadFromDisk() }
+        }
+    }
+
+    /// Called when the file has been moved or renamed.
+    public func filePresenter(_ presenter: NoteFilePresenter, didMoveFrom oldURL: URL?, to newURL: URL) {
+        // Update our note reference
+        if var currentNote = note {
+            // Create a new NoteDocument with the updated URL
+            currentNote = NoteDocument(
+                fileURL: newURL,
+                frontmatter: currentNote.frontmatter,
+                body: currentNote.body
+            )
+            note = currentNote
+        }
+
+        // Post notification so Intelligence Engine can update embeddings
+        NotificationCenter.default.post(
+            name: .quartzFilePresenterDidMove,
+            object: nil,
+            userInfo: ["oldURL": oldURL as Any, "newURL": newURL]
+        )
+    }
+
+    /// Called before the file is deleted.
+    public func filePresenterWillDelete(_ presenter: NoteFilePresenter) async throws {
+        // Post notification so Intelligence Engine can remove embeddings
+        if let url = presenter.presentedItemURL {
+            NotificationCenter.default.post(name: .quartzFilePresenterWillDelete, object: url)
+        }
+
+        // Update UI
+        errorMessage = String(localized: "Note was deleted externally.", bundle: .module)
+    }
+
+    /// Called when we should save pending changes before another process writes.
+    public func filePresenterShouldSave(_ presenter: NoteFilePresenter) async throws {
+        await save(force: true)
+    }
 }

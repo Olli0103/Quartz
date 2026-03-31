@@ -57,6 +57,8 @@ public final class ContentViewModel {
     public var semanticLinkService: SemanticLinkService?
     /// Background AI concept extraction engine.
     public var knowledgeExtractionService: KnowledgeExtractionService?
+    /// Unified Intelligence Engine coordinator — bridges file events to all AI services.
+    public var intelligenceCoordinator: IntelligenceEngineCoordinator?
     /// Shared graph edge store for wiki-link and semantic edges.
     public let graphEdgeStore = GraphEdgeStore()
 
@@ -101,6 +103,16 @@ public final class ContentViewModel {
             edgeStore: graphEdgeStore,
             vaultRootURL: vault.rootURL
         )
+
+        // Initialize Intelligence Engine coordinator — unified event routing
+        let coordinator = IntelligenceEngineCoordinator(
+            embeddingService: embedding,
+            semanticService: semanticLinkService,
+            extractionService: knowledgeExtractionService,
+            vaultRootURL: vault.rootURL
+        )
+        intelligenceCoordinator = coordinator
+        Task { await coordinator.startObserving() }
 
         let frontmatterParser = ServiceContainer.shared.resolveFrontmatterParser()
         let previewRepo = NotePreviewRepository(vaultRoot: vault.rootURL)
@@ -457,7 +469,8 @@ public final class ContentViewModel {
         let extractionService = self.knowledgeExtractionService
         Task.detached(priority: .utility) {
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
-            let content = liveText ?? (try? String(contentsOf: url, encoding: .utf8))
+            // CRITICAL: Use coordinated read to prevent race with iCloud sync
+            let content = liveText ?? (try? CoordinatedFileWriter.shared.readString(from: url))
             if let content, !content.isEmpty {
                 try? await embedding.indexNote(noteID: stableID, content: content)
                 try? await embedding.saveIndex()
@@ -490,9 +503,10 @@ public final class ContentViewModel {
             // Remove old stableID entries
             let oldID = VectorEmbeddingService.stableNoteID(for: oldURL, vaultRoot: vaultRoot)
             await embedding.removeNote(oldID)
-            // Index at new stableID
+            // Index at new stableID with coordinated read
             let newID = VectorEmbeddingService.stableNoteID(for: newURL, vaultRoot: vaultRoot)
-            let content = try? String(contentsOf: newURL, encoding: .utf8)
+            // CRITICAL: Use coordinated read to prevent race with iCloud sync
+            let content = try? CoordinatedFileWriter.shared.readString(from: newURL)
             if let content, !content.isEmpty {
                 try? await embedding.indexNote(noteID: newID, content: content)
             }
