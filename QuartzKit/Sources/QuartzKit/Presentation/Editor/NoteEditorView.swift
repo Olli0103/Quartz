@@ -1332,7 +1332,11 @@ private extension View {
             case .heading:
                 Button("") { action() }.keyboardShortcut("h", modifiers: [.command, .shift]).hidden()
             case .code:
+                #if os(macOS)
                 Button("") { action() }.keyboardShortcut("e", modifiers: .command).hidden()
+                #else
+                Button("") { action() }.keyboardShortcut("e", modifiers: [.command, .option]).hidden()
+                #endif
             case .link:
                 Button("") { action() }.keyboardShortcut("l", modifiers: [.command, .shift]).hidden()
             case .blockquote:

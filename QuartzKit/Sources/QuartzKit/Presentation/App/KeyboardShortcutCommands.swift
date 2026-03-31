@@ -67,8 +67,11 @@ public struct KeyboardShortcutCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
+            // Cmd+F: On iOS, UITextView provides native Find — only register on macOS
+            #if os(macOS)
             Button(String(localized: "Find in Note", bundle: .module)) { onSearch() }
                 .keyboardShortcut("f", modifiers: .command)
+            #endif
 
             Button(String(localized: "Search All Notes", bundle: .module)) { onGlobalSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
@@ -104,8 +107,14 @@ public struct KeyboardShortcutCommands: Commands {
 
             Divider()
 
+            // Cmd+E: On iOS, UITextView uses this for "Use Selection for Find" — use Cmd+Shift+E instead
+            #if os(macOS)
             Button(String(localized: "Inline Code", bundle: .module)) { onFormatAction?(.code) }
                 .keyboardShortcut("e", modifiers: .command)
+            #else
+            Button(String(localized: "Inline Code", bundle: .module)) { onFormatAction?(.code) }
+                .keyboardShortcut("e", modifiers: [.command, .option])
+            #endif
             Button(String(localized: "Code Block", bundle: .module)) { onFormatAction?(.codeBlock) }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button(String(localized: "Link", bundle: .module)) { onFormatAction?(.link) }

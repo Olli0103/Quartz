@@ -93,6 +93,13 @@ public actor GraphEdgeStore {
     /// Discovered by background AI analysis — non-destructive, never alters markdown files.
     public private(set) var semanticEdges: [URL: [URL]] = [:]
 
+    /// Maps a concept string (normalized, lowercase) to the set of note URLs that discuss it.
+    /// Populated by `KnowledgeExtractionService`. Used by the Knowledge Graph to render concept hub nodes.
+    public private(set) var conceptEdges: [String: Set<URL>] = [:]
+
+    /// Reverse map: note URL → concepts assigned to it. Used by the Inspector.
+    public private(set) var noteConcepts: [URL: [String]] = [:]
+
     /// Reverse lookup: title (lowercased, no extension) → URL.
     /// Rebuilt whenever `updateConnections` is called with a new vault snapshot.
     private var titleIndex: [String: URL] = [:]
@@ -182,6 +189,66 @@ public actor GraphEdgeStore {
                 semanticEdges[key] = related
             }
         }
+    }
+
+    // MARK: - Concept Edges (AI Ontology)
+
+    /// Updates the concept assignments for a single note.
+    /// Removes the note from any concepts it previously had but no longer does.
+    ///
+    /// - Parameters:
+    ///   - url: The note URL.
+    ///   - concepts: Normalized concept strings extracted by the AI.
+    public func updateConcepts(for url: URL, concepts: [String]) {
+        let oldConcepts = noteConcepts[url] ?? []
+        let newConceptSet = Set(concepts)
+        let oldConceptSet = Set(oldConcepts)
+
+        // Remove URL from concepts it no longer belongs to
+        for removed in oldConceptSet.subtracting(newConceptSet) {
+            conceptEdges[removed]?.remove(url)
+            if conceptEdges[removed]?.isEmpty == true {
+                conceptEdges.removeValue(forKey: removed)
+            }
+        }
+
+        // Add URL to new concepts
+        for concept in concepts {
+            conceptEdges[concept, default: []].insert(url)
+        }
+
+        // Update reverse map
+        if concepts.isEmpty {
+            noteConcepts.removeValue(forKey: url)
+        } else {
+            noteConcepts[url] = concepts
+        }
+    }
+
+    /// Returns the concepts assigned to a note.
+    public func concepts(for url: URL) -> [String] {
+        noteConcepts[url] ?? []
+    }
+
+    /// Returns all concepts that have at least `minNotes` associated notes.
+    /// Used to determine which concepts become hub nodes in the graph.
+    public func significantConcepts(minNotes: Int = 2) -> [(concept: String, noteURLs: Set<URL>)] {
+        conceptEdges
+            .filter { $0.value.count >= minNotes }
+            .map { (concept: $0.key, noteURLs: $0.value) }
+            .sorted { $0.noteURLs.count > $1.noteURLs.count }
+    }
+
+    /// Removes all concept associations for a deleted note.
+    public func removeConcepts(for url: URL) {
+        guard let concepts = noteConcepts[url] else { return }
+        for concept in concepts {
+            conceptEdges[concept]?.remove(url)
+            if conceptEdges[concept]?.isEmpty == true {
+                conceptEdges.removeValue(forKey: concept)
+            }
+        }
+        noteConcepts.removeValue(forKey: url)
     }
 
     // MARK: - Private

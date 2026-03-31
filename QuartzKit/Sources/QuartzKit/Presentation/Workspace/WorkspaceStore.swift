@@ -31,10 +31,17 @@ public final class WorkspaceStore {
     // MARK: - Selection State
 
     /// Currently selected source in the left sidebar.
-    /// Changing this resets `selectedNoteURL` to nil (new context).
+    /// Changing this resets `selectedNoteURL` to nil (new context),
+    /// unless the selected note is inside the new source folder.
     public var selectedSource: SourceSelection = .allNotes {
         didSet {
             if oldValue != selectedSource {
+                // Don't clear selection if the note is inside the newly selected folder
+                if case .folder(let folderURL) = selectedSource,
+                   let noteURL = selectedNoteURL,
+                   noteURL.deletingLastPathComponent().standardizedFileURL == folderURL.standardizedFileURL {
+                    return
+                }
                 selectedNoteURL = nil
             }
         }

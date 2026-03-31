@@ -6,8 +6,6 @@ struct QuartzApp: App {
     @State private var appState = AppState()
     @State private var appearanceManager = AppearanceManager()
     @State private var focusModeManager = FocusModeManager()
-    @AppStorage("quartz.appLockEnabled") private var appLockEnabled = false
-    private let biometricAuthService = BiometricAuthService()
 
     /// Returns true if the app was launched with UI testing flags.
     private static var isUITesting: Bool {
@@ -28,28 +26,21 @@ struct QuartzApp: App {
         defaults.removeObject(forKey: "quartz.lastVault.bookmark")
         defaults.removeObject(forKey: "quartz.lastVault.name")
         defaults.removeObject(forKey: "quartz.appLockEnabled")
+        defaults.removeObject(forKey: "quartz.lockTimeoutMinutes")
         defaults.synchronize()
     }
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if appLockEnabled {
-                    AppLockView(authService: biometricAuthService) {
-                        ContentView()
-                    }
-                } else {
-                    ContentView()
+            ContentView()
+                .environment(appState)
+                .environment(\.appearanceManager, appearanceManager)
+                .environment(\.focusModeManager, focusModeManager)
+                .preferredColorScheme(appearanceManager.theme.colorScheme)
+                .tint(appearanceManager.accentColor)
+                .task {
+                    ServiceContainer.shared.bootstrap()
                 }
-            }
-            .environment(appState)
-            .environment(\.appearanceManager, appearanceManager)
-            .environment(\.focusModeManager, focusModeManager)
-            .preferredColorScheme(appearanceManager.theme.colorScheme)
-            .tint(appearanceManager.accentColor)
-            .task {
-                ServiceContainer.shared.bootstrap()
-            }
         }
         .commands {
             KeyboardShortcutCommands(

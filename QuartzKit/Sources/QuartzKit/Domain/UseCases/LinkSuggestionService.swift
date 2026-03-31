@@ -11,6 +11,8 @@ public struct LinkSuggestionService: Sendable {
         public let noteURL: URL
         public let noteName: String
         public let matchRange: Range<String.Index>
+        /// Short context excerpt around the match, for display in the inspector.
+        public let matchContext: String
         public var id: String { noteURL.absoluteString + "\(matchRange.lowerBound)" }
     }
 
@@ -46,10 +48,17 @@ public struct LinkSuggestionService: Sendable {
                 }
 
                 if !overlaps && isWordBoundary(content: lowerContent, range: range) {
+                    // Extract a short context excerpt around the match
+                    let contextRange = extractContextRange(in: content, around: range)
+                    let context = String(content[contextRange])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .replacingOccurrences(of: "\n", with: " ")
+
                     suggestions.append(Suggestion(
                         noteURL: note.url,
                         noteName: displayName,
-                        matchRange: range
+                        matchRange: range,
+                        matchContext: context
                     ))
                     coveredRanges.append(range)
                 }
@@ -81,6 +90,26 @@ public struct LinkSuggestionService: Sendable {
         }
 
         return beforeOK && afterOK
+    }
+
+    /// Extracts a ~60-char context window around a match range for display.
+    private func extractContextRange(in content: String, around range: Range<String.Index>) -> Range<String.Index> {
+        let contextChars = 30
+        var start = range.lowerBound
+        var end = range.upperBound
+
+        for _ in 0..<contextChars {
+            if start > content.startIndex {
+                start = content.index(before: start)
+            }
+        }
+        for _ in 0..<contextChars {
+            if end < content.endIndex {
+                end = content.index(after: end)
+            }
+        }
+
+        return start..<end
     }
 
     private func extractExistingLinkTargets(from content: String) -> Set<String> {

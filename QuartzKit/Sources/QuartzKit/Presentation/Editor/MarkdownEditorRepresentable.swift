@@ -55,6 +55,10 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
 
+        // iOS-specific: interactive keyboard dismiss and fluid scrolling
+        textView.keyboardDismissMode = .interactive
+        textView.alwaysBounceVertical = true
+
         if #available(iOS 18.1, *) {
             textView.writingToolsBehavior = .complete
             textView.allowsEditingTextAttributes = true

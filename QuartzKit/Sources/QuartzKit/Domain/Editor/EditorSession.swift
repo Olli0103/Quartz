@@ -102,12 +102,18 @@ public final class EditorSession {
 
     /// Observer for semantic link update notifications.
     private var semanticLinkObserver: Any?
+    /// Observer for AI concept update notifications.
+    private var conceptObserver: Any?
+    /// Observer for AI scan progress notifications.
+    private var scanProgressObserver: Any?
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
         self.vaultProvider = vaultProvider
         self.frontmatterParser = frontmatterParser
         self.inspectorStore = inspectorStore
         startSemanticLinkObserver()
+        startConceptObserver()
+        startScanProgressObserver()
     }
 
     /// Listens for `.quartzSemanticLinksUpdated` and refreshes the inspector's related notes.
@@ -126,6 +132,42 @@ public final class EditorSession {
         }
     }
 
+    /// Listens for `.quartzConceptsUpdated` and refreshes the inspector's AI concepts.
+    private func startConceptObserver() {
+        conceptObserver = NotificationCenter.default.addObserver(
+            forName: .quartzConceptsUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let updatedURL = notification.object as? URL,
+                  updatedURL == self.note?.fileURL else { return }
+            Task { @MainActor [weak self] in
+                await self?.refreshConcepts()
+            }
+        }
+    }
+
+    /// Listens for `.quartzConceptScanProgress` and updates the inspector's scan status.
+    private func startScanProgressObserver() {
+        scanProgressObserver = NotificationCenter.default.addObserver(
+            forName: .quartzConceptScanProgress,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            if let info = notification.userInfo,
+               let current = info["current"] as? Int,
+               let total = info["total"] as? Int,
+               let note = info["note"] as? String {
+                self.inspectorStore.aiScanProgress = (current: current, total: total, note: note)
+            } else {
+                // Scan completed
+                self.inspectorStore.aiScanProgress = nil
+            }
+        }
+    }
+
     /// Fetches semantic links from the edge store and updates the inspector.
     public func refreshSemanticLinks() async {
         guard let noteURL = note?.fileURL,
@@ -137,6 +179,18 @@ public final class EditorSession {
         inspectorStore.relatedNotes = related.map { url in
             (url: url, title: url.deletingPathExtension().lastPathComponent)
         }
+        // Also refresh concepts while we're at it
+        await refreshConcepts()
+    }
+
+    /// Fetches AI concepts from the edge store and updates the inspector.
+    public func refreshConcepts() async {
+        guard let noteURL = note?.fileURL,
+              let edgeStore = graphEdgeStore else {
+            inspectorStore.aiConcepts = []
+            return
+        }
+        inspectorStore.aiConcepts = await edgeStore.concepts(for: noteURL)
     }
 
     // MARK: - Note Loading
@@ -581,6 +635,8 @@ public final class EditorSession {
         guard var currentNote = note, (isDirty || force), !isSaving else { return }
 
         isSaving = true
+        defer { isSaving = false }
+
         // Snapshot from native view (the source of truth)
         let textSnapshot: String
         #if canImport(UIKit)
@@ -606,8 +662,6 @@ public final class EditorSession {
             errorMessage = error.localizedDescription
             scheduleAutosave()
         }
-
-        isSaving = false
     }
 
     /// Explicit save triggered by user action (Cmd+S, toolbar button).
@@ -995,7 +1049,7 @@ public final class EditorSession {
 
     // MARK: - Analysis (Inspector Data)
 
-    /// Schedules a debounced analysis pass for headings + stats.
+    /// Schedules a debounced analysis pass for headings, stats, and link suggestions.
     /// Cancels any in-flight analysis to avoid 50 concurrent parses.
     private func scheduleAnalysis() {
         analysisTask?.cancel()
@@ -1003,11 +1057,27 @@ public final class EditorSession {
             guard let self else { return }
             try? await Task.sleep(for: self.analysisDelay)
             guard !Task.isCancelled else { return }
+
             let text = self.currentText
+            let noteURL = self.note?.fileURL
+            let tree = self.fileTree
+
+            // 1. Standard analysis (headings, stats)
             let analysis = await self.analysisService.analyze(text)
+
+            // 2. Link suggestions (unlinked mentions)
+            var suggestions: [LinkSuggestionService.Suggestion] = []
+            if let noteURL {
+                let suggestionService = LinkSuggestionService()
+                suggestions = await Task.detached(priority: .utility) {
+                    suggestionService.suggestLinks(for: text, currentNoteURL: noteURL, allNotes: tree)
+                }.value
+            }
+
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.inspectorStore.update(with: analysis)
+                self?.inspectorStore.suggestedLinks = suggestions
             }
         }
     }

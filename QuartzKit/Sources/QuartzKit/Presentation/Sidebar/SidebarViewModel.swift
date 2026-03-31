@@ -58,6 +58,11 @@ public final class SidebarViewModel {
     public private(set) var tagInfos: [TagInfo] = []
     public var isLoading: Bool = false
     public var errorMessage: String?
+
+    /// Items in the vault's Recently Deleted (.quartzTrash) folder.
+    public var trashedItems: [FileNode] = []
+
+    private let trashService = VaultTrashService()
     /// Set by ContentViewModel for sidebar indexing status display.
     public var indexingProgress: (current: Int, total: Int)?
     /// Set by ContentViewModel for sidebar sync status display.
@@ -161,6 +166,7 @@ public final class SidebarViewModel {
             errorMessage = userFacingMessage(for: error)
         }
 
+        refreshTrash()
         isLoading = false
     }
 
@@ -263,6 +269,7 @@ public final class SidebarViewModel {
             let removed = Self.markdownFileURLsUnder(url)
             try await vaultProvider.deleteNote(at: url)
             await refresh()
+            refreshTrash()
             if !removed.isEmpty {
                 NotificationCenter.default.post(
                     name: .quartzSpotlightNotesRemoved,
@@ -273,6 +280,56 @@ public final class SidebarViewModel {
         } catch {
             errorMessage = userFacingMessage(for: error)
         }
+    }
+
+    // MARK: - Recently Deleted
+
+    /// Refreshes the list of trashed items from the .quartzTrash folder.
+    public func refreshTrash() {
+        guard let root = vaultRootURL else {
+            trashedItems = []
+            return
+        }
+        trashedItems = trashService.trashedItems(in: root)
+    }
+
+    /// Restores a trashed note back to the vault root.
+    public func restoreFromTrash(at url: URL) async {
+        guard let root = vaultRootURL else { return }
+        do {
+            _ = try trashService.restoreItem(url, to: root)
+            refreshTrash()
+            await refresh()
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+    }
+
+    /// Permanently deletes a single trashed note.
+    public func permanentlyDelete(at url: URL) async {
+        do {
+            try trashService.permanentlyDelete(url)
+            refreshTrash()
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+    }
+
+    /// Permanently deletes all items in the trash.
+    public func emptyTrash() async {
+        guard let root = vaultRootURL else { return }
+        do {
+            try trashService.emptyTrash(in: root)
+            refreshTrash()
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+    }
+
+    /// Checks if a URL is inside the vault's trash folder.
+    public func isInTrash(_ url: URL) -> Bool {
+        guard let root = vaultRootURL else { return false }
+        return trashService.isInTrash(url, vaultRoot: root)
     }
 
     /// Markdown files affected by deleting `url` (single note or folder), before the delete runs.

@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Graph Data Structures
 
-/// A node in the knowledge graph representing a single note.
+/// A node in the knowledge graph representing a note or an AI-discovered concept hub.
 public struct GraphNode: Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -13,8 +13,10 @@ public struct GraphNode: Identifiable, Sendable {
     public var vx: CGFloat = 0
     public var vy: CGFloat = 0
     public var connectionCount: Int = 0
+    /// True if this node represents an AI-extracted concept (not a note file).
+    public var isConcept: Bool = false
 
-    public init(id: String, title: String, url: URL, tags: [String] = [], x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0, connectionCount: Int = 0) {
+    public init(id: String, title: String, url: URL, tags: [String] = [], x: CGFloat = 0, y: CGFloat = 0, vx: CGFloat = 0, vy: CGFloat = 0, connectionCount: Int = 0, isConcept: Bool = false) {
         self.id = id
         self.title = title
         self.url = url
@@ -24,21 +26,25 @@ public struct GraphNode: Identifiable, Sendable {
         self.vx = vx
         self.vy = vy
         self.connectionCount = connectionCount
+        self.isConcept = isConcept
     }
 }
 
-/// An edge in the knowledge graph connecting two notes.
+/// An edge in the knowledge graph connecting two nodes.
 public struct GraphEdge: Identifiable, Sendable {
     public let id: String
     public let from: String
     public let to: String
     public let isSemantic: Bool
+    /// True if this edge connects a note to a concept hub node.
+    public let isConcept: Bool
 
-    public init(from: String, to: String, isSemantic: Bool = false) {
+    public init(from: String, to: String, isSemantic: Bool = false, isConcept: Bool = false) {
         self.id = "\(from)->\(to)"
         self.from = from
         self.to = to
         self.isSemantic = isSemantic
+        self.isConcept = isConcept
     }
 }
 
@@ -64,8 +70,9 @@ public final class GraphViewModel {
     public var edges: [GraphEdge] = []
     public var isLoading = true
     public var currentNoteID: String?
-    /// Non-nil when the vault had more notes than ``GraphLayoutPolicy/maxNodesPerGraph`` and the graph was capped.
     public var graphTruncationNote: String?
+    /// Optional reference to the shared edge store for reading concept data.
+    public var graphEdgeStore: GraphEdgeStore?
 
     private let linkExtractor = WikiLinkExtractor()
     private var nodeIndex: [String: Int] = [:]
@@ -110,7 +117,9 @@ public final class GraphViewModel {
         guard n > 1 else { return }
 
         let repulsionStrength: CGFloat = 6000
-        let attractionStrength: CGFloat = 0.008
+        let hardLinkAttraction: CGFloat = 0.012
+        let semanticLinkAttraction: CGFloat = 0.005
+        let conceptLinkAttraction: CGFloat = 0.010
         let damping: CGFloat = 0.85
         let centerGravity: CGFloat = 0.01
         let cellSize = max(36, min(130, 2200 / sqrt(CGFloat(max(n, 2)))))
@@ -146,14 +155,15 @@ public final class GraphViewModel {
             }
         }
 
-        // Attraction
+        // Attraction: stronger for hard wiki-links, softer for semantic AI links
         for edge in edges {
             guard let iFrom = nodeIndex[edge.from],
                   let iTo = nodeIndex[edge.to] else { continue }
+            let strength = edge.isConcept ? conceptLinkAttraction : (edge.isSemantic ? semanticLinkAttraction : hardLinkAttraction)
             let dx = nodes[iTo].x - nodes[iFrom].x
             let dy = nodes[iTo].y - nodes[iFrom].y
-            let fx = dx * attractionStrength
-            let fy = dy * attractionStrength
+            let fx = dx * strength
+            let fy = dy * strength
             nodes[iFrom].vx += fx
             nodes[iFrom].vy += fy
             nodes[iTo].vx -= fx
@@ -336,6 +346,10 @@ public final class GraphViewModel {
 
         nodes = builtNodes
         edges = builtEdges
+
+        // Add concept hub nodes from the AI ontology engine
+        await addConceptHubNodes()
+
         rebuildNodeIndex()
         layoutGraph() // Initial fast layout
         startLiveSimulation() // Animate settling
@@ -374,6 +388,65 @@ public final class GraphViewModel {
         }
     }
 
+    // MARK: - Concept Hub Nodes
+
+    /// Reads significant concepts from the edge store and adds them as hub nodes + edges.
+    /// Concept nodes are positioned at the centroid of their connected note nodes.
+    private func addConceptHubNodes() async {
+        guard let store = graphEdgeStore else { return }
+        let significant = await store.significantConcepts(minNotes: 2)
+        guard !significant.isEmpty else { return }
+
+        // Build a lookup from note URL string → node index
+        let urlToNodeID: [String: String] = Dictionary(
+            uniqueKeysWithValues: nodes.compactMap { node in
+                node.isConcept ? nil : (node.url.absoluteString, node.id)
+            }
+        )
+
+        for (concept, noteURLs) in significant {
+            let conceptID = "concept:\(concept)"
+
+            // Find connected note nodes and compute centroid for initial position
+            var connectedNodeIDs: [String] = []
+            var cx: CGFloat = 0
+            var cy: CGFloat = 0
+            var count: CGFloat = 0
+
+            for noteURL in noteURLs {
+                guard let nodeID = urlToNodeID[noteURL.absoluteString],
+                      let idx = nodeIndex[nodeID] else { continue }
+                connectedNodeIDs.append(nodeID)
+                cx += nodes[idx].x
+                cy += nodes[idx].y
+                count += 1
+            }
+
+            guard !connectedNodeIDs.isEmpty else { continue }
+
+            // Position at centroid with slight jitter
+            let posX = (count > 0 ? cx / count : 0) + CGFloat.random(in: -20...20)
+            let posY = (count > 0 ? cy / count : 0) + CGFloat.random(in: -20...20)
+
+            // Create the concept hub node
+            let conceptNode = GraphNode(
+                id: conceptID,
+                title: concept.capitalized,
+                url: URL(fileURLWithPath: "/concept/\(concept)"), // Placeholder URL for concept nodes
+                x: posX,
+                y: posY,
+                connectionCount: connectedNodeIDs.count,
+                isConcept: true
+            )
+            nodes.append(conceptNode)
+
+            // Create edges from each note to the concept hub
+            for nodeID in connectedNodeIDs {
+                edges.append(GraphEdge(from: nodeID, to: conceptID, isConcept: true))
+            }
+        }
+    }
+
     // MARK: - Force-Directed Layout
 
     /// Runs a simplified force-directed layout to position nodes.
@@ -386,7 +459,9 @@ public final class GraphViewModel {
 
         let n = nodes.count
         let repulsionStrength: CGFloat = 6000
-        let attractionStrength: CGFloat = 0.008
+        let hardLinkAttraction: CGFloat = 0.012
+        let semanticLinkAttraction: CGFloat = 0.005
+        let conceptLinkAttraction: CGFloat = 0.010
         let damping: CGFloat = 0.85
         let centerGravity: CGFloat = 0.01
         let cellSize = max(36, min(130, 2200 / sqrt(CGFloat(max(n, 2)))))
@@ -425,14 +500,15 @@ public final class GraphViewModel {
                 }
             }
 
-            // Attraction along edges (Hooke's law)
+            // Attraction along edges: stronger for hard wiki-links, softer for semantic AI links
             for edge in edges {
                 guard let iFrom = nodeIndex[edge.from],
                       let iTo = nodeIndex[edge.to] else { continue }
+                let strength = edge.isConcept ? conceptLinkAttraction : (edge.isSemantic ? semanticLinkAttraction : hardLinkAttraction)
                 let dx = nodes[iTo].x - nodes[iFrom].x
                 let dy = nodes[iTo].y - nodes[iFrom].y
-                let fx = dx * attractionStrength
-                let fy = dy * attractionStrength
+                let fx = dx * strength
+                let fy = dy * strength
                 nodes[iFrom].vx += fx
                 nodes[iFrom].vy += fy
                 nodes[iTo].vx -= fx
@@ -484,13 +560,15 @@ public final class GraphViewModel {
 
     /// Returns the visual radius for a node based on its state.
     public func nodeRadius(for node: GraphNode) -> CGFloat {
+        if node.isConcept { return max(8, min(14, CGFloat(node.connectionCount) * 2 + 4)) }
         if node.id == currentNoteID { return 14 }
         if node.connectionCount > 0 { return max(6, min(12, CGFloat(node.connectionCount) * 2 + 4)) }
         return 5
     }
 
-    /// Returns the color for a node based on its relationship to the current note.
+    /// Returns the color for a node based on its type and relationship to the current note.
     public func nodeColor(for node: GraphNode) -> Color {
+        if node.isConcept { return QuartzColors.folderYellow }
         if node.id == currentNoteID { return .orange }
         let isConnected = edges.contains { edge in
             (edge.from == currentNoteID && edge.to == node.id) ||
@@ -577,6 +655,7 @@ public struct KnowledgeGraphView: View {
     private let vaultProvider: (any VaultProviding)?
     private let embeddingService: VectorEmbeddingService?
     private let onSelectNote: ((URL) -> Void)?
+    private let graphEdgeStoreRef: GraphEdgeStore?
 
     /// Light cream background per design (#FDFBF8).
     private static let graphBackgroundColor = Color(hex: 0xFDFBF8)
@@ -591,7 +670,8 @@ public struct KnowledgeGraphView: View {
         vaultProvider: (any VaultProviding)?,
         embeddingService: VectorEmbeddingService? = nil,
         onSelectNote: ((URL) -> Void)? = nil,
-        isEmbedded: Bool = false
+        isEmbedded: Bool = false,
+        graphEdgeStore: GraphEdgeStore? = nil
     ) {
         self.fileTree = fileTree
         self.currentNoteURL = currentNoteURL
@@ -600,6 +680,7 @@ public struct KnowledgeGraphView: View {
         self.embeddingService = embeddingService
         self.onSelectNote = onSelectNote
         self.isEmbedded = isEmbedded
+        self.graphEdgeStoreRef = graphEdgeStore
     }
 
     public var body: some View {
@@ -639,6 +720,13 @@ public struct KnowledgeGraphView: View {
             zoomControls
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+
+            // Edge type legend (bottom-left)
+            if !viewModel.isLoading && !viewModel.nodes.isEmpty {
+                edgeLegend
+                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
         }
         .navigationTitle(String(localized: "Graph View", bundle: .module))
         #if os(iOS)
@@ -653,6 +741,7 @@ public struct KnowledgeGraphView: View {
             isEmbedded: isEmbedded
         ))
         .task(id: semanticAutoLinkingEnabled) {
+            viewModel.graphEdgeStore = graphEdgeStoreRef
             await viewModel.buildGraph(
                 fileTree: fileTree,
                 currentNoteURL: currentNoteURL,
@@ -683,16 +772,46 @@ public struct KnowledgeGraphView: View {
     // MARK: - Node Detail Card
 
     private func nodeDetailCard(for node: GraphNode) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let hardLinks = viewModel.edges.filter { !$0.isSemantic && ($0.from == node.id || $0.to == node.id) }.count
+        let semanticLinks = viewModel.edges.filter { $0.isSemantic && ($0.from == node.id || $0.to == node.id) }.count
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "ACTIVE NODE", bundle: .module))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
             Text(node.title)
                 .font(.headline.weight(.bold))
-            Text(String(localized: "Note in your vault", bundle: .module))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+            // Connection breakdown
+            HStack(spacing: 12) {
+                if hardLinks > 0 {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.secondary.opacity(0.5))
+                            .frame(width: 6, height: 6)
+                        Text(String(localized: "\(hardLinks) links", bundle: .module))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if semanticLinks > 0 {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(QuartzColors.canvasPurple)
+                            .frame(width: 6, height: 6)
+                        Text(String(localized: "\(semanticLinks) AI", bundle: .module))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if hardLinks == 0 && semanticLinks == 0 {
+                    Text(String(localized: "No connections", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             if !node.tags.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(node.tags.prefix(5), id: \.self) { tag in
@@ -729,9 +848,7 @@ public struct KnowledgeGraphView: View {
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(String(localized: "Selected note: \(node.title)", bundle: .module))
-        .accessibilityHint(node.tags.isEmpty
-            ? String(localized: "Double tap Open Note to view", bundle: .module)
-            : String(localized: "Tags: \(node.tags.prefix(3).joined(separator: ", ")). Double tap Open Note to view", bundle: .module))
+        .accessibilityHint(String(localized: "\(hardLinks) wiki-links, \(semanticLinks) AI links. Double tap Open Note to view.", bundle: .module))
     }
 
     // MARK: - Filter Bar
@@ -806,6 +923,38 @@ public struct KnowledgeGraphView: View {
         }
     }
 
+    // MARK: - Edge Legend
+
+    private var edgeLegend: some View {
+        let hardCount = viewModel.edges.filter { !$0.isSemantic }.count
+        let semanticCount = viewModel.edges.filter { $0.isSemantic }.count
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.5))
+                    .frame(width: 20, height: 1.5)
+                Text(String(localized: "Wiki-links (\(hardCount))", bundle: .module))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if semanticCount > 0 {
+                HStack(spacing: 8) {
+                    StrokeDash()
+                        .stroke(QuartzColors.canvasPurple.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        .frame(width: 20, height: 1.5)
+                    Text(String(localized: "AI-discovered (\(semanticCount))", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(10)
+        .quartzFloatingUltraThinSurface(cornerRadius: 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "\(hardCount) wiki-links, \(semanticCount) AI-discovered links", bundle: .module))
+    }
+
     // MARK: - Loading
 
     private var loadingOverlay: some View {
@@ -847,8 +996,11 @@ public struct KnowledgeGraphView: View {
                 let transform = CGAffineTransform(translationX: pan.width + dragOffset.width, y: pan.height + dragOffset.height)
                     .scaledBy(x: zoom, y: zoom)
 
-                // Draw edges
-                for edge in viewModel.edges {
+                // Draw edges — hard links first (behind), then semantic links (on top with glow)
+                let hardEdges = viewModel.edges.filter { !$0.isSemantic }
+                let semanticEdges = viewModel.edges.filter { $0.isSemantic }
+
+                for edge in hardEdges {
                     guard let fromNode = viewModel.nodes.first(where: { $0.id == edge.from }),
                           let toNode = viewModel.nodes.first(where: { $0.id == edge.to }) else { continue }
 
@@ -859,22 +1011,36 @@ public struct KnowledgeGraphView: View {
                     path.move(to: fromPos)
                     path.addLine(to: toPos)
 
-                    let isHighlightedEdge = viewModel.currentNoteID != nil &&
+                    let isHighlighted = viewModel.currentNoteID != nil &&
                         (edge.from == viewModel.currentNoteID || edge.to == viewModel.currentNoteID)
-                    let edgeColor: Color = isHighlightedEdge
-                        ? QuartzColors.accent.opacity(0.5)
-                        : edge.isSemantic
-                            ? QuartzColors.canvasPurple.opacity(0.6)
-                            : Color.gray.opacity(0.25)
-                    let lineWidth: CGFloat = isHighlightedEdge ? 1.5 : (edge.isSemantic ? 1.2 : 0.8)
-                    let strokeStyle: StrokeStyle = edge.isSemantic
-                        ? StrokeStyle(lineWidth: lineWidth, dash: [6, 4])
-                        : StrokeStyle(lineWidth: lineWidth)
+                    let edgeColor: Color = isHighlighted
+                        ? QuartzColors.accent.opacity(0.6)
+                        : Color.secondary.opacity(0.4)
+                    let lineWidth: CGFloat = isHighlighted ? 1.8 : 0.8
+                    context.stroke(path, with: .color(edgeColor), lineWidth: lineWidth)
+                }
 
-                    if edge.isSemantic {
-                        context.stroke(path, with: .color(QuartzColors.canvasPurple.opacity(0.25)), lineWidth: lineWidth + 2)
-                    }
-                    context.stroke(path, with: .color(edgeColor), style: strokeStyle)
+                for edge in semanticEdges {
+                    guard let fromNode = viewModel.nodes.first(where: { $0.id == edge.from }),
+                          let toNode = viewModel.nodes.first(where: { $0.id == edge.to }) else { continue }
+
+                    let fromPos = viewModel.nodePosition(fromNode, in: canvasSize).applying(transform)
+                    let toPos = viewModel.nodePosition(toNode, in: canvasSize).applying(transform)
+
+                    var path = Path()
+                    path.move(to: fromPos)
+                    path.addLine(to: toPos)
+
+                    let isHighlighted = viewModel.currentNoteID != nil &&
+                        (edge.from == viewModel.currentNoteID || edge.to == viewModel.currentNoteID)
+                    let edgeColor: Color = isHighlighted
+                        ? QuartzColors.canvasPurple.opacity(0.7)
+                        : QuartzColors.canvasPurple.opacity(0.35)
+                    let lineWidth: CGFloat = isHighlighted ? 1.6 : 1.0
+
+                    // Soft glow behind semantic edges
+                    context.stroke(path, with: .color(QuartzColors.canvasPurple.opacity(0.12)), lineWidth: lineWidth + 3)
+                    context.stroke(path, with: .color(edgeColor), style: StrokeStyle(lineWidth: lineWidth, dash: [6, 4]))
                 }
 
                 // Draw nodes
@@ -883,43 +1049,70 @@ public struct KnowledgeGraphView: View {
                     let radius = viewModel.nodeRadius(for: node) * zoom
                     let color = viewModel.nodeColor(for: node)
                     let isCurrentNote = node.id == viewModel.currentNoteID
+                    let isSelected = node.id == hoveredNodeID || node.id == selectedNodeID
 
-                    // Glow effect for current note
-                    if isCurrentNote {
-                        let glowRadius = radius * 2.5
-                        let glowRect = CGRect(
-                            x: pos.x - glowRadius,
-                            y: pos.y - glowRadius,
-                            width: glowRadius * 2,
-                            height: glowRadius * 2
+                    if node.isConcept {
+                        // Concept hub: diamond shape with golden glow
+                        let glowRadius = radius * 2.0
+                        let glowRect = CGRect(x: pos.x - glowRadius, y: pos.y - glowRadius, width: glowRadius * 2, height: glowRadius * 2)
+                        context.fill(Circle().path(in: glowRect), with: .color(QuartzColors.folderYellow.opacity(0.12)))
+
+                        // Diamond shape (45-degree rotated square)
+                        var diamond = Path()
+                        diamond.move(to: CGPoint(x: pos.x, y: pos.y - radius))
+                        diamond.addLine(to: CGPoint(x: pos.x + radius, y: pos.y))
+                        diamond.addLine(to: CGPoint(x: pos.x, y: pos.y + radius))
+                        diamond.addLine(to: CGPoint(x: pos.x - radius, y: pos.y))
+                        diamond.closeSubpath()
+
+                        context.fill(diamond, with: .color(color))
+                        context.stroke(diamond, with: .color(color.opacity(0.5)), lineWidth: 1.0)
+
+                        if isSelected {
+                            var outerDiamond = Path()
+                            let r2 = radius + 3
+                            outerDiamond.move(to: CGPoint(x: pos.x, y: pos.y - r2))
+                            outerDiamond.addLine(to: CGPoint(x: pos.x + r2, y: pos.y))
+                            outerDiamond.addLine(to: CGPoint(x: pos.x, y: pos.y + r2))
+                            outerDiamond.addLine(to: CGPoint(x: pos.x - r2, y: pos.y))
+                            outerDiamond.closeSubpath()
+                            context.stroke(outerDiamond, with: .color(QuartzColors.accent.opacity(0.8)), lineWidth: 2)
+                        }
+
+                        // Concept label — always visible, bold
+                        context.draw(
+                            Text(node.title)
+                                .font(.system(size: 10 * zoom, weight: .bold))
+                                .foregroundColor(QuartzColors.folderYellow),
+                            at: CGPoint(x: pos.x, y: pos.y + radius + 10 * zoom)
                         )
-                        context.fill(
-                            Circle().path(in: glowRect),
-                            with: .color(QuartzColors.accent.opacity(0.2))
-                        )
-                    }
+                    } else {
+                        // Note node: standard circle
 
-                    let nodeRect = CGRect(
-                        x: pos.x - radius,
-                        y: pos.y - radius,
-                        width: radius * 2,
-                        height: radius * 2
-                    )
-                    context.fill(
-                        Circle().path(in: nodeRect),
-                        with: .color(color)
-                    )
+                        // Glow effect for current note
+                        if isCurrentNote {
+                            let glowRadius = radius * 2.5
+                            let glowRect = CGRect(x: pos.x - glowRadius, y: pos.y - glowRadius, width: glowRadius * 2, height: glowRadius * 2)
+                            context.fill(Circle().path(in: glowRect), with: .color(QuartzColors.accent.opacity(0.15)))
+                        }
 
-                    // Border for hovered/selected node
-                    if node.id == hoveredNodeID || node.id == selectedNodeID {
-                        context.stroke(
-                            Circle().path(in: nodeRect.insetBy(dx: -2, dy: -2)),
-                            with: .color(QuartzColors.accent.opacity(0.8)),
-                            lineWidth: 2
-                        )
-                    }
+                        // Glass-like outer ring for connected or selected nodes
+                        if node.connectionCount > 0 || isSelected {
+                            let ringRadius = radius + 2.5 * zoom
+                            let ringRect = CGRect(x: pos.x - ringRadius, y: pos.y - ringRadius, width: ringRadius * 2, height: ringRadius * 2)
+                            context.stroke(Circle().path(in: ringRect), with: .color(color.opacity(0.3)), lineWidth: 1.0)
+                        }
 
-                    // Labels for significant nodes
+                        // Node fill
+                        let nodeRect = CGRect(x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2)
+                        context.fill(Circle().path(in: nodeRect), with: .color(color))
+
+                        // Accent border for hovered/selected node
+                        if isSelected {
+                            context.stroke(Circle().path(in: nodeRect.insetBy(dx: -2, dy: -2)), with: .color(QuartzColors.accent.opacity(0.8)), lineWidth: 2)
+                        }
+
+                    // Labels for significant note nodes
                     let showLabel = isCurrentNote ||
                         viewModel.connectedNodeIDs.contains(node.id) ||
                         node.id == hoveredNodeID ||
@@ -937,6 +1130,7 @@ public struct KnowledgeGraphView: View {
                             at: CGPoint(x: pos.x, y: pos.y + radius + 10 * zoom)
                         )
                     }
+                    } // end else (note node)
                 }
             }
             .gesture(
@@ -1079,6 +1273,16 @@ public struct KnowledgeGraphView: View {
 }
 
 // MARK: - Graph Toolbar Modifier
+
+/// A horizontal line shape for drawing dashed strokes in the legend.
+private struct StrokeDash: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
+    }
+}
 
 /// Conditionally applies toolbar items and searchable only when NOT embedded in the workspace.
 /// macOS 26 beta crashes (EXC_BREAKPOINT in NSToolbar._insertNewItemWithItemIdentifier)

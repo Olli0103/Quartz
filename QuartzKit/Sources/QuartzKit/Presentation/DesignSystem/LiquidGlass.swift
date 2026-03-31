@@ -329,6 +329,23 @@ public extension View {
         #endif
     }
 
+    /// Unified Liquid Glass pill for all floating toolbars, search bars, and capsule controls.
+    ///
+    /// **Spec** (from ADA design audit):
+    /// - Material: `.regularMaterial` (sufficient blur for floating over arbitrary content)
+    /// - Shape: `Capsule` for pills, `RoundedRectangle` for cards
+    /// - Stroke: `.primary.opacity(0.07)` (adapts to light/dark/high-contrast)
+    /// - Shadow: consistent `radius: 12, y: 4`
+    /// - Respects `reduceTransparency` → falls back to opaque `.background`
+    func quartzFloatingPill() -> some View {
+        modifier(QuartzFloatingPillModifier(shape: .capsule))
+    }
+
+    /// Liquid Glass rounded rectangle for floating cards and panels.
+    func quartzFloatingCard(cornerRadius: CGFloat = 16) -> some View {
+        modifier(QuartzFloatingPillModifier(shape: .roundedRect(cornerRadius)))
+    }
+
     func quartzLiquidGlass(enabled: Bool, cornerRadius: CGFloat = 20) -> some View {
         modifier(QuartzLiquidGlassModifier(enabled: enabled, cornerRadius: cornerRadius))
     }
@@ -341,6 +358,56 @@ public extension View {
 
     func quartzMaterialCircle() -> some View {
         modifier(QuartzMaterialCircleModifier())
+    }
+}
+
+// MARK: - Unified Floating Pill Modifier
+
+/// Unified Liquid Glass modifier for all floating pills, toolbars, and cards.
+/// Provides consistent material, stroke, shadow, and accessibility across the app.
+public struct QuartzFloatingPillModifier: ViewModifier {
+    enum Shape {
+        case capsule
+        case roundedRect(CGFloat)
+    }
+
+    let shape: Shape
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    public func body(content: Content) -> some View {
+        let isHighContrast = contrast == .increased
+        let strokeColor = Color.primary.opacity(isHighContrast ? 0.25 : 0.07)
+        let strokeWidth: CGFloat = isHighContrast ? 1.0 : 0.5
+        let shadowRadius: CGFloat = reduceTransparency ? 0 : 12
+        let shadowOpacity: Double = reduceTransparency ? 0 : 0.08
+
+        switch shape {
+        case .capsule:
+            content
+                .background(
+                    reduceTransparency
+                        ? AnyShapeStyle(.background)
+                        : AnyShapeStyle(.regularMaterial),
+                    in: Capsule()
+                )
+                .overlay(Capsule().strokeBorder(strokeColor, lineWidth: strokeWidth))
+                .shadow(color: .black.opacity(shadowOpacity), radius: shadowRadius, y: 4)
+
+        case .roundedRect(let radius):
+            content
+                .background(
+                    reduceTransparency
+                        ? AnyShapeStyle(.background)
+                        : AnyShapeStyle(.regularMaterial),
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(strokeColor, lineWidth: strokeWidth)
+                )
+                .shadow(color: .black.opacity(shadowOpacity), radius: shadowRadius, y: 4)
+        }
     }
 }
 

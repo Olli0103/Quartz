@@ -1,145 +1,110 @@
 import SwiftUI
-#if canImport(LocalAuthentication)
-import LocalAuthentication
-#endif
 #if canImport(UIKit)
 import UIKit
 #endif
 
-/// App lock screen: Shows a biometric prompt at app launch.
+/// Full-screen lock overlay that redacts all app content when the app is locked.
 ///
-/// Displayed as an overlay over the entire app when
-/// app lock is enabled. Disappears after successful
-/// authentication.
-public struct AppLockView<Content: View>: View {
-    @State private var isUnlocked: Bool = false
-    @State private var isAuthenticating: Bool = false
-    @State private var errorMessage: String?
-    @State private var biometryIcon: String = "lock.fill"
+/// **Security guarantees**:
+/// - `.regularMaterial` blur completely obscures note text underneath
+/// - `.allowsHitTesting(false)` on the content layer prevents interaction
+/// - Covers the entire window bounds (including macOS App Switcher thumbnails)
+/// - Auto-triggers biometric prompt on appear
+///
+/// **Design**: Matches the Liquid Glass aesthetic with a centered lock icon,
+/// app name, and a prominent "Unlock" button.
+public struct AppLockView: View {
+    let orchestrator: SecurityOrchestrator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var didAutoPrompt = false
 
-    let authService: BiometricAuthService
-    let content: Content
-
-    public init(
-        authService: BiometricAuthService,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.authService = authService
-        self.content = content()
+    public init(orchestrator: SecurityOrchestrator) {
+        self.orchestrator = orchestrator
     }
 
     public var body: some View {
         ZStack {
-            content
-                .disabled(!isUnlocked)
-                .blur(radius: isUnlocked ? 0 : 20)
-                .accessibilityHidden(!isUnlocked)
+            // Full-screen redaction layer — heavy material blur
+            Rectangle()
+                .fill(reduceTransparency ? AnyShapeStyle(.background) : AnyShapeStyle(.regularMaterial))
+                .ignoresSafeArea()
 
-            if !isUnlocked {
-                lockScreen
-                    .transition(.opacity)
-                    .accessibilityAddTraits(.isModal)
-            }
-        }
-        .animation(reduceMotion ? .default : QuartzAnimation.smooth, value: isUnlocked)
-        .task {
-            resolveBiometryIcon()
-            await authenticate()
-        }
-    }
+            // Lock content
+            VStack(spacing: 0) {
+                Spacer()
 
-    private var lockScreen: some View {
-        VStack(spacing: 24) {
-            Spacer()
+                // Icon
+                Image(systemName: orchestrator.biometryIconName)
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(.secondary)
+                    .symbolRenderingMode(.hierarchical)
+                    .padding(.bottom, 20)
 
-            Image(systemName: biometryIcon)
-                .font(.largeTitle)
-                .foregroundStyle(.tint)
-
-            VStack(spacing: 8) {
+                // Title
                 Text(String(localized: "Quartz is Locked", bundle: .module))
-                    .font(.title2.bold())
+                    .font(.title2.weight(.bold))
+                    .padding(.bottom, 6)
+
                 Text(String(localized: "Authenticate to access your notes", bundle: .module))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+
+                // Error message
+                if let error = orchestrator.authError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                        .padding(.top, 12)
+                        .transition(.opacity)
+                        .accessibilityLabel(String(localized: "Authentication error: \(error)", bundle: .module))
+                }
+
+                Spacer()
+
+                // Unlock button
+                Button {
+                    Task { await orchestrator.authenticate() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if orchestrator.isAuthenticating {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: orchestrator.biometryIconName)
+                        }
+                        Text(String(localized: "Unlock", bundle: .module))
+                    }
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: 280)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.accentColor.gradient)
+                    )
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .disabled(orchestrator.isAuthenticating)
+                .accessibilityLabel(String(localized: "Unlock Quartz", bundle: .module))
+                .accessibilityHint(String(localized: "Double tap to authenticate with \(orchestrator.biometryLabel)", bundle: .module))
+
+                Spacer()
+                    .frame(height: 60)
             }
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .accessibilityAddTraits(.updatesFrequently)
-            }
-
-            Spacer()
-
-            Button {
-                Task { await authenticate() }
-            } label: {
-                Label(String(localized: "Unlock", bundle: .module), systemImage: biometryIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .padding(.horizontal, 32)
-            .disabled(isAuthenticating)
-
-            Spacer()
-                .frame(height: 48)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .quartzMaterialBackground(cornerRadius: 0)
-    }
-
-    private func resolveBiometryIcon() {
-        #if canImport(LocalAuthentication)
-        let context = LAContext()
-        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        biometryIcon = switch context.biometryType {
-        case .faceID: "faceid"
-        case .touchID: "touchid"
-        case .opticID: "opticid"
-        @unknown default: "lock.fill"
+        .accessibilityAddTraits(.isModal)
+        .accessibilityLabel(String(localized: "App is locked", bundle: .module))
+        .task {
+            // Auto-prompt biometric authentication on first appear
+            guard !didAutoPrompt else { return }
+            didAutoPrompt = true
+            // Small delay so the UI renders before the system auth dialog appears
+            try? await Task.sleep(for: .milliseconds(300))
+            await orchestrator.authenticate()
         }
-        #endif
-    }
-
-    private func authenticate() async {
-        isAuthenticating = true
-        errorMessage = nil
-
-        let result = await authService.authenticate(reason: String(localized: "Unlock Quartz to access your notes", bundle: .module))
-
-        switch result {
-        case .success:
-            #if os(iOS)
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.success)
-            #endif
-            withAnimation {
-                isUnlocked = true
-            }
-        case .cancelled:
-            break
-        case .failed(let message):
-            errorMessage = message
-        }
-
-        isAuthenticating = false
-    }
-}
-
-// MARK: - Sensory Feedback Extension
-
-extension AppLockView {
-    /// Trigger success haptic on unlock (called from view modifiers)
-    @MainActor
-    fileprivate func triggerUnlockHaptic() {
-        #if os(iOS)
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-        #endif
     }
 }

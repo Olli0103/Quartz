@@ -237,18 +237,82 @@ public struct QuickCaptureWidgetView: View {
             }
 
         case .systemSmall:
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 Image(systemName: "square.and.pencil")
-                    .font(.largeTitle)
+                    .font(.title2)
                     .foregroundStyle(.tint)
                 Text(String(localized: "Quick Note", bundle: .module))
                     .font(.caption.bold())
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+        case .systemMedium:
+            // Enhanced: three capture buttons (Text, Audio, Camera)
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tint)
+                        Text(String(localized: "Quick Capture", bundle: .module))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(String(localized: "One tap to capture", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                HStack(spacing: 12) {
+                    #if canImport(AppIntents)
+                    Button(intent: CreateNoteIntent()) {
+                        captureButton(icon: "square.and.pencil", label: String(localized: "Text", bundle: .module), color: QuartzColors.accent)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(intent: CaptureAudioIntent()) {
+                        captureButton(icon: "mic.fill", label: String(localized: "Audio", bundle: .module), color: Color.red)
+                    }
+                    .buttonStyle(.plain)
+                    #else
+                    Link(destination: URL(string: "quartz://new")!) {
+                        captureButton(icon: "square.and.pencil", label: String(localized: "Text", bundle: .module), color: QuartzColors.accent)
+                    }
+                    Link(destination: URL(string: "quartz://audio")!) {
+                        captureButton(icon: "mic.fill", label: String(localized: "Audio", bundle: .module), color: Color.red)
+                    }
+                    #endif
+
+                    Link(destination: URL(string: "quartz://scan")!) {
+                        captureButton(icon: "doc.viewfinder", label: String(localized: "Scan", bundle: .module), color: Color.blue)
+                    }
+                }
+            }
+            .padding(12)
+
         default:
             Image(systemName: "square.and.pencil")
         }
+    }
+
+    private func captureButton(icon: String, label: String, color: Color) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(
+                    Circle()
+                        .fill(color.gradient)
+                        .shadow(color: color.opacity(0.3), radius: 4, y: 2)
+                )
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityLabel(label)
     }
 }
 
@@ -550,6 +614,182 @@ public struct RecentNotesWidgetView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
         )
+    }
+}
+
+// MARK: - Writing Streak Widget
+
+/// Timeline entry for the Writing Streak widget.
+/// Reads streak data from shared UserDefaults (App Group).
+public struct WritingStreakEntry: TimelineEntry, Sendable {
+    public let date: Date
+    public let streakDays: Int
+    public let totalNotes: Int
+    public let todayWordCount: Int
+
+    public init(date: Date, streakDays: Int, totalNotes: Int, todayWordCount: Int) {
+        self.date = date
+        self.streakDays = streakDays
+        self.totalNotes = totalNotes
+        self.todayWordCount = todayWordCount
+    }
+
+    nonisolated(unsafe) public static let placeholder = WritingStreakEntry(
+        date: .now,
+        streakDays: 7,
+        totalNotes: 42,
+        todayWordCount: 350
+    )
+}
+
+/// Timeline provider for the Writing Streak widget.
+public struct WritingStreakProvider: TimelineProvider {
+    public init() {}
+
+    public func placeholder(in context: Context) -> WritingStreakEntry {
+        .placeholder
+    }
+
+    public func getSnapshot(in context: Context, completion: @escaping (WritingStreakEntry) -> Void) {
+        completion(loadEntry())
+    }
+
+    public func getTimeline(in context: Context, completion: @escaping (Timeline<WritingStreakEntry>) -> Void) {
+        let entry = loadEntry()
+        // Refresh at midnight to update streak
+        let nextMidnight = Calendar.current.startOfDay(for: Date()).addingTimeInterval(86400)
+        completion(Timeline(entries: [entry], policy: .after(nextMidnight)))
+    }
+
+    private func loadEntry() -> WritingStreakEntry {
+        let d = UserDefaults(suiteName: "group.app.quartz.shared")
+        let streak = d?.integer(forKey: "quartz.widget.streakDays") ?? 0
+        let totalNotes = d?.integer(forKey: "quartz.widget.totalNotes") ?? 0
+        let todayWords = d?.integer(forKey: "quartz.widget.todayWordCount") ?? 0
+        return WritingStreakEntry(
+            date: .now,
+            streakDays: streak,
+            totalNotes: totalNotes,
+            todayWordCount: todayWords
+        )
+    }
+}
+
+/// Writing Streak widget view — motivational stats on the Home Screen.
+@available(iOS 17.0, macOS 14.0, *)
+public struct WritingStreakWidgetView: View {
+    let entry: WritingStreakEntry
+    @Environment(\.widgetFamily) private var family
+
+    public init(entry: WritingStreakEntry) {
+        self.entry = entry
+    }
+
+    public var body: some View {
+        Group {
+            switch family {
+            case .systemSmall:
+                smallLayout
+            case .systemMedium:
+                mediumLayout
+            default:
+                smallLayout
+            }
+        }
+        .containerBackground(for: .widget) {
+            ContainerRelativeShape()
+                .fill(.regularMaterial)
+        }
+        .widgetURL(URL(string: "quartz://dashboard"))
+    }
+
+    private var smallLayout: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "flame.fill")
+                    .foregroundStyle(.orange)
+                Text(String(localized: "Streak", bundle: .module))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("\(entry.streakDays)")
+                .font(.system(size: 40, weight: .bold, design: .rounded))
+                .foregroundStyle(entry.streakDays > 0 ? QuartzColors.accent : .secondary)
+
+            Text(entry.streakDays == 1
+                ? String(localized: "day", bundle: .module)
+                : String(localized: "days", bundle: .module))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var mediumLayout: some View {
+        HStack(spacing: 16) {
+            // Streak flame
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(entry.streakDays > 0 ? QuartzColors.accent.opacity(0.15) : Color.secondary.opacity(0.1))
+                        .frame(width: 56, height: 56)
+                    Image(systemName: "flame.fill")
+                        .font(.title2)
+                        .foregroundStyle(entry.streakDays > 0 ? .orange : .secondary)
+                }
+                Text("\(entry.streakDays) \(entry.streakDays == 1 ? "day" : "days")")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(entry.streakDays > 0 ? QuartzColors.accent : .secondary)
+            }
+
+            // Stats
+            VStack(alignment: .leading, spacing: 8) {
+                statRow(icon: "doc.text.fill", label: String(localized: "Notes", bundle: .module), value: "\(entry.totalNotes)")
+                statRow(icon: "character.cursor.ibeam", label: String(localized: "Today", bundle: .module), value: "\(entry.todayWordCount) \(String(localized: "words", bundle: .module))")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // New note button
+            #if canImport(AppIntents)
+            Button(intent: CreateNoteIntent()) {
+                newNoteCircle
+            }
+            .buttonStyle(.plain)
+            #else
+            Link(destination: URL(string: "quartz://new")!) {
+                newNoteCircle
+            }
+            #endif
+        }
+        .padding(14)
+    }
+
+    private func statRow(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.tint)
+                .frame(width: 14)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+        }
+    }
+
+    private var newNoteCircle: some View {
+        ZStack {
+            Circle()
+                .fill(QuartzColors.accent.gradient)
+                .frame(width: 40, height: 40)
+                .shadow(color: QuartzColors.accent.opacity(0.3), radius: 4, y: 2)
+            Image(systemName: "plus")
+                .font(.body.weight(.bold))
+                .foregroundStyle(.white)
+        }
     }
 }
 #endif

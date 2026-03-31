@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Quartz uses your camera to capture photos and scan documents into your notes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Quartz accesses your photo library to insert images into your notes.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Quartz uses the microphone for voice note recording and meeting transcription.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -23,5 +29,18 @@
 			<string>Quartz Notes</string>
 		</dict>
 	</dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>olli.QuartzNotes.sidebar-item</string>
+			<key>UTTypeDescription</key>
+			<string>Quartz Sidebar Item</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

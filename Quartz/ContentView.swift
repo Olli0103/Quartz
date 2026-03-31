@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var workspaceStore = WorkspaceStore()
     @State private var coordinator = AppCoordinator()
     @State private var noteListStore = NoteListStore()
+    @State private var securityOrchestrator = SecurityOrchestrator.shared
     @State private var commandPaletteEngine = CommandPaletteEngine(previewRepository: nil, commands: [])
     @State private var exportFileData: Data?
     @State private var exportFileName: String = "note.pdf"
@@ -84,6 +85,10 @@ struct ContentView: View {
                 #else
                 coordinator.activeSheet = .vaultPicker
                 #endif
+            },
+            conflictedNoteURLs: Set(viewModel?.conflictingFileURLs ?? []),
+            onResolveConflict: { url in
+                coordinator.activeSheet = .conflictResolver
             }
         )
         .stageManagerSupport(appState: appState, selectedNoteURL: Binding(
@@ -95,7 +100,17 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
-        bodyWithSheets
+        ZStack {
+            bodyWithSheets
+                .disabled(securityOrchestrator.isLocked)
+
+            if securityOrchestrator.isLocked {
+                AppLockView(orchestrator: securityOrchestrator)
+                    .transition(.opacity)
+                    .zIndex(999) // Always on top of everything
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: securityOrchestrator.isLocked)
     }
 
     // MARK: - Sheet & Alert Layer
@@ -228,6 +243,10 @@ struct ContentView: View {
         case .conflictResolver:
             if let urls = viewModel?.conflictingFileURLs, !urls.isEmpty {
                 ConflictListResolverView(fileURLs: urls) {
+                    // Reload the editor if the current note was resolved
+                    if let currentURL = viewModel?.editorSession?.note?.fileURL {
+                        Task { await viewModel?.editorSession?.reloadFromDisk() }
+                    }
                     Task { await viewModel?.sidebarViewModel?.refresh() }
                 }
             }
@@ -336,6 +355,7 @@ struct ContentView: View {
             consumePendingWidgetDeepLinks()
         }
         .onChange(of: scenePhase) { _, phase in
+            securityOrchestrator.scenePhaseDidChange(to: phase)
             if phase == .active {
                 consumePendingWidgetDeepLinks()
             }
@@ -433,6 +453,10 @@ struct ContentView: View {
             appState.pendingCommand = .newNote
         case "quartz://daily":
             appState.pendingCommand = .dailyNote
+        case "quartz://audio":
+            coordinator.activeSheet = .voiceNote
+        case "quartz://dashboard":
+            workspaceStore.showDashboard = true
         case "quartz://scan":
             #if os(iOS)
             viewModel?.editorViewModel?.requestDocumentScannerPresentation = true

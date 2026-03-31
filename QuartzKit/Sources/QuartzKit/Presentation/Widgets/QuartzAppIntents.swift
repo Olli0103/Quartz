@@ -232,6 +232,24 @@ public struct DailyNoteIntent: AppIntent {
 
 // MARK: - App Shortcuts Provider
 
+/// Opens the app into voice recording mode (widgets, Siri, Control Center).
+@available(iOS 16.0, macOS 13.0, *)
+public struct CaptureAudioIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Record Voice Note"
+    public static let description: IntentDescription = "Opens Quartz and starts voice recording."
+    public static let openAppWhenRun: Bool = true
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult {
+        UserDefaults(suiteName: "group.app.quartz.shared")?
+            .set("quartz://audio", forKey: "pendingDeepLink")
+        return .result()
+    }
+}
+
+// MARK: - App Shortcuts Provider
+
 @available(iOS 16.0, macOS 13.0, *)
 public struct QuartzShortcutsProvider: AppShortcutsProvider {
     @AppShortcutsBuilder
@@ -279,6 +297,15 @@ public struct QuartzShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Open Note",
             systemImageName: "doc.text"
+        )
+        AppShortcut(
+            intent: CaptureAudioIntent(),
+            phrases: [
+                "Record a voice note in \(.applicationName)",
+                "Start recording in \(.applicationName)",
+            ],
+            shortTitle: "Voice Note",
+            systemImageName: "mic.fill"
         )
     }
 }

@@ -22,6 +22,17 @@ public final class InspectorStore {
     /// Each entry is a (URL, display title) pair for rendering in the inspector.
     public var relatedNotes: [(url: URL, title: String)] = []
 
+    /// Unlinked mention suggestions from LinkSuggestionService.
+    /// Updated by EditorSession's debounced analysis pass.
+    public var suggestedLinks: [LinkSuggestionService.Suggestion] = []
+
+    /// AI-extracted concepts for the current note (from KnowledgeExtractionService).
+    public var aiConcepts: [String] = []
+
+    /// AI vault scan progress — shown as a subtle status line in the inspector.
+    /// nil when no scan is running.
+    public var aiScanProgress: (current: Int, total: Int, note: String)?
+
     /// ID of the heading currently visible at the top of the editor viewport.
     /// Drives the highlight in the ToC.
     public var activeHeadingID: String?
@@ -33,14 +44,24 @@ public final class InspectorStore {
         }
     }
 
+    /// Whether the version history sheet is presented.
+    public var showVersionHistory: Bool = false
+
     private static let visibilityKey = "quartz.inspectorVisible"
 
     // MARK: - Init
 
     public init() {
-        self.isVisible = UserDefaults.standard.object(forKey: Self.visibilityKey) != nil
-            ? UserDefaults.standard.bool(forKey: Self.visibilityKey)
-            : true // Default to visible on first launch
+        if UserDefaults.standard.object(forKey: Self.visibilityKey) != nil {
+            self.isVisible = UserDefaults.standard.bool(forKey: Self.visibilityKey)
+        } else {
+            // Default: visible on macOS (side panel), hidden on iOS (would pop up as sheet)
+            #if os(macOS)
+            self.isVisible = true
+            #else
+            self.isVisible = false
+            #endif
+        }
     }
 
     // MARK: - Update

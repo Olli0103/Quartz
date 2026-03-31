@@ -19,6 +19,9 @@ public struct WorkspaceView: View {
     var onVaultChat: (() -> Void)?
     var onDashboard: (() -> Void)?
     var onSwitchVault: (() -> Void)?
+    /// URLs with unresolved iCloud conflicts — drives the conflict banner in the editor.
+    var conflictedNoteURLs: Set<URL> = []
+    var onResolveConflict: ((URL) -> Void)?
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.colorScheme) private var colorScheme
@@ -38,7 +41,9 @@ public struct WorkspaceView: View {
         onMeetingMinutes: (() -> Void)? = nil,
         onVaultChat: (() -> Void)? = nil,
         onDashboard: (() -> Void)? = nil,
-        onSwitchVault: (() -> Void)? = nil
+        onSwitchVault: (() -> Void)? = nil,
+        conflictedNoteURLs: Set<URL> = [],
+        onResolveConflict: ((URL) -> Void)? = nil
     ) {
         self.store = store
         self.noteListStore = noteListStore
@@ -53,6 +58,8 @@ public struct WorkspaceView: View {
         self.onVaultChat = onVaultChat
         self.onDashboard = onDashboard
         self.onSwitchVault = onSwitchVault
+        self.conflictedNoteURLs = conflictedNoteURLs
+        self.onResolveConflict = onResolveConflict
     }
 
     private var isPureDark: Bool {
@@ -149,7 +156,10 @@ public struct WorkspaceView: View {
             selectedNoteURL: $store.selectedNoteURL,
             onNewNote: onNewNote,
             onVoiceNote: onVoiceNote,
-            onMeetingMinutes: onMeetingMinutes
+            onMeetingMinutes: onMeetingMinutes,
+            onDeleteNote: { url in
+                Task { await sidebarViewModel?.delete(at: url) }
+            }
         )
         .onChange(of: store.selectedSource) { _, newSource in
             Task { await noteListStore.changeSource(to: newSource) }
@@ -170,7 +180,8 @@ public struct WorkspaceView: View {
                     onSelectNote: { url in
                         store.selectedNoteURL = url
                     },
-                    isEmbedded: true
+                    isEmbedded: true,
+                    graphEdgeStore: editorSession?.graphEdgeStore
                 )
             } else if store.showDashboard {
                 DashboardView(
@@ -187,8 +198,27 @@ public struct WorkspaceView: View {
                         appendToDailyNote(text)
                     }
                 )
-            } else if let session = editorSession, session.note != nil {
-                EditorContainerView(session: session, workspaceStore: store, documentChatSession: documentChatSession, onVoiceNote: onVoiceNote)
+            } else if store.selectedNoteURL != nil, let session = editorSession {
+                let noteInTrash = sidebarViewModel?.isInTrash(store.selectedNoteURL ?? URL(fileURLWithPath: "/")) ?? false
+                EditorContainerView(
+                    session: session,
+                    workspaceStore: store,
+                    documentChatSession: documentChatSession,
+                    onVoiceNote: onVoiceNote,
+                    conflictedNoteURLs: conflictedNoteURLs,
+                    onResolveConflict: onResolveConflict,
+                    isInTrash: noteInTrash,
+                    onRestoreFromTrash: {
+                        guard let url = store.selectedNoteURL else { return }
+                        store.selectedNoteURL = nil
+                        Task { await sidebarViewModel?.restoreFromTrash(at: url) }
+                    },
+                    onPermanentlyDelete: {
+                        guard let url = store.selectedNoteURL else { return }
+                        store.selectedNoteURL = nil
+                        Task { await sidebarViewModel?.permanentlyDelete(at: url) }
+                    }
+                )
             } else if let session = editorSession, let error = session.errorMessage {
                 iCloudErrorView(message: error)
             } else {

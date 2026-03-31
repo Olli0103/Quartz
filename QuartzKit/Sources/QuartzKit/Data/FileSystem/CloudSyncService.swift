@@ -199,8 +199,147 @@ public actor CloudSyncService {
         )
     }
 
+    // MARK: - Transactional Conflict Resolution
+
+    /// Keeps the local version, marks all conflict versions as resolved.
+    /// **Transactional**: coordination + resolve happen in a single coordinator block.
+    public nonisolated func resolveKeepingLocal(at url: URL) throws {
+        var coordinatorError: NSError?
+        var resolveError: Error?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
+            let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
+            for v in conflicts { v.isResolved = true }
+            do {
+                try NSFileVersion.removeOtherVersionsOfItem(at: actualURL)
+            } catch {
+                resolveError = error
+            }
+        }
+
+        if let error = coordinatorError ?? resolveError {
+            throw error
+        }
+    }
+
+    /// Replaces local content with the iCloud version, then marks all conflicts resolved.
+    /// **Transactional**: write + resolve in a single coordinator block.
+    public nonisolated func resolveKeepingCloud(at url: URL) throws {
+        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+        guard let cloudVersion = conflicts.first else {
+            throw CloudSyncError.conflictResolutionFailed
+        }
+
+        var coordinatorError: NSError?
+        var resolveError: Error?
+
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
+            do {
+                try cloudVersion.replaceItem(at: actualURL, options: [])
+                let remaining = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
+                for v in remaining { v.isResolved = true }
+                try NSFileVersion.removeOtherVersionsOfItem(at: actualURL)
+            } catch {
+                resolveError = error
+            }
+        }
+
+        if let error = coordinatorError ?? resolveError {
+            throw error
+        }
+    }
+
+    /// Keeps both versions: renames the conflict file to a sibling note so no data is lost.
+    /// The conflict version becomes `[Original Title] (iCloud Conflict).md`.
+    /// Marks all conflicts as resolved after branching.
+    public func resolveKeepingBoth(at url: URL) async throws {
+        let conflicts = conflictVersions(for: url)
+        guard let cloudVersion = conflicts.first else {
+            throw CloudSyncError.conflictResolutionFailed
+        }
+
+        // Read the cloud version's content
+        let cloudData = try await coordinatedRead(at: cloudVersion.url)
+
+        // Compute the sibling filename
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        let parentDir = url.deletingLastPathComponent()
+        let conflictName = "\(baseName) (iCloud Conflict).\(ext)"
+        var conflictURL = parentDir.appending(path: conflictName)
+
+        // Avoid overwriting existing conflict files
+        var counter = 2
+        while FileManager.default.fileExists(atPath: conflictURL.path(percentEncoded: false)) {
+            let numberedName = "\(baseName) (iCloud Conflict \(counter)).\(ext)"
+            conflictURL = parentDir.appending(path: numberedName)
+            counter += 1
+        }
+
+        // Write the cloud content as a new file
+        try await coordinatedWrite(data: cloudData, to: conflictURL)
+
+        // Mark all conflicts resolved
+        try resolveKeepingLocal(at: url)
+
+        // Notify the app that a conflict was branched
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzSyncConflictBranched,
+                object: nil,
+                userInfo: ["originalURL": url, "conflictURL": conflictURL]
+            )
+        }
+    }
+
+    /// Writes merged content, then marks all conflicts resolved.
+    /// **Transactional**: write + resolve in a single coordinator block.
+    public func resolveWritingMerged(at url: URL, mergedUTF8: String) async throws {
+        let data = Data(mergedUTF8.utf8)
+
+        try await Task.detached(priority: .userInitiated) {
+            var coordinatorError: NSError?
+            var resolveError: Error?
+
+            let coordinator = NSFileCoordinator()
+            coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
+                do {
+                    try data.write(to: actualURL, options: .atomic)
+                    let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
+                    for v in conflicts { v.isResolved = true }
+                    try NSFileVersion.removeOtherVersionsOfItem(at: actualURL)
+                } catch {
+                    resolveError = error
+                }
+            }
+
+            if let error = coordinatorError ?? resolveError {
+                throw error
+            }
+        }.value
+    }
+
+    // MARK: - Legacy Resolution (deprecated, kept for backward compatibility)
+
+    @available(*, deprecated, renamed: "resolveKeepingLocal(at:)")
     public nonisolated func resolveConflictKeepingCurrent(at url: URL) throws {
-        try resolveConflictKeepingVersion(at: url, version: nil)
+        try resolveKeepingLocal(at: url)
+    }
+
+    @available(*, deprecated, renamed: "resolveKeepingCloud(at:)")
+    public nonisolated func resolveConflictKeepingCloud(at url: URL) throws {
+        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+        guard let cloudVersion = conflicts.first else {
+            throw CloudSyncError.conflictResolutionFailed
+        }
+        try resolveConflictKeepingVersion(at: url, version: cloudVersion)
+    }
+
+    @available(*, deprecated, renamed: "resolveWritingMerged(at:mergedUTF8:)")
+    public func resolveConflictWritingMergedContent(at url: URL, mergedUTF8: String) async throws {
+        try await resolveWritingMerged(at: url, mergedUTF8: mergedUTF8)
     }
 
     public nonisolated func resolveConflictKeepingVersion(at url: URL, version: NSFileVersion?) throws {
@@ -226,21 +365,6 @@ public actor CloudSyncService {
         if let error = coordinatorError ?? resolveError {
             throw error
         }
-    }
-
-    public nonisolated func resolveConflictKeepingCloud(at url: URL) throws {
-        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
-        guard let cloudVersion = conflicts.first else {
-            throw CloudSyncError.conflictResolutionFailed
-        }
-        try resolveConflictKeepingVersion(at: url, version: cloudVersion)
-    }
-
-    /// Writes merged file contents, then marks the sync conflict resolved (keeps current after write).
-    public func resolveConflictWritingMergedContent(at url: URL, mergedUTF8: String) async throws {
-        let data = Data(mergedUTF8.utf8)
-        try await coordinatedWrite(data: data, to: url)
-        try resolveConflictKeepingCurrent(at: url)
     }
 
     // MARK: - Ubiquity Container
@@ -336,3 +460,15 @@ public enum CloudSyncError: LocalizedError, Sendable {
     }
 }
 #endif
+
+// MARK: - Conflict Notifications
+
+public extension Notification.Name {
+    /// Posted when a sync conflict is resolved by branching (Keep Both).
+    /// `userInfo` contains `"originalURL": URL` and `"conflictURL": URL`.
+    static let quartzSyncConflictBranched = Notification.Name("quartzSyncConflictBranched")
+
+    /// Posted when a sync conflict is detected during monitoring.
+    /// `object` is the conflicted file URL.
+    static let quartzSyncConflictDetected = Notification.Name("quartzSyncConflictDetected")
+}

@@ -16,6 +16,7 @@ struct IosEditorToolbar: View {
     var isComposing: Bool = false
     var hasSelection: Bool = false
     var onAIAssist: (() -> Void)?
+    var onInsertImage: (() -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
 
@@ -56,7 +57,6 @@ struct IosEditorToolbar: View {
                             Image(systemName: "sparkles")
                                 .font(.body.weight(.medium))
                                 .imageScale(.large)
-                                .symbolRenderingMode(.hierarchical)
                                 .foregroundStyle(.primary)
                                 .frame(minWidth: 44, minHeight: 44)
                         }
@@ -64,6 +64,23 @@ struct IosEditorToolbar: View {
                         .disabled(!hasSelection)
                         .opacity(hasSelection ? 1.0 : 0.35)
                         .accessibilityLabel(String(localized: "AI Assistant", bundle: .module))
+                    }
+
+                    if onInsertImage != nil {
+                        groupDivider
+
+                        Button {
+                            QuartzFeedback.primaryAction()
+                            onInsertImage?()
+                        } label: {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.body.weight(.medium))
+                                .imageScale(.large)
+                                .foregroundStyle(.primary)
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "Insert Image", bundle: .module))
                     }
                 }
                 .disabled(isComposing)
@@ -90,9 +107,7 @@ struct IosEditorToolbar: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+        .quartzFloatingPill()
     }
 
     // MARK: - Format Button (with active state)
@@ -105,7 +120,6 @@ struct IosEditorToolbar: View {
             Image(systemName: icon)
                 .font(.body.weight(.medium))
                 .imageScale(.large)
-                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.primary)
                 .frame(minWidth: 44, minHeight: 44)
                 .background(
@@ -136,10 +150,10 @@ struct IosEditorToolbar: View {
             Image(systemName: "textformat.size.larger")
                 .font(.body.weight(.medium))
                 .imageScale(.large)
-                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.primary)
                 .frame(minWidth: 44, minHeight: 44)
         }
+        .tint(.primary)
         .accessibilityLabel(String(localized: "Heading level", bundle: .module))
     }
 
@@ -156,10 +170,10 @@ struct IosEditorToolbar: View {
             Image(systemName: "ellipsis.circle")
                 .font(.body.weight(.medium))
                 .imageScale(.large)
-                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.primary)
                 .frame(minWidth: 44, minHeight: 44)
         }
+        .tint(.primary)
         .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
     }
 

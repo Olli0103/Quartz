@@ -55,6 +55,8 @@ public final class ContentViewModel {
     private var noteSavedObserver: Any?
     /// Background semantic link discovery engine.
     public var semanticLinkService: SemanticLinkService?
+    /// Background AI concept extraction engine.
+    public var knowledgeExtractionService: KnowledgeExtractionService?
     /// Shared graph edge store for wiki-link and semantic edges.
     public let graphEdgeStore = GraphEdgeStore()
 
@@ -90,6 +92,12 @@ public final class ContentViewModel {
         // Initialize background semantic link service
         semanticLinkService = SemanticLinkService(
             embeddingService: embedding,
+            edgeStore: graphEdgeStore,
+            vaultRootURL: vault.rootURL
+        )
+
+        // Initialize background AI concept extraction engine
+        knowledgeExtractionService = KnowledgeExtractionService(
             edgeStore: graphEdgeStore,
             vaultRootURL: vault.rootURL
         )
@@ -148,6 +156,9 @@ public final class ContentViewModel {
             }
             try? await embedding.loadIndex()
             indexAllNotes(in: viewModel.fileTree, vaultRoot: vault.rootURL, embedding: embedding)
+
+            // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
+            await knowledgeExtractionService?.startVaultScan()
         }
 
         let iCloudSyncEnabled = (UserDefaults.standard.object(forKey: "iCloudSyncEnabled") as? Bool) ?? true
@@ -443,15 +454,18 @@ public final class ContentViewModel {
         let liveText: String? = (editorSession?.note?.fileURL == url) ? editorSession?.currentText : nil
 
         let semanticService = self.semanticLinkService
+        let extractionService = self.knowledgeExtractionService
         Task.detached(priority: .utility) {
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
             let content = liveText ?? (try? String(contentsOf: url, encoding: .utf8))
             if let content, !content.isEmpty {
                 try? await embedding.indexNote(noteID: stableID, content: content)
                 try? await embedding.saveIndex()
+                // Trigger background semantic link discovery after successful embedding update
+                await semanticService?.scheduleAnalysis(for: url)
+                // Trigger AI concept extraction
+                await extractionService?.scheduleExtraction(for: url)
             }
-            // Trigger background semantic link discovery after embedding update
-            await semanticService?.scheduleAnalysis(for: url)
         }
     }
 

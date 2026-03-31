@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import PhotosUI
+#endif
 
 /// SwiftUI host for the markdown editor.
 ///
@@ -13,13 +16,28 @@ public struct EditorContainerView: View {
     /// URLs of notes with unresolved iCloud sync conflicts — used to show the conflict banner.
     var conflictedNoteURLs: Set<URL> = []
     var onResolveConflict: ((URL) -> Void)?
+    /// Set when the current note is in the trash — enables restore/delete actions.
+    var isInTrash: Bool = false
+    var onRestoreFromTrash: (() -> Void)?
+    var onPermanentlyDelete: (() -> Void)?
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
 
     /// AI Writing Tools state — uses an Identifiable item for `.sheet(item:)` to guarantee
     /// the captured text is available when the sheet renders (prevents blank popover).
     @State private var aiToolsRequest: AIToolsRequest?
     @State private var showChat = false
+    @State private var showImageSourceSheet = false
+    #if os(iOS)
+    @State private var selectedImageSource: ImageSourceOption?
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var showCameraPicker = false
+    @State private var showDocumentScanner = false
+    @State private var showFilePicker = false
+    #endif
 
     struct AIToolsRequest: Identifiable {
         let id = UUID()
@@ -33,7 +51,10 @@ public struct EditorContainerView: View {
         documentChatSession: DocumentChatSession? = nil,
         onVoiceNote: (() -> Void)? = nil,
         conflictedNoteURLs: Set<URL> = [],
-        onResolveConflict: ((URL) -> Void)? = nil
+        onResolveConflict: ((URL) -> Void)? = nil,
+        isInTrash: Bool = false,
+        onRestoreFromTrash: (() -> Void)? = nil,
+        onPermanentlyDelete: (() -> Void)? = nil
     ) {
         self.session = session
         self.workspaceStore = workspaceStore
@@ -41,6 +62,9 @@ public struct EditorContainerView: View {
         self.onVoiceNote = onVoiceNote
         self.conflictedNoteURLs = conflictedNoteURLs
         self.onResolveConflict = onResolveConflict
+        self.isInTrash = isInTrash
+        self.onRestoreFromTrash = onRestoreFromTrash
+        self.onPermanentlyDelete = onPermanentlyDelete
     }
 
     public var body: some View {
@@ -56,11 +80,14 @@ public struct EditorContainerView: View {
                 editorLineSpacing: appearance.editorLineSpacing,
                 editorMaxWidth: appearance.editorMaxWidth
             )
+            .disabled(isInTrash) // Read-only when viewing a trashed note
 
             editorStatusBar
         }
         .overlay(alignment: .top) {
-            if isCurrentNoteConflicted {
+            if isInTrash {
+                trashBanner
+            } else if isCurrentNoteConflicted {
                 SyncConflictBanner(
                     onKeepMine: {
                         if let url = session.note?.fileURL {
@@ -94,7 +121,8 @@ public struct EditorContainerView: View {
                 formattingState: session.formattingState,
                 isComposing: session.isComposing,
                 hasSelection: session.cursorPosition.length > 0,
-                onAIAssist: { triggerAIAssist() }
+                onAIAssist: { triggerAIAssist() },
+                onInsertImage: { showImageSourceSheet = true }
             )
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
@@ -116,67 +144,61 @@ public struct EditorContainerView: View {
             #endif
 
             ToolbarItemGroup(placement: .primaryAction) {
-                if let onVoiceNote {
-                    Button {
-                        QuartzFeedback.primaryAction()
-                        onVoiceNote()
-                    } label: {
-                        Image(systemName: "mic")
-                            .symbolRenderingMode(.hierarchical)
+                Group {
+                    if let onVoiceNote {
+                        Button {
+                            QuartzFeedback.primaryAction()
+                            onVoiceNote()
+                        } label: {
+                            Image(systemName: "mic")
+                        }
+                        .accessibilityLabel(String(localized: "Record Voice Note", bundle: .module))
                     }
-                    .accessibilityLabel(String(localized: "Record Voice Note", bundle: .module))
-                    .help(String(localized: "Record a voice note", bundle: .module))
-                }
 
-                // Share / Export menu
-                if session.note != nil {
-                    ShareMenuView(
-                        markdownText: session.currentText,
-                        noteTitle: session.note?.displayName ?? "Note"
+                    if session.note != nil {
+                        ShareMenuView(
+                            markdownText: session.currentText,
+                            noteTitle: session.note?.displayName ?? "Note"
+                        )
+                    }
+
+                    Button {
+                        focusMode.isFocusModeActive.toggle()
+                    } label: {
+                        Image(systemName: focusMode.isFocusModeActive
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                    }
+                    .accessibilityLabel(
+                        focusMode.isFocusModeActive
+                            ? String(localized: "Exit Focus Mode", bundle: .module)
+                            : String(localized: "Enter Focus Mode", bundle: .module)
+                    )
+
+                    if documentChatSession != nil {
+                        Button {
+                            QuartzFeedback.primaryAction()
+                            showChat = true
+                        } label: {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                        }
+                        .accessibilityLabel(String(localized: "Chat about this note", bundle: .module))
+                    }
+
+                    Button {
+                        withAnimation(QuartzAnimation.content) {
+                            session.inspectorStore.isVisible.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel(
+                        session.inspectorStore.isVisible
+                            ? String(localized: "Hide Inspector", bundle: .module)
+                            : String(localized: "Show Inspector", bundle: .module)
                     )
                 }
-
-                Button {
-                    focusMode.isFocusModeActive.toggle()
-                } label: {
-                    Image(systemName: focusMode.isFocusModeActive
-                          ? "arrow.down.right.and.arrow.up.left"
-                          : "arrow.up.left.and.arrow.down.right")
-                        .symbolRenderingMode(.hierarchical)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .accessibilityLabel(
-                    focusMode.isFocusModeActive
-                        ? String(localized: "Exit Focus Mode", bundle: .module)
-                        : String(localized: "Enter Focus Mode", bundle: .module)
-                )
-                .help(String(localized: "Toggle distraction-free writing", bundle: .module))
-
-                if documentChatSession != nil {
-                    Button {
-                        QuartzFeedback.primaryAction()
-                        showChat = true
-                    } label: {
-                        Image(systemName: "bubble.left.and.bubble.right")
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .accessibilityLabel(String(localized: "Chat about this note", bundle: .module))
-                    .help(String(localized: "Ask AI about this note", bundle: .module))
-                }
-
-                Button {
-                    withAnimation(QuartzAnimation.content) {
-                        session.inspectorStore.isVisible.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.right")
-                        .symbolRenderingMode(.hierarchical)
-                }
-                .accessibilityLabel(
-                    session.inspectorStore.isVisible
-                        ? String(localized: "Hide Inspector", bundle: .module)
-                        : String(localized: "Show Inspector", bundle: .module)
-                )
+                .tint(.primary)
             }
         }
         #if os(macOS)
@@ -184,30 +206,15 @@ public struct EditorContainerView: View {
             get: { session.inspectorStore.isVisible },
             set: { session.inspectorStore.isVisible = $0 }
         )) {
-            InspectorSidebar(
-                store: session.inspectorStore,
-                note: session.note,
-                vaultRootURL: session.vaultRootURL,
-                onScrollToHeading: { heading in
-                    session.scrollToHeading(heading)
-                },
-                onUpdateTags: { newTags in
-                    session.updateTags(newTags)
-                },
-                onNavigateToNote: { url in
-                    QuartzFeedback.primaryAction()
-                    NotificationCenter.default.post(
-                        name: .quartzWikiLinkNavigation,
-                        object: nil,
-                        userInfo: [
-                            "url": url,
-                            "title": url.deletingPathExtension().lastPathComponent
-                        ]
-                    )
-                }
-            )
-            .inspectorColumnWidth(min: 220, ideal: 260, max: 320)
+            inspectorContent
+                .inspectorColumnWidth(min: 220, ideal: 260, max: 320)
         }
+        #elseif os(iOS)
+        .modifier(IOSInspectorModifier(
+            session: session,
+            isCompact: horizontalSizeClass == .compact,
+            content: { inspectorContent }
+        ))
         #endif
         .sheet(item: $aiToolsRequest) { request in
             AIWritingToolsView(
@@ -243,6 +250,75 @@ public struct EditorContainerView: View {
                     #endif
             }
         }
+        .sheet(isPresented: Binding(
+            get: { session.inspectorStore.showVersionHistory },
+            set: { session.inspectorStore.showVersionHistory = $0 }
+        )) {
+            if let noteURL = session.note?.fileURL {
+                VersionHistoryView(
+                    noteURL: noteURL,
+                    noteTitle: session.note?.displayName ?? "Note"
+                ) {
+                    Task { await session.reloadFromDisk() }
+                }
+                #if os(iOS)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                #endif
+            }
+        }
+        #if os(iOS)
+        // Image source picker sheet
+        .sheet(isPresented: $showImageSourceSheet) {
+            ImageSourceSheet(
+                isPresented: $showImageSourceSheet,
+                selectedSource: $selectedImageSource,
+                selectedPhotoItem: $selectedPhotoItem
+            ) {
+                handleImageSourceSelected()
+            }
+            .presentationDetents([.medium])
+        }
+        .onChange(of: selectedImageSource) { _, source in
+            guard let source else { return }
+            selectedImageSource = nil
+            switch source {
+            case .files:
+                showFilePicker = true
+            case .camera:
+                showCameraPicker = true
+            case .scan:
+                showDocumentScanner = true
+            case .photoLibrary:
+                break // handled by selectedPhotoItem
+            }
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            guard let item else { return }
+            Task { await handlePhotoLibrarySelection(item) }
+        }
+        .fullScreenCover(isPresented: $showCameraPicker) {
+            CameraImagePicker(isPresented: $showCameraPicker) { image in
+                Task { await importCameraImage(image) }
+            }
+        }
+        .fullScreenCover(isPresented: $showDocumentScanner) {
+            DocumentScannerView(isPresented: $showDocumentScanner) { images in
+                Task { await handleScannedImages(images) }
+            }
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                Task { await importImageFromURL(url) }
+            }
+        }
+        #endif
     }
 
     // MARK: - AI Assist Trigger
@@ -260,6 +336,129 @@ public struct EditorContainerView: View {
 
         aiToolsRequest = AIToolsRequest(selectedText: selectedText, selectionRange: range)
     }
+
+    // MARK: - Image Capture Handlers (iOS)
+
+    #if os(iOS)
+    private func handleImageSourceSelected() {
+        // Sheet dismisses itself; onChange(of: selectedImageSource) opens the appropriate picker.
+    }
+
+    private func handlePhotoLibrarySelection(_ item: PhotosPickerItem) async {
+        defer { selectedPhotoItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { return }
+            let ext = detectImageExtension(data)
+            let tempURL = FileManager.default.temporaryDirectory.appending(path: "photo-\(UUID().uuidString).\(ext)")
+            try data.write(to: tempURL)
+            await importImageFromURL(tempURL)
+            try? FileManager.default.removeItem(at: tempURL)
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func importCameraImage(_ image: UIImage) async {
+        guard let vaultRoot = session.vaultRootURL,
+              let noteURL = session.note?.fileURL else {
+            session.errorMessage = String(localized: "No active note or vault.", bundle: .module)
+            return
+        }
+        let assetManager = AssetManager()
+        do {
+            let markdownLink = try await assetManager.importImage(
+                image,
+                vaultRoot: vaultRoot,
+                noteURL: noteURL
+            )
+            insertMarkdownAtCursor("\n" + markdownLink + "\n")
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func importImageFromURL(_ url: URL) async {
+        guard let vaultRoot = session.vaultRootURL,
+              let noteURL = session.note?.fileURL else {
+            session.errorMessage = String(localized: "No active note or vault.", bundle: .module)
+            return
+        }
+        let assetManager = AssetManager()
+        do {
+            let markdownLink = try await assetManager.importImage(
+                from: url,
+                vaultRoot: vaultRoot,
+                noteURL: noteURL
+            )
+            insertMarkdownAtCursor("\n" + markdownLink + "\n")
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Handles scanned document images: imports each as an asset and runs OCR to extract text.
+    private func handleScannedImages(_ images: [UIImage]) async {
+        guard !images.isEmpty,
+              let vaultRoot = session.vaultRootURL,
+              let noteURL = session.note?.fileURL else { return }
+
+        let assetManager = AssetManager()
+        #if canImport(Vision)
+        let ocrService = HandwritingOCRService()
+        #endif
+
+        for image in images {
+            // 1. Import the scanned image as an asset
+            do {
+                let markdownLink = try await assetManager.importImage(
+                    image,
+                    vaultRoot: vaultRoot,
+                    noteURL: noteURL
+                )
+                insertMarkdownAtCursor("\n" + markdownLink + "\n")
+            } catch {
+                session.errorMessage = error.localizedDescription
+                continue
+            }
+
+            // 2. Run OCR on the scanned page and append extracted text
+            #if canImport(Vision)
+            if let cgImage = image.cgImage {
+                do {
+                    let result = try await ocrService.recognizeText(in: cgImage)
+                    if !result.fullText.isEmpty {
+                        let ocrBlock = "\n> **Extracted Text:**\n> \(result.fullText.replacingOccurrences(of: "\n", with: "\n> "))\n"
+                        insertMarkdownAtCursor(ocrBlock)
+                    }
+                } catch {
+                    // OCR failure is non-fatal — the image is already imported
+                }
+            }
+            #endif
+        }
+    }
+
+    /// Inserts markdown text at the current cursor position via EditorSession.
+    private func insertMarkdownAtCursor(_ text: String) {
+        let cursorPos = session.cursorPosition.location
+        let nsContent = session.currentText as NSString
+        let insertLocation = min(cursorPos, nsContent.length)
+        session.applyExternalEdit(
+            replacement: text,
+            range: NSRange(location: insertLocation, length: 0),
+            cursorAfter: NSRange(location: insertLocation + (text as NSString).length, length: 0)
+        )
+    }
+
+    /// Detects image format from data header bytes.
+    private func detectImageExtension(_ data: Data) -> String {
+        let pngHeader = Data([0x89, 0x50, 0x4E, 0x47])
+        let jpgHeader = Data([0xFF, 0xD8])
+        if data.prefix(4) == pngHeader { return "png" }
+        if data.prefix(2) == jpgHeader { return "jpg" }
+        return "png"
+    }
+    #endif
 
     // MARK: - Editor Header
 
@@ -315,6 +514,38 @@ public struct EditorContainerView: View {
         return conflictedNoteURLs.contains(url)
     }
 
+    // MARK: - Trash Banner
+
+    private var trashBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "trash.fill")
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.orange)
+            Text(String(localized: "This note is in Recently Deleted.", bundle: .module))
+                .font(.callout)
+            Spacer()
+            Button(String(localized: "Restore", bundle: .module)) {
+                QuartzFeedback.success()
+                onRestoreFromTrash?()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            Button(String(localized: "Delete Permanently", bundle: .module), role: .destructive) {
+                QuartzFeedback.destructive()
+                onPermanentlyDelete?()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .quartzMaterialBackground(cornerRadius: 12, shadowRadius: 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "This note is in Recently Deleted", bundle: .module))
+    }
+
     // MARK: - External Modification Banner
 
     private var externalModificationBanner: some View {
@@ -343,4 +574,81 @@ public struct EditorContainerView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
         .animation(QuartzAnimation.status, value: session.externalModificationDetected)
     }
+
+    // MARK: - Inspector Content (shared between macOS inspector and iOS sheet)
+
+    private var inspectorContent: some View {
+        InspectorSidebar(
+            store: session.inspectorStore,
+            note: session.note,
+            vaultRootURL: session.vaultRootURL,
+            onScrollToHeading: { heading in
+                session.scrollToHeading(heading)
+            },
+            onUpdateTags: { newTags in
+                session.updateTags(newTags)
+            },
+            onNavigateToNote: { url in
+                QuartzFeedback.primaryAction()
+                NotificationCenter.default.post(
+                    name: .quartzWikiLinkNavigation,
+                    object: nil,
+                    userInfo: [
+                        "url": url,
+                        "title": url.deletingPathExtension().lastPathComponent
+                    ]
+                )
+            }
+        )
+    }
 }
+
+// MARK: - iOS Inspector Modifier
+
+/// On iPhone (compact), presents the inspector as a bottom sheet with detents.
+/// On iPad (regular), uses the native `.inspector` side panel.
+/// This prevents layout issues from `.inspector` on compact widths.
+#if os(iOS)
+private struct IOSInspectorModifier<InspectorContent: View>: ViewModifier {
+    let session: EditorSession
+    let isCompact: Bool
+    @ViewBuilder let content: () -> InspectorContent
+
+    func body(content mainContent: Content) -> some View {
+        if isCompact {
+            // iPhone: bottom sheet with drag indicator
+            mainContent
+                .sheet(isPresented: Binding(
+                    get: { session.inspectorStore.isVisible },
+                    set: { session.inspectorStore.isVisible = $0 }
+                )) {
+                    NavigationStack {
+                        content()
+                            .navigationTitle(String(localized: "Inspector", bundle: .module))
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button(String(localized: "Done", bundle: .module)) {
+                                        session.inspectorStore.isVisible = false
+                                    }
+                                    .fontWeight(.semibold)
+                                }
+                            }
+                    }
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                }
+        } else {
+            // iPad: native inspector side panel
+            mainContent
+                .inspector(isPresented: Binding(
+                    get: { session.inspectorStore.isVisible },
+                    set: { session.inspectorStore.isVisible = $0 }
+                )) {
+                    content()
+                        .inspectorColumnWidth(min: 220, ideal: 260, max: 320)
+                }
+        }
+    }
+}
+#endif

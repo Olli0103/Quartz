@@ -35,6 +35,11 @@ public struct InspectorSidebar: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if let progress = store.aiScanProgress {
+                    aiScanStatusBar(current: progress.current, total: progress.total, note: progress.note)
+                        .padding(.bottom, 12)
+                }
+
                 statsSection
                     .padding(.bottom, 16)
 
@@ -50,6 +55,16 @@ public struct InspectorSidebar: View {
 
                 if !store.relatedNotes.isEmpty {
                     relatedNotesSection
+                        .padding(.bottom, 16)
+                }
+
+                if !store.suggestedLinks.isEmpty {
+                    suggestedLinksSection
+                        .padding(.bottom, 16)
+                }
+
+                if !store.aiConcepts.isEmpty {
+                    aiConceptsSection
                         .padding(.bottom, 16)
                 }
 
@@ -280,6 +295,105 @@ public struct InspectorSidebar: View {
         }
     }
 
+    // MARK: - AI Concepts Section
+
+    private var aiConceptsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("AI CONCEPTS", icon: "brain.head.profile")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(store.aiConcepts, id: \.self) { concept in
+                        Text(concept.capitalized)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(QuartzColors.folderYellow)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(QuartzColors.folderYellow.opacity(0.12))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(QuartzColors.folderYellow.opacity(0.2), lineWidth: 0.5)
+                            )
+                            .accessibilityLabel(String(localized: "Concept: \(concept)", bundle: .module))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Suggested Links Section (Unlinked Mentions)
+
+    private var suggestedLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("UNLINKED MENTIONS", icon: "link.badge.plus")
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(store.suggestedLinks.prefix(8)) { suggestion in
+                    HStack(spacing: 8) {
+                        Image(systemName: "link")
+                            .font(.caption)
+                            .foregroundStyle(QuartzColors.noteBlue)
+                            .frame(width: 16)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(suggestion.noteName)
+                                .font(.callout.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(suggestion.matchContext)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(String(localized: "Unlinked mention: \(suggestion.noteName)", bundle: .module))
+                }
+            }
+        }
+    }
+
+    // MARK: - AI Scan Status
+
+    private func aiScanStatusBar(current: Int, total: Int, note: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "brain.head.profile")
+                .font(.caption2)
+                .foregroundStyle(QuartzColors.folderYellow)
+                .symbolEffect(.pulse)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "AI Indexing Vault", bundle: .module))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("\(current)/\(total) — \(note)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            ProgressView(value: Double(current), total: Double(max(1, total)))
+                .progressViewStyle(.linear)
+                .tint(QuartzColors.folderYellow)
+                .frame(width: 50)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(QuartzColors.folderYellow.opacity(0.06))
+        )
+    }
+
     // MARK: - Metadata Section
 
     private func metadataSection(note: NoteDocument) -> some View {
@@ -306,6 +420,22 @@ public struct InspectorSidebar: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
+
+            // Version History button
+            Button {
+                store.showVersionHistory = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.caption)
+                    Text(String(localized: "Version History", bundle: .module))
+                        .font(.callout)
+                }
+                .foregroundStyle(appearance.accentColor)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+            .accessibilityLabel(String(localized: "View Version History", bundle: .module))
         }
     }
 

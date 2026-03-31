@@ -28,6 +28,75 @@ public struct VaultTrashService: Sendable {
         try CoordinatedFileWriter.shared.moveItem(from: url, to: destinationURL)
     }
 
+    /// Restores a trashed item back to the vault root (since original path is unknown).
+    public func restoreItem(_ url: URL, to vaultRoot: URL) throws -> URL {
+        let baseName = stripTrashTimestamp(from: url.deletingPathExtension().lastPathComponent)
+        let ext = url.pathExtension
+        let fileName = ext.isEmpty ? baseName : "\(baseName).\(ext)"
+        var destinationURL = vaultRoot.appending(path: fileName)
+
+        // Avoid overwriting existing files
+        var counter = 2
+        while FileManager.default.fileExists(atPath: destinationURL.path(percentEncoded: false)) {
+            let numberedName = ext.isEmpty ? "\(baseName) \(counter)" : "\(baseName) \(counter).\(ext)"
+            destinationURL = vaultRoot.appending(path: numberedName)
+            counter += 1
+        }
+
+        try CoordinatedFileWriter.shared.moveItem(from: url, to: destinationURL)
+        return destinationURL
+    }
+
+    /// Permanently deletes a single trashed item.
+    public func permanentlyDelete(_ url: URL) throws {
+        try CoordinatedFileWriter.shared.removeItem(at: url)
+    }
+
+    /// Permanently deletes all items in the trash folder.
+    public func emptyTrash(in vaultRoot: URL) throws {
+        let trashURL = trashFolderURL(for: vaultRoot)
+        guard FileManager.default.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return }
+
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: trashURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for item in contents {
+            try CoordinatedFileWriter.shared.removeItem(at: item)
+        }
+    }
+
+    /// Returns all items in the trash folder as FileNode array.
+    public func trashedItems(in vaultRoot: URL) -> [FileNode] {
+        let trashURL = trashFolderURL(for: vaultRoot)
+        guard FileManager.default.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return [] }
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: trashURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return contents.compactMap { url -> FileNode? in
+            guard url.pathExtension == "md" else { return nil }
+            let name = stripTrashTimestamp(from: url.deletingPathExtension().lastPathComponent)
+            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            return FileNode(
+                name: name,
+                url: url,
+                nodeType: .note,
+                metadata: FileMetadata(modifiedAt: mtime)
+            )
+        }.sorted { $0.metadata.modifiedAt > $1.metadata.modifiedAt }
+    }
+
+    /// Checks if a URL is inside the vault's trash folder.
+    public func isInTrash(_ url: URL, vaultRoot: URL) -> Bool {
+        let trashPath = trashFolderURL(for: vaultRoot).path(percentEncoded: false)
+        return url.path(percentEncoded: false).hasPrefix(trashPath)
+    }
+
     public func purgeExpiredItems(in vaultRoot: URL, now: Date = .now) throws {
         let trashURL = trashFolderURL(for: vaultRoot)
         guard FileManager.default.fileExists(atPath: trashURL.path(percentEncoded: false)) else { return }
@@ -67,5 +136,15 @@ public struct VaultTrashService: Sendable {
             counter += 1
         }
         return destinationURL
+    }
+
+    /// Strips the ISO8601 timestamp suffix that `uniqueTrashDestination` appends.
+    /// e.g. "Meeting Notes-20260330T141500.000Z" → "Meeting Notes"
+    private func stripTrashTimestamp(from name: String) -> String {
+        // Pattern: name ends with -YYYYMMDDTHHMMSS.sssZ or -YYYYMMDDTHHMMSS.sssZ-N
+        guard let dashRange = name.range(of: #"-\d{4}\d{2}\d{2}T"#, options: .regularExpression) else {
+            return name
+        }
+        return String(name[name.startIndex..<dashRange.lowerBound])
     }
 }

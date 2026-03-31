@@ -13,13 +13,15 @@ public struct NoteListSidebar: View {
     var onNewNote: (() -> Void)?
     var onVoiceNote: (() -> Void)?
     var onMeetingMinutes: (() -> Void)?
+    var onDeleteNote: ((URL) -> Void)?
 
-    public init(store: NoteListStore, selectedNoteURL: Binding<URL?>, onNewNote: (() -> Void)? = nil, onVoiceNote: (() -> Void)? = nil, onMeetingMinutes: (() -> Void)? = nil) {
+    public init(store: NoteListStore, selectedNoteURL: Binding<URL?>, onNewNote: (() -> Void)? = nil, onVoiceNote: (() -> Void)? = nil, onMeetingMinutes: (() -> Void)? = nil, onDeleteNote: ((URL) -> Void)? = nil) {
         self.store = store
         self._selectedNoteURL = selectedNoteURL
         self.onNewNote = onNewNote
         self.onVoiceNote = onVoiceNote
         self.onMeetingMinutes = onMeetingMinutes
+        self.onDeleteNote = onDeleteNote
     }
 
     public var body: some View {
@@ -84,7 +86,7 @@ public struct NoteListSidebar: View {
     @Environment(\.appearanceManager) private var appearance
 
     private var noteList: some View {
-        List {
+        List(selection: $selectedNoteURL) {
             ForEach(store.sections) { section in
                 if section.title.isEmpty {
                     // Flat section — no header
@@ -108,10 +110,7 @@ public struct NoteListSidebar: View {
     private func noteRows(for items: [NoteListItem]) -> some View {
         ForEach(items) { item in
             NoteListRow(item: item)
-                .onTapGesture {
-                    QuartzFeedback.selection()
-                    selectedNoteURL = item.url
-                }
+                .tag(item.url)
                 .listRowBackground(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(selectedNoteURL == item.url
@@ -120,6 +119,17 @@ public struct NoteListSidebar: View {
                 )
                 #if os(iOS)
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) {
+                        QuartzFeedback.destructive()
+                        if selectedNoteURL == item.url {
+                            selectedNoteURL = nil
+                        }
+                        onDeleteNote?(item.url)
+                    } label: {
+                        Label(String(localized: "Trash", bundle: .module), systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     Button {
                         QuartzFeedback.toggle()
                         toggleFavorite(item)
@@ -145,6 +155,18 @@ public struct NoteListSidebar: View {
                                 : String(localized: "Add to Favorites", bundle: .module),
                             systemImage: item.isFavorite ? "star.slash" : "star.fill"
                         )
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        QuartzFeedback.destructive()
+                        if selectedNoteURL == item.url {
+                            selectedNoteURL = nil
+                        }
+                        onDeleteNote?(item.url)
+                    } label: {
+                        Label(String(localized: "Move to Trash", bundle: .module), systemImage: "trash")
                     }
                 }
         }

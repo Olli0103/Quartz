@@ -5,22 +5,33 @@ import UIKit
 import AppKit
 #endif
 
-/// Presents iCloud sync conflicts with a visual diff and merged resolution when versions are available.
+/// Presents iCloud sync conflicts with a side-by-side diff and three clear resolution options.
+///
+/// **Zero-data-loss guarantee**: If the user is unsure, "Keep Both" branches the conflict
+/// into a sibling file so nothing is ever silently overwritten.
+///
+/// Layout:
+/// - Side-by-side comparison: "Your Mac's Version" (left) vs "iCloud Version" (right)
+/// - Three action buttons: Keep Local, Keep iCloud, Keep Both
+/// - Timestamps shown for each version
 public struct ConflictResolverView: View {
     let fileURL: URL
-    let onResolved: () -> Void
+    let onResolved: (ConflictResolution) -> Void
 
     @State private var diffState: ConflictDiffState?
-    @State private var mergedText: String = ""
-    @State private var versions: [ConflictVersion] = []
-    @State private var selectedVersion: ConflictVersion?
     @State private var isLoading = true
     @State private var isResolving = false
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    public init(fileURL: URL, onResolved: @escaping () -> Void) {
+    /// What the user chose.
+    public enum ConflictResolution {
+        case keptLocal
+        case keptCloud
+        case keptBoth(conflictURL: URL)
+    }
+
+    public init(fileURL: URL, onResolved: @escaping (ConflictResolution) -> Void) {
         self.fileURL = fileURL
         self.onResolved = onResolved
     }
@@ -29,14 +40,12 @@ public struct ConflictResolverView: View {
         NavigationStack {
             Group {
                 if isLoading {
-                    ProgressView(String(localized: "Loading versions…", bundle: .module))
+                    ProgressView(String(localized: "Loading versions\u{2026}", bundle: .module))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let diff = diffState, !diff.cloudContent.isEmpty || !diff.localContent.isEmpty {
-                    diffMergeContent(diff: diff)
-                } else if versions.isEmpty {
-                    emptyState
+                } else if let diff = diffState {
+                    diffContent(diff: diff)
                 } else {
-                    legacyVersionList
+                    emptyState
                 }
             }
             .navigationTitle(String(localized: "Resolve Sync Conflict", bundle: .module))
@@ -47,128 +56,137 @@ public struct ConflictResolverView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "Cancel", bundle: .module)) { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    if diffState != nil {
-                        Button(String(localized: "Merge & Resolve", bundle: .module)) {
-                            resolveMerged()
-                        }
-                        .disabled(isResolving || mergedText.isEmpty)
-                    } else if !versions.isEmpty {
-                        Button(String(localized: "Resolve", bundle: .module)) {
-                            resolveWithSelectedVersion()
-                        }
-                        .disabled(isResolving)
-                    }
-                }
             }
-            .task { await loadDiffAndVersions() }
+            .task { await loadDiff() }
         }
-        .frame(minWidth: 480, minHeight: 420)
+        #if os(macOS)
+        .frame(minWidth: 640, minHeight: 480)
+        #endif
     }
 
-    @ViewBuilder
-    private func diffMergeContent(diff: ConflictDiffState) -> some View {
-        VStack(spacing: 0) {
-            if horizontalSizeClass == .compact {
-                VStack(alignment: .leading, spacing: 12) {
-                    diffColumn(title: String(localized: "Your Copy (device)", bundle: .module), text: diff.localContent, accent: QuartzColors.noteBlue)
-                    diffColumn(title: String(localized: "iCloud Edits", bundle: .module), text: diff.cloudContent, accent: QuartzColors.assetOrange)
-                }
-                .padding()
-            } else {
-                HStack(alignment: .top, spacing: 12) {
-                    diffColumn(title: String(localized: "Your Copy (device)", bundle: .module), text: diff.localContent, accent: QuartzColors.noteBlue)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    diffColumn(title: String(localized: "iCloud Edits", bundle: .module), text: diff.cloudContent, accent: QuartzColors.assetOrange)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding()
-            }
+    // MARK: - Diff Content
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "Merged — copy text from above, edit, then tap Merge & Resolve", bundle: .module))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $mergedText)
-                    .font(.system(.body, design: .monospaced))
-                    #if os(iOS)
-                    .scrollContentBackground(.hidden)
-                    #endif
-                    .padding(10)
-                    .frame(minHeight: 140)
-                    .background {
-                        ContainerRelativeShape()
-                            .fill(.quaternary.opacity(0.35))
-                    }
-                    .overlay {
-                        ContainerRelativeShape()
-                            .strokeBorder(QuartzColors.accent.opacity(0.35), lineWidth: 1)
-                    }
+    private func diffContent(diff: ConflictDiffState) -> some View {
+        VStack(spacing: 0) {
+            // Side-by-side comparison
+            HStack(alignment: .top, spacing: 1) {
+                diffColumn(
+                    title: String(localized: "Your Mac's Version", bundle: .module),
+                    subtitle: diff.localModified.map { formattedDate($0) },
+                    text: diff.localContent,
+                    accent: QuartzColors.noteBlue,
+                    icon: "laptopcomputer"
+                )
+
+                Divider()
+
+                diffColumn(
+                    title: String(localized: "iCloud Version", bundle: .module),
+                    subtitle: diff.cloudModified.map { formattedDate($0) },
+                    text: diff.cloudContent,
+                    accent: QuartzColors.assetOrange,
+                    icon: "icloud"
+                )
             }
-            .padding()
-        }
-        .overlay(alignment: .bottom) {
+            .frame(maxHeight: .infinity)
+
+            Divider()
+
+            // Error
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
-                    .padding()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
             }
+
+            // Resolution buttons
+            resolutionButtons
         }
     }
 
-    private func diffColumn(title: String, text: String, accent: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(accent)
+    private func diffColumn(title: String, subtitle: String?, text: String, accent: Color, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(accent)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(accent.opacity(0.06))
+
+            // Content
             ScrollView {
                 Text(text)
                     .font(.system(.callout, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
                     .textSelection(.enabled)
             }
-            .frame(minHeight: 140, maxHeight: 240)
-            .padding(10)
-            .background {
-                ContainerRelativeShape()
-                    .fill(.regularMaterial)
-            }
-            .overlay {
-                ContainerRelativeShape()
-                    .strokeBorder(accent.opacity(0.35), lineWidth: 1)
-            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title): \(text.prefix(200))")
     }
 
-    private func resolveMerged() {
-        isResolving = true
-        errorMessage = nil
-        Task {
-            do {
-                let service = CloudSyncService()
-                try await service.resolveConflictWritingMergedContent(at: fileURL, mergedUTF8: mergedText)
-                await MainActor.run {
-                    #if os(iOS)
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
-                    #endif
-                    isResolving = false
-                    onResolved()
-                    dismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    #if os(iOS)
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.error)
-                    #endif
-                    isResolving = false
-                    errorMessage = error.localizedDescription
-                }
+    // MARK: - Resolution Buttons
+
+    private var resolutionButtons: some View {
+        HStack(spacing: 12) {
+            // Keep Local
+            Button {
+                resolve(.keepLocal)
+            } label: {
+                Label(String(localized: "Keep Local", bundle: .module), systemImage: "laptopcomputer")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(isResolving)
+            .accessibilityHint(String(localized: "Discards the iCloud version and keeps your local edits", bundle: .module))
+
+            // Keep iCloud
+            Button {
+                resolve(.keepCloud)
+            } label: {
+                Label(String(localized: "Keep iCloud", bundle: .module), systemImage: "icloud")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(isResolving)
+            .accessibilityHint(String(localized: "Replaces your local version with the iCloud version", bundle: .module))
+
+            // Keep Both — the safe option
+            Button {
+                resolve(.keepBoth)
+            } label: {
+                Label(String(localized: "Keep Both", bundle: .module), systemImage: "doc.on.doc")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(isResolving)
+            .accessibilityHint(String(localized: "Saves the iCloud version as a separate note so you can merge them manually", bundle: .module))
         }
+        .padding(16)
     }
+
+    // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -186,143 +204,77 @@ public struct ConflictResolverView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var legacyVersionList: some View {
-        List {
-            Section {
-                Button {
-                    selectedVersion = nil
-                } label: {
-                    versionRow(
-                        icon: "laptopcomputer",
-                        title: String(localized: "Keep Local (current)", bundle: .module),
-                        subtitle: String(localized: "Use the version on this device", bundle: .module),
-                        isSelected: selectedVersion == nil
-                    )
-                }
-                .buttonStyle(.plain)
-            }
+    // MARK: - Loading
 
-            Section {
-                ForEach(versions) { version in
-                    Button {
-                        selectedVersion = version
-                    } label: {
-                        versionRow(
-                            icon: "icloud",
-                            title: version.displayName,
-                            subtitle: version.modificationDate.formatted(.relative(presentation: .named)),
-                            isSelected: selectedVersion?.id == version.id
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            } header: {
-                Text(String(localized: "Other Versions", bundle: .module))
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding()
-            }
-        }
-    }
-
-    private func versionRow(icon: String, title: String, subtitle: String, isSelected: Bool) -> some View {
-        HStack {
-            Image(systemName: icon)
-                .foregroundStyle(QuartzColors.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body.weight(.medium))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(QuartzColors.accent)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func loadDiffAndVersions() async {
+    private func loadDiff() async {
         isLoading = true
-        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: fileURL) ?? []
-        versions = conflicts.enumerated().map { index, v in
-            ConflictVersion(
-                id: index,
-                version: v,
-                displayName: v.localizedNameOfSavingComputer ?? String(localized: "Cloud version", bundle: .module),
-                modificationDate: v.modificationDate ?? Date()
-            )
-        }
-        if let first = versions.first {
-            selectedVersion = first
-        }
-
         let service = CloudSyncService()
         do {
-            let built = try await service.buildConflictDiffState(for: fileURL)
-            await MainActor.run {
-                diffState = built
-                if let built {
-                    mergedText = built.localContent
-                }
-                isLoading = false
-            }
+            diffState = try await service.buildConflictDiffState(for: fileURL)
         } catch {
-            await MainActor.run {
-                diffState = nil
-                isLoading = false
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
+        isLoading = false
     }
 
-    private func resolveWithSelectedVersion() {
+    // MARK: - Resolution Actions
+
+    private enum ResolutionAction {
+        case keepLocal, keepCloud, keepBoth
+    }
+
+    private func resolve(_ action: ResolutionAction) {
         isResolving = true
         errorMessage = nil
+
         Task {
             do {
                 let service = CloudSyncService()
-                if let version = selectedVersion {
-                    try service.resolveConflictKeepingVersion(at: fileURL, version: version.version)
-                } else {
-                    try service.resolveConflictKeepingCurrent(at: fileURL)
+                let resolution: ConflictResolution
+
+                switch action {
+                case .keepLocal:
+                    try service.resolveKeepingLocal(at: fileURL)
+                    resolution = .keptLocal
+
+                case .keepCloud:
+                    try service.resolveKeepingCloud(at: fileURL)
+                    resolution = .keptCloud
+
+                case .keepBoth:
+                    try await service.resolveKeepingBoth(at: fileURL)
+                    // The conflict URL is the branched file
+                    let baseName = fileURL.deletingPathExtension().lastPathComponent
+                    let ext = fileURL.pathExtension
+                    let conflictURL = fileURL.deletingLastPathComponent()
+                        .appending(path: "\(baseName) (iCloud Conflict).\(ext)")
+                    resolution = .keptBoth(conflictURL: conflictURL)
                 }
+
                 await MainActor.run {
-                    #if os(iOS)
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
-                    #endif
+                    QuartzFeedback.success()
                     isResolving = false
-                    onResolved()
+                    onResolved(resolution)
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
-                    #if os(iOS)
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.error)
-                    #endif
+                    QuartzFeedback.warning()
                     isResolving = false
                     errorMessage = error.localizedDescription
                 }
             }
         }
     }
-}
 
-private struct ConflictVersion: Identifiable {
-    let id: Int
-    let version: NSFileVersion
-    let displayName: String
-    let modificationDate: Date
+    // MARK: - Helpers
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
 }
 
 // MARK: - Multi-File Conflict List
@@ -349,14 +301,14 @@ public struct ConflictListResolverView: View {
             )
             .onAppear { dismiss() }
         } else if fileURLs.count == 1, let url = fileURLs.first {
-            ConflictResolverView(fileURL: url) {
+            ConflictResolverView(fileURL: url) { _ in
                 onResolved()
                 dismiss()
             }
         } else {
             TabView(selection: $currentIndex) {
                 ForEach(Array(fileURLs.enumerated()), id: \.offset) { index, url in
-                    ConflictResolverView(fileURL: url) {
+                    ConflictResolverView(fileURL: url) { _ in
                         if index == fileURLs.count - 1 {
                             onResolved()
                             dismiss()

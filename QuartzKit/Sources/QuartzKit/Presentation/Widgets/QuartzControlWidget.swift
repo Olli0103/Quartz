@@ -110,4 +110,38 @@ public struct DocumentScannerControlIntent: ControlConfigurationIntent {
         return .result()
     }
 }
+
+// MARK: - Voice Note Control Widget
+
+/// Control Center widget: opens Quartz into voice recording mode.
+@available(iOS 18.0, *)
+public struct VoiceNoteControlWidget: ControlWidget {
+    public var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "app.quartz.voicenote") {
+            ControlWidgetButton(action: VoiceNoteControlIntent()) {
+                Label(String(localized: "Voice Note", bundle: .module), systemImage: "mic.fill")
+            }
+        }
+        .displayName(LocalizedStringResource("Voice Note", bundle: .module))
+        .description(LocalizedStringResource("Start recording a voice note in Quartz.", bundle: .module))
+    }
+
+    public init() {}
+}
+
+@available(iOS 18.0, *)
+public struct VoiceNoteControlIntent: ControlConfigurationIntent {
+    public static let title: LocalizedStringResource = LocalizedStringResource(stringLiteral: "Voice Note")
+    public static let description: IntentDescription = IntentDescription(stringLiteral: "Opens Quartz and starts voice recording.")
+    public static let openAppWhenRun: Bool = true
+    public static let isDiscoverable: Bool = true
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult {
+        UserDefaults(suiteName: "group.app.quartz.shared")?
+            .set("quartz://audio", forKey: "pendingDeepLink")
+        return .result()
+    }
+}
 #endif

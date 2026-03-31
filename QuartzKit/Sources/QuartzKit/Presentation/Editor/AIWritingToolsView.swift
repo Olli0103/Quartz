@@ -122,6 +122,7 @@ public struct AIWritingToolsView: View {
                                 .font(.callout)
                                 .foregroundStyle(.red)
                                 .padding(.horizontal, 16)
+                                .accessibilityLabel(String(localized: "Error: \(errorMessage)", bundle: .module))
                         }
                     }
                     .padding(16)
@@ -171,6 +172,7 @@ public struct AIWritingToolsView: View {
                     .buttonStyle(.plain)
                     .disabled(isProcessing || selectedText.isEmpty)
                     .accessibilityLabel(action.label)
+                    .accessibilityAddTraits(.isButton)
                 }
             }
         }
@@ -196,6 +198,8 @@ public struct AIWritingToolsView: View {
                 guard !customInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 processWithInstruction(customInstruction)
             }
+            .accessibilityLabel(String(localized: "Custom AI instruction", bundle: .module))
+            .accessibilityHint(String(localized: "Type a custom instruction and press Return to send", bundle: .module))
 
             Button {
                 QuartzFeedback.primaryAction()
@@ -264,6 +268,8 @@ public struct AIWritingToolsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "Processing AI request", bundle: .module))
     }
 
     // MARK: - Foundation Model Error

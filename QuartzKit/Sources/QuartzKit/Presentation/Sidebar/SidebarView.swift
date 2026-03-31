@@ -4,11 +4,18 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
+// MARK: - Custom UTType for Sidebar Drag
+
+extension UTType {
+    /// Custom UTType for sidebar drag-and-drop items — declared in Info.plist.
+    static let quartzSidebarItem = UTType(exportedAs: "olli.QuartzNotes.sidebar-item")
+}
+
 // MARK: - Transferable for Drag & Drop
 
 /// Transferable wrapper for sidebar drag and drop.
-/// Uses plain text URL string for maximum compatibility across platforms.
-public struct SidebarItemTransferable: Transferable, Sendable {
+/// Uses a custom UTType to avoid conflicts with iOS text system drag handling.
+public struct SidebarItemTransferable: Transferable, Codable, Sendable {
     public let url: URL
 
     public init(url: URL) {
@@ -16,6 +23,8 @@ public struct SidebarItemTransferable: Transferable, Sendable {
     }
 
     public static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .quartzSidebarItem)
+        // Fallback: plain text for cross-app compatibility (e.g., Finder on macOS)
         DataRepresentation(contentType: .plainText) { item in
             Data(item.url.absoluteString.utf8)
         } importing: { data in
@@ -86,8 +95,8 @@ public struct SidebarView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var selectedTemplate: NoteTemplate = .blank
     @State private var dropTargetURL: URL?
-    @State private var moveSourceURL: URL?
-    @State private var showMoveToFolderSheet = false
+    @State private var moveSourceURL: MoveTarget?
+    // showMoveToFolderSheet removed — using sheet(item: $moveSourceURL) instead
     @ScaledMetric(relativeTo: .caption) private var tagsChipRowVerticalPadding: CGFloat = 4
     #if os(macOS)
     @State private var newNoteButtonHovered = false
@@ -151,6 +160,14 @@ public struct SidebarView: View {
                     }
                 }
 
+                if !viewModel.trashedItems.isEmpty {
+                    Section {
+                        recentlyDeletedSection
+                            .listRowInsets(Self.sidebarListRowInsets)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+
                 #if os(macOS)
                 Section {
                     mapViewAndTrashSection
@@ -165,11 +182,13 @@ public struct SidebarView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 68)
         }
-        .onChange(of: selectedNoteURL) { _, newURL in
-            if let url = newURL {
-                let parentURL = url.deletingLastPathComponent()
-                onSourceChanged?(.folder(parentURL))
-            }
+        .onChange(of: selectedNoteURL) { oldURL, newURL in
+            // When a note is tapped in the sidebar tree, update the source to its parent folder
+            // so the note list shows the right context. Skip if URL didn't actually change
+            // (avoids cascading reloads from the note list's own selection binding).
+            guard let url = newURL, oldURL != newURL else { return }
+            let parentURL = url.deletingLastPathComponent()
+            onSourceChanged?(.folder(parentURL))
         }
         .onChange(of: searchQuery) { _, newValue in
             searchDebounceTask?.cancel()
@@ -254,7 +273,9 @@ public struct SidebarView: View {
             if let msg = viewModel.errorMessage { Text(msg) }
         }
         .task { viewModel.collectTags() }
-        .sheet(isPresented: $showMoveToFolderSheet) { moveToFolderSheet }
+        .sheet(item: $moveSourceURL) { sourceURL in
+            moveToFolderSheet(source: sourceURL)
+        }
     }
 
     // MARK: - File Tree Content (OutlineGroup)
@@ -415,10 +436,9 @@ public struct SidebarView: View {
         }
         Button {
             QuartzFeedback.primaryAction()
-            moveSourceURL = node.url
-            showMoveToFolderSheet = true
+            moveSourceURL = MoveTarget(url: node.url)
         } label: {
-            Label(String(localized: "Move to folder…", bundle: .module), systemImage: "folder.badge.arrow.right")
+            Label(String(localized: "Move to folder…", bundle: .module), systemImage: "folder")
         }
         Divider()
         Button(role: .destructive) {
@@ -451,10 +471,9 @@ public struct SidebarView: View {
         Divider()
         Button {
             QuartzFeedback.primaryAction()
-            moveSourceURL = node.url
-            showMoveToFolderSheet = true
+            moveSourceURL = MoveTarget(url: node.url)
         } label: {
-            Label(String(localized: "Move to folder…", bundle: .module), systemImage: "folder.badge.arrow.right")
+            Label(String(localized: "Move to folder…", bundle: .module), systemImage: "folder")
         }
         Divider()
         Button(role: .destructive) {
@@ -468,29 +487,45 @@ public struct SidebarView: View {
 
     // MARK: - Move to Folder Sheet
 
-    private var moveToFolderSheet: some View {
+    private func moveToFolderSheet(source: MoveTarget) -> some View {
         NavigationStack {
             List {
-                if let root = viewModel.vaultRootURL, let source = moveSourceURL {
-                    if source.deletingLastPathComponent() != root {
-                        Button {
-                            QuartzFeedback.primaryAction()
-                            Task { await viewModel.move(at: source, to: root) }
-                            moveSourceURL = nil
-                            showMoveToFolderSheet = false
-                        } label: {
-                            Label(String(localized: "Notes (root)", bundle: .module), systemImage: "folder.fill")
+                if let root = viewModel.vaultRootURL {
+                    Button {
+                        QuartzFeedback.primaryAction()
+                        Task { await viewModel.move(at: source.url, to: root) }
+                        moveSourceURL = nil
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(.secondary)
+                            Text(String(localized: "Notes (root)", bundle: .module))
+                                .foregroundStyle(.primary)
                         }
                     }
-                    ForEach(collectValidMoveDestinations(from: viewModel.fileTree, sourceURL: source, root: root), id: \.url) { folder in
+                    .buttonStyle(.plain)
+
+                    let folders = collectValidMoveDestinations(from: viewModel.fileTree, sourceURL: source.url, root: root)
+                    ForEach(folders, id: \.url) { folder in
                         Button {
                             QuartzFeedback.primaryAction()
-                            Task { await viewModel.move(at: source, to: folder.url) }
+                            Task { await viewModel.move(at: source.url, to: folder.url) }
                             moveSourceURL = nil
-                            showMoveToFolderSheet = false
                         } label: {
-                            Label(folder.name, systemImage: "folder.fill")
+                            HStack(spacing: 10) {
+                                Image(systemName: "folder.fill")
+                                    .foregroundStyle(.secondary)
+                                Text(folder.name)
+                                    .foregroundStyle(.primary)
+                            }
                         }
+                        .buttonStyle(.plain)
+                    }
+
+                    if folders.isEmpty {
+                        Text(String(localized: "No subfolders yet. Create a folder first.", bundle: .module))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -502,7 +537,6 @@ public struct SidebarView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "Cancel", bundle: .module)) {
                         moveSourceURL = nil
-                        showMoveToFolderSheet = false
                     }
                 }
             }
@@ -539,8 +573,7 @@ public struct SidebarView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
-        .background(.thinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator.opacity(0.5), lineWidth: 0.5))
+        .quartzFloatingPill()
         .padding(.horizontal, 16)
         .padding(.bottom, 60) // above the search bar
         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -555,16 +588,12 @@ public struct SidebarView: View {
                 .font(.body.weight(.medium))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
-            TextField(String(localized: "Search notes, tags…", bundle: .module), text: $searchQuery)
+            TextField(String(localized: "Search notes, tags\u{2026}", bundle: .module), text: $searchQuery)
                 .textFieldStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.thinMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .strokeBorder(.separator.opacity(0.5), lineWidth: 0.5)
-        )
+        .quartzFloatingPill()
         .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
@@ -970,19 +999,6 @@ public struct SidebarView: View {
 
     private var mapViewAndTrashSection: some View {
         VStack(alignment: .leading, spacing: Self.quickAccessRowSpacing) {
-            Button {
-                QuartzFeedback.selection()
-                openVaultTrashInFinder()
-            } label: {
-                Label(String(localized: "Trash", bundle: .module), systemImage: "trash")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: QuartzHIG.minTouchTarget)
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "Reveals the hidden trash folder in Finder.", bundle: .module))
-
             Divider()
 
             Button {
@@ -1001,6 +1017,77 @@ public struct SidebarView: View {
         .padding(.vertical, 8)
     }
     #endif
+
+    // MARK: - Recently Deleted
+
+    @State private var showRecentlyDeleted = false
+
+    private var recentlyDeletedSection: some View {
+        DisclosureGroup(isExpanded: $showRecentlyDeleted) {
+            ForEach(viewModel.trashedItems) { node in
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: sidebarIconSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: sidebarIconSize + 4)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(node.name)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text(node.metadata.modifiedAt, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .tag(node.url)
+                .contextMenu {
+                    Button {
+                        QuartzFeedback.primaryAction()
+                        Task { await viewModel.restoreFromTrash(at: node.url) }
+                    } label: {
+                        Label(String(localized: "Restore", bundle: .module), systemImage: "arrow.uturn.backward")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        QuartzFeedback.destructive()
+                        Task { await viewModel.permanentlyDelete(at: node.url) }
+                    } label: {
+                        Label(String(localized: "Delete Permanently", bundle: .module), systemImage: "trash.slash")
+                    }
+                }
+            }
+
+            if viewModel.trashedItems.count > 1 {
+                Button(role: .destructive) {
+                    QuartzFeedback.destructive()
+                    Task { await viewModel.emptyTrash() }
+                } label: {
+                    Label(String(localized: "Empty Trash", bundle: .module), systemImage: "trash.slash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "trash")
+                    .font(.system(size: sidebarIconSize, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: sidebarIconSize + 4)
+                Text(String(localized: "Recently Deleted", bundle: .module))
+                    .font(.body)
+                Spacer()
+                Text("\(viewModel.trashedItems.count)")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            }
+        }
+    }
 
     // MARK: - Empty State
 
@@ -1031,4 +1118,12 @@ private struct NewNoteCTAMenuButtonStyle: ButtonStyle {
             .brightness(configuration.isPressed ? -0.05 : 0)
             .animation(.spring(response: 0.28, dampingFraction: 0.72), value: configuration.isPressed)
     }
+}
+
+// MARK: - Move Target Wrapper
+
+/// Identifiable wrapper for URL used by `.sheet(item:)` for move-to-folder.
+private struct MoveTarget: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
