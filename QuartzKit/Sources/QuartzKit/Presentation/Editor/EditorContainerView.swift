@@ -269,6 +269,16 @@ public struct EditorContainerView: View {
                 #endif
             }
         }
+        // Dismiss competing sheets when version history opens (iOS only supports one sheet at a time)
+        .onChange(of: session.inspectorStore.showVersionHistory) { _, showVersion in
+            if showVersion {
+                showChat = false
+                aiToolsRequest = nil
+                #if os(iOS)
+                showImageSourceSheet = false
+                #endif
+            }
+        }
         #if os(iOS)
         // Image source picker sheet
         .sheet(isPresented: $showImageSourceSheet) {

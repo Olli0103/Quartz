@@ -168,9 +168,29 @@ public actor FileSystemVaultProvider: VaultProviding {
             throw FileSystemError.fileNotFound(url)
         }
 
-        // Race the read against a 5-second timeout.
-        // iCloud Drive files that aren't downloaded locally will hang indefinitely
-        // on both Data(contentsOf:) and coordinated reads.
+        // Check iCloud status and trigger download if evicted
+        let resourceValues = try? url.resourceValues(forKeys: [
+            .ubiquitousItemDownloadingStatusKey,
+            .ubiquitousItemIsDownloadingKey
+        ])
+
+        let isEvicted = resourceValues?.ubiquitousItemDownloadingStatus == .notDownloaded
+        let isDownloading = resourceValues?.ubiquitousItemIsDownloading ?? false
+
+        if isEvicted || isDownloading {
+            // Trigger download if not already downloading
+            if isEvicted {
+                try? fileManager.startDownloadingUbiquitousItem(at: url)
+            }
+
+            // Wait for download to complete (30 second timeout)
+            let downloadedSuccessfully = try await waitForDownload(at: url, timeout: 30)
+            if !downloadedSuccessfully {
+                throw FileSystemError.iCloudTimeout(url)
+            }
+        }
+
+        // File should be local now — read with shorter timeout
         return try await withThrowingTaskGroup(of: Data.self) { group in
             group.addTask {
                 // First attempt: direct read
@@ -192,6 +212,32 @@ public actor FileSystemVaultProvider: VaultProviding {
             group.cancelAll()
             return result
         }
+    }
+
+    /// Polls download status until file is available or timeout expires.
+    /// Returns `true` if file became available, `false` if timeout expired.
+    private func waitForDownload(at url: URL, timeout: TimeInterval) async throws -> Bool {
+        let startTime = Date()
+
+        while Date().timeIntervalSince(startTime) < timeout {
+            let resourceValues = try? url.resourceValues(forKeys: [
+                .ubiquitousItemDownloadingStatusKey,
+                .ubiquitousItemIsDownloadingKey
+            ])
+
+            let status = resourceValues?.ubiquitousItemDownloadingStatus
+            let isDownloading = resourceValues?.ubiquitousItemIsDownloading ?? false
+
+            // File is ready when status is current/downloaded and not actively downloading
+            if (status == .current || status == .downloaded) && !isDownloading {
+                return true
+            }
+
+            // Poll every 500ms
+            try await Task.sleep(for: .milliseconds(500))
+        }
+
+        return false
     }
 
     private func coordinatedWrite(data: Data, to url: URL) async throws {
@@ -239,7 +285,16 @@ public actor FileSystemVaultProvider: VaultProviding {
 
         let contents = try fileManager.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey],
+            includingPropertiesForKeys: [
+                .isDirectoryKey,
+                .fileSizeKey,
+                .creationDateKey,
+                .contentModificationDateKey,
+                .isSymbolicLinkKey,
+                .ubiquitousItemDownloadingStatusKey,
+                .ubiquitousItemIsDownloadingKey,
+                .ubiquitousItemHasUnresolvedConflictsKey
+            ],
             options: [.skipsHiddenFiles]
         )
 
@@ -247,16 +302,47 @@ public actor FileSystemVaultProvider: VaultProviding {
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             .compactMap { itemURL -> FileNode? in
                 let resourceValues = try itemURL.resourceValues(forKeys: [
-                    .isDirectoryKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .isSymbolicLinkKey
+                    .isDirectoryKey,
+                    .fileSizeKey,
+                    .creationDateKey,
+                    .contentModificationDateKey,
+                    .isSymbolicLinkKey,
+                    .ubiquitousItemDownloadingStatusKey,
+                    .ubiquitousItemIsDownloadingKey,
+                    .ubiquitousItemHasUnresolvedConflictsKey
                 ])
 
                 if resourceValues.isSymbolicLink == true { return nil }
 
                 let isDirectory = resourceValues.isDirectory ?? false
+
+                // Detect iCloud eviction status
+                let cloudStatus: CloudStatus
+                let isDownloading = resourceValues.ubiquitousItemIsDownloading ?? false
+                if isDownloading {
+                    cloudStatus = .downloading
+                } else if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
+                    switch downloadStatus {
+                    case .notDownloaded:
+                        cloudStatus = .evicted
+                    case .current, .downloaded:
+                        cloudStatus = .downloaded
+                    default:
+                        cloudStatus = .local
+                    }
+                } else {
+                    cloudStatus = .local  // Not an iCloud file
+                }
+
+                // Detect iCloud conflicts
+                let hasConflict = resourceValues.ubiquitousItemHasUnresolvedConflicts ?? false
+
                 let metadata = FileMetadata(
                     createdAt: resourceValues.creationDate ?? .now,
                     modifiedAt: resourceValues.contentModificationDate ?? .now,
-                    fileSize: Int64(resourceValues.fileSize ?? 0)
+                    fileSize: Int64(resourceValues.fileSize ?? 0),
+                    cloudStatus: cloudStatus,
+                    hasConflict: hasConflict
                 )
 
                 if isDirectory {
@@ -303,7 +389,7 @@ public enum FileSystemError: LocalizedError, Sendable {
         case .invalidName(let name):
             String(localized: "Invalid name: \(name)", bundle: .module)
         case .iCloudTimeout(let url):
-            "\(url.lastPathComponent) is not downloaded from iCloud. Open Finder and wait for it to sync, then try again."
+            String(localized: "\(url.lastPathComponent) could not be downloaded from iCloud. Check your network connection and try again.", bundle: .module)
         }
     }
 }

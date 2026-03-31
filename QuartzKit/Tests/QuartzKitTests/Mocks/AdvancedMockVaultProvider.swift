@@ -450,3 +450,73 @@ public extension AdvancedMockVaultProvider {
         notes[url]?.body
     }
 }
+
+// MARK: - Chaos Simulation
+
+public extension AdvancedMockVaultProvider {
+
+    /// Simulates an "Eviction Storm" — macOS bird daemon instantly un-downloading many files.
+    ///
+    /// **Hostile OS Threat:**
+    /// macOS "Optimize Storage" can evict hundreds of files simultaneously when disk space is low.
+    /// This happens while the app is indexing, causing mass iCloud timeout errors.
+    ///
+    /// **Usage:**
+    /// ```swift
+    /// let mock = AdvancedMockVaultProvider(generateLargeVault: true, noteCount: 500)
+    /// await mock.populateTestVault()
+    /// await mock.simulateEvictionStorm(percentage: 0.8) // Evict 80% of files
+    /// ```
+    func simulateEvictionStorm(percentage: Double = 0.5) {
+        let urlsToEvict = Array(notes.keys).shuffled().prefix(Int(Double(notes.count) * percentage))
+
+        for url in urlsToEvict {
+            notDownloadedFiles.insert(url)
+        }
+    }
+
+    /// Simulates a network partition where all iCloud operations timeout.
+    func simulateNetworkPartition() {
+        simulatedErrors[.readNote] = .iCloudTimeout
+        simulatedErrors[.saveNote] = .networkUnavailable
+        simulatedErrors[.loadFileTree] = .networkUnavailable
+    }
+
+    /// Ends the simulated network partition.
+    func endNetworkPartition() {
+        simulatedErrors.removeValue(forKey: .readNote)
+        simulatedErrors.removeValue(forKey: .saveNote)
+        simulatedErrors.removeValue(forKey: .loadFileTree)
+    }
+
+    /// Simulates disk becoming full mid-operation.
+    func simulateDiskFull() {
+        simulatedErrors[.saveNote] = .diskFull
+        simulatedErrors[.createNote] = .diskFull
+    }
+
+    /// Simulates a sandbox revocation (macOS security bookmark expired).
+    func simulateSandboxRevocation() {
+        simulatedErrors[.readNote] = .permissionDenied
+        simulatedErrors[.saveNote] = .permissionDenied
+        simulatedErrors[.loadFileTree] = .permissionDenied
+    }
+
+    /// Simulates random failures (chaos monkey mode).
+    /// Each operation has a specified probability of failing.
+    func enableChaosMonkey(failureProbability: Double = 0.1) {
+        // Store the probability for use in operations
+        // This is a simplified version - in practice you'd check this in each operation
+        if failureProbability > 0.3 {
+            simulatedErrors[.readNote] = .iCloudTimeout
+        }
+        if failureProbability > 0.5 {
+            simulatedErrors[.saveNote] = .conflict
+        }
+    }
+
+    /// Disables chaos monkey mode.
+    func disableChaosMonkey() {
+        simulatedErrors.removeAll()
+    }
+}

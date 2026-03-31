@@ -39,9 +39,17 @@ public struct FileNodeRow: View {
     public var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 4) {
-                Text(displayName)
-                    .font(.body.weight(node.isFolder ? .semibold : .regular))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(displayName)
+                        .font(.body.weight(node.isFolder ? .semibold : .regular))
+                        .lineLimit(1)
+
+                    // Cloud status indicator for iCloud files
+                    if node.isNote {
+                        cloudStatusIndicator
+                        conflictIndicator
+                    }
+                }
 
                 if node.isNote {
                     Text(relativeTimeString(from: node.metadata.modifiedAt))
@@ -64,6 +72,37 @@ public struct FileNodeRow: View {
         .accessibilityLabel(accessibilityDescription)
     }
 
+    /// Shows cloud status for iCloud files that need downloading.
+    @ViewBuilder
+    private var cloudStatusIndicator: some View {
+        switch node.metadata.cloudStatus {
+        case .evicted:
+            Image(systemName: "icloud.and.arrow.down")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(String(localized: "Not downloaded from iCloud", bundle: .module))
+        case .downloading:
+            Image(systemName: "arrow.down.circle")
+                .font(.caption2)
+                .foregroundStyle(.blue)
+                .symbolEffect(.pulse)
+                .accessibilityLabel(String(localized: "Downloading from iCloud", bundle: .module))
+        case .local, .downloaded:
+            EmptyView()
+        }
+    }
+
+    /// Shows a warning badge when the file has unresolved iCloud sync conflicts.
+    @ViewBuilder
+    private var conflictIndicator: some View {
+        if node.metadata.hasConflict {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(String(localized: "Has sync conflict", bundle: .module))
+        }
+    }
+
     private var accessibilityDescription: String {
         var parts = [displayName]
         switch node.nodeType {
@@ -72,6 +111,19 @@ public struct FileNodeRow: View {
         case .note:
             parts.append(String(localized: "Note", bundle: .module))
             parts.append(relativeTimeString(from: node.metadata.modifiedAt))
+            // Include cloud status for VoiceOver
+            switch node.metadata.cloudStatus {
+            case .evicted:
+                parts.append(String(localized: "Not downloaded from iCloud", bundle: .module))
+            case .downloading:
+                parts.append(String(localized: "Downloading from iCloud", bundle: .module))
+            case .local, .downloaded:
+                break
+            }
+            // Include conflict warning for VoiceOver
+            if node.metadata.hasConflict {
+                parts.append(String(localized: "Has sync conflict", bundle: .module))
+            }
         case .asset:
             parts.append(String(localized: "Attachment", bundle: .module))
         case .canvas:

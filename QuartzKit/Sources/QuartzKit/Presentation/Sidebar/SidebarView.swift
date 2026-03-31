@@ -86,8 +86,10 @@ public struct SidebarView: View {
     @Environment(\.appearanceManager) private var appearance
     @State private var showNewFolderDialog = false
     @State private var showNewNoteDialog = false
+    @State private var showRenameDialog = false
     @State private var newItemName: String = ""
     @State private var newItemParent: URL?
+    @State private var renameTargetURL: URL?
     @State private var showDeleteConfirmation = false
     @State private var pendingDeleteURL: URL?
     @State private var pendingDeleteIsNote = false
@@ -200,6 +202,13 @@ public struct SidebarView: View {
             }
         }
         .overlay(alignment: .bottom) { floatingSearchBar }
+        #if os(iOS)
+        .overlay(alignment: .bottomTrailing) {
+            newNoteButton
+                .padding(.trailing, 16)
+                .padding(.bottom, 72) // above the search bar
+        }
+        #endif
         .overlay(alignment: .bottom) {
             if let progress = viewModel.indexingProgress {
                 indexingStatusBar(current: progress.current, total: progress.total)
@@ -271,6 +280,22 @@ public struct SidebarView: View {
             Button(String(localized: "OK", bundle: .module), role: .cancel) {}
         } message: {
             if let msg = viewModel.errorMessage { Text(msg) }
+        }
+        .alert(String(localized: "Rename", bundle: .module), isPresented: $showRenameDialog) {
+            TextField(String(localized: "New name", bundle: .module), text: $newItemName)
+            Button(String(localized: "Rename", bundle: .module)) {
+                guard let url = renameTargetURL else { return }
+                let name = newItemName.trimmingCharacters(in: .whitespacesAndNewlines)
+                newItemName = ""
+                renameTargetURL = nil
+                guard !name.isEmpty else { return }
+                QuartzFeedback.primaryAction()
+                Task { await viewModel.rename(at: url, to: name) }
+            }
+            Button(String(localized: "Cancel", bundle: .module), role: .cancel) {
+                newItemName = ""
+                renameTargetURL = nil
+            }
         }
         .task { viewModel.collectTags() }
         .sheet(item: $moveSourceURL) { sourceURL in
@@ -436,6 +461,14 @@ public struct SidebarView: View {
         }
         Button {
             QuartzFeedback.primaryAction()
+            renameTargetURL = node.url
+            newItemName = node.url.deletingPathExtension().lastPathComponent
+            showRenameDialog = true
+        } label: {
+            Label(String(localized: "Rename", bundle: .module), systemImage: "pencil")
+        }
+        Button {
+            QuartzFeedback.primaryAction()
             moveSourceURL = MoveTarget(url: node.url)
         } label: {
             Label(String(localized: "Move to folder…", bundle: .module), systemImage: "folder")
@@ -469,6 +502,14 @@ public struct SidebarView: View {
             Label(String(localized: "New Folder", bundle: .module), systemImage: "folder.badge.plus")
         }
         Divider()
+        Button {
+            QuartzFeedback.primaryAction()
+            renameTargetURL = node.url
+            newItemName = node.url.lastPathComponent
+            showRenameDialog = true
+        } label: {
+            Label(String(localized: "Rename", bundle: .module), systemImage: "pencil")
+        }
         Button {
             QuartzFeedback.primaryAction()
             moveSourceURL = MoveTarget(url: node.url)
