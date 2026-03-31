@@ -28,9 +28,14 @@ public final class NoteListStore {
     public private(set) var isLoading: Bool = true
 
     /// Search text for filtering within the current source.
+    /// Debounced at 150ms to prevent excessive filtering during rapid typing.
     public var searchText: String = "" {
-        didSet { rebuildItems() }
+        didSet { scheduleSearchDebounce() }
     }
+
+    /// Debounce task for search text changes.
+    nonisolated(unsafe) private var searchDebounceTask: Task<Void, Never>?
+    private static let searchDebounceDelay: Duration = .milliseconds(150)
 
     /// Current sort order. Persisted in UserDefaults.
     public var sortOrder: NoteListSortOrder {
@@ -68,6 +73,7 @@ public final class NoteListStore {
     }
 
     deinit {
+        searchDebounceTask?.cancel()
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -124,6 +130,18 @@ public final class NoteListStore {
             }
         }
         observerTokens.append(favToken)
+    }
+
+    // MARK: - Search Debounce
+
+    /// Schedules a debounced search/filter rebuild.
+    private func scheduleSearchDebounce() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.searchDebounceDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.rebuildItems()
+        }
     }
 
     // MARK: - Data Loading

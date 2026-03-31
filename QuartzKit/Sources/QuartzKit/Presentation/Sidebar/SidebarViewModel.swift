@@ -68,6 +68,24 @@ public final class SidebarViewModel {
     /// Set by ContentViewModel for sidebar sync status display.
     public var cloudSyncStatus: CloudSyncStatus = .notApplicable
 
+    /// Returns `true` if any note in the vault has an unresolved iCloud sync conflict.
+    public var hasAnyConflicts: Bool {
+        hasConflictsIn(fileTree)
+    }
+
+    /// Returns all notes with unresolved iCloud sync conflicts.
+    public var conflictingNotes: [FileNode] {
+        collectFlatNotes(from: fileTree).filter { $0.metadata.hasConflict }
+    }
+
+    private func hasConflictsIn(_ nodes: [FileNode]) -> Bool {
+        for node in nodes {
+            if node.metadata.hasConflict { return true }
+            if let children = node.children, hasConflictsIn(children) { return true }
+        }
+        return false
+    }
+
     private static let sortOrderKey = "quartz.sidebarSortOrder"
     private var cachedSortOrder: SidebarSortOrder?
 
@@ -123,8 +141,8 @@ public final class SidebarViewModel {
         invalidateFilterCache()
     }
 
-    private var favoritesObserver: Any?
-    private var renameObserver: Any?
+    nonisolated(unsafe) private var favoritesObserver: Any?
+    nonisolated(unsafe) private var renameObserver: Any?
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -146,6 +164,15 @@ public final class SidebarViewModel {
             Task { @MainActor [weak self] in
                 await self?.refresh()
             }
+        }
+    }
+
+    deinit {
+        if let observer = favoritesObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = renameObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

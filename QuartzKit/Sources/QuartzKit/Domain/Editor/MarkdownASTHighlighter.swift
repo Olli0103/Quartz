@@ -140,7 +140,7 @@ public actor MarkdownASTHighlighter {
     /// URL of the currently open note. Used for relative path resolution.
     public var noteURL: URL?
     private var parseTask: Task<[HighlightSpan], Never>?
-    private let debounceInterval: UInt64 = 80_000_000 // 80ms in nanoseconds
+    private let debounceInterval: UInt64 = 150_000_000 // 150ms in nanoseconds
 
     /// Maximum document size (characters) before we skip highlighting for performance.
     /// Documents larger than ~500KB of text would cause noticeable lag.

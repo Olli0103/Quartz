@@ -16,23 +16,19 @@ public struct VersionHistoryView: View {
     let service: VersionHistoryService
 
     @State private var versions: [NoteVersion] = []
-    @State private var selectedVersion: NoteVersion?
+    @State private var selectedVersionID: Int?
     @State private var previewText: String = ""
     @State private var isLoading = true
     @State private var isRestoring = false
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appearanceManager) private var appearance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Creates a version history view.
-    ///
-    /// - Parameters:
-    ///   - noteURL: URL of the note to show history for.
-    ///   - noteTitle: Display title of the note.
-    ///   - vaultRoot: Root URL of the vault.
-    ///   - service: Version history service (defaults to shared instance for production).
-    ///   - onRestored: Callback invoked after successful restore.
+    private var selectedVersion: NoteVersion? {
+        guard let id = selectedVersionID else { return nil }
+        return versions.first { $0.id == id }
+    }
+
     public init(
         noteURL: URL,
         noteTitle: String,
@@ -49,72 +45,45 @@ public struct VersionHistoryView: View {
 
     public var body: some View {
         NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView(String(localized: "Loading versions\u{2026}", bundle: .module))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if versions.isEmpty {
-                    emptyState
-                } else {
-                    splitContent
+            content
+                .navigationTitle(String(localized: "Version History", bundle: .module))
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(localized: "Done", bundle: .module)) { dismiss() }
+                    }
                 }
-            }
-            .animation(contentAnimation, value: isLoading)
-            .animation(contentAnimation, value: versions.isEmpty)
-            .navigationTitle(String(localized: "Version History", bundle: .module))
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Done", bundle: .module)) { dismiss() }
-                }
-            }
-            .task { await loadVersions() }
+                .task { await loadVersions() }
         }
         #if os(macOS)
         .frame(minWidth: 700, minHeight: 500)
         #endif
     }
 
-    // MARK: - Animation Helpers
-
-    /// Content transition animation — respects Reduce Motion preference.
-    private var contentAnimation: Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.2)
-    }
-
-    /// Status/error animation — respects Reduce Motion preference.
-    private var statusAnimation: Animation? {
-        reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8)
+    @ViewBuilder
+    private var content: some View {
+        if isLoading {
+            ProgressView(String(localized: "Loading versions\u{2026}", bundle: .module))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if versions.isEmpty {
+            emptyState
+        } else {
+            splitContent
+        }
     }
 
     // MARK: - Split Content
 
     private var splitContent: some View {
         HStack(spacing: 0) {
-            // Timeline
             timeline
                 .frame(width: 240)
 
             Divider()
 
-            // Preview
-            VStack(spacing: 0) {
-                previewArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(contentAnimation, value: previewText.isEmpty)
-
-                if let errorMessage {
-                    errorBanner(errorMessage)
-                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                }
-
-                if selectedVersion != nil {
-                    restoreBar
-                }
-            }
-            .animation(statusAnimation, value: errorMessage != nil)
+            previewPane
         }
     }
 
@@ -135,15 +104,7 @@ public struct VersionHistoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
-            List(versions, selection: Binding(
-                get: { selectedVersion?.id },
-                set: { id in
-                    selectedVersion = versions.first { $0.id == id }
-                    if let version = selectedVersion {
-                        loadPreview(for: version)
-                    }
-                }
-            )) { version in
+            List(versions, selection: $selectedVersionID) { version in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(version.date, style: .date)
                         .font(.callout.weight(.medium))
@@ -156,34 +117,50 @@ public struct VersionHistoryView: View {
                 .accessibilityLabel(String(localized: "Version from \(version.date.formatted())", bundle: .module))
             }
             .listStyle(.plain)
+            .onChange(of: selectedVersionID) { _, newID in
+                if let id = newID, let version = versions.first(where: { $0.id == id }) {
+                    loadPreview(for: version)
+                }
+            }
         }
     }
 
-    // MARK: - Preview
+    // MARK: - Preview Pane
 
-    private var previewArea: some View {
-        Group {
-            if selectedVersion == nil {
-                VStack(spacing: 12) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.largeTitle)
-                        .foregroundStyle(.tertiary)
-                    Text(String(localized: "Select a version to preview", bundle: .module))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+    private var previewPane: some View {
+        VStack(spacing: 0) {
+            previewContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if previewText.isEmpty && errorMessage == nil {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    Text(previewText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                        .textSelection(.enabled)
-                }
+
+            if let errorMessage {
+                errorBanner(errorMessage)
+            }
+
+            if selectedVersion != nil {
+                restoreBar
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var previewContent: some View {
+        if selectedVersion == nil {
+            VStack(spacing: 12) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.largeTitle)
+                    .foregroundStyle(.tertiary)
+                Text(String(localized: "Select a version to preview", bundle: .module))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                Text(previewText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .textSelection(.enabled)
             }
         }
     }
@@ -249,9 +226,7 @@ public struct VersionHistoryView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button {
-                withAnimation(statusAnimation) {
-                    errorMessage = nil
-                }
+                errorMessage = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.hierarchical)
@@ -273,12 +248,10 @@ public struct VersionHistoryView: View {
 
     // MARK: - Actions
 
-    /// Loads versions off the main thread to prevent frame drops.
     private func loadVersions() async {
         isLoading = true
         errorMessage = nil
 
-        // Move file I/O off main thread
         let loadedVersions = await Task.detached(priority: .userInitiated) { [service, noteURL, vaultRoot] in
             service.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
         }.value
@@ -287,21 +260,20 @@ public struct VersionHistoryView: View {
         isLoading = false
 
         if let first = loadedVersions.first {
-            selectedVersion = first
+            selectedVersionID = first.id
             loadPreview(for: first)
         }
     }
 
-    /// Loads preview text off the main thread with bounded size.
     private func loadPreview(for version: NoteVersion) {
-        previewText = ""
         errorMessage = nil
 
         Task.detached(priority: .userInitiated) { [service] in
             do {
-                // Uses bounded read (512KB max) to prevent OOM on large files
                 let text = try service.readText(from: version)
-                await MainActor.run { previewText = text }
+                await MainActor.run {
+                    previewText = text
+                }
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
@@ -310,20 +282,17 @@ public struct VersionHistoryView: View {
         }
     }
 
-    /// Restores the selected version with full validation.
     private func restoreSelectedVersion() {
         guard let version = selectedVersion, !isRestoring else { return }
 
-        // Pre-validate files exist before starting restore
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: version.snapshotURL.path(percentEncoded: false)) else {
             errorMessage = String(localized: "Version snapshot no longer exists.", bundle: .module)
-            // Remove stale version from list
             versions.removeAll { $0.id == version.id }
-            selectedVersion = versions.first
-            if let newSelection = selectedVersion {
-                loadPreview(for: newSelection)
+            selectedVersionID = versions.first?.id
+            if let newVersion = selectedVersion {
+                loadPreview(for: newVersion)
             }
             return
         }

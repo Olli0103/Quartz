@@ -79,9 +79,9 @@ public final class EditorSession {
 
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
-    private var autosaveTask: Task<Void, Never>?
-    private var fileWatchTask: Task<Void, Never>?
-    private var wordCountTask: Task<Void, Never>?
+    nonisolated(unsafe) private var autosaveTask: Task<Void, Never>?
+    nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
+    nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
 
     // MARK: - Inspector Integration
 
@@ -92,12 +92,20 @@ public final class EditorSession {
     public let inspectorStore: InspectorStore
 
     /// Task for the debounced analysis pass.
-    private var analysisTask: Task<Void, Never>?
+    nonisolated(unsafe) private var analysisTask: Task<Void, Never>?
 
     /// Delay before running analysis (longer than highlighting since ToC doesn't need keystroke-level updates).
     private let analysisDelay: Duration = .milliseconds(300)
 
     private let autosaveDelay: Duration = .seconds(1)
+
+    // MARK: - Version History Throttle
+
+    /// Minimum interval between version snapshots (5 minutes).
+    private static let versionSnapshotInterval: TimeInterval = 300
+
+    /// Last time a version snapshot was saved for the current note.
+    private var lastSnapshotDate: Date?
 
     // MARK: - Init
 
@@ -105,11 +113,11 @@ public final class EditorSession {
     public var graphEdgeStore: GraphEdgeStore?
 
     /// Observer for semantic link update notifications.
-    private var semanticLinkObserver: Any?
+    nonisolated(unsafe) private var semanticLinkObserver: Any?
     /// Observer for AI concept update notifications.
-    private var conceptObserver: Any?
+    nonisolated(unsafe) private var conceptObserver: Any?
     /// Observer for AI scan progress notifications.
-    private var scanProgressObserver: Any?
+    nonisolated(unsafe) private var scanProgressObserver: Any?
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
         self.vaultProvider = vaultProvider
@@ -118,6 +126,27 @@ public final class EditorSession {
         startSemanticLinkObserver()
         startConceptObserver()
         startScanProgressObserver()
+    }
+
+    deinit {
+        // Cancel all pending tasks
+        autosaveTask?.cancel()
+        highlightTask?.cancel()
+        fileWatchTask?.cancel()
+        wordCountTask?.cancel()
+        analysisTask?.cancel()
+        inlineAITask?.cancel()
+
+        // Remove notification observers
+        if let observer = semanticLinkObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = conceptObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = scanProgressObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     /// Listens for `.quartzSemanticLinksUpdated` and refreshes the inspector's related notes.
@@ -202,8 +231,19 @@ public final class EditorSession {
     /// Loads a note from the file system into the existing session.
     /// Reuses the mounted text view — no view destruction.
     public func loadNote(at url: URL) async {
+        // Save a snapshot of the previous note before switching
+        if let previousNoteURL = note?.fileURL, let vaultRoot = vaultRootURL, !currentText.isEmpty {
+            let content = currentText
+            Task.detached(priority: .utility) {
+                VersionHistoryService().saveSnapshot(for: previousNoteURL, content: content, vaultRoot: vaultRoot)
+            }
+        }
+
         cancelAllTasks()
         stopFileWatching()
+
+        // Reset version history throttle for new note
+        lastSnapshotDate = nil
 
         // Clear undo stack so previous note's history doesn't bleed through
         clearUndoStack()
@@ -255,6 +295,14 @@ public final class EditorSession {
     /// Clears text, note reference, and undo stack. The EditorContainerView
     /// stays mounted — it shows the empty state based on `note == nil`.
     public func closeNote() {
+        // Save a final snapshot if there are unsaved changes
+        if isDirty, let noteURL = note?.fileURL, let vaultRoot = vaultRootURL {
+            let content = currentText
+            Task.detached(priority: .utility) {
+                VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
+            }
+        }
+
         cancelAllTasks()
         stopFileWatching()
         clearUndoStack()
@@ -673,8 +721,9 @@ public final class EditorSession {
             errorMessage = nil
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
 
-            // Save version snapshot for history (background, non-blocking)
-            if let vaultRoot = vaultRootURL {
+            // Save version snapshot only if 5+ minutes since last snapshot
+            if let vaultRoot = vaultRootURL, shouldSaveVersionSnapshot() {
+                lastSnapshotDate = Date()
                 let content = textSnapshot
                 let url = savedURL
                 Task.detached(priority: .utility) {
@@ -689,7 +738,24 @@ public final class EditorSession {
 
     /// Explicit save triggered by user action (Cmd+S, toolbar button).
     public func manualSave() async {
+        // Always save a snapshot on manual save
+        if let vaultRoot = vaultRootURL, let noteURL = note?.fileURL {
+            lastSnapshotDate = Date()
+            let content = currentText
+            Task.detached(priority: .utility) {
+                VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
+            }
+        }
         await save(force: true)
+    }
+
+    /// Returns true if enough time has passed since the last snapshot.
+    private func shouldSaveVersionSnapshot() -> Bool {
+        guard let lastDate = lastSnapshotDate else {
+            lastSnapshotDate = Date() // Set to now so we don't snapshot on first autosave
+            return false
+        }
+        return Date().timeIntervalSince(lastDate) >= Self.versionSnapshotInterval
     }
 
     // MARK: - Highlighting
@@ -703,7 +769,7 @@ public final class EditorSession {
     public var highlighterFontFamily: AppearanceManager.EditorFontFamily = .system
     /// Line spacing multiplier. Set by the representable.
     public var highlighterLineSpacing: CGFloat = 1.5
-    private var highlightTask: Task<Void, Never>?
+    nonisolated(unsafe) private var highlightTask: Task<Void, Never>?
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     public func scheduleHighlight() {
@@ -1226,7 +1292,7 @@ public final class EditorSession {
 
     // MARK: - Inline AI
 
-    private var inlineAITask: Task<Void, Never>?
+    nonisolated(unsafe) private var inlineAITask: Task<Void, Never>?
 
     /// State for the inline AI operation — observed by the UI for loading/error display.
     public private(set) var isInlineAIProcessing: Bool = false

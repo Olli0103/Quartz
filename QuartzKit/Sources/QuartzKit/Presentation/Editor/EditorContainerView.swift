@@ -321,6 +321,14 @@ public struct EditorContainerView: View {
             }
         }
         #endif
+        // Cmd+S keyboard shortcut for manual save
+        .background {
+            Button("") {
+                Task { await session.manualSave() }
+            }
+            .keyboardShortcut("s", modifiers: .command)
+            .hidden()
+        }
     }
 
     // MARK: - AI Assist Trigger
