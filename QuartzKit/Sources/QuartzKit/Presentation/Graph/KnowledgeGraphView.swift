@@ -88,6 +88,8 @@ public final class GraphViewModel {
 
     private let linkExtractor = WikiLinkExtractor()
     private var nodeIndex: [String: Int] = [:]
+    /// Identity resolver for robust wiki-link matching.
+    private let identityResolver = GraphIdentityResolver()
 
     /// Public read-only access to node index for O(1) canvas lookups.
     public var nodeIDToIndex: [String: Int] { nodeIndex }
@@ -272,28 +274,41 @@ public final class GraphViewModel {
 
         var builtNodes: [GraphNode] = []
         var builtEdges: [GraphEdge] = []
-        var nameToID: [String: String] = [:]
-        var urlToTags: [URL: [String]] = [:]
+        var urlToFrontmatter: [URL: Frontmatter] = [:]
         var urlToLinks: [URL: [WikiLink]] = [:]
 
         if let provider = vaultProvider {
-            await withTaskGroup(of: (URL, [String], [WikiLink]).self) { group in
+            await withTaskGroup(of: (URL, Frontmatter, [WikiLink]).self) { group in
                 for note in allNotes {
                     group.addTask { [linkExtractor] in
                         do {
                             let doc = try await provider.readNote(at: note.url)
                             let links = linkExtractor.extractLinks(from: doc.body)
-                            return (note.url, doc.frontmatter.tags, links)
+                            return (note.url, doc.frontmatter, links)
                         } catch {
-                            return (note.url, [], [])
+                            return (note.url, Frontmatter(), [])
                         }
                     }
                 }
-                for await (url, tags, links) in group {
-                    urlToTags[url] = tags
+                for await (url, frontmatter, links) in group {
+                    urlToFrontmatter[url] = frontmatter
                     urlToLinks[url] = links
                 }
             }
+        }
+
+        // Register all notes with the identity resolver for robust link matching
+        for note in allNotes {
+            let displayName = note.name.replacingOccurrences(of: ".md", with: "")
+            let frontmatter = urlToFrontmatter[note.url]
+            let identity = NoteIdentity(
+                url: note.url,
+                filename: displayName,
+                frontmatterTitle: frontmatter?.title,
+                aliases: frontmatter?.aliases ?? [],
+                tags: frontmatter?.tags ?? []
+            )
+            await identityResolver.register(identity)
         }
 
         for note in allNotes {
@@ -301,7 +316,7 @@ public final class GraphViewModel {
             let displayName = note.name.replacingOccurrences(of: ".md", with: "")
             let randomX = CGFloat.random(in: -200...200)
             let randomY = CGFloat.random(in: -200...200)
-            let tags = urlToTags[note.url] ?? []
+            let tags = urlToFrontmatter[note.url]?.tags ?? []
             builtNodes.append(GraphNode(
                 id: nodeID,
                 title: displayName,
@@ -310,7 +325,6 @@ public final class GraphViewModel {
                 x: randomX,
                 y: randomY
             ))
-            nameToID[displayName.lowercased()] = nodeID
         }
 
         if let currentURL = currentNoteURL {
@@ -324,8 +338,9 @@ public final class GraphViewModel {
                 let sourceID = note.url.absoluteString
                 let links = urlToLinks[note.url] ?? []
                 for link in links {
-                    let targetName = link.target.lowercased()
-                    if let targetID = nameToID[targetName] {
+                    // Use identity resolver for robust matching (aliases, folder paths, normalization)
+                    if let targetURL = await identityResolver.resolve(link.target) {
+                        let targetID = targetURL.absoluteString
                         let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
                         if !edgeSet.contains(edgeKey) {
                             edgeSet.insert(edgeKey)
