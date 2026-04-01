@@ -823,6 +823,11 @@ public final class EditorSession {
                 isDirty = false
             }
             errorMessage = nil
+
+            // Publish via typed event bus (new pattern per CODEX.md F4)
+            await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
+
+            // Legacy NotificationCenter for backward compatibility
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
 
             // Save version snapshot only if 5+ minutes since last snapshot
@@ -1578,7 +1583,14 @@ extension EditorSession: NoteFilePresenterDelegate {
             note = currentNote
         }
 
-        // Post notification so Intelligence Engine can update embeddings
+        // Publish via typed event bus (new pattern per CODEX.md F4)
+        if let oldURL {
+            Task {
+                await DomainEventBus.shared.publish(.noteRelocated(from: oldURL, to: newURL))
+            }
+        }
+
+        // Legacy NotificationCenter for backward compatibility
         NotificationCenter.default.post(
             name: .quartzFilePresenterDidMove,
             object: nil,
@@ -1588,7 +1600,12 @@ extension EditorSession: NoteFilePresenterDelegate {
 
     /// Called before the file is deleted.
     public func filePresenterWillDelete(_ presenter: NoteFilePresenter) async throws {
-        // Post notification so Intelligence Engine can remove embeddings
+        // Publish via typed event bus (new pattern per CODEX.md F4)
+        if let url = presenter.presentedItemURL {
+            await DomainEventBus.shared.publish(.noteDeleted(url: url))
+        }
+
+        // Legacy NotificationCenter for backward compatibility
         if let url = presenter.presentedItemURL {
             NotificationCenter.default.post(name: .quartzFilePresenterWillDelete, object: url)
         }
