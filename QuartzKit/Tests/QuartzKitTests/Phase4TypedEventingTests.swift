@@ -7,66 +7,128 @@ import XCTest
 // MARK: - TypedEventOrderingTests
 
 /// Tests that domain events are properly ordered and typed.
-/// Per CODEX.md F4: NotificationCenter remains overloaded for core data flow.
+/// Per CODEX.md F4: NotificationCenter replaced with typed DomainEventBus for core flows.
 final class TypedEventOrderingTests: XCTestCase {
 
-    /// Documents the NotificationCenter overload issue.
+    /// Tests that DomainEventBus delivers events in order.
     @MainActor
-    func testNotificationCenterOverloadDocumentation() async throws {
-        // ISSUE (per CODEX.md F4):
-        //
-        // NotificationCenter is used for core domain flows:
-        // - .quartzNoteSaved
-        // - .quartzReindexRequested
-        // - .quartzSpotlightNotesRemoved
-        // - .quartzSpotlightNoteRelocated
-        // - Various internal AI/graph/sync events
-        //
-        // Problems:
-        // - No ordering guarantees between observers
-        // - Hidden coupling between subsystems
-        // - Weak compiler guarantees
-        // - Hard to reproduce and test
-        //
-        // FIX: Replace with typed async streams or reducer pattern for core flows.
+    func testEventDeliveryOrder() async throws {
+        let bus = DomainEventBus()
 
-        XCTAssertTrue(true, "NotificationCenter overload documented")
+        // Collect events
+        var received: [DomainEvent] = []
+        let subscription = Task {
+            for await event in await bus.subscribe() {
+                received.append(event)
+                if received.count >= 3 { break }
+            }
+        }
+
+        // Give subscription time to start
+        try await Task.sleep(for: .milliseconds(10))
+
+        // Publish events
+        let url1 = URL(fileURLWithPath: "/vault/note1.md")
+        let url2 = URL(fileURLWithPath: "/vault/note2.md")
+        let url3 = URL(fileURLWithPath: "/vault/note3.md")
+
+        await bus.publish(.noteCreated(url: url1))
+        await bus.publish(.noteCreated(url: url2))
+        await bus.publish(.noteCreated(url: url3))
+
+        // Wait for delivery
+        try await Task.sleep(for: .milliseconds(50))
+        subscription.cancel()
+
+        // Verify order
+        XCTAssertEqual(received.count, 3)
+        if case .noteCreated(let url) = received[0] {
+            XCTAssertEqual(url, url1)
+        } else {
+            XCTFail("Expected noteCreated event")
+        }
     }
 
-    /// Tests that notification names exist.
+    /// Tests that event history is recorded.
+    @MainActor
+    func testEventHistoryRecorded() async throws {
+        let bus = DomainEventBus()
+
+        let url = URL(fileURLWithPath: "/vault/test.md")
+        await bus.publish(.noteSaved(url: url, timestamp: Date()))
+        await bus.publish(.reindexRequested)
+
+        let history = await bus.recentEvents()
+        XCTAssertEqual(history.count, 2)
+    }
+
+    /// Tests that multiple subscribers receive events.
+    @MainActor
+    func testMultipleSubscribers() async throws {
+        let bus = DomainEventBus()
+
+        var received1: [DomainEvent] = []
+        var received2: [DomainEvent] = []
+
+        let sub1 = Task {
+            for await event in await bus.subscribe() {
+                received1.append(event)
+                if received1.count >= 1 { break }
+            }
+        }
+
+        let sub2 = Task {
+            for await event in await bus.subscribe() {
+                received2.append(event)
+                if received2.count >= 1 { break }
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+
+        await bus.publish(.reindexRequested)
+
+        try await Task.sleep(for: .milliseconds(50))
+        sub1.cancel()
+        sub2.cancel()
+
+        XCTAssertEqual(received1.count, 1)
+        XCTAssertEqual(received2.count, 1)
+    }
+
+    /// Tests DomainEvent cases compile correctly.
+    @MainActor
+    func testDomainEventCases() async throws {
+        let url = URL(fileURLWithPath: "/vault/test.md")
+
+        // Verify all event cases are constructible
+        let events: [DomainEvent] = [
+            .noteSaved(url: url, timestamp: Date()),
+            .noteCreated(url: url),
+            .noteDeleted(url: url),
+            .noteRelocated(from: url, to: url),
+            .reindexRequested,
+            .spotlightEntriesRemoved(urls: [url]),
+            .graphUpdated(url: url),
+            .conflictDetected(url: url),
+            .conflictResolved(url: url, resolution: .keptLocal),
+            .syncStatusChanged(url: url, status: .current),
+            .aiAnalysisCompleted(url: url, concepts: ["test"]),
+            .semanticLinksDiscovered(url: url, relatedURLs: []),
+            .aiProviderHealthChanged(health: .healthy)
+        ]
+
+        XCTAssertEqual(events.count, 13, "All domain event types should be constructible")
+    }
+
+    /// Tests that notification names still exist for legacy compatibility.
     @MainActor
     func testNotificationNamesExist() async throws {
         // Verify core notification names are defined
         let _ = Notification.Name.quartzNoteSaved
         let _ = Notification.Name.quartzReindexRequested
         // These should compile if notifications are properly defined
-        XCTAssertTrue(true, "Notification names exist")
-    }
-
-    /// Documents the expected typed event architecture.
-    @MainActor
-    func testTypedEventArchitectureDocumentation() async throws {
-        // EXPECTED ARCHITECTURE:
-        //
-        // 1. Domain events as enum:
-        // enum DomainEvent {
-        //     case noteSaved(URL)
-        //     case noteDeleted(URL)
-        //     case noteRelocated(from: URL, to: URL)
-        //     case reindexRequested
-        //     case conflictDetected(URL)
-        // }
-        //
-        // 2. Event bus with async stream:
-        // protocol EventBus {
-        //     func publish(_ event: DomainEvent)
-        //     func subscribe() -> AsyncStream<DomainEvent>
-        // }
-        //
-        // 3. Subsystems subscribe and process in order
-        // 4. Tests can inject deterministic event sequences
-
-        XCTAssertTrue(true, "Typed event architecture documented")
+        XCTAssertTrue(true, "Notification names exist for legacy compatibility")
     }
 }
 
