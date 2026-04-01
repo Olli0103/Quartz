@@ -149,10 +149,20 @@ public actor AIExecutionPolicy {
 
     /// Extracts concepts from text using AI or local NLP fallback.
     public func extractConcepts(from text: String) async -> [String] {
-        // Offline or circuit open: use local NLP
-        if isOffline || providerHealth == .circuitOpen {
-            lastExecutionPath = isOffline ? .onDeviceDirect : .onDeviceFallback
+        // Offline mode: go straight to on-device
+        if isOffline {
+            lastExecutionPath = .onDeviceDirect
             return localNLPExtractConcepts(from: text)
+        }
+
+        // Circuit open: check if recovery interval has passed
+        if providerHealth == .circuitOpen {
+            if shouldAttemptRecovery() {
+                logger.info("Circuit recovery interval passed, attempting remote for concept extraction")
+            } else {
+                lastExecutionPath = .onDeviceFallback
+                return localNLPExtractConcepts(from: text)
+            }
         }
 
         // Try remote
@@ -197,11 +207,37 @@ public actor AIExecutionPolicy {
             AIMessage(role: .user, content: text)
         ]
         let response = try await provider.chat(messages: messages, model: nil, temperature: 0.1)
-        if let data = response.content.data(using: .utf8),
-           let concepts = try? JSONDecoder().decode([String].self, from: data) {
-            return concepts
+        return parseConceptsFromResponse(response.content)
+    }
+
+    /// Parses concept array from AI response, handling code fences and malformed output.
+    private func parseConceptsFromResponse(_ response: String) -> [String] {
+        var text = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip markdown code fences if present
+        if text.hasPrefix("```") {
+            text = text.replacingOccurrences(of: "```json", with: "")
+                .replacingOccurrences(of: "```", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return []
+
+        // Find JSON array bounds
+        guard let startIdx = text.firstIndex(of: "["),
+              let endIdx = text.lastIndex(of: "]") else {
+            return []
+        }
+
+        // Parse JSON
+        guard let data = String(text[startIdx...endIdx]).data(using: .utf8),
+              let array = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+
+        // Filter and normalize concepts
+        return array
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0.count <= 50 }
+            .map { $0.lowercased() }
     }
 
     // MARK: - On-Device Operations

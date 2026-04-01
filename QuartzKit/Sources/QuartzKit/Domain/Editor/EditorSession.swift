@@ -34,6 +34,10 @@ public final class EditorSession {
     /// Current cursor/selection range — updated by delegate callbacks.
     public private(set) var cursorPosition: NSRange = .init(location: 0, length: 0)
 
+    /// Current scroll offset — updated by delegate callbacks.
+    /// Used to restore scroll position after inspector toggle or layout changes.
+    public private(set) var scrollOffset: CGPoint = .zero
+
     /// Dirty flag — true if text differs from last save.
     public private(set) var isDirty: Bool = false
 
@@ -383,6 +387,36 @@ public final class EditorSession {
         cursorPosition = range
         updateTypingAttributes()
         formattingState = FormattingState.detect(in: currentText, at: range.location)
+    }
+
+    /// Called by the text view delegate when scroll position changes.
+    public func scrollDidChange(_ offset: CGPoint) {
+        scrollOffset = offset
+    }
+
+    /// Saves current scroll state from the native text view.
+    /// Call before operations that may change layout (e.g., inspector toggle).
+    public func saveScrollState() {
+        #if canImport(UIKit)
+        scrollOffset = activeTextView?.contentOffset ?? .zero
+        #elseif canImport(AppKit)
+        if let scrollView = activeTextView?.enclosingScrollView {
+            scrollOffset = scrollView.contentView.bounds.origin
+        }
+        #endif
+    }
+
+    /// Restores previously saved scroll state.
+    /// Call after layout changes settle (e.g., after inspector toggle animation).
+    public func restoreScrollState() {
+        #if canImport(UIKit)
+        activeTextView?.setContentOffset(scrollOffset, animated: false)
+        #elseif canImport(AppKit)
+        if let scrollView = activeTextView?.enclosingScrollView {
+            scrollView.contentView.scroll(to: scrollOffset)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        #endif
     }
 
     // MARK: - Undo / Redo

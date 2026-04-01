@@ -26,8 +26,6 @@ public struct WorkspaceView: View {
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var sidebarNoteSelection: URL?
-
     public init(
         store: WorkspaceStore,
         noteListStore: NoteListStore,
@@ -115,7 +113,7 @@ public struct WorkspaceView: View {
         if let sidebarVM = sidebarViewModel {
             SidebarView(
                 viewModel: sidebarVM,
-                selectedNoteURL: $sidebarNoteSelection,
+                selectedNoteURL: $store.selectedNoteURL,
                 onMapViewTap: onMapViewTap,
                 onDoubleClick: onDoubleClick,
                 onSourceChanged: { source in
@@ -128,11 +126,6 @@ public struct WorkspaceView: View {
                 onDashboard: onDashboard,
                 onSwitchVault: onSwitchVault
             )
-            .onChange(of: sidebarNoteSelection) { _, newURL in
-                if let url = newURL {
-                    store.selectedNoteURL = url
-                }
-            }
             .navigationTitle("Quartz Notes")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
