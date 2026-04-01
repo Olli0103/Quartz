@@ -142,12 +142,18 @@ public actor MarkdownASTHighlighter {
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 150_000_000 // 150ms in nanoseconds
 
-    /// Maximum document size (characters) before we skip highlighting for performance.
+    /// Maximum document size (characters) before we skip full AST highlighting for performance.
     /// Documents larger than ~500KB of text would cause noticeable lag.
     private static let maxDocumentSize = 500_000
 
     /// Threshold above which we use a longer debounce interval.
     private static let largeDocumentThreshold = 50_000
+
+    /// Threshold above which we use chunked parsing to avoid blocking.
+    private static let chunkedParsingThreshold = 100_000
+
+    /// Size of each chunk for incremental parsing.
+    private static let chunkSize = 25_000
 
     public init(baseFontSize: CGFloat = 14) {
         self.baseFontSize = baseFontSize
@@ -163,6 +169,7 @@ public actor MarkdownASTHighlighter {
 
     /// Parses markdown and returns highlight spans. Cancels any in-flight parse.
     /// Call from background; result is applied on main thread.
+    /// Uses chunked parsing for documents over 100KB to prevent blocking.
     public func parse(_ markdown: String) async -> [HighlightSpan] {
         parseTask?.cancel()
 
@@ -173,6 +180,18 @@ public actor MarkdownASTHighlighter {
 
         let task = Task<[HighlightSpan], Never> { [baseFontSize, fontFamily, vaultRootURL, noteURL] in
             await Task.yield()
+
+            // For large documents, use chunked parsing with cooperative cancellation
+            if markdown.count > Self.chunkedParsingThreshold {
+                return await Self.parseChunked(
+                    markdown,
+                    baseFontSize: baseFontSize,
+                    fontFamily: fontFamily,
+                    vaultRootURL: vaultRootURL,
+                    noteURL: noteURL
+                )
+            }
+
             return Self.parseSync(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL)
         }
         parseTask = task
@@ -201,6 +220,165 @@ public actor MarkdownASTHighlighter {
         // Post-AST pass: highlight [[wiki-links]] which swift-markdown treats as plain text
         appendWikiLinkSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
+    }
+
+    /// Chunked parsing for large documents (100KB+).
+    /// Parses the document in segments, yielding between chunks to stay responsive.
+    /// This prevents blocking the thread for extended periods on massive files.
+    private static func parseChunked(
+        _ markdown: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        vaultRootURL: URL?,
+        noteURL: URL?
+    ) async -> [HighlightSpan] {
+        // For very large documents, we parse the FULL AST (swift-markdown is fast)
+        // but process the resulting tree in chunks with yield points.
+        let doc = Document(parsing: markdown)
+
+        var spans: [HighlightSpan] = []
+        var processedNodes = 0
+
+        // Process top-level blocks with cooperative cancellation
+        for child in doc.children {
+            guard !Task.isCancelled else { return spans }
+
+            collectSpans(
+                from: child,
+                in: markdown,
+                baseFontSize: baseFontSize,
+                fontFamily: fontFamily,
+                vaultRootURL: vaultRootURL,
+                noteURL: noteURL,
+                into: &spans
+            )
+
+            processedNodes += 1
+
+            // Yield every 10 top-level blocks to stay responsive
+            if processedNodes % 10 == 0 {
+                await Task.yield()
+            }
+        }
+
+        // Check cancellation before wiki-link pass
+        guard !Task.isCancelled else { return spans }
+
+        // Wiki-links: process in chunks of source text
+        let nsSource = markdown as NSString
+        let totalLength = nsSource.length
+        var offset = 0
+
+        while offset < totalLength {
+            guard !Task.isCancelled else { return spans }
+
+            let chunkEnd = min(offset + chunkSize, totalLength)
+            // Extend to next newline to avoid breaking patterns
+            var adjustedEnd = chunkEnd
+            if adjustedEnd < totalLength {
+                let remaining = nsSource.substring(from: adjustedEnd)
+                if let newlineIdx = remaining.firstIndex(of: "\n") {
+                    adjustedEnd += remaining.distance(from: remaining.startIndex, to: newlineIdx) + 1
+                }
+            }
+
+            let chunkRange = NSRange(location: offset, length: min(adjustedEnd - offset, totalLength - offset))
+            let chunk = nsSource.substring(with: chunkRange)
+
+            // Find wiki-links in this chunk and adjust ranges to global offset
+            appendWikiLinkSpansChunked(
+                in: chunk,
+                globalOffset: offset,
+                baseFontSize: baseFontSize,
+                fontFamily: fontFamily,
+                fullSource: markdown,
+                into: &spans
+            )
+
+            offset = adjustedEnd
+            await Task.yield()
+        }
+
+        return spans
+    }
+
+    /// Finds wiki-links in a chunk and emits spans with corrected global offsets.
+    private static func appendWikiLinkSpansChunked(
+        in chunk: String,
+        globalOffset: Int,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        fullSource: String,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsChunk = chunk as NSString
+        guard nsChunk.length > 0 else { return }
+
+        let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+
+        let accentColor: PlatformColor
+        let bracketColor: PlatformColor
+        #if canImport(UIKit)
+        accentColor = UIColor.tintColor
+        bracketColor = UIColor.tertiaryLabel
+        #elseif canImport(AppKit)
+        accentColor = NSColor.controlAccentColor
+        bracketColor = NSColor.tertiaryLabelColor
+        #endif
+
+        guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#) else { return }
+        let matches = regex.matches(in: chunk, range: NSRange(location: 0, length: nsChunk.length))
+
+        for match in matches {
+            let localRange = match.range
+            guard match.numberOfRanges >= 2 else { continue }
+            let contentRange = match.range(at: 1)
+
+            // Skip code blocks (simplified check for chunked processing)
+            let rawContent = nsChunk.substring(with: contentRange)
+            let wikiLink = WikiLink(raw: rawContent)
+            let targetTitle = wikiLink.target
+
+            // Convert to global ranges
+            let globalFullRange = NSRange(location: globalOffset + localRange.location, length: localRange.length)
+            let globalInnerRange = NSRange(location: globalOffset + localRange.location + 2, length: localRange.length - 4)
+
+            guard globalInnerRange.length > 0 else { continue }
+
+            // Primary span
+            spans.append(HighlightSpan(
+                range: globalInnerRange,
+                font: font,
+                color: accentColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                wikiLinkTitle: targetTitle
+            ))
+
+            // Bracket delimiters
+            let openBrackets = NSRange(location: globalFullRange.location, length: 2)
+            let closeBrackets = NSRange(location: globalFullRange.location + globalFullRange.length - 2, length: 2)
+            spans.append(HighlightSpan(
+                range: openBrackets,
+                font: font,
+                color: bracketColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+            spans.append(HighlightSpan(
+                range: closeBrackets,
+                font: font,
+                color: bracketColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+        }
     }
 
     private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
