@@ -96,34 +96,162 @@ final class VaultBookmarkLifecycleTests: XCTestCase {
 // MARK: - ConflictStateMachineTests
 
 /// Tests that sync conflicts are handled via explicit state machine.
-/// Per CODEX.md F12: conflict semantics are operation-driven, not state machine transitions.
+/// Per CODEX.md F12: conflict semantics are now state machine transitions.
 final class ConflictStateMachineTests: XCTestCase {
 
-    /// Documents the expected conflict state machine.
+    /// Tests valid state transitions through the happy path.
     @MainActor
-    func testConflictStateMachineDocumentation() async throws {
-        // EXPECTED STATE MACHINE (per CODEX.md F12):
-        //
-        // States:
-        // - clean: no conflict
-        // - detected: conflict discovered (versions differ)
-        // - diffLoaded: diff computed and ready for display
-        // - userChoice: user is choosing resolution strategy
-        // - coordinatedApply: chosen resolution is being applied
-        // - verifiedClean: resolution confirmed, back to clean
-        //
-        // Transitions:
-        // clean -> detected: external change while dirty
-        // detected -> diffLoaded: diff computation complete
-        // diffLoaded -> userChoice: user opens resolver UI
-        // userChoice -> coordinatedApply: user picks strategy
-        // coordinatedApply -> verifiedClean: write confirmed
-        // coordinatedApply -> detected: write failed, retry needed
-        //
-        // CURRENT STATE: Operations exist but not explicit state machine.
-        // Conflict resolver views exist but transitions are implicit.
+    func testHappyPathTransitions() async throws {
+        let machine = ConflictStateMachine()
 
-        XCTAssertTrue(true, "Conflict state machine documented")
+        // Start clean
+        XCTAssertEqual(machine.state, .clean)
+        XCTAssertFalse(machine.hasActiveConflict)
+
+        // Detect conflict
+        let url = URL(fileURLWithPath: "/vault/test.md")
+        try machine.detectConflict(at: url)
+        XCTAssertEqual(machine.state, .detected)
+        XCTAssertEqual(machine.conflictURL, url)
+        XCTAssertTrue(machine.hasActiveConflict)
+
+        // Load diff
+        let diff = ConflictDiffState(
+            fileURL: url,
+            localContent: "local",
+            cloudContent: "cloud",
+            localModified: Date(),
+            cloudModified: Date()
+        )
+        try machine.loadDiff(diff)
+        XCTAssertEqual(machine.state, .diffLoaded)
+        XCTAssertTrue(machine.canResolve)
+
+        // Begin resolving
+        try machine.beginResolving()
+        XCTAssertEqual(machine.state, .resolving)
+        XCTAssertTrue(machine.isResolving)
+
+        // Resolution succeeded
+        try machine.resolutionSucceeded()
+        XCTAssertEqual(machine.state, .clean)
+        XCTAssertFalse(machine.hasActiveConflict)
+        XCTAssertNil(machine.conflictURL)
+    }
+
+    /// Tests that invalid transitions throw errors.
+    @MainActor
+    func testInvalidTransitionsThrow() async throws {
+        let machine = ConflictStateMachine()
+
+        // Can't load diff from clean state
+        let diff = ConflictDiffState(
+            fileURL: URL(fileURLWithPath: "/test.md"),
+            localContent: "", cloudContent: "",
+            localModified: nil, cloudModified: nil
+        )
+        XCTAssertThrowsError(try machine.loadDiff(diff)) { error in
+            guard case ConflictStateMachineError.invalidTransition = error else {
+                XCTFail("Expected invalidTransition error")
+                return
+            }
+        }
+
+        // Can't begin resolving from clean state
+        XCTAssertThrowsError(try machine.beginResolving())
+
+        // Can't succeed resolution from clean state
+        XCTAssertThrowsError(try machine.resolutionSucceeded())
+    }
+
+    /// Tests that resolution failure allows retry.
+    @MainActor
+    func testResolutionFailureAllowsRetry() async throws {
+        let machine = ConflictStateMachine()
+        let url = URL(fileURLWithPath: "/vault/test.md")
+
+        // Get to resolving state
+        try machine.detectConflict(at: url)
+        try machine.loadDiff(ConflictDiffState(
+            fileURL: url, localContent: "", cloudContent: "",
+            localModified: nil, cloudModified: nil
+        ))
+        try machine.beginResolving()
+
+        // Resolution fails
+        try machine.resolutionFailed(error: "Network error")
+        XCTAssertEqual(machine.state, .diffLoaded)
+        XCTAssertEqual(machine.errorMessage, "Network error")
+
+        // Can retry
+        XCTAssertTrue(machine.canResolve)
+        try machine.beginResolving()
+        XCTAssertEqual(machine.state, .resolving)
+    }
+
+    /// Tests that cancel works from non-resolving states.
+    @MainActor
+    func testCancelFromNonResolvingStates() async throws {
+        let machine = ConflictStateMachine()
+        let url = URL(fileURLWithPath: "/vault/test.md")
+
+        // Cancel from detected
+        try machine.detectConflict(at: url)
+        try machine.cancel()
+        XCTAssertEqual(machine.state, .clean)
+
+        // Cancel from diffLoaded
+        try machine.detectConflict(at: url)
+        try machine.loadDiff(ConflictDiffState(
+            fileURL: url, localContent: "", cloudContent: "",
+            localModified: nil, cloudModified: nil
+        ))
+        try machine.cancel()
+        XCTAssertEqual(machine.state, .clean)
+    }
+
+    /// Tests that cancel throws from resolving state.
+    @MainActor
+    func testCannotCancelWhileResolving() async throws {
+        let machine = ConflictStateMachine()
+        let url = URL(fileURLWithPath: "/vault/test.md")
+
+        // Get to resolving state
+        try machine.detectConflict(at: url)
+        try machine.loadDiff(ConflictDiffState(
+            fileURL: url, localContent: "", cloudContent: "",
+            localModified: nil, cloudModified: nil
+        ))
+        try machine.beginResolving()
+
+        // Cancel should throw
+        XCTAssertThrowsError(try machine.cancel()) { error in
+            guard case ConflictStateMachineError.cannotCancelWhileResolving = error else {
+                XCTFail("Expected cannotCancelWhileResolving error")
+                return
+            }
+        }
+    }
+
+    /// Tests transition history is recorded.
+    @MainActor
+    func testTransitionHistoryRecorded() async throws {
+        let machine = ConflictStateMachine()
+        let url = URL(fileURLWithPath: "/vault/test.md")
+
+        try machine.detectConflict(at: url)
+        try machine.loadDiff(ConflictDiffState(
+            fileURL: url, localContent: "", cloudContent: "",
+            localModified: nil, cloudModified: nil
+        ))
+        try machine.beginResolving()
+        try machine.resolutionSucceeded()
+
+        // Should have recorded all transitions
+        XCTAssertEqual(machine.transitionHistory.count, 5)
+        XCTAssertEqual(machine.transitionHistory[0].from, .clean)
+        XCTAssertEqual(machine.transitionHistory[0].to, .detected)
+        XCTAssertEqual(machine.transitionHistory[4].to, .clean)
     }
 
     /// Tests that CloudSyncService exists and has conflict detection.
@@ -137,20 +265,6 @@ final class ConflictStateMachineTests: XCTestCase {
         // This test verifies the service exists
         // The type is available if this compiles
         XCTAssertTrue(true, "CloudSyncService exists")
-    }
-
-    /// Documents missing state machine enforcement.
-    @MainActor
-    func testStateMachineEnforcementMissing() async throws {
-        // MISSING: Explicit state machine with:
-        // 1. Enum for conflict states
-        // 2. Transitions validated against state
-        // 3. Postconditions checked after each transition
-        // 4. Tests for invalid transition rejection
-        //
-        // CURRENT: Operations exist but state is implicit
-
-        XCTAssertTrue(true, "State machine enforcement needs implementation")
     }
 }
 

@@ -1,4 +1,3 @@
-#if canImport(UIKit) || canImport(AppKit)
 import Foundation
 
 /// Sync status of a file in iCloud Drive.
@@ -30,6 +29,7 @@ public struct ConflictDiffState: Sendable {
     }
 }
 
+#if canImport(UIKit) || canImport(AppKit)
 /// Service for iCloud Drive sync monitoring and coordinated writing.
 /// Swift 6 strict concurrency: uses Task.detached for I/O, no blocking DispatchQueue.
 public actor CloudSyncService {
