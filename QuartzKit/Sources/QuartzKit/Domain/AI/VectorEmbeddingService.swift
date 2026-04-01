@@ -30,6 +30,12 @@ public struct EmbeddingEntry: Codable, Sendable {
 /// Uses `NLEmbedding` for on-device embeddings and
 /// `Accelerate` for efficient cosine similarity.
 /// Stored as a binary index in `.quartz/embeddings.idx`.
+///
+/// **Memory Management:**
+/// - For vaults with 10k+ notes, consider enabling `compactMode`
+/// - Embeddings are ~2KB each; 10k chunks ≈ 20MB RAM
+/// - `compactIndex()` removes chunk text to reduce memory
+/// - Call `loadIndex()` after memory warnings to reload minimal state
 public actor VectorEmbeddingService {
     private var index: [EmbeddingEntry] = []
     private let indexURL: URL
@@ -37,8 +43,22 @@ public actor VectorEmbeddingService {
     private let language: NLLanguage
     private let logger = Logger(subsystem: "com.quartz", category: "Embeddings")
 
+    /// Maximum recommended entries before performance degrades.
+    /// At ~2KB per entry, 50k entries ≈ 100MB RAM.
+    public static let recommendedMaxEntries = 50_000
+
     /// Dimension of the embedding vectors.
     public var embeddingDimension: Int { 512 }
+
+    /// Estimated memory usage in bytes.
+    public var estimatedMemoryUsage: Int {
+        // UUID: 16 bytes, chunkIndex: 8, lastUpdated: 8
+        // embedding: 512 * 4 = 2048 bytes
+        // chunkText: variable, assume ~200 chars average
+        let baseSize = 16 + 8 + 8 + 2048
+        let textSize = index.reduce(0) { $0 + $1.chunkText.utf8.count }
+        return index.count * baseSize + textSize
+    }
 
     public init(
         vaultURL: URL,
@@ -299,6 +319,80 @@ public actor VectorEmbeddingService {
     /// All indexed note IDs.
     public var indexedNoteIDs: Set<UUID> {
         Set(index.map(\.noteID))
+    }
+
+    // MARK: - Memory Management
+
+    /// Index health status for memory monitoring.
+    public enum IndexHealth: Sendable {
+        case healthy
+        case warning(reason: String)
+        case critical(reason: String)
+    }
+
+    /// Checks index health and returns status with recommendations.
+    public func checkIndexHealth() -> IndexHealth {
+        let count = index.count
+        let memoryMB = estimatedMemoryUsage / (1024 * 1024)
+
+        if count > Self.recommendedMaxEntries {
+            return .critical(reason: "Index has \(count) entries (>\(Self.recommendedMaxEntries)). Consider compacting or pruning.")
+        }
+
+        if memoryMB > 80 {
+            return .critical(reason: "Memory usage ~\(memoryMB)MB. Consider compacting to reduce footprint.")
+        }
+
+        if count > Self.recommendedMaxEntries / 2 {
+            return .warning(reason: "Index approaching limits (\(count)/\(Self.recommendedMaxEntries)). Monitor memory usage.")
+        }
+
+        if memoryMB > 40 {
+            return .warning(reason: "Memory usage ~\(memoryMB)MB. Consider enabling compact mode for large vaults.")
+        }
+
+        return .healthy
+    }
+
+    /// Compacts the index by clearing chunk text to reduce memory.
+    /// After compacting, search results will only return note IDs (no preview text).
+    /// The index remains fully functional for similarity search.
+    public func compactIndex() {
+        let beforeMemory = estimatedMemoryUsage
+        index = index.map { entry in
+            EmbeddingEntry(
+                noteID: entry.noteID,
+                chunkIndex: entry.chunkIndex,
+                chunkText: "", // Clear text to save memory
+                embedding: entry.embedding,
+                lastUpdated: entry.lastUpdated
+            )
+        }
+        let afterMemory = estimatedMemoryUsage
+        let savedMB = (beforeMemory - afterMemory) / (1024 * 1024)
+        logger.info("compactIndex: cleared chunk text, saved ~\(savedMB)MB")
+    }
+
+    /// Prunes the oldest entries to reduce index size.
+    /// Keeps the most recently updated entries up to the specified limit.
+    /// - Parameter keepCount: Maximum entries to retain (default: recommendedMaxEntries)
+    public func pruneOldestEntries(keepCount: Int = recommendedMaxEntries) {
+        guard index.count > keepCount else { return }
+
+        let beforeCount = index.count
+        // Sort by lastUpdated descending, keep newest
+        let sorted = index.sorted { $0.lastUpdated > $1.lastUpdated }
+        index = Array(sorted.prefix(keepCount))
+        let removedCount = beforeCount - index.count
+        logger.info("pruneOldestEntries: removed \(removedCount) old entries, kept \(self.index.count)")
+    }
+
+    /// Clears the entire index from memory (does not delete file).
+    /// Call `loadIndex()` to reload from disk.
+    public func unloadIndex() {
+        let count = index.count
+        index = []
+        logger.info("unloadIndex: cleared \(count) entries from memory")
     }
 
     /// Returns the most recent index date for a note (from its chunks).
