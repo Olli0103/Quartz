@@ -1,391 +1,396 @@
-# CODEX.md — Quartz Ruthless Refactor & Dominance Plan (Strict TDD)
+# CODEX.md — Quartz Forensic Recovery Plan (Authoritative, Evidence-Driven)
 
-**Audience:** Claude Code autonomous implementation agent.  
-**Project:** Quartz (macOS/iOS/iPadOS Markdown ecosystem).  
-**Operating mode:** Zero-mercy audit + phased execution with mandatory Red→Green→Refactor.
-
----
-
-## 0) Non-Negotiable Laws (Read Before Touching Any Code)
-
-1. **No production code before failing tests.** Every phase starts by creating tests that fail for the right reason.
-2. **No "quick fixes" inside SwiftUI views.** Any non-trivial logic in view bodies is architectural debt.
-3. **No main-thread heavy work.** File traversal, parsing, AI, embedding, transcription, and graph layout must be off the MainActor unless explicitly rendering UI.
-4. **No silent fallback.** Every AI/audio fallback path must emit deterministic telemetry and user-visible state.
-5. **No state amnesia.** Split-view columns, selection, scroll position, editor selection, and inspector visibility must survive pane toggles, background AI updates, and app lifecycle transitions.
-6. **No undocumented behavior.** Every core subsystem gets a short architecture note and a deterministic test matrix.
-7. **Every phase = one vertical slice.** Includes tests, implementation, perf assertions, migration notes, and rollback plan.
+**Scope:** Current codebase reality + executable recovery plan for Quartz (macOS/iOS/iPadOS).  
+**Mode:** Ruthless, test-first, implementation-grounded.  
+**Constraint:** This document reflects what is verifiably in source now, not aspirations from README/comments.
 
 ---
 
-## 1) Brutal Teardown of Current Quartz (What Is Rotting Right Now)
+## 1) Executive Summary
 
-## 1.1 SwiftUI anti-patterns and architecture leaks
+Quartz is **partially sound but still architecturally fragmented**.
 
-### A. `ContentView` is still a command center monster
-- `ContentView` owns routing, sheet orchestration, overlays, keyboard shortcuts, export flow, and vault lifecycle glue in one type. This is still too much volatility in one render surface. It behaves like an unbounded God View even if comments claim otherwise.  
-- This guarantees accidental invalidation cascades across unrelated concerns (e.g., command palette visibility can trigger re-evaluation across export/sheets/main layout).
+What is genuinely strong:
+- A real `EditorSession` exists and is integrated as the primary editor state machine in `ContentViewModel.openNote`.
+- TextKit 2-backed editor infrastructure exists (custom content manager + representables) and avoids classic SwiftUI text-binding feedback loops.
+- iCloud-aware primitives exist (`NSFileCoordinator`, `NSFilePresenter`, conflict resolution surface, sync status monitoring).
+- There is significant test volume in `QuartzKit/Tests`.
 
-**Action:** Split into:
-- `WorkspaceShellView` (layout only)
-- `PresentationRouter` (sheets/alerts)
-- `CommandSurfaceHost` (palette + keyboard)
-- `ExportCoordinatorView`
+What is still high-risk:
+- App shell remains oversized (`ContentView` still orchestrates lifecycle, deep links, restoration, command routing, exports, sync notifications, multiple sheets/alerts, bookmark persistence).
+- `WorkspaceStore` still runs **boolean route algebra** (`showGraph`, `showDashboard`, `selectedNoteURL`) while also declaring `DetailRoute`; route model is not the enforced source of truth.
+- NotificationCenter remains the dominant cross-subsystem transport for core behavior (editor/sync/graph/intelligence/list updates), which preserves race and ordering fragility.
+- State restoration is only partially real (note path and cursor persisted, scroll persisted in scene storage but not restored into editor session from shell flow).
+- Graph identity architecture is split: robust resolver exists, but edge updates still rebuild fallback title maps per update and can bypass canonical identity indexing.
+- CI regression safety is weak: only tag-triggered release workflow is present; no mandatory PR/branch test workflow.
 
-### B. Duplicate editor architecture running in parallel
-- `ContentViewModel.openNote` instantiates **legacy** `NoteEditorViewModel` while also loading `EditorSession`. You currently run two editor state machines for one note switch.
-- This creates race potential, duplicated file watcher activity, and conceptual drift between “legacy” and “session” paths.
-
-**Action:** Hard-delete legacy path in phased migration after parity tests pass.
-
-### C. View-local state bridging that can desync selection
-- `WorkspaceView` keeps `@State sidebarNoteSelection` and then mirrors into `store.selectedNoteURL` via `.onChange`. This two-step sync invites transient mismatch and flicker under rapid updates.
-
-**Action:** Single-source selection binding from `WorkspaceStore` directly.
+**Top risk call:** Quartz can feel modern on happy paths, but reliability under churn (rapid routing, sync conflicts, restoration, background AI updates) is not yet structurally guaranteed.
 
 ---
 
-## 1.2 State/reload failures in 3-pane + inspector model
+## 2) Reality Matrix (Current State Classification)
 
-### A. MainActor store orchestrating async I/O in reaction handlers
-- In `WorkspaceView`, source changes trigger `Task { await noteListStore.changeSource(...) }` from view modifiers. That hides control flow and makes ordering fragile when multiple state changes happen quickly.
+Legend: ✅ Exists and works · ♻️ Exists but duplicated · ⚠️ Under-tested · ☠️ Architecturally dangerous · 🧪 Claimed but not enforced · 🧩 Partially implemented · ❌ Missing
 
-### B. Inspector refresh tied to notifications instead of deterministic state stream
-- `EditorSession` updates inspector data through notification observers (`quartzSemanticLinksUpdated`, `quartzConceptsUpdated`, scan progress), increasing out-of-order risk.
+### App shell and navigation
+- **ContentView / app shell / routing:** ☠️ Exists but architecturally dangerous  
+  (too many responsibilities concentrated in `ContentView` event layer)
+- **Workspace state:** 🧩 Partially implemented  
+  (`WorkspaceStore` exists, but route truth is split across booleans + computed enum)
+- **Sidebar → Note List → Editor synchronization:** 🧩 Partially implemented  
+  (works via bindings + onChange tasks; not reducer-driven deterministic transitions)
 
-### C. Graph/dashboard/editor detail routing is mutually exclusive booleans
-- `showGraph`, `showDashboard`, `selectedNoteURL` interact via didSet side effects. This is brittle state algebra and easy to break when adding inspector/workflow states.
+### Note lifecycle flows
+- **Note creation / selection / rename / delete propagation:** 🧩 Partially implemented  
+  (propagation depends on NotificationCenter fan-out and cache/list refresh heuristics)
+- **EditorSession:** ✅ Exists and works (primary editor session in use)
+- **legacy NoteEditorViewModel:** ❌ Missing (appears removed from QuartzKit source)
 
-**Action:** Replace with enum route:
-```swift
-enum DetailRoute { case dashboard, graph, note(URL) }
-```
-plus tested reducer transitions.
+### Editor behavior
+- **TextKit 2 editor behavior:** ✅ Exists and works (custom TextKit 2 stack, representables)
+- **Formatting / list continuation / syntax hiding / selection safety / undo-redo:** 🧩 Partially implemented  
+  (substantial machinery exists; correctness under all edge cases not systemically guarded)
 
----
+### Persistence and sync
+- **File saving and autosave:** ✅ Exists and works (autosave + manual save paths in editor session)
+- **Coordinated file I/O:** ✅ Exists and works (`CoordinatedFileWriter`, `CloudSyncService` coordinated read/write)
+- **iCloud coordination and conflict handling:** 🧩 Partially implemented  
+  (conflict operations exist; end-to-end deterministic conflict semantics + regression gates incomplete)
+- **Security-scoped bookmarks:** 🧩 Partially implemented  
+  (persist/restore exists, but duplicated in multiple views and error handling is inconsistent)
+- **Scene restoration / note restoration:** 🧩 Partially implemented  
+  (note path restoration exists; cursor/scroll restoration not fully closed-loop)
+- **Version history:** 🧩 Partially implemented  
+  (snapshot system exists, but throttled snapshots in editor are periodic and not full revision-control semantics)
 
-## 1.3 Main-thread blocking and perf hazards
+### Graph + intelligence
+- **Knowledge graph / backlinks / note identity:** ☠️ Exists but architecturally dangerous  
+  (canonical resolver exists but graph edge update path still relies on fallback index rebuild behavior)
+- **AI fallback architecture:** 🧩 Partially implemented  
+  (`AIExecutionPolicy` exists; not consistently the single entrypoint across all AI services)
 
-### A. `AudioRecordingService` is `@MainActor` and drives timers + meter history on main
-- Continuous metering updates and waveform history mutation happen on main run loop.
-- For long sessions + active UI, this competes with typing/rendering and can degrade 120Hz smoothness.
+### Audio and media
+- **Audio recording:** 🧩 Partially implemented  
+  (functional, but `@MainActor` timer-driven metering/history updates create responsiveness risk)
+- **Transcription:** 🧩 Partially implemented  
+  (on-device speech path exists; resilience and long-session production hardening limited)
+- **Diarization:** 🧩 Partially implemented  
+  (heuristic K-means on handcrafted features; useful baseline, not production-grade diarization)
+- **Tables / attachments / OCR:** 🧩 Partially implemented  
+  (attachments/import paths and OCR services exist; full table UX parity and integration depth vary)
 
-### B. `KnowledgeExtractionService` and `SemanticLinkService` still perform vault scans/enumeration inside actor flows with unclear isolation boundaries
-- Directory scans, content reads, and noteID resolution are expensive and currently coupled to service actors that also manage orchestration state.
-
-### C. `GraphEdgeStore.updateConnections` rebuilds title index every call
-- Rebuilding a full title index for each note update scales badly and causes avoidable CPU churn in active editing scenarios.
-
-**Action:** Move heavyweight work to dedicated background workers and feed results into lightweight actor commits.
-
----
-
-## 1.4 Spaghetti coupling blocking isolated tests
-
-1. `ContentViewModel.loadVault` wires almost every subsystem (sidebar, search, spotlight, embeddings, semantic links, knowledge extraction, session, chat, sync, backup, observer setup) in one method.
-2. `ServiceContainer.shared` use inside views and view models creates hidden dependencies and weak test seams.
-3. Graph identity logic exists in multiple places (`GraphEdgeStore` title matching + `GraphIdentityResolver` actor) with overlapping responsibilities.
-
-**Action:** Introduce composition root + protocolized dependency graph + feature modules with independent test harnesses.
-
----
-
-## 1.5 Knowledge Graph auto-wiring failure root causes
-
-**Why links fail today:**
-1. `GraphEdgeStore` resolves links via simplified lowercase lastPathComponent index, ignoring aliases/frontmatter titles/path-qualified wiki links.
-2. Identity strategy is split: robust resolver exists (`GraphIdentityResolver`) but graph edge update paths still rely on simplistic title maps.
-3. No single canonical note identity contract shared across parsing, graph, and AI concept assignment.
-4. Concept extraction pipeline depends on external provider availability and weakly typed prompt output parsing; missing resilient local fallback.
-
-**Fix mandate:** One canonical identity pipeline used by parser, graph builder, backlinks, and AI concept linker.
-
----
-
-## 2) Forensic Competitor Teardown (What to Beat, Not Copy)
-
-## 2.1 OpenOats forensic teardown (baseline for meeting minutes)
-
-From OpenOats public architecture/docs:
-- Local real-time dual-side transcription emphasis.
-- Knowledge base chunking with heading-aware segmentation (80–500 words), batched embeddings, local cache reuse.
-- Suggestion pipeline appears gated by conversational triggers + cooldown.
-- Privacy model is explicit (local-only option with Ollama).
-
-### OpenOats strengths to absorb
-1. Explicit pipeline framing (capture → transcribe → retrieve → suggest).
-2. Clear data-boundary/privacy communication.
-3. Operational batching strategy for embeddings/search.
-
-### OpenOats weaknesses Quartz must punish
-1. Not deeply integrated with a native Markdown editor state model (Quartz can unify capture with active document context and backlinks).
-2. Meeting output quality depends on remote providers unless fully-local stack is configured manually.
-3. Architecture appears tuned for call-assist first, not a first-class note graph with long-lived semantic memory in-app.
-
-### Quartz superiority target
-- End-to-end native pipeline: `AudioCaptureOrchestrator` + on-device diarization + local language detection + deterministic markdown minutes generator + direct insertion into active note and graph.
+### Quality, accessibility, delivery
+- **Accessibility:** 🧩 Partially implemented  
+  (some labels + UI tests; broad accessibility contract not systematically enforced)
+- **Current tests / performance tests / UI tests:** 🧩 Partially implemented  
+  (many tests exist, but coverage concentration is uneven and app-level flows remain under-locked)
+- **CI / regression safety:** ❌ Missing (no branch/PR CI workflow; release-only tag pipeline)
 
 ---
 
-## 2.2 Bear 2 / Ulysses / Obsidian / Notion teardown translation
+## 3) Evidence-Based Forensic Findings (Harsh Teardown)
 
-### Bear 2 parity requirements
-- TextKit 2-level visual polish: inline markdown elision, typographic rhythm, stable editing under heavy document load.
-- Tag sidebar performance with deep hierarchies and zero-jank filtering.
+### F1 — ContentView is still effectively a god object
+- **Problem:** `ContentView` coordinates vault restoration/opening, deep links, scene lifecycle persistence, command routing, sheet routing, alerts, export pipeline, note-open propagation, sync/index update observers, and bookmark persistence.
+- **Danger:** High blast radius for any UI/state change; hard to enforce deterministic transitions.
+- **User impact:** Intermittent UI inconsistencies under rapid interactions (route changes + background updates).
+- **Architectural impact:** Prevents isolation, reducer-level testability, and dependable ownership boundaries.
+- **Severity:** **Critical**.
+- **Concrete area:** `Quartz/ContentView.swift` (`.task`, `.onChange`, multiple `.onReceive`, restoration and vault methods).
 
-### Ulysses parity requirements
-- 3-pane reliability with perfect state retention (selection, scroll, focus) across route changes.
-- Inspector that never steals editor focus during background metadata recomputation.
+### F2 — Workspace routing still uses brittle boolean algebra despite `DetailRoute`
+- **Problem:** `WorkspaceStore` defines `DetailRoute`, but canonical state remains `showGraph` + `showDashboard` + `selectedNoteURL` with side-effectful `didSet` coupling.
+- **Danger:** Invalid/intermediate states and precedence coupling remain possible; route intent is not explicit in one mutation path.
+- **User impact:** Potential flicker/misrouting when multiple route flags update near-simultaneously.
+- **Architectural impact:** Reducer migration stalled; route model is compatibility veneer, not SSOT.
+- **Severity:** **High**.
+- **Concrete area:** `WorkspaceStore` boolean properties + `currentRoute` computed adapter.
 
-### Obsidian/Notion table bar
-- Rich table editing affordances while preserving source markdown fidelity.
-- Keyboard navigation (Tab/Shift+Tab/Enter) and drag-to-resize UX with native feel.
+### F3 — Duplicate editor pipeline is **not** the current primary problem; legacy VM appears removed
+- **Problem claim audited:** prior `NoteEditorViewModel` parallelism claim is stale.
+- **Evidence:** No `NoteEditorViewModel` in QuartzKit source; `ContentViewModel.openNote` drives `EditorSession` directly.
+- **Actual danger now:** stale call sites in `ContentView` still reference `viewModel?.editorViewModel` for scanner triggers, indicating incomplete cleanup and potential compile/config drift.
+- **Severity:** **Medium**.
+- **Concrete area:** `ContentView` references `editorViewModel`, absent from `ContentViewModel`.
 
----
+### F4 — NotificationCenter remains overloaded for core data flow
+- **Problem:** Core graph/intelligence/editor/list/sync events use broad NotificationCenter events instead of typed domain streams/reducers.
+- **Danger:** ordering races, hidden coupling, weak compiler guarantees, hard reproducibility.
+- **User impact:** Delayed or stale inspector/list/graph refreshes under concurrent edits/sync.
+- **Architectural impact:** inhibits deterministic testing and causal tracing.
+- **Severity:** **High**.
+- **Concrete area:** `EditorSession`, `ContentView`, `NoteListStore`, `IntelligenceEngineCoordinator`, `SemanticLinkService`, `KnowledgeExtractionService`, etc.
 
-## 3) Target Architecture (Macro)
+### F5 — Graph identity model is split between robust resolver and fallback title-index rebuild path
+- **Problem:** `GraphIdentityResolver` is robust, but `GraphEdgeStore.updateConnections` rebuilds title index from all URLs on each update and still has fallback simple resolution path.
+- **Danger:** inconsistency under alias/path/title cases and avoidable CPU churn during active edits.
+- **User impact:** missing/incorrect link wiring; graph drift after rename/alias scenarios.
+- **Architectural impact:** canonical identity contract not enforced end-to-end.
+- **Severity:** **High**.
+- **Concrete area:** `GraphCache.swift` (`GraphEdgeStore`) + `GraphIdentityResolver.swift`.
 
-1. **Presentation Layer**
-   - `WorkspaceReducer` + immutable `WorkspaceState`.
-   - Route-driven detail pane (`DetailRoute`).
+### F6 — Restoration is only partially wired through
+- **Problem:** scene storage persists note path/cursor/scroll values, but shell restoration only reliably reopens note path; cursor/scroll reinjection into active editor on reopen is incomplete at shell level.
+- **Danger:** perceived state loss across relaunch/background transitions.
+- **User impact:** reopened note may not restore exact editing context.
+- **Architectural impact:** weak lifecycle determinism and UX trust.
+- **Severity:** **Medium**.
+- **Concrete area:** `ContentView` restoration methods and scene storage usage.
 
-2. **Editor Core**
-   - `EditorSession` is sole source of truth.
-   - Incremental markdown parser + render diff engine.
+### F7 — Bookmark persistence is duplicated and error semantics are inconsistent
+- **Problem:** bookmark persist/restore logic appears in both `ContentView` and `VaultPickerView` with near-duplicate code.
+- **Danger:** divergence in stale-bookmark handling and recovery behavior.
+- **User impact:** vault reopen reliability differs by entry path.
+- **Architectural impact:** duplicated security-critical flow.
+- **Severity:** **High**.
+- **Concrete area:** bookmark methods in `ContentView` and `VaultPickerView`.
 
-3. **Graph Core**
-   - `NoteIdentityIndex` (canonical IDs, aliases, path keys, title variants).
-   - `LinkResolutionEngine` (deterministic resolution ordering + confidence).
+### F8 — Audio pipeline puts frequent metering/history mutation on MainActor
+- **Problem:** `AudioRecordingService` is `@MainActor` with recurring timers mutating metering state/history at ~12Hz plus duration timer.
+- **Danger:** avoidable contention with typing/rendering on slower devices or heavy UI states.
+- **User impact:** editor responsiveness degradation during recording.
+- **Architectural impact:** processing/UI concerns coupled in single actor.
+- **Severity:** **Medium-High**.
+- **Concrete area:** `AudioRecordingService` timers and mutable waveform history.
 
-4. **AI Core**
-   - `AIExecutionPolicyActor` (remote/local fallback, health, budget).
-   - `ConceptExtractionEngine` with typed output schema.
+### F9 — AI fallback policy exists but is not a universally enforced choke point
+- **Problem:** `AIExecutionPolicy` is substantial, but intelligence services still contain independent behavior and notification pipelines.
+- **Danger:** inconsistent fallback/health semantics across AI features.
+- **User impact:** uneven behavior across concept extraction vs other AI operations when provider degrades.
+- **Architectural impact:** fractured reliability guarantees.
+- **Severity:** **Medium-High**.
+- **Concrete area:** `AIExecutionPolicy` vs `KnowledgeExtractionService`/`SemanticLinkService` orchestration patterns.
 
-5. **Audio Core**
-   - `MeetingCaptureOrchestrator` state machine.
-   - stages: capture → VAD/chunking → ASR → diarization → language detection → minutes templater.
+### F10 — CI regression gate is absent for normal development
+- **Problem:** only release workflow (`push tags v*`) is present.
+- **Danger:** regressions can merge without automated gate on branches/PRs.
+- **User impact:** quality drift and unpredictable releases.
+- **Architectural impact:** weak enforcement of TDD/perf promises.
+- **Severity:** **Critical**.
+- **Concrete area:** `.github/workflows/release.yml` only.
 
-6. **Infra**
-   - Unified telemetry events + circuit breakers + perf budget assertions.
+### F11 — `WorkspaceView` still leaks container-level dependency resolution
+- **Problem:** view directly resolves providers via `ServiceContainer.shared` for graph/dashboard.
+- **Danger:** hidden global dependencies in view layer.
+- **User impact:** hard-to-reproduce behavior in test and multi-window contexts.
+- **Architectural impact:** inversion-of-control violation.
+- **Severity:** **Medium**.
+- **Concrete area:** `WorkspaceView` detail column provider construction.
 
----
-
-## 4) Strict TDD Execution Plan (Phases)
-
-## Phase 0 — The Great Purge (Expose the rot before rewriting)
-
-### Red (write failing tests)
-Create:
-- `WorkspaceRouteReducerTests`
-  - route transitions from graph/dashboard/note are deterministic.
-- `WorkspaceStateRetentionTests`
-  - scroll + cursor + split visibility survive inspector updates and background graph refresh.
-- `DualEditorRegressionTests`
-  - assert only one editor pipeline is active after note open.
-- `GraphIdentityContractTests`
-  - aliases/title/path/fuzzy rules resolve identically across all graph entry points.
-
-### Green
-- Replace boolean detail routing with `DetailRoute`.
-- Remove legacy `NoteEditorViewModel` usage path from `openNote` after passing parity tests.
-- Introduce unified `WorkspaceAction` reducer.
-
-### Refactor
-- Move sheet/alert/export orchestration out of `ContentView` into dedicated coordinators.
-
----
-
-## Phase 1 — Knowledge Graph Repair (Critical path)
-
-### Red
-Add failing tests:
-- `GraphWiringE2ETests`
-  - wiki-link using alias resolves to correct note.
-  - folder-qualified links resolve regardless of case/punctuation.
-  - rename keeps stable node ID and rewires edges.
-- `ConceptHubIntegrityTests`
-  - no orphan concept node without note membership.
-- `BacklinkDeterminismTests`
-  - backlink sets stable across rebuilds.
-
-### Green
-- Build `NoteIdentityIndex` and deprecate ad-hoc title lookup in `GraphEdgeStore`.
-- Route all resolution through `GraphIdentityResolver`-compatible API.
-- Persist stable IDs (not path strings) in graph cache; map ID→URL separately.
-
-### Refactor
-- Make graph build pipeline pure/data-first:
-  1) collect note manifests
-  2) build identity index
-  3) resolve edges
-  4) merge semantic edges
-  5) attach concept hubs
-
----
-
-## Phase 2 — AI fallback hardening (remote failure cannot break graph)
-
-### Red
-- `AIExecutionPolicyTests`
-  - remote timeout/open circuit triggers local model path within budget.
-  - repeated remote errors open circuit and cool down.
-- `ConceptExtractionFallbackTests`
-  - local fallback returns minimal concept set even when provider unavailable.
-- `SchemaValidationTests`
-  - malformed model output cannot crash parser.
-
-### Green
-- Implement `AIExecutionPolicyActor`:
-  - states: healthy/degraded/open.
-  - per-task timeout budgets.
-  - retry with jitter + max attempt cap.
-- Add on-device concept extraction fallback (CoreML/NL embedding heuristics + noun phrase extraction).
-- Persist provider health + last error for inspector diagnostics.
-
-### Refactor
-- Remove provider selection logic from UI-facing view models.
+### F12 — File coordination exists, but conflict semantics are not fully encoded as domain state transitions
+- **Problem:** Cloud conflict operations exist, but user-facing resolution semantics are still mostly operation-driven, not explicit state machine transitions with post-conditions.
+- **Danger:** hard to guarantee no lost updates under concurrent edits + sync.
+- **User impact:** rare but severe data trust incidents.
+- **Architectural impact:** difficult to prove correctness.
+- **Severity:** **High**.
+- **Concrete area:** `CloudSyncService`, conflict resolver views, editor external-modification handling.
 
 ---
 
-## Phase 3 — 3-pane + Inspector zero-stutter architecture
+## 4) Optimization Ledger (Mandatory)
 
-### Red
-- `InspectorFocusRetentionTests`
-- `SplitViewColumnPersistenceTests`
-- `BackgroundGraphUpdateNoFlickerTests`
-- UI test: typing during AI graph update never drops insertion point.
-
-### Green
-- Introduce `InspectorProjectionStore` (derived, throttled state).
-- Apply transactional state updates with coalescing.
-- Ensure note list refresh supports item-level diffing only.
-
-### Refactor
-- Remove notification spaghetti; use typed async streams for graph/inspector events.
-
----
-
-## Phase 4 — TextKit 2 top-tier editor (Bear-grade)
-
-### Red
-- `MarkdownElisionCursorTests` (**, ## hide/show rules by cursor scope)
-- `TableEditingKeyboardTests` (Tab traversal, row/column insert semantics)
-- `InlineMediaLayoutTests` (lazy image decode, resize handles)
-- `LargeDocRenderingPerfTests` (10k words + 50 images)
-
-### Green
-- Incremental AST + range invalidation renderer.
-- Markdown syntax elision when block unfocused.
-- Native table interaction layer preserving markdown serialization.
-- Media manager with background decoding/cache.
-
-### Refactor
-- Separate parser/render/editor command handling into independent modules.
+| Subsystem | Current inefficiency | Likely root cause | User-visible cost | Expected benefit if fixed | Measurement strategy | Regression guard |
+|---|---|---|---|---|---|---|
+| Typing latency | Work fan-out on save/notifications and frequent highlighter/analysis updates | Notification-based cascading + shared main-thread pressure | Typing jitter under heavy background activity | Lower input latency, smoother cursor | Signpost keystroke→frame and keystroke→highlight completion | XCTest performance budget test + signpost threshold CI check |
+| Editor highlighting/parsing | Repeated broad highlight/analysis passes | Invalidation granularity not fully constrained in all paths | Occasional stutter on long notes | Reduced CPU spikes | Measure parse/highlight duration by document size buckets | Perf test with 10k+ word fixture and strict percentile budget |
+| View invalidation boundaries | Shell-level state changes reevaluate large view surface | Oversized `ContentView` orchestration | UI flicker/lag on route/sheet changes | Better frame pacing and lower recomposition | SwiftUI Instruments diff before/after coordinator split | UI performance snapshot test on route toggles |
+| Vault loading | Multiple service bootstraps + indexing passes at load | Monolithic `loadVault` orchestration | Slow first interactive note list/editor readiness | Faster time-to-interactive | Measure TTI from vault open to note list populated + first note open | Integration test with synthetic vault and SLA |
+| Note switching | Secondary async refreshes triggered post-switch | cross-service side effects | Perceived switch latency | More immediate editor readiness | Trace note-select→editor mounted→text interactive | UI test with note-switch latency assertion |
+| List refresh | Full refresh fallback frequently used | Notification granularity coarse | list flicker, wasted work | smoother list updates | Compare full refresh count vs targeted refresh count | Unit tests forcing targeted updates for common mutations |
+| Graph rebuilds | Title index rebuild on each connection update | non-incremental fallback logic in edge store | background CPU churn | lower CPU and consistent wiring | Track graph update duration and frequency | Graph contract + perf tests on large vault |
+| AI fallback latency | parallel/serial fallback behavior varies by entrypoint | policy not universal | inconsistent wait times on provider failure | predictable degraded-mode UX | record remote timeout→fallback completion latency | AI fallback integration tests with deterministic stubs |
+| File I/O | repeated coordinator wraps + polling for iCloud downloads | no unified I/O scheduler/priority model | sporadic delays | more predictable save/read latency | signpost read/write timings + iCloud download wait timings | stress tests with mocked delayed coordination |
+| Audio memory/timers | level history mutate on main, fixed history shifts | main-thread timer model | UI hitch during recording | smoother editor + recording coexistence | frame-time + main-thread occupancy during 30-60 min record | long-session perf/memory XCTest with threshold |
+| Main-thread work | mixed UI + service orchestration on main | shell/service coupling | reduced responsiveness | better parallelism | Main Thread Checker + Instruments time profile | CI lint/check for MainActor heavy operations in services |
+| Caching/indexing | duplicate index-like maps (graph title index + resolver indices) | split identity architecture | unnecessary recompute | less churn, higher consistency | measure memory and rebuild time of identity+graph updates | identity contract tests + perf benchmarks |
+| Object churn | repeated formatter creation in hot paths; repeated service setup in flows | convenience over pooling/context objects | alloc overhead | reduced GC/alloc pressure | Allocations instrument sampling | microbenchmarks for hot path allocations |
 
 ---
 
-## Phase 5 — On-device audio intelligence (OpenOats++)
+## 5) Core Architectural Recommendations (Directives)
 
-### Red
-- `CaptureStateMachineTests`
-- `AudioBufferBackpressureTests` (60+ min sessions)
-- `DiarizationAlignmentTests`
-- `LanguageDetectionSwitchTests`
-- `MinutesTemplateDeterminismTests`
+1. **Make route state explicit and singular.**  
+   Replace boolean routing state in `WorkspaceStore` with a single mutable `DetailRoute` + reducer-style transition API. Keep compatibility shims only temporarily behind tests.
 
-### Green
-- Implement `MeetingCaptureOrchestrator` actor with explicit states.
-- Add chunked processing pipeline and memory budget enforcement.
-- Add speaker diarization labels + confidence thresholds.
-- Add language detection pre-pass and recognizer routing.
-- Add compact floating recording UI transitions with tested continuity.
+2. **Split shell orchestration now.**  
+   Break `ContentView` into:
+   - `WorkspaceShellView` (layout only),
+   - `VaultLifecycleCoordinator`,
+   - `PresentationRouter` (sheets/alerts),
+   - `AppEventBridge` (external notifications/deeplinks).
 
-### Refactor
-- Move `AudioRecordingService` off monolithic MainActor responsibilities; isolate UI-bound state from processing core.
+3. **Enforce EditorSession as sole editor state owner and remove stale references.**  
+   Remove/replace `editorViewModel` references in shell code; scanner hooks must target explicit APIs on `EditorSession` or dedicated scanner coordinator.
 
----
+4. **Replace NotificationCenter for critical domain flows with typed streams/reducers.**  
+   Keep NotificationCenter only for external integrations/legacy interoperability. Internal core flows must become strongly typed async streams.
 
-## Phase 6 — Advanced tables, inspector intelligence, export parity
+5. **Unify note identity contract.**  
+   `GraphIdentityResolver` (or successor) must be the single resolver for graph/backlinks/AI references. Remove per-update fallback `titleIndex` rebuild behavior.
 
-### Red
-- `MarkdownTableRoundTripTests`
-- `TableDragResizeUITests`
-- `InspectorStatsAccuracyTests`
-- `ExportFidelitySnapshotTests` (PDF/Markdown)
+6. **Centralize bookmark authority.**  
+   One `VaultAccessManager` for bookmark create/restore/stale refresh/error policy. Remove duplicate logic from views.
 
-### Green
-- Canonical markdown table model + editor command set.
-- Drag-resize overlays and keyboard-driven cell navigation.
-- Inspector adds graph neighborhood, backlink deltas, AI provenance.
+7. **Introduce sync conflict state machine.**  
+   Model conflict lifecycle (`detected -> diff_loaded -> user_choice -> coordinated_apply -> verified_clean`) with explicit invariants and tests.
 
-### Refactor
-- Establish plugin-like export architecture.
+8. **Move heavy non-UI loops off MainActor.**  
+   Audio metering processing, semantic/graph recomputation, and indexing orchestration should use background actors/tasks with main-thread projection only for UI state.
 
----
+9. **Eliminate view-layer service resolution.**  
+   No `ServiceContainer.shared` calls inside view rendering paths.
 
-## Phase 7 — Full performance/security hardening
-
-### Red
-- `TypingLatencyBudgetTests`
-- `GraphBuildTimeBudgetTests`
-- `LongSessionMemoryTests` (audio)
-- `SyncConflictRecoveryTests`
-
-### Green
-- Enforce perf budgets in CI using XCTest measure baselines.
-- Add signposts and telemetry thresholds.
-- Tighten sync conflict UX + deterministic recovery logs.
-
-### Refactor
-- Remove dead code and fallback branches made obsolete by policy actor.
+10. **Add real CI enforcement.**  
+   PR/branch CI must run unit/integration/UI/perf smoke suites and fail on regressions.
 
 ---
 
-## 5) Mandatory test matrix per PR
+## 6) Fully Working App Mandate (User-Flow Contract)
 
-1. Unit tests for touched module.
-2. Integration tests for cross-module contract.
-3. UI/snapshot tests if any layout change.
-4. Performance test if any render/audio/graph logic change.
-5. Regression tests for prior bug in same area.
+Quartz is "fully working" only when all flows below are deterministic and test-verified:
 
-No PR merges without all five categories (or explicit documented exception).
+1. **Open vault** from picker/panel and load tree+list without stale/empty intermediate state glitches.
+2. **Relaunch and retain vault access** via security-scoped bookmark with stale bookmark refresh handled.
+3. **Restore prior note** on relaunch with valid path and preserve editing context (cursor + visible region).
+4. **Create note and see it instantly in note list**, selectable without manual refresh.
+5. **Edit continuously without flicker/cursor jump/state loss** during background indexing/AI activity.
+6. **Save safely** (autosave + manual save) with coordinated I/O and durable file contents.
+7. **Rename/move/delete consistently** across sidebar, note list, editor, graph, spotlight/index previews.
+8. **Survive external file changes** (present clear conflict/external-modification UX, no silent overwrite).
+9. **Maintain graph/inspector/preview/search consistency** after edits/renames/deletes/conflict resolutions.
+10. **Export succeeds** for supported formats with correct content.
+11. **Accessibility remains intact** (labels, focus order, dynamic type/reduce motion behavior as applicable).
 
----
-
-## 6) Required implementation standards
-
-- Swift 6.3 strict concurrency compliance.
-- Avoid `NotificationCenter` for core domain orchestration; prefer typed streams/actions.
-- No singleton dependency resolution inside domain logic.
-- No I/O in view bodies or `.onChange` closures directly.
-- Every async operation must be cancellable.
-- Every background pipeline must expose progress + backpressure behavior.
+No feature is "done" unless these user flows remain green with synthetic fixtures and automated tests.
 
 ---
 
-## 7) Definition of Done (Global)
+## 7) Strict TDD Recovery Plan (Phased, Foundational Risks First)
 
-Quartz is considered fixed only when all are true:
-1. Knowledge graph auto-wiring resolves aliases/path/title variants reliably and passes E2E graph tests.
-2. Background AI updates do not flicker UI or steal editor focus.
-3. Editor supports stable markdown elision, advanced tables, and media workflows without frame drops.
-4. Audio recording/transcription/diarization/minutes pipeline is robust for 60+ minute sessions on Apple Silicon.
-5. Remote AI outage still yields functional local graph/minutes generation with transparent status.
-6. CI enforces latency/memory budgets and catches regressions before merge.
+### Phase 0 — Stabilize Truth Boundaries (Routing + Shell Decomposition)
+- **Objective:** remove state ambiguity and shell blast radius.
+- **Why:** current route algebra + god-view behavior is the highest multiplier of defects.
+- **Defects addressed:** F1, F2, F11.
+- **Optimization opportunities:** view invalidation boundaries, note switching latency.
+- **Failing tests first:**
+  - `WorkspaceRouteReducerTests`
+  - `ContentShellEventIsolationTests`
+  - `DashboardGraphNoteMutualExclusionTests`
+- **Implementation direction:** introduce reducer-backed route state; move lifecycle/presentation logic out of `ContentView`.
+- **Refactor direction:** remove direct service resolution in views.
+- **Regression protection:** snapshot tests for route transitions; UI smoke for sidebar/list/detail coherence.
+- **Exit criteria:** no boolean route coupling in store; shell file significantly reduced and coordinatorized.
+
+### Phase 1 — Editor & Restoration Determinism
+- **Objective:** guarantee stable editor lifecycle and restoration behavior.
+- **Why:** editing trust is the product core.
+- **Defects addressed:** F3, F6.
+- **Optimization opportunities:** typing latency, note switching smoothness.
+- **Failing tests first:**
+  - `EditorSessionRestorationTests` (cursor/scroll on reopen)
+  - `OpenNoteScannerHookTests` (no stale editor VM references)
+  - `ExternalChangeNoCursorLossTests`
+- **Implementation direction:** remove stale `editorViewModel` callsites; explicit restoration API from shell→session.
+- **Refactor direction:** unify selection+session open sequencing.
+- **Regression protection:** end-to-end UI test: relaunch restores note and editing context.
+- **Exit criteria:** restoration path verified across platform targets; no stale editor API references.
+
+### Phase 2 — Identity and Graph Integrity
+- **Objective:** enforce single note identity contract across graph/backlinks/intelligence.
+- **Why:** graph correctness is impossible with split identity semantics.
+- **Defects addressed:** F5.
+- **Optimization opportunities:** graph rebuild CPU, repeated recomputation.
+- **Failing tests first:**
+  - `GraphIdentityCanonicalResolutionTests`
+  - `AliasPathRenameRewireTests`
+  - `GraphIncrementalUpdatePerfTests`
+- **Implementation direction:** remove fallback title-index rebuild path from hot update loop; all resolution through canonical resolver/index.
+- **Refactor direction:** separate identity indexing from edge updates.
+- **Regression protection:** large-vault fixture with deterministic edge assertions.
+- **Exit criteria:** identical resolution outcomes for filename/title/alias/path links; update perf budget met.
+
+### Phase 3 — Sync, Bookmark, and Conflict Hardening
+- **Objective:** make vault access and conflict resolution robust and explicit.
+- **Why:** data integrity failures are catastrophic.
+- **Defects addressed:** F7, F12.
+- **Optimization opportunities:** file I/O latency predictability.
+- **Failing tests first:**
+  - `VaultBookmarkLifecycleTests`
+  - `ConflictStateMachineTests`
+  - `CoordinatedWriteConflictRaceTests`
+- **Implementation direction:** centralize bookmark logic in `VaultAccessManager`; formal conflict state transitions with invariant checks.
+- **Refactor direction:** remove bookmark duplication from views.
+- **Regression protection:** integration harness simulating external writes + unresolved conflicts.
+- **Exit criteria:** deterministic vault reopen and conflict lifecycle with no silent data loss paths.
+
+### Phase 4 — Typed Eventing and AI Policy Unification
+- **Objective:** replace NotificationCenter core paths with typed streams and enforce one AI execution policy surface.
+- **Why:** hidden event coupling blocks reliability.
+- **Defects addressed:** F4, F9.
+- **Optimization opportunities:** AI fallback latency consistency, reduced event churn.
+- **Failing tests first:**
+  - `TypedEventOrderingTests`
+  - `AIExecutionPolicyEnforcementTests`
+  - `InspectorConsistencyUnderConcurrentUpdatesTests`
+- **Implementation direction:** event bus/state reducer per subsystem; adapter layer for legacy notifications.
+- **Refactor direction:** shrink observer counts in stores/sessions.
+- **Regression protection:** deterministic replay tests for concurrent save/sync/intelligence updates.
+- **Exit criteria:** critical flows no longer require NotificationCenter observers.
+
+### Phase 5 — Audio & Long-Session Performance Hardening
+- **Objective:** make recording/transcription/diarization usable under long sessions without UI degradation.
+- **Why:** premium workflow requires sustained performance.
+- **Defects addressed:** F8.
+- **Optimization opportunities:** main-thread load, memory stability.
+- **Failing tests first:**
+  - `AudioMainThreadBudgetTests`
+  - `LongRecordingMemoryStabilityTests`
+  - `DiarizationQualityFixtureTests`
+- **Implementation direction:** split processing actor from UI projection model; bounded ring buffer for metering history.
+- **Refactor direction:** isolate capture/transcription/diarization orchestration state machine.
+- **Regression protection:** 60-minute synthetic session perf tests.
+- **Exit criteria:** typing/frame budgets remain within target while recording/transcribing.
+
+### Phase 6 — CI and Regression Governance
+- **Objective:** ensure no regression reaches mainline unnoticed.
+- **Why:** current release-only workflow is insufficient.
+- **Defects addressed:** F10.
+- **Optimization opportunities:** institutionalized perf monitoring.
+- **Failing tests first:** CI pipeline validation tests and required-status checks.
+- **Implementation direction:** add PR/branch workflows for unit/integration/UI/perf smoke suites.
+- **Refactor direction:** test suite partitioning and runtime budget controls.
+- **Regression protection:** mandatory checks + flaky-test quarantine policy + baseline update process.
+- **Exit criteria:** merges blocked on failing automated quality gates.
 
 ---
 
-## 8) Claude Code execution protocol
+## 8) Zero Manual QA Execution Model (Mandatory)
 
-For each phase:
-1. Create failing tests first (`RED`).
-2. Implement minimum code to pass (`GREEN`).
-3. Refactor for clarity/perf (`REFACTOR`).
-4. Update docs + migration notes.
-5. Commit with phase-scoped message.
-6. Do not start next phase until current phase test suite is green.
+Manual spot-checking is supplementary only. Autonomous agent must produce and run:
 
-If a phase exposes hidden coupling, stop and open a sub-phase named `Phase X.a - Decoupling` with dedicated failing tests.
+1. **Targeted unit tests** for every changed domain contract.
+2. **Integration tests** for cross-subsystem flows (vault load, note lifecycle, sync/graph updates).
+3. **UI tests** for critical user journeys (open vault, create/edit/save, restore, conflict handling).
+4. **Performance tests** with enforceable budgets (typing latency, graph update time, long-session memory).
+5. **Smoke flow tests** as fast gate on every PR.
+6. **Synthetic fixtures** for large vaults, conflict files, renamed/aliased note sets, long audio sessions.
+7. **Stubs/mocks** for AI providers and hardware-dependent components (microphone, speech, network AI).
+8. **Regression ledger** in-repo: for each fixed bug, add failing test + permanent guard + benchmark where relevant.
 
-This document is intentionally unforgiving. Follow it exactly.
+No phase may be marked complete without new tests proving the fixed behavior and guarding against relapse.
+
+---
+
+## 9) Definition of Done (Strict, Non-Negotiable)
+
+Quartz is done only when all are true:
+
+1. **Architecture truthfulness:** route/editor/identity/bookmark/conflict ownership is explicit and singular.
+2. **Flow reliability:** all mandate flows in Section 6 pass automated tests across supported platforms.
+3. **Data safety:** coordinated I/O + conflict resolution have deterministic, test-verified outcomes (no silent loss).
+4. **Performance:** documented budgets for typing, note switching, graph updates, and long audio sessions are consistently met.
+5. **Accessibility:** critical screens and core interactions pass accessibility checks and UI tests.
+6. **CI enforcement:** PR/branch workflows enforce quality gates; failures block merge.
+7. **No illusion of progress:** "cleaner structure" without verified user-flow reliability does **not** count as done.
+
+If any item above is unmet, Quartz is not recovered.
