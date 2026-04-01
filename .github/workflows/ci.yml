@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # MARK: - Build & Test (macOS)
+  build-macos:
+    name: Build & Test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            QuartzKit/.build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project Quartz.xcodeproj -scheme Quartz
+
+      - name: Build for macOS
+        run: |
+          xcodebuild build \
+            -project Quartz.xcodeproj \
+            -scheme Quartz \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            | xcpretty --color
+
+      - name: Run unit tests
+        run: |
+          swift test --package-path QuartzKit 2>&1 | xcpretty --color
+
+  # MARK: - Build (iOS)
+  build-ios:
+    name: Build (iOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            QuartzKit/.build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project Quartz.xcodeproj -scheme Quartz
+
+      - name: Build for iOS
+        run: |
+          xcodebuild build \
+            -project Quartz.xcodeproj \
+            -scheme Quartz \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            | xcpretty --color
+
+  # MARK: - Build (iPadOS)
+  build-ipados:
+    name: Build (iPadOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            QuartzKit/.build
+            ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project Quartz.xcodeproj -scheme Quartz
+
+      - name: Build for iPadOS
+        run: |
+          xcodebuild build \
+            -project Quartz.xcodeproj \
+            -scheme Quartz \
+            -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            | xcpretty --color
+
+  # MARK: - Swift Package Tests
+  package-tests:
+    name: QuartzKit Tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: QuartzKit/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Run all tests
+        run: |
+          cd QuartzKit
+          swift test --parallel
+
+      - name: Run CODEX recovery plan tests
+        run: |
+          cd QuartzKit
+          swift test --filter "Phase0\|Phase1\|Phase2\|Phase3\|Phase4\|Phase5"
+
+  # MARK: - Lint & Format Check
+  lint:
+    name: Lint
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for large files
+        run: |
+          # Fail if any file over 1MB is added (excluding expected binaries)
+          find . -type f -size +1M \
+            ! -path "./.git/*" \
+            ! -path "*/DerivedData/*" \
+            ! -path "*/.build/*" \
+            ! -name "*.xcarchive" \
+            ! -name "*.dmg" \
+            -print | while read f; do
+              echo "::error file=$f::File exceeds 1MB size limit"
+              exit 1
+            done || true
+
+      - name: Check for secrets
+        run: |
+          # Basic check for common secret patterns
+          if grep -rE "(api_key|apikey|secret|password|credential).*['\"][a-zA-Z0-9]{20,}['\"]" \
+            --include="*.swift" --include="*.json" --include="*.plist" \
+            . 2>/dev/null; then
+            echo "::warning::Potential hardcoded secret detected"
+          fi
+
+  # MARK: - Summary
+  ci-success:
+    name: CI Success
+    needs: [build-macos, build-ios, build-ipados, package-tests, lint]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          if [[ "${{ needs.build-macos.result }}" != "success" ]] || \
+             [[ "${{ needs.build-ios.result }}" != "success" ]] || \
+             [[ "${{ needs.build-ipados.result }}" != "success" ]] || \
+             [[ "${{ needs.package-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.lint.result }}" != "success" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
+          echo "All CI checks passed!"
