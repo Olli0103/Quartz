@@ -5,6 +5,9 @@ import AVFoundation
 ///
 /// Records audio via `AVAudioRecorder` and saves as `.m4a` in the vault.
 /// Provides waveform visualization via metering.
+///
+/// **Per CODEX.md F8:** Uses `AudioMeteringProcessor` for background metering
+/// with throttled UI updates to avoid main thread contention during recording.
 @Observable
 @MainActor
 public final class AudioRecordingService: NSObject {
@@ -26,6 +29,9 @@ public final class AudioRecordingService: NSObject {
     public private(set) var duration: TimeInterval = 0
     public private(set) var currentLevel: Float = 0
     public private(set) var peakLevel: Float = 0
+
+    /// Recent level history for waveform visualization.
+    /// Updated from the background metering processor.
     public private(set) var levelHistory: [Float] = []
 
     /// URL of the last recording.
@@ -52,7 +58,16 @@ public final class AudioRecordingService: NSObject {
     private var recorder: AVAudioRecorder?
     private var meteringTimer: Timer?
     private var durationTimer: Timer?
-    private let maxLevelHistory = 200
+
+    /// Background metering processor for off-main-thread processing.
+    /// **Per CODEX.md F8:** Reduces main thread contention during recording.
+    private let meteringProcessor = AudioMeteringProcessor(
+        bufferCapacity: 1000,
+        uiUpdateInterval: 1.0 / 30.0  // 30Hz UI updates
+    )
+
+    /// Number of recent samples to display in waveform.
+    private let waveformSampleCount = 200
 
     private static func formattedTimestamp(from date: Date) -> String {
         let f = DateFormatter()
@@ -134,6 +149,11 @@ public final class AudioRecordingService: NSObject {
         levelHistory = []
         lastRecordingURL = fileURL
 
+        // Reset the metering processor for new session
+        Task {
+            await meteringProcessor.reset()
+        }
+
         startTimers()
 
         return fileURL
@@ -201,11 +221,15 @@ public final class AudioRecordingService: NSObject {
         return formatter.string(from: duration) ?? "00:00"
     }
 
+    /// Returns session statistics from the metering processor.
+    public func sessionStats() async -> (totalSamples: Int, peakLevel: Float, avgLevel: Float) {
+        await meteringProcessor.sessionStats()
+    }
+
     // MARK: - Private
 
     private func startTimers() {
-        // Timer fires on the main run loop, so MainActor.assumeIsolated is safe.
-        // Required because Timer's block is @Sendable in Swift 6.
+        // Metering timer fires at ~12Hz, but UI updates are throttled by processor
         meteringTimer = Timer.scheduledTimer(withTimeInterval: 0.083, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updateMetering()
@@ -230,20 +254,23 @@ public final class AudioRecordingService: NSObject {
         let avgPower = recorder?.averagePower(forChannel: 0) ?? -160
         let peakPower = recorder?.peakPower(forChannel: 0) ?? -160
 
-        // Normalize: -160..0 dB → 0..1
-        currentLevel = normalizeLevel(avgPower)
-        peakLevel = normalizeLevel(peakPower)
+        // Process sample in background, receive throttled UI updates
+        Task {
+            await meteringProcessor.processSample(
+                averagePower: avgPower,
+                peakPower: peakPower
+            ) { [weak self] normalizedAvg, normalizedPeak in
+                // This closure runs on MainActor at throttled rate (30Hz)
+                self?.currentLevel = normalizedAvg
+                self?.peakLevel = normalizedPeak
+            }
 
-        if levelHistory.count >= maxLevelHistory {
-            levelHistory.removeFirst()
+            // Update waveform from ring buffer (also throttled via actor)
+            let samples = await meteringProcessor.recentSamples(self.waveformSampleCount)
+            await MainActor.run { [weak self] in
+                self?.levelHistory = samples
+            }
         }
-        levelHistory.append(currentLevel)
-    }
-
-    private func normalizeLevel(_ level: Float) -> Float {
-        let minDB: Float = -60
-        let clampedLevel = max(level, minDB)
-        return (clampedLevel - minDB) / abs(minDB)
     }
 }
 
