@@ -8,8 +8,8 @@ import SwiftUI
 @MainActor
 public final class ContentViewModel {
     public var sidebarViewModel: SidebarViewModel?
-    public var editorViewModel: NoteEditorViewModel?
-    /// New jitter-free editor session (Phase C1). Used by WorkspaceView's detail column.
+    /// Jitter-free editor session. Used by WorkspaceView's detail column.
+    /// This is the SOLE editor state machine — no legacy fallback.
     public var editorSession: EditorSession?
     /// Document-context chat session — reads live text from EditorSession at send-time.
     public var documentChatSession: DocumentChatSession?
@@ -71,8 +71,7 @@ public final class ContentViewModel {
     /// Loads a vault: creates sidebar VM, search index, builds the file tree, and indexes notes.
     /// Wires the `NoteListStore` with preview data after indexing completes.
     public func loadVault(_ vault: VaultConfig, noteListStore: NoteListStore? = nil) {
-        editorViewModel?.cancelAllTasks()
-        editorViewModel = nil
+        editorSession?.closeNote()
         stopCloudSync()
         indexingTask?.cancel()
         indexingTask = nil
@@ -228,28 +227,13 @@ public final class ContentViewModel {
     /// Opens a note by loading it into the existing EditorSession.
     /// The session object is REUSED — no view destruction, no flash.
     public func openNote(at url: URL?) {
-        editorViewModel?.cancelAllTasks()
-
         guard let url else {
-            editorViewModel = nil
             editorSession?.closeNote()
             documentChatSession?.clear()
             return
         }
 
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return }
-
-        let container = ServiceContainer.shared
-
-        // Legacy editor
-        let vm = NoteEditorViewModel(
-            vaultProvider: container.resolveVaultProvider(),
-            frontmatterParser: container.resolveFrontmatterParser()
-        )
-        vm.vaultRootURL = sidebarViewModel?.vaultRootURL
-        vm.fileTree = sidebarViewModel?.fileTree ?? []
-        editorViewModel = vm
-        Task { await vm.loadNote(at: url) }
 
         // Reuse existing session — just load the new note into it
         if let session = editorSession {
@@ -844,18 +828,6 @@ public final class ContentViewModel {
     }
 
     private func applyFormatting(_ action: FormattingAction) {
-        // Prefer the new surgical EditorSession path (no full-text replacement)
-        if let session = editorSession {
-            session.applyFormatting(action)
-            return
-        }
-        // Legacy fallback for old NoteEditorView pipeline
-        guard let editor = editorViewModel else { return }
-        let formatter = MarkdownFormatter()
-        let (newText, newSelection) = formatter.apply(
-            action, to: editor.content, selectedRange: editor.cursorPosition
-        )
-        editor.content = newText
-        editor.cursorPosition = newSelection
+        editorSession?.applyFormatting(action)
     }
 }

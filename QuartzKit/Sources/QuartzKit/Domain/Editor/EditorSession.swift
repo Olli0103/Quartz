@@ -1268,9 +1268,19 @@ public final class EditorSession {
     /// The view layer observes this and navigates to the linked note.
     public var wikiLinkNavigationRequest: WikiLinkNavigationRequest?
 
-    /// Resolves a wiki-link title to a file URL using the current vault's file tree.
-    /// Matches by filename (case-insensitive, without .md extension).
-    public func resolveWikiLink(title: String) -> URL? {
+    /// Resolves a wiki-link title to a file URL.
+    /// Uses GraphEdgeStore (which delegates to GraphIdentityResolver) for robust
+    /// resolution supporting aliases, frontmatter titles, and path-qualified links.
+    /// Falls back to simple file tree matching if graph edge store not configured.
+    public func resolveWikiLink(title: String) async -> URL? {
+        // Prefer the canonical graph-based resolver (supports aliases, frontmatter titles, paths)
+        if let store = graphEdgeStore {
+            if let url = await store.resolveTitle(title) {
+                return url
+            }
+        }
+
+        // Fallback to simple file tree matching
         let target = title.lowercased().trimmingCharacters(in: .whitespaces)
         for node in fileTree {
             if let url = findNoteURL(matching: target, in: node) {
@@ -1283,16 +1293,18 @@ public final class EditorSession {
     /// Triggers navigation to a wiki-link destination.
     /// Posts a notification that the app shell can observe to open the note.
     public func navigateToWikiLink(title: String) {
-        guard let url = resolveWikiLink(title: title) else {
-            errorMessage = String(localized: "Note \"\(title)\" not found in vault.", bundle: .module)
-            return
+        Task {
+            guard let url = await resolveWikiLink(title: title) else {
+                errorMessage = String(localized: "Note \"\(title)\" not found in vault.", bundle: .module)
+                return
+            }
+            wikiLinkNavigationRequest = WikiLinkNavigationRequest(title: title, url: url)
+            NotificationCenter.default.post(
+                name: .quartzWikiLinkNavigation,
+                object: nil,
+                userInfo: ["url": url, "title": title]
+            )
         }
-        wikiLinkNavigationRequest = WikiLinkNavigationRequest(title: title, url: url)
-        NotificationCenter.default.post(
-            name: .quartzWikiLinkNavigation,
-            object: nil,
-            userInfo: ["url": url, "title": title]
-        )
     }
 
     private func findNoteURL(matching target: String, in node: FileNode) -> URL? {

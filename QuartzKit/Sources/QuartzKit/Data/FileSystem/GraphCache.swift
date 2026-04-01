@@ -85,6 +85,9 @@ public struct GraphCache: Sendable {
 ///
 /// Call `updateConnections(for:linkedTitles:allVaultURLs:)` after parsing a note
 /// to keep the edge map current.
+///
+/// Uses `GraphIdentityResolver` for robust wiki-link resolution when available,
+/// falling back to simple title matching for backwards compatibility.
 public actor GraphEdgeStore {
     /// Maps a source note URL to the URLs it links to via `[[wiki-links]]`.
     public private(set) var edges: [URL: [URL]] = [:]
@@ -101,10 +104,21 @@ public actor GraphEdgeStore {
     public private(set) var noteConcepts: [URL: [String]] = [:]
 
     /// Reverse lookup: title (lowercased, no extension) → URL.
-    /// Rebuilt whenever `updateConnections` is called with a new vault snapshot.
+    /// Used as fallback when no GraphIdentityResolver is configured.
     private var titleIndex: [String: URL] = [:]
 
+    /// Reference to the canonical identity resolver for robust wiki-link resolution.
+    /// When set, uses resolver's alias/title/path-qualified resolution.
+    /// When nil, falls back to simple title matching.
+    private var identityResolver: GraphIdentityResolver?
+
     public init() {}
+
+    /// Configures the identity resolver for robust wiki-link resolution.
+    /// Call this after the resolver is populated with note identities.
+    public func setIdentityResolver(_ resolver: GraphIdentityResolver) {
+        self.identityResolver = resolver
+    }
 
     /// Updates the edge map for a single note.
     ///
@@ -116,15 +130,14 @@ public actor GraphEdgeStore {
         for sourceURL: URL,
         linkedTitles: [String],
         allVaultURLs: [URL]
-    ) {
-        // Rebuild the title index from the vault snapshot
+    ) async {
+        // Rebuild the title index from the vault snapshot (fallback)
         rebuildTitleIndex(from: allVaultURLs)
 
         // Resolve each linked title to a URL
         var resolved: [URL] = []
         for title in linkedTitles {
-            let key = title.lowercased().trimmingCharacters(in: .whitespaces)
-            if let url = titleIndex[key], url != sourceURL {
+            if let url = await resolveWikiLink(title), url != sourceURL {
                 resolved.append(url)
             }
         }
@@ -132,8 +145,23 @@ public actor GraphEdgeStore {
     }
 
     /// Resolves a wiki-link title to a note URL, if it exists in the vault.
-    public func resolveTitle(_ title: String) -> URL? {
-        let key = title.lowercased().trimmingCharacters(in: .whitespaces)
+    /// Uses GraphIdentityResolver for robust matching (aliases, titles, paths),
+    /// falling back to simple title matching if resolver not configured.
+    public func resolveTitle(_ title: String) async -> URL? {
+        await resolveWikiLink(title)
+    }
+
+    /// Internal resolution method that tries resolver first, then fallback.
+    private func resolveWikiLink(_ target: String) async -> URL? {
+        // Try the canonical resolver first (supports aliases, frontmatter titles, paths)
+        if let resolver = identityResolver {
+            if let url = await resolver.resolve(target) {
+                return url
+            }
+        }
+
+        // Fallback to simple title matching
+        let key = target.lowercased().trimmingCharacters(in: .whitespaces)
         return titleIndex[key]
     }
 
@@ -141,15 +169,14 @@ public actor GraphEdgeStore {
     public func rebuildAll(
         connections: [(sourceURL: URL, linkedTitles: [String])],
         allVaultURLs: [URL]
-    ) {
+    ) async {
         rebuildTitleIndex(from: allVaultURLs)
         edges.removeAll()
 
         for (sourceURL, linkedTitles) in connections {
             var resolved: [URL] = []
             for title in linkedTitles {
-                let key = title.lowercased().trimmingCharacters(in: .whitespaces)
-                if let url = titleIndex[key], url != sourceURL {
+                if let url = await resolveWikiLink(title), url != sourceURL {
                     resolved.append(url)
                 }
             }
