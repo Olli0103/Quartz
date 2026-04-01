@@ -243,13 +243,16 @@ public struct SidebarView: View {
                 guard !name.isEmpty else { return }
                 QuartzFeedback.primaryAction()
                 Task {
+                    let noteURL: URL?
                     if template == .blank {
-                        await viewModel.createNote(named: name, in: parent)
+                        noteURL = await viewModel.createNote(named: name, in: parent)
                     } else {
-                        await viewModel.createNoteFromTemplate(template, named: name, in: parent)
+                        noteURL = await viewModel.createNoteFromTemplate(template, named: name, in: parent)
                     }
-                    let noteURL = parent.appending(path: "\(name.hasSuffix(".md") ? name : "\(name).md")")
-                    selectedNoteURL = noteURL
+                    // Use the actual URL returned by the create method
+                    if let url = noteURL {
+                        selectedNoteURL = url
+                    }
                 }
             }
             Button(String(localized: "Cancel", bundle: .module), role: .cancel) { newItemName = "" }

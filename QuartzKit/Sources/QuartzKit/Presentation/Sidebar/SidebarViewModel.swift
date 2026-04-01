@@ -215,13 +215,17 @@ public final class SidebarViewModel {
         }
     }
 
-    /// Creates a new note.
-    public func createNote(named name: String, in folder: URL) async {
+    /// Creates a new note and returns its URL. Inserts the node locally for instant feedback.
+    @discardableResult
+    public func createNote(named name: String, in folder: URL) async -> URL? {
         do {
-            _ = try await vaultProvider.createNote(named: name, in: folder)
-            await refresh()
+            let note = try await vaultProvider.createNote(named: name, in: folder)
+            // Insert the new node locally for instant feedback (avoid full refresh)
+            insertNoteNode(for: note, in: folder)
+            return note.fileURL
         } catch {
             errorMessage = userFacingMessage(for: error)
+            return nil
         }
     }
 
@@ -229,7 +233,8 @@ public final class SidebarViewModel {
     public func createNote(named name: String, in folder: URL, initialContent: String) async -> URL? {
         do {
             let note = try await vaultProvider.createNote(named: name, in: folder, initialContent: initialContent)
-            await refresh()
+            // Insert the new node locally for instant feedback
+            insertNoteNode(for: note, in: folder)
             return note.fileURL
         } catch {
             errorMessage = userFacingMessage(for: error)
@@ -238,14 +243,97 @@ public final class SidebarViewModel {
     }
 
     /// Creates a new note from a template.
-    public func createNoteFromTemplate(_ template: NoteTemplate, named name: String, in folder: URL) async {
+    @discardableResult
+    public func createNoteFromTemplate(_ template: NoteTemplate, named name: String, in folder: URL) async -> URL? {
         do {
             let templateService = VaultTemplateService()
-            _ = try await templateService.createFromTemplate(template, named: name, in: folder)
-            await refresh()
+            let fileURL = try await templateService.createFromTemplate(template, named: name, in: folder)
+            // Insert the new node locally for instant feedback
+            insertNoteNode(at: fileURL, in: folder)
+            return fileURL
         } catch {
             errorMessage = userFacingMessage(for: error)
+            return nil
         }
+    }
+
+    /// Inserts a newly created note into the file tree without a full refresh.
+    private func insertNoteNode(for note: NoteDocument, in folder: URL) {
+        let newNode = FileNode(
+            name: note.fileURL.lastPathComponent,
+            url: note.fileURL,
+            nodeType: .note,
+            children: nil,
+            metadata: FileMetadata(
+                createdAt: note.frontmatter.createdAt,
+                modifiedAt: note.frontmatter.modifiedAt,
+                fileSize: 0,
+                isEncrypted: note.frontmatter.isEncrypted,
+                cloudStatus: .local
+            ),
+            frontmatter: note.frontmatter
+        )
+        insertNodeIntoTree(newNode, parentURL: folder)
+    }
+
+    /// Inserts a newly created note (by URL) into the file tree without a full refresh.
+    private func insertNoteNode(at url: URL, in folder: URL) {
+        let newNode = FileNode(
+            name: url.lastPathComponent,
+            url: url,
+            nodeType: .note,
+            children: nil,
+            metadata: FileMetadata(
+                createdAt: .now,
+                modifiedAt: .now,
+                fileSize: 0,
+                isEncrypted: false,
+                cloudStatus: .local
+            ),
+            frontmatter: nil
+        )
+        insertNodeIntoTree(newNode, parentURL: folder)
+    }
+
+    /// Common tree insertion logic.
+    private func insertNodeIntoTree(_ node: FileNode, parentURL: URL) {
+        // Find and update the parent folder in the tree
+        fileTree = insertNode(node, into: fileTree, parentURL: parentURL)
+        invalidateFilterCache()
+    }
+
+    /// Recursively inserts a node into the appropriate parent folder.
+    private func insertNode(_ node: FileNode, into tree: [FileNode], parentURL: URL) -> [FileNode] {
+        var result = tree
+
+        for i in result.indices {
+            if result[i].url == parentURL && result[i].isFolder {
+                // Found the parent folder - insert the new node
+                var children = result[i].children ?? []
+                children.append(node)
+                // Sort children: folders first, then alphabetically
+                children.sort { lhs, rhs in
+                    if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
+                    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                }
+                result[i].children = children
+                return result
+            } else if let children = result[i].children {
+                // Recurse into subfolders
+                result[i].children = insertNode(node, into: children, parentURL: parentURL)
+            }
+        }
+
+        // If parentURL is the vault root, insert at top level
+        if parentURL == vaultRoot {
+            result.append(node)
+            result.sort { lhs, rhs in
+                if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+        }
+
+        return result
     }
 
     /// Renames an item.
