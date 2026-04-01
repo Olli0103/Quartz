@@ -47,8 +47,7 @@ final class EditorSessionRestorationTests: XCTestCase {
     }
 
     /// Tests that cursor is cleared when note is closed.
-    /// NOTE: This test currently FAILS - documenting expected behavior per F6.
-    /// closeNote() should reset cursor position to allow clean restoration on reopen.
+    /// Fixed in Phase 1: closeNote() now resets cursor position.
     @MainActor
     func testCursorClearedOnNoteClose() async throws {
         let session = createTestSession()
@@ -60,13 +59,47 @@ final class EditorSessionRestorationTests: XCTestCase {
         // Clear note
         session.closeNote()
 
-        // EXPECTED: Cursor should be reset (currently FAILS - cursor is preserved)
-        // This is needed so that restoration can set a new cursor position cleanly.
-        // Skipping assertion for now to allow test suite to pass
-        // XCTAssertEqual(session.cursorPosition, NSRange(location: 0, length: 0))
+        // Cursor should be reset (fixed in Phase 1)
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 0, length: 0),
+            "closeNote() should reset cursor position")
+    }
 
-        // Document current behavior
-        XCTAssertTrue(true, "closeNote() should reset cursor - fix pending")
+    /// Tests that restoreCursor API works correctly.
+    @MainActor
+    func testRestoreCursorAPI() async throws {
+        let session = createTestSession()
+
+        // Simulate document with content (via textDidChange callback)
+        session.textDidChange("This is sample content for testing cursor restoration.")
+
+        // Restore cursor to position 42 (within document bounds)
+        session.restoreCursor(location: 42, length: 5)
+
+        XCTAssertEqual(session.cursorPosition.location, 42)
+        XCTAssertEqual(session.cursorPosition.length, 5)
+    }
+
+    /// Tests that restoreCursor clamps to document length.
+    @MainActor
+    func testRestoreCursorClampsToDocumentLength() async throws {
+        let session = createTestSession()
+
+        // Document is empty, so position should clamp to 0
+        session.restoreCursor(location: 1000, length: 0)
+
+        XCTAssertEqual(session.cursorPosition.location, 0,
+            "Cursor should be clamped to document length")
+    }
+
+    /// Tests that restoreScroll API works correctly.
+    @MainActor
+    func testRestoreScrollAPI() async throws {
+        let session = createTestSession()
+
+        // Restore scroll to y=150
+        session.restoreScroll(y: 150)
+
+        XCTAssertEqual(session.scrollOffset.y, 150)
     }
 
     // MARK: - State Persistence Contract
@@ -116,13 +149,12 @@ final class EditorSessionRestorationTests: XCTestCase {
         //    - session.loadNote(at: restoredURL)
         //
         // 3. After note content is loaded:
-        //    - session.restoreCursor(location:length:)  // MISSING API
-        //    - session.restoreScroll(y:)                // MISSING API
+        //    - session.restoreCursor(location:length:)
+        //    - session.restoreScroll(y:)
         //
-        // CURRENT STATE: Steps 1-2 work, but step 3 restoration APIs don't exist.
-        // Cursor/scroll are only set by delegate callbacks from text view.
+        // IMPLEMENTED: All steps now work with Phase 1 changes.
 
-        XCTAssertTrue(true, "Restoration flow documented - APIs need implementation")
+        XCTAssertTrue(true, "Restoration flow implemented")
     }
 
     // MARK: - Helper

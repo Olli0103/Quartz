@@ -306,8 +306,8 @@ public final class EditorSession {
     }
 
     /// Closes the current note without destroying the session.
-    /// Clears text, note reference, and undo stack. The EditorContainerView
-    /// stays mounted — it shows the empty state based on `note == nil`.
+    /// Clears text, note reference, undo stack, and editing state.
+    /// The EditorContainerView stays mounted — it shows the empty state based on `note == nil`.
     public func closeNote() {
         // Save a final snapshot if there are unsaved changes
         if isDirty, let noteURL = note?.fileURL, let vaultRoot = vaultRootURL {
@@ -328,6 +328,10 @@ public final class EditorSession {
         externalModificationDetected = false
         wordCount = 0
         formattingState = .empty
+
+        // Reset cursor and scroll state for clean restoration on next note open
+        cursorPosition = NSRange(location: 0, length: 0)
+        scrollOffset = .zero
 
         #if canImport(UIKit)
         activeTextView?.text = ""
@@ -414,6 +418,54 @@ public final class EditorSession {
         #elseif canImport(AppKit)
         if let scrollView = activeTextView?.enclosingScrollView {
             scrollView.contentView.scroll(to: scrollOffset)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        #endif
+    }
+
+    // MARK: - State Restoration (App Relaunch)
+
+    /// Restores cursor/selection position after note reload.
+    /// Called by the shell after loading a note to restore @SceneStorage state.
+    ///
+    /// - Parameters:
+    ///   - location: The cursor location (character offset).
+    ///   - length: The selection length (0 for cursor, >0 for selection).
+    public func restoreCursor(location: Int, length: Int = 0) {
+        let textLength = currentText.count
+        // Clamp to valid range
+        let clampedLocation = min(max(0, location), textLength)
+        let clampedLength = min(length, textLength - clampedLocation)
+        let range = NSRange(location: clampedLocation, length: clampedLength)
+
+        cursorPosition = range
+
+        // Apply to native text view
+        #if canImport(UIKit)
+        if let textView = activeTextView {
+            textView.selectedRange = range
+        }
+        #elseif canImport(AppKit)
+        if let textView = activeTextView {
+            textView.setSelectedRange(range)
+        }
+        #endif
+    }
+
+    /// Restores scroll position after note reload.
+    /// Called by the shell after loading a note to restore @SceneStorage state.
+    ///
+    /// - Parameter y: The vertical scroll offset.
+    public func restoreScroll(y: Double) {
+        let newOffset = CGPoint(x: scrollOffset.x, y: y)
+        scrollOffset = newOffset
+
+        // Apply to native text view
+        #if canImport(UIKit)
+        activeTextView?.setContentOffset(newOffset, animated: false)
+        #elseif canImport(AppKit)
+        if let scrollView = activeTextView?.enclosingScrollView {
+            scrollView.contentView.scroll(to: newOffset)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
         #endif

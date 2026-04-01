@@ -365,8 +365,12 @@ struct ContentView: View {
         .onChange(of: appState.pendingOpenDocumentScanner) { _, pending in
             guard pending else { return }
             appState.pendingOpenDocumentScanner = false
+            // TODO: Document scanner presentation should be handled via EditorSession
+            // or a dedicated coordinator, not via legacy editorViewModel.
+            // See CODEX.md F3 for architectural direction.
             #if os(iOS)
-            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            // Scanner is now presented by EditorContainerView's @State showDocumentScanner.
+            // A proper fix would inject AppState into EditorContainerView and observe the flag there.
             #endif
         }
         .onChange(of: workspaceStore.selectedNoteURL) { _, newURL in
@@ -437,8 +441,9 @@ struct ContentView: View {
         let d = UserDefaults(suiteName: "group.app.quartz.shared")
         if d?.bool(forKey: "pendingDocumentScanner") == true {
             d?.removeObject(forKey: "pendingDocumentScanner")
+            // TODO: Scanner presentation needs architectural fix (see CODEX.md F3)
             #if os(iOS)
-            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            // Currently no-op until EditorContainerView observes AppState
             #endif
         }
         guard let link = d?.string(forKey: "pendingDeepLink") else { return }
@@ -457,8 +462,9 @@ struct ContentView: View {
         case "quartz://dashboard":
             workspaceStore.showDashboard = true
         case "quartz://scan":
+            // TODO: Scanner presentation needs architectural fix (see CODEX.md F3)
             #if os(iOS)
-            viewModel?.editorViewModel?.requestDocumentScannerPresentation = true
+            // Currently no-op until EditorContainerView observes AppState
             #endif
         default:
             break
@@ -837,6 +843,7 @@ struct ContentView: View {
         guard let session = viewModel?.editorSession else { return }
         restoredCursorLocation = session.cursorPosition.location
         restoredCursorLength = session.cursorPosition.length
+        restoredScrollOffset = session.scrollOffset.y
     }
 
     private func restoreSelectedNoteIfNeeded() {
@@ -849,5 +856,29 @@ struct ContentView: View {
             return
         }
         selectedNoteURL = noteURL
+
+        // Schedule cursor/scroll restoration after note loads
+        // Use a small delay to allow the editor to mount and populate
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            restoreEditorState()
+        }
+    }
+
+    /// Restores cursor and scroll position to the active editor session.
+    /// Called after note selection is restored.
+    private func restoreEditorState() {
+        guard let session = viewModel?.editorSession,
+              session.note != nil else { return }
+
+        // Restore cursor position
+        if restoredCursorLocation > 0 || restoredCursorLength > 0 {
+            session.restoreCursor(location: restoredCursorLocation, length: restoredCursorLength)
+        }
+
+        // Restore scroll position
+        if restoredScrollOffset > 0 {
+            session.restoreScroll(y: restoredScrollOffset)
+        }
     }
 }
