@@ -134,14 +134,14 @@ public actor GraphEdgeStore {
         // Rebuild the title index from the vault snapshot (fallback)
         rebuildTitleIndex(from: allVaultURLs)
 
-        // Resolve each linked title to a URL
-        var resolved: [URL] = []
+        // Resolve each linked title to a URL, deduplicating
+        var resolvedSet = Set<URL>()
         for title in linkedTitles {
             if let url = await resolveWikiLink(title), url != sourceURL {
-                resolved.append(url)
+                resolvedSet.insert(url)
             }
         }
-        edges[sourceURL] = resolved
+        edges[sourceURL] = Array(resolvedSet)
     }
 
     /// Resolves a wiki-link title to a note URL, if it exists in the vault.
@@ -174,13 +174,13 @@ public actor GraphEdgeStore {
         edges.removeAll()
 
         for (sourceURL, linkedTitles) in connections {
-            var resolved: [URL] = []
+            var resolvedSet = Set<URL>()
             for title in linkedTitles {
                 if let url = await resolveWikiLink(title), url != sourceURL {
-                    resolved.append(url)
+                    resolvedSet.insert(url)
                 }
             }
-            edges[sourceURL] = resolved
+            edges[sourceURL] = Array(resolvedSet)
         }
     }
 
