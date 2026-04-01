@@ -139,6 +139,51 @@ public actor GraphIdentityResolver {
         }
     }
 
+    /// Renames a note, preserving backward compatibility by adding the old filename as an alias.
+    ///
+    /// **Per CODEX.md F5:** Atomic rename operation that:
+    /// 1. Unregisters old identity
+    /// 2. Registers new identity with old filename as additional alias
+    /// 3. Updates all indices atomically
+    ///
+    /// - Parameters:
+    ///   - oldURL: The original note URL
+    ///   - newURL: The new note URL after rename
+    ///   - newFilename: The new filename (without extension)
+    ///   - frontmatterTitle: Optional frontmatter title (preserved or updated)
+    ///   - existingAliases: Existing aliases to preserve
+    ///   - tags: Tags to preserve
+    public func rename(
+        from oldURL: URL,
+        to newURL: URL,
+        newFilename: String,
+        frontmatterTitle: String? = nil,
+        existingAliases: [String] = [],
+        tags: [String] = []
+    ) {
+        guard let oldIdentity = identities[oldURL] else { return }
+
+        // Unregister old identity
+        unregister(oldIdentity)
+
+        // Create new identity with old filename as alias for backward compatibility
+        var allAliases = existingAliases
+        let oldFilename = oldIdentity.filename
+        if !allAliases.contains(oldFilename) && oldFilename != newFilename {
+            allAliases.append(oldFilename)
+        }
+
+        let newIdentity = NoteIdentity(
+            url: newURL,
+            filename: newFilename,
+            frontmatterTitle: frontmatterTitle ?? oldIdentity.frontmatterTitle,
+            aliases: allAliases,
+            tags: tags.isEmpty ? oldIdentity.tags : tags
+        )
+
+        register(newIdentity)
+    }
+
     // MARK: - Resolution
 
     /// Resolves a wiki-link target to a note URL.

@@ -92,6 +92,11 @@ public actor GraphEdgeStore {
     /// Maps a source note URL to the URLs it links to via `[[wiki-links]]`.
     public private(set) var edges: [URL: [URL]] = [:]
 
+    /// Reverse index: maps a target URL to all source URLs that link to it.
+    /// Maintained alongside `edges` for O(1) backlink queries.
+    /// **Per CODEX.md F5:** Avoids O(n) scan of all edges for backlink lookups.
+    private var reverseEdges: [URL: Set<URL>] = [:]
+
     /// Maps a source note URL to semantically related note URLs.
     /// Discovered by background AI analysis — non-destructive, never alters markdown files.
     public private(set) var semanticEdges: [URL: [URL]] = [:]
@@ -126,13 +131,27 @@ public actor GraphEdgeStore {
     ///   - sourceURL: The note that contains the wiki-links.
     ///   - linkedTitles: Extracted wiki-link target titles (from `WikiLinkExtractor`).
     ///   - allVaultURLs: All `.md` file URLs in the vault (used to resolve titles to URLs).
+    ///
+    /// **Per CODEX.md F5:** When `identityResolver` is configured, resolution uses the
+    /// robust resolver (aliases, frontmatter titles, paths). The expensive `rebuildTitleIndex`
+    /// is ONLY called when falling back to simple title matching.
     public func updateConnections(
         for sourceURL: URL,
         linkedTitles: [String],
         allVaultURLs: [URL]
     ) async {
-        // Rebuild the title index from the vault snapshot (fallback)
-        rebuildTitleIndex(from: allVaultURLs)
+        // Only rebuild fallback title index if resolver is not configured
+        // Per CODEX.md F5: avoids O(n) work on every update when resolver handles resolution
+        if identityResolver == nil {
+            rebuildTitleIndex(from: allVaultURLs)
+        }
+
+        // Remove old reverse edges for this source
+        if let oldTargets = edges[sourceURL] {
+            for target in oldTargets {
+                reverseEdges[target]?.remove(sourceURL)
+            }
+        }
 
         // Resolve each linked title to a URL, deduplicating
         var resolvedSet = Set<URL>()
@@ -141,7 +160,14 @@ public actor GraphEdgeStore {
                 resolvedSet.insert(url)
             }
         }
+
+        // Update forward edges
         edges[sourceURL] = Array(resolvedSet)
+
+        // Update reverse edges
+        for target in resolvedSet {
+            reverseEdges[target, default: []].insert(sourceURL)
+        }
     }
 
     /// Resolves a wiki-link title to a note URL, if it exists in the vault.
@@ -149,6 +175,12 @@ public actor GraphEdgeStore {
     /// falling back to simple title matching if resolver not configured.
     public func resolveTitle(_ title: String) async -> URL? {
         await resolveWikiLink(title)
+    }
+
+    /// Returns all notes that link TO the given URL (backlinks).
+    /// **Per CODEX.md F5:** O(1) lookup via reverse index.
+    public func backlinks(for url: URL) -> [URL] {
+        Array(reverseEdges[url] ?? [])
     }
 
     /// Internal resolution method that tries resolver first, then fallback.
@@ -172,6 +204,7 @@ public actor GraphEdgeStore {
     ) async {
         rebuildTitleIndex(from: allVaultURLs)
         edges.removeAll()
+        reverseEdges.removeAll()
 
         for (sourceURL, linkedTitles) in connections {
             var resolvedSet = Set<URL>()
@@ -181,6 +214,11 @@ public actor GraphEdgeStore {
                 }
             }
             edges[sourceURL] = Array(resolvedSet)
+
+            // Build reverse edges
+            for target in resolvedSet {
+                reverseEdges[target, default: []].insert(sourceURL)
+            }
         }
     }
 

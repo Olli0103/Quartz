@@ -163,41 +163,70 @@ final class AliasPathRenameRewireTests: XCTestCase {
     }
 
     /// Documents missing rename API on GraphIdentityResolver.
+    /// UPDATE: Rename API now implemented per CODEX.md F5.
     @MainActor
-    func testRenameAPIDocumentation() async throws {
-        // MISSING API (per CODEX.md F5):
-        //
-        // GraphIdentityResolver needs a rename method:
-        // ```swift
-        // func rename(from oldURL: URL, to newURL: URL, newFilename: String)
-        // ```
-        //
-        // Expected behavior:
-        // 1. Preserve stableID across rename
-        // 2. Add old filename as alias (for backward compatibility)
-        // 3. Update all internal indices atomically
-        //
-        // Current workaround: unregister + register new identity (loses stableID continuity)
+    func testRenameAPIImplemented() async throws {
+        let resolver = GraphIdentityResolver()
 
-        XCTAssertTrue(true, "Rename API documented - needs implementation")
+        let originalURL = URL(fileURLWithPath: "/vault/original.md")
+        let identity = NoteIdentity(url: originalURL, filename: "original")
+        await resolver.register(identity)
+
+        // Verify original resolves
+        let resolvedOriginal = await resolver.resolve("original")
+        XCTAssertEqual(resolvedOriginal, originalURL)
+
+        // Rename using the new API
+        let newURL = URL(fileURLWithPath: "/vault/renamed.md")
+        await resolver.rename(
+            from: originalURL,
+            to: newURL,
+            newFilename: "renamed"
+        )
+
+        // New name should resolve
+        let resolvedNew = await resolver.resolve("renamed")
+        XCTAssertEqual(resolvedNew, newURL, "New filename should resolve")
+
+        // Old name should also resolve (automatically added as alias)
+        let resolvedOld = await resolver.resolve("original")
+        XCTAssertEqual(resolvedOld, newURL, "Old filename should resolve as alias")
+
+        // Original URL should no longer be registered
+        let identityForOld = await resolver.identity(for: originalURL)
+        XCTAssertNil(identityForOld, "Old URL should be unregistered")
     }
 
-    /// Documents missing backlinks API on GraphEdgeStore.
+    /// Tests that backlinks API returns correct results.
+    /// UPDATE: Backlinks API now implemented per CODEX.md F5.
     @MainActor
-    func testBacklinksAPIDocumentation() async throws {
-        // MISSING API:
-        //
-        // GraphEdgeStore needs a backlinks method:
-        // ```swift
-        // func backlinks(for url: URL) -> [URL]
-        // ```
-        //
-        // Current state: edges map only stores forward links (A -> B).
-        // To get backlinks (who links to B), need to scan all edges.
-        //
-        // Expected: Maintain reverse index for O(1) backlink lookup.
+    func testBacklinksAPIImplemented() async throws {
+        let resolver = GraphIdentityResolver()
+        let store = GraphEdgeStore()
+        await store.setIdentityResolver(resolver)
 
-        XCTAssertTrue(true, "Backlinks API documented - needs implementation")
+        let noteA = URL(fileURLWithPath: "/vault/a.md")
+        let noteB = URL(fileURLWithPath: "/vault/b.md")
+        let noteC = URL(fileURLWithPath: "/vault/c.md")
+
+        await resolver.register(NoteIdentity(url: noteA, filename: "a"))
+        await resolver.register(NoteIdentity(url: noteB, filename: "b"))
+        await resolver.register(NoteIdentity(url: noteC, filename: "c"))
+
+        let allURLs = [noteA, noteB, noteC]
+
+        // A links to B
+        // C links to B
+        await store.updateConnections(for: noteA, linkedTitles: ["b"], allVaultURLs: allURLs)
+        await store.updateConnections(for: noteC, linkedTitles: ["b"], allVaultURLs: allURLs)
+
+        // B should have backlinks from A and C
+        let backlinksToB = await store.backlinks(for: noteB)
+        XCTAssertEqual(Set(backlinksToB), Set([noteA, noteC]), "B should have backlinks from A and C")
+
+        // A should have no backlinks
+        let backlinksToA = await store.backlinks(for: noteA)
+        XCTAssertTrue(backlinksToA.isEmpty, "A should have no backlinks")
     }
 
     /// Tests that unregister followed by register works as workaround for rename.
