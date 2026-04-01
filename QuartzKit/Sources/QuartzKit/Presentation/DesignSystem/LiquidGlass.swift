@@ -880,15 +880,45 @@ public struct QuartzPressButtonStyle: ButtonStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
+        QuartzPressButtonContent(configuration: configuration, reduceMotion: reduceMotion)
+    }
+}
+
+/// Internal view for QuartzPressButtonStyle that handles hover and haptics.
+private struct QuartzPressButtonContent: View {
+    let configuration: ButtonStyleConfiguration
+    let reduceMotion: Bool
+
+    #if os(macOS)
+    @State private var isHovered = false
+    #endif
+
+    var body: some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            #if os(macOS)
+            .opacity(isHovered ? 1.0 : (configuration.isPressed ? 0.85 : 0.92))
+            .shadow(
+                color: Color.accentColor.opacity(configuration.isPressed ? 0.1 : (isHovered ? 0.35 : 0.3)),
+                radius: configuration.isPressed ? 4 : (isHovered ? 14 : 12),
+                y: configuration.isPressed ? 2 : 6
+            )
+            .onHover { isHovered = $0 }
+            #else
             .opacity(configuration.isPressed ? 0.85 : 1.0)
+            #if !os(visionOS)
             .shadow(
                 color: Color.accentColor.opacity(configuration.isPressed ? 0.1 : 0.3),
                 radius: configuration.isPressed ? 4 : 12,
                 y: configuration.isPressed ? 2 : 6
             )
+            #endif
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed)
+            #endif
             .animation(reduceMotion ? .default : QuartzAnimation.buttonPress, value: configuration.isPressed)
+            #if os(macOS)
+            .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isHovered)
+            #endif
     }
 }
 
@@ -898,10 +928,33 @@ public struct QuartzCardButtonStyle: ButtonStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
+        QuartzCardButtonContent(configuration: configuration, reduceMotion: reduceMotion)
+    }
+}
+
+/// Internal view for QuartzCardButtonStyle that handles hover and haptics.
+private struct QuartzCardButtonContent: View {
+    let configuration: ButtonStyleConfiguration
+    let reduceMotion: Bool
+
+    #if os(macOS)
+    @State private var isHovered = false
+    #endif
+
+    var body: some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            #if os(macOS)
+            .opacity(isHovered ? 1.0 : (configuration.isPressed ? 0.9 : 0.95))
+            .onHover { isHovered = $0 }
+            #else
             .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed)
+            #endif
             .animation(reduceMotion ? .default : QuartzAnimation.cardPress, value: configuration.isPressed)
+            #if os(macOS)
+            .animation(reduceMotion ? .default : QuartzAnimation.soft, value: isHovered)
+            #endif
     }
 }
 
@@ -914,6 +967,9 @@ public struct QuartzBounceButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
             .animation(reduceMotion ? .default : QuartzAnimation.bounce, value: configuration.isPressed)
+            #if os(iOS)
+            .sensoryFeedback(.impact(weight: .medium), trigger: configuration.isPressed)
+            #endif
     }
 }
 
@@ -929,10 +985,15 @@ public struct FloatingButtonStyle: ButtonStyle {
             .background(
                 Circle()
                     .fill(color.gradient)
+                    #if !os(visionOS)
                     .shadow(color: color.opacity(0.4), radius: 12, y: 6)
+                    #endif
             )
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .animation(reduceMotion ? .default : QuartzAnimation.soft, value: configuration.isPressed)
+            #if os(iOS)
+            .sensoryFeedback(.impact(weight: .medium), trigger: configuration.isPressed)
+            #endif
     }
 }
 
