@@ -150,7 +150,7 @@ public final class NoteListStore {
     /// Call after `configure()` and after preview indexing completes.
     public func loadItems(for source: SourceSelection) async {
         currentSource = source
-        guard let repository else {
+        guard let repository, let vaultRoot else {
             items = []
             sections = []
             isLoading = false
@@ -161,7 +161,13 @@ public final class NoteListStore {
         let previews = await repository.allPreviews()
         let favoriteKeys = FavoriteNoteStorage.readStoredKeys()
 
-        allItems = previews.map { preview in
+        // Filter to only include notes that are within the current vault root
+        let vaultRootPath = vaultRoot.path(percentEncoded: false)
+        let filteredPreviews = previews.filter { preview in
+            preview.url.path(percentEncoded: false).hasPrefix(vaultRootPath)
+        }
+
+        allItems = filteredPreviews.map { preview in
             NoteListItem(
                 url: preview.url,
                 title: preview.title,
@@ -260,6 +266,24 @@ public final class NoteListStore {
         // For .recent, limit to top N after sorting by date
         if case .recent = currentSource {
             filtered = Array(filtered.prefix(Self.recentLimit))
+        }
+
+        // Debug: check for duplicates by URL path (not URL object identity)
+        let paths = filtered.map { $0.url.path(percentEncoded: false) }
+        let uniquePaths = Set(paths)
+        if paths.count != uniquePaths.count {
+            print("[NoteListStore] WARNING: \(paths.count - uniquePaths.count) duplicate paths detected in filtered items!")
+            let duplicates = Dictionary(grouping: paths, by: { $0 }).filter { $1.count > 1 }
+            for (path, occurrences) in duplicates.prefix(5) {
+                print("  - \(path) appears \(occurrences.count) times")
+            }
+        }
+
+        // Also check allItems
+        let allPaths = allItems.map { $0.url.path(percentEncoded: false) }
+        let uniqueAllPaths = Set(allPaths)
+        if allPaths.count != uniqueAllPaths.count {
+            print("[NoteListStore] WARNING: \(allPaths.count - uniqueAllPaths.count) duplicate paths in allItems!")
         }
 
         items = filtered

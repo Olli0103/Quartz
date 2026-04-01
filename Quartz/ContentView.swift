@@ -274,11 +274,10 @@ struct ContentView: View {
                 alertTextFieldValue = ""
                 coordinator.activeAlert = nil
                 guard !name.isEmpty else { return }
-                let finalName = name.hasSuffix(".md") ? name : "\(name).md"
-                let noteURL = parent.appending(path: finalName)
                 Task {
-                    await viewModel?.sidebarViewModel?.createNote(named: name, in: parent)
-                    await MainActor.run { selectedNoteURL = noteURL }
+                    if let url = await viewModel?.sidebarViewModel?.createNote(named: name, in: parent) {
+                        await MainActor.run { selectedNoteURL = url }
+                    }
                 }
             }
             Button(String(localized: "Cancel"), role: .cancel) {

@@ -66,6 +66,10 @@ public final class EditorSession {
     /// Prevents file watcher from showing spurious "modified externally" banner.
     public private(set) var isRestoringVersion: Bool = false
 
+    /// Guard flag: true while we are saving. Prevents file watcher from reloading
+    /// when it detects changes that we ourselves triggered.
+    private var isSavingToFileSystem: Bool = false
+
     // MARK: - Active Text View (weak ref)
 
     /// The native text view managed by the representable. Weak to avoid retain cycle.
@@ -703,7 +707,15 @@ public final class EditorSession {
         guard var currentNote = note, (isDirty || force), !isSaving else { return }
 
         isSaving = true
-        defer { isSaving = false }
+        isSavingToFileSystem = true
+        defer {
+            isSaving = false
+            // Delay clearing the flag slightly to allow file system events to be processed
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(500))
+                self.isSavingToFileSystem = false
+            }
+        }
 
         // Snapshot from native view (the source of truth)
         let textSnapshot: String
@@ -1233,6 +1245,8 @@ public final class EditorSession {
     private func handleFileChange(_ event: FileChangeEvent) {
         // Ignore file changes during version restore to prevent spurious warnings
         guard !isRestoringVersion else { return }
+        // Ignore file changes that we triggered by saving
+        guard !isSavingToFileSystem else { return }
 
         switch event {
         case .modified:
@@ -1437,6 +1451,8 @@ extension EditorSession: NoteFilePresenterDelegate {
     public func filePresenterDidDetectChange(_ presenter: NoteFilePresenter) {
         // Ignore during version restore
         guard !isRestoringVersion else { return }
+        // Ignore changes we triggered by saving
+        guard !isSavingToFileSystem else { return }
 
         // Post notification so Intelligence Engine can re-index the file
         if let url = presenter.presentedItemURL {

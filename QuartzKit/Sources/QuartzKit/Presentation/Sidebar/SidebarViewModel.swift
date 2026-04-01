@@ -305,9 +305,10 @@ public final class SidebarViewModel {
     /// Recursively inserts a node into the appropriate parent folder.
     private func insertNode(_ node: FileNode, into tree: [FileNode], parentURL: URL) -> [FileNode] {
         var result = tree
+        let standardizedParent = parentURL.standardizedFileURL
 
         for i in result.indices {
-            if result[i].url == parentURL && result[i].isFolder {
+            if result[i].url.standardizedFileURL == standardizedParent && result[i].isFolder {
                 // Found the parent folder - insert the new node
                 var children = result[i].children ?? []
                 children.append(node)
@@ -325,7 +326,7 @@ public final class SidebarViewModel {
         }
 
         // If parentURL is the vault root, insert at top level
-        if parentURL == vaultRoot {
+        if let root = vaultRoot, standardizedParent == root.standardizedFileURL {
             result.append(node)
             result.sort { lhs, rhs in
                 if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
