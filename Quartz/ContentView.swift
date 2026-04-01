@@ -244,7 +244,7 @@ struct ContentView: View {
             if let urls = viewModel?.conflictingFileURLs, !urls.isEmpty {
                 ConflictListResolverView(fileURLs: urls) {
                     // Reload the editor if the current note was resolved
-                    if let currentURL = viewModel?.editorSession?.note?.fileURL {
+                    if viewModel?.editorSession?.note?.fileURL != nil {
                         Task { await viewModel?.editorSession?.reloadFromDisk() }
                     }
                     Task { await viewModel?.sidebarViewModel?.refresh() }
