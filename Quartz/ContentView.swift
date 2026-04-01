@@ -811,45 +811,23 @@ struct ContentView: View {
     // MARK: - Vault Restoration
 
     private func restoreLastVault() {
-        guard let bookmarkData = UserDefaults.standard.data(forKey: "quartz.lastVault.bookmark") else { return }
-        var isStale = false
         do {
-            #if os(macOS)
-            let url = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, bookmarkDataIsStale: &isStale)
-            #else
-            let url = try URL(resolvingBookmarkData: bookmarkData, bookmarkDataIsStale: &isStale)
-            #endif
-            guard url.startAccessingSecurityScopedResource() else {
-                clearBookmark()
-                return
+            if let vault = try VaultAccessManager.shared.restoreLastVault() {
+                openVault(vault)
             }
-            if isStale {
-                persistBookmark(for: url, vaultName: url.lastPathComponent)
-            }
-            let name = UserDefaults.standard.string(forKey: "quartz.lastVault.name") ?? url.lastPathComponent
-            openVault(VaultConfig(name: name, rootURL: url))
         } catch {
-            clearBookmark()
+            // Bookmark invalid or access denied - will show onboarding
+            Logger(subsystem: "com.quartz", category: "ContentView")
+                .warning("Failed to restore vault: \(error.localizedDescription)")
         }
-    }
-
-    private func clearBookmark() {
-        UserDefaults.standard.removeObject(forKey: "quartz.lastVault.bookmark")
-        UserDefaults.standard.removeObject(forKey: "quartz.lastVault.name")
     }
 
     private func persistBookmark(for url: URL, vaultName: String) {
         do {
-            #if os(macOS)
-            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            #else
-            let bookmarkData = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-            #endif
-            UserDefaults.standard.set(bookmarkData, forKey: "quartz.lastVault.bookmark")
-            UserDefaults.standard.set(vaultName, forKey: "quartz.lastVault.name")
+            try VaultAccessManager.shared.persistBookmark(for: url, vaultName: vaultName)
         } catch {
-            Logger(subsystem: "com.quartz", category: "VaultPicker")
-                .error("Failed to persist vault bookmark: \(error.localizedDescription)")
+            Logger(subsystem: "com.quartz", category: "ContentView")
+                .error("Failed to persist bookmark: \(error.localizedDescription)")
         }
     }
 

@@ -35,8 +35,8 @@ struct VaultPickerView: View {
                         .padding(.horizontal, 20)
                 }
 
-                if let lastVaultName = UserDefaults.standard.string(forKey: "quartz.lastVault.name"),
-                   UserDefaults.standard.data(forKey: "quartz.lastVault.bookmark") != nil {
+                if let lastVaultName = VaultAccessManager.shared.lastVaultName,
+                   VaultAccessManager.shared.hasPersistedBookmark {
                     Button {
                         QuartzFeedback.selection()
                         restoreLastVault()
@@ -153,7 +153,12 @@ struct VaultPickerView: View {
             }
 
             let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-            persistBookmark(for: url, vaultName: vault.name)
+            do {
+                try VaultAccessManager.shared.persistBookmark(for: url, vaultName: vault.name)
+            } catch {
+                Logger(subsystem: "com.quartz", category: "VaultPicker")
+                    .warning("Failed to persist bookmark: \(error.localizedDescription)")
+            }
             onVaultSelected(vault)
             dismiss()
 
@@ -193,7 +198,12 @@ struct VaultPickerView: View {
             }
 
             let vault = VaultConfig(name: name, rootURL: vaultURL)
-            persistBookmark(for: vaultURL, vaultName: vault.name)
+            do {
+                try VaultAccessManager.shared.persistBookmark(for: vaultURL, vaultName: vault.name)
+            } catch {
+                Logger(subsystem: "com.quartz", category: "VaultPicker")
+                    .warning("Failed to persist bookmark: \(error.localizedDescription)")
+            }
             onVaultSelected(vault)
             dismiss()
 
@@ -203,57 +213,15 @@ struct VaultPickerView: View {
     }
 
     private func restoreLastVault() {
-        guard let bookmarkData = UserDefaults.standard.data(forKey: "quartz.lastVault.bookmark") else {
-            errorMessage = String(localized: "Could not find saved vault bookmark.")
-            return
-        }
-
-        var isStale = false
         do {
-            #if os(macOS)
-            let url = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, bookmarkDataIsStale: &isStale)
-            #else
-            let url = try URL(resolvingBookmarkData: bookmarkData, bookmarkDataIsStale: &isStale)
-            #endif
-
-            guard url.startAccessingSecurityScopedResource() else {
-                errorMessage = String(localized: "Access to the vault folder was revoked. Please re-select it.")
-                return
+            if let vault = try VaultAccessManager.shared.restoreLastVault() {
+                onVaultSelected(vault)
+                dismiss()
+            } else {
+                errorMessage = String(localized: "Could not find saved vault bookmark.")
             }
-
-            if isStale {
-                persistBookmark(for: url, vaultName: url.lastPathComponent)
-            }
-
-            let name = UserDefaults.standard.string(forKey: "quartz.lastVault.name") ?? url.lastPathComponent
-            let vault = VaultConfig(name: name, rootURL: url)
-            onVaultSelected(vault)
-            dismiss()
         } catch {
-            errorMessage = String(localized: "Could not restore vault: \(error.localizedDescription)")
-        }
-    }
-
-    private func persistBookmark(for url: URL, vaultName: String) {
-        do {
-            #if os(macOS)
-            let bookmarkData = try url.bookmarkData(
-                options: .withSecurityScope,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-            #else
-            let bookmarkData = try url.bookmarkData(
-                options: .minimalBookmark,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-            #endif
-            UserDefaults.standard.set(bookmarkData, forKey: "quartz.lastVault.bookmark")
-            UserDefaults.standard.set(vaultName, forKey: "quartz.lastVault.name")
-        } catch {
-            Logger(subsystem: "com.quartz", category: "VaultPicker")
-                .error("Failed to persist vault bookmark: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
         }
     }
 }
