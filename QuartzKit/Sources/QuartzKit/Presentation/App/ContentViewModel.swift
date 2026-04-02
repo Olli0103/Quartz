@@ -27,6 +27,8 @@ public final class ContentViewModel {
     /// URLs of files with unresolved iCloud sync conflicts. Used to present ConflictResolverView.
     public var conflictingFileURLs: [URL] = []
     public var indexingProgress: (current: Int, total: Int)?
+    /// VaultProvider for injection into child views (avoids ServiceContainer in render path).
+    public var vaultProvider: (any VaultProviding)?
 
     // MARK: - Backup State
 
@@ -79,6 +81,7 @@ public final class ContentViewModel {
         currentVaultRootURL = vault.rootURL
 
         let provider = ServiceContainer.shared.resolveVaultProvider()
+        vaultProvider = provider
         let viewModel = SidebarViewModel(vaultProvider: provider)
         sidebarViewModel = viewModel
 

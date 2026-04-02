@@ -19,6 +19,9 @@ public struct WorkspaceView: View {
     var onVaultChat: (() -> Void)?
     var onDashboard: (() -> Void)?
     var onSwitchVault: (() -> Void)?
+    /// VaultProvider for components that need file access (Dashboard, KnowledgeGraph).
+    /// Injected to avoid ServiceContainer resolution in view render path.
+    var vaultProvider: (any VaultProviding)?
     /// URLs with unresolved iCloud conflicts — drives the conflict banner in the editor.
     var conflictedNoteURLs: Set<URL> = []
     var onResolveConflict: ((URL) -> Void)?
@@ -40,6 +43,7 @@ public struct WorkspaceView: View {
         onVaultChat: (() -> Void)? = nil,
         onDashboard: (() -> Void)? = nil,
         onSwitchVault: (() -> Void)? = nil,
+        vaultProvider: (any VaultProviding)? = nil,
         conflictedNoteURLs: Set<URL> = [],
         onResolveConflict: ((URL) -> Void)? = nil
     ) {
@@ -56,6 +60,7 @@ public struct WorkspaceView: View {
         self.onVaultChat = onVaultChat
         self.onDashboard = onDashboard
         self.onSwitchVault = onSwitchVault
+        self.vaultProvider = vaultProvider
         self.conflictedNoteURLs = conflictedNoteURLs
         self.onResolveConflict = onResolveConflict
     }
@@ -168,7 +173,7 @@ public struct WorkspaceView: View {
                     fileTree: sidebarViewModel?.fileTree ?? [],
                     currentNoteURL: store.selectedNoteURL,
                     vaultRootURL: sidebarViewModel?.vaultRootURL,
-                    vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
+                    vaultProvider: vaultProvider,
                     embeddingService: nil,
                     onSelectNote: { url in
                         store.selectedNoteURL = url
@@ -179,7 +184,7 @@ public struct WorkspaceView: View {
             } else if store.showDashboard {
                 DashboardView(
                     sidebarViewModel: sidebarViewModel,
-                    vaultProvider: ServiceContainer.shared.resolveVaultProvider(),
+                    vaultProvider: vaultProvider,
                     onSelectNote: { url in
                         store.selectedNoteURL = url
                     },

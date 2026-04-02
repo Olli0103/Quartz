@@ -56,7 +56,7 @@ struct ContentView: View {
             editorSession: viewModel?.editorSession,
             documentChatSession: viewModel?.documentChatSession,
             onMapViewTap: {
-                workspaceStore.showGraph = true
+                workspaceStore.setRoute(.graph)
             },
             onDoubleClick: { url in
                 #if os(macOS)
@@ -78,7 +78,7 @@ struct ContentView: View {
                 openVaultChat()
             },
             onDashboard: {
-                workspaceStore.showDashboard = true
+                workspaceStore.setRoute(.dashboard)
             },
             onSwitchVault: {
                 #if os(macOS)
@@ -87,6 +87,7 @@ struct ContentView: View {
                 coordinator.activeSheet = .vaultPicker
                 #endif
             },
+            vaultProvider: viewModel?.vaultProvider,
             conflictedNoteURLs: Set(viewModel?.conflictingFileURLs ?? []),
             onResolveConflict: { url in
                 coordinator.activeSheet = .conflictResolver
@@ -356,8 +357,8 @@ struct ContentView: View {
             // Respect the user's dashboard-on-launch preference.
             // If a note was restored, showDashboard is already false (via didSet).
             // If no note was restored and the preference is off, dismiss the dashboard.
-            if !appearance.showDashboardOnLaunch {
-                workspaceStore.showDashboard = false
+            if !appearance.showDashboardOnLaunch && workspaceStore.route == .dashboard {
+                workspaceStore.setRoute(.empty)
             }
             coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
             consumePendingWidgetDeepLinks()
@@ -469,7 +470,7 @@ struct ContentView: View {
         case "quartz://audio":
             coordinator.activeSheet = .voiceNote
         case "quartz://dashboard":
-            workspaceStore.showDashboard = true
+            workspaceStore.setRoute(.dashboard)
         case "quartz://scan":
             // TODO: Scanner presentation needs architectural fix (see CODEX.md F3)
             #if os(iOS)
