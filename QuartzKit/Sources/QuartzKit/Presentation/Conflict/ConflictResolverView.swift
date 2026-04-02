@@ -10,6 +10,9 @@ import AppKit
 /// **Zero-data-loss guarantee**: If the user is unsure, "Keep Both" branches the conflict
 /// into a sibling file so nothing is ever silently overwritten.
 ///
+/// **Per CODEX.md F6**: Uses `ConflictResolverCoordinator` to ensure all resolutions go
+/// through the state machine with typed events.
+///
 /// Layout:
 /// - Side-by-side comparison: "Your Mac's Version" (left) vs "iCloud Version" (right)
 /// - Three action buttons: Keep Local, Keep iCloud, Keep Both
@@ -18,10 +21,9 @@ public struct ConflictResolverView: View {
     let fileURL: URL
     let onResolved: (ConflictResolution) -> Void
 
-    @State private var diffState: ConflictDiffState?
+    /// The coordinator handling state machine and event publishing.
+    @State private var coordinator = ConflictResolverCoordinator()
     @State private var isLoading = true
-    @State private var isResolving = false
-    @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     /// What the user chose.
@@ -42,7 +44,7 @@ public struct ConflictResolverView: View {
                 if isLoading {
                     ProgressView(String(localized: "Loading versions\u{2026}", bundle: .module))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let diff = diffState {
+                } else if let diff = coordinator.diffState {
                     diffContent(diff: diff)
                 } else {
                     emptyState
@@ -54,7 +56,10 @@ public struct ConflictResolverView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Cancel", bundle: .module)) { dismiss() }
+                    Button(String(localized: "Cancel", bundle: .module)) {
+                        try? coordinator.cancel()
+                        dismiss()
+                    }
                 }
             }
             .task { await loadDiff() }
@@ -93,7 +98,7 @@ public struct ConflictResolverView: View {
             Divider()
 
             // Error
-            if let errorMessage {
+            if let errorMessage = coordinator.lastError {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -156,7 +161,7 @@ public struct ConflictResolverView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .disabled(isResolving)
+            .disabled(coordinator.isOperating)
             .accessibilityHint(String(localized: "Discards the iCloud version and keeps your local edits", bundle: .module))
 
             // Keep iCloud
@@ -168,7 +173,7 @@ public struct ConflictResolverView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
-            .disabled(isResolving)
+            .disabled(coordinator.isOperating)
             .accessibilityHint(String(localized: "Replaces your local version with the iCloud version", bundle: .module))
 
             // Keep Both — the safe option
@@ -180,7 +185,7 @@ public struct ConflictResolverView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(isResolving)
+            .disabled(coordinator.isOperating)
             .accessibilityHint(String(localized: "Saves the iCloud version as a separate note so you can merge them manually", bundle: .module))
         }
         .padding(16)
@@ -208,11 +213,10 @@ public struct ConflictResolverView: View {
 
     private func loadDiff() async {
         isLoading = true
-        let service = CloudSyncService()
         do {
-            diffState = try await service.buildConflictDiffState(for: fileURL)
+            try await coordinator.loadConflict(at: fileURL)
         } catch {
-            errorMessage = error.localizedDescription
+            // Error is stored in coordinator.lastError
         }
         isLoading = false
     }
@@ -224,25 +228,21 @@ public struct ConflictResolverView: View {
     }
 
     private func resolve(_ action: ResolutionAction) {
-        isResolving = true
-        errorMessage = nil
-
         Task {
             do {
-                let service = CloudSyncService()
                 let resolution: ConflictResolution
 
                 switch action {
                 case .keepLocal:
-                    try service.resolveKeepingLocal(at: fileURL)
+                    try await coordinator.resolveKeepingLocal()
                     resolution = .keptLocal
 
                 case .keepCloud:
-                    try service.resolveKeepingCloud(at: fileURL)
+                    try await coordinator.resolveKeepingCloud()
                     resolution = .keptCloud
 
                 case .keepBoth:
-                    try await service.resolveKeepingBoth(at: fileURL)
+                    try await coordinator.resolveKeepingBoth()
                     // The conflict URL is the branched file
                     let baseName = fileURL.deletingPathExtension().lastPathComponent
                     let ext = fileURL.pathExtension
@@ -253,15 +253,13 @@ public struct ConflictResolverView: View {
 
                 await MainActor.run {
                     QuartzFeedback.success()
-                    isResolving = false
                     onResolved(resolution)
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
                     QuartzFeedback.warning()
-                    isResolving = false
-                    errorMessage = error.localizedDescription
+                    // Error is stored in coordinator.lastError
                 }
             }
         }
