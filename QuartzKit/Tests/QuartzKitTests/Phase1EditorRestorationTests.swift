@@ -136,7 +136,7 @@ final class EditorSessionRestorationTests: XCTestCase {
     /// This test passes trivially but documents the required integration.
     @MainActor
     func testRestorationFlowDocumentation() async throws {
-        // EXPECTED FLOW (per CODEX.md F6):
+        // EXPECTED FLOW (per CODEX.md F6 + F8):
         //
         // 1. On app relaunch:
         //    - ContentView reads @SceneStorage values:
@@ -148,13 +148,102 @@ final class EditorSessionRestorationTests: XCTestCase {
         // 2. After vault loads and note is opened:
         //    - session.loadNote(at: restoredURL)
         //
-        // 3. After note content is loaded:
+        // 3. After note content is loaded (F8 handshake):
+        //    - await session.awaitReadiness()  // <-- NEW: explicit handshake
         //    - session.restoreCursor(location:length:)
         //    - session.restoreScroll(y:)
         //
         // IMPLEMENTED: All steps now work with Phase 1 changes.
+        // F8 FIX: Replaced Task.sleep(100ms) with awaitReadiness() handshake.
 
         XCTAssertTrue(true, "Restoration flow implemented")
+    }
+
+    // MARK: - Readiness Handshake Tests (F8)
+
+    /// Tests that session starts not ready for restoration.
+    @MainActor
+    func testSessionStartsNotReady() async throws {
+        let session = createTestSession()
+        XCTAssertFalse(session.isReadyForRestoration,
+            "New session should not be ready for restoration")
+    }
+
+    /// Tests that awaitReadiness returns immediately when already ready.
+    @MainActor
+    func testAwaitReadinessReturnsImmediatelyWhenReady() async throws {
+        let session = createTestSession()
+
+        // Manually signal ready
+        session.signalReadyForRestoration()
+        XCTAssertTrue(session.isReadyForRestoration)
+
+        // Should return immediately (no hang)
+        await session.awaitReadiness()
+
+        XCTAssertTrue(true, "awaitReadiness returned immediately")
+    }
+
+    /// Tests that multiple waiters are all resumed when ready is signaled.
+    @MainActor
+    func testMultipleWaitersResumedOnReady() async throws {
+        let session = createTestSession()
+        var waiter1Done = false
+        var waiter2Done = false
+
+        // Start two waiters
+        let task1 = Task { @MainActor in
+            await session.awaitReadiness()
+            waiter1Done = true
+        }
+        let task2 = Task { @MainActor in
+            await session.awaitReadiness()
+            waiter2Done = true
+        }
+
+        // Give tasks time to start waiting
+        try await Task.sleep(for: .milliseconds(10))
+
+        // Signal ready
+        session.signalReadyForRestoration()
+
+        // Wait for tasks to complete
+        await task1.value
+        await task2.value
+
+        XCTAssertTrue(waiter1Done, "Waiter 1 should be resumed")
+        XCTAssertTrue(waiter2Done, "Waiter 2 should be resumed")
+    }
+
+    /// Tests that closeNote resets readiness state.
+    @MainActor
+    func testCloseNoteResetsReadiness() async throws {
+        let session = createTestSession()
+
+        // Signal ready
+        session.signalReadyForRestoration()
+        XCTAssertTrue(session.isReadyForRestoration)
+
+        // Close note
+        session.closeNote()
+
+        // Readiness should be reset
+        XCTAssertFalse(session.isReadyForRestoration,
+            "closeNote should reset readiness state")
+    }
+
+    /// Tests that signalReadyForRestoration is idempotent.
+    @MainActor
+    func testSignalReadyIsIdempotent() async throws {
+        let session = createTestSession()
+
+        // Signal ready multiple times
+        session.signalReadyForRestoration()
+        session.signalReadyForRestoration()
+        session.signalReadyForRestoration()
+
+        XCTAssertTrue(session.isReadyForRestoration,
+            "Multiple signals should not cause issues")
     }
 
     // MARK: - Helper

@@ -791,10 +791,10 @@ struct ContentView: View {
         }
         selectedNoteURL = noteURL
 
-        // Schedule cursor/scroll restoration after note loads
-        // Use a small delay to allow the editor to mount and populate
+        // Await editor readiness before restoring cursor/scroll (F8 handshake)
+        // Replaces timing-based Task.sleep(100ms) with explicit readiness signal
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(100))
+            await viewModel?.editorSession?.awaitReadiness()
             restoreEditorState()
         }
     }

@@ -74,6 +74,17 @@ public final class EditorSession {
     /// when it detects changes that we ourselves triggered.
     private var isSavingToFileSystem: Bool = false
 
+    // MARK: - Restoration Readiness (F8 fix)
+
+    /// True when the editor is ready for cursor/scroll restoration.
+    /// Set after `loadNote` completes and text view is populated.
+    /// **Per CODEX.md F8:** Replaces timing-based restoration with explicit handshake.
+    public private(set) var isReadyForRestoration: Bool = false
+
+    /// Continuations waiting for restoration readiness.
+    /// Multiple callers can await readiness; all are resumed when ready.
+    private var readinessContinuations: [CheckedContinuation<Void, Never>] = []
+
     // MARK: - Active Text View (weak ref)
 
     /// The native text view managed by the representable. Weak to avoid retain cycle.
@@ -245,6 +256,9 @@ public final class EditorSession {
     /// Loads a note from the file system into the existing session.
     /// Reuses the mounted text view — no view destruction.
     public func loadNote(at url: URL) async {
+        // Reset readiness state for new note (F8 handshake)
+        resetReadinessState()
+
         // Save a snapshot of the previous note before switching
         if let previousNoteURL = note?.fileURL, let vaultRoot = vaultRootURL, !currentText.isEmpty {
             let content = currentText
@@ -299,9 +313,14 @@ public final class EditorSession {
             Task { await refreshSemanticLinks() }
 
             startFileWatching(for: url)
+
+            // Signal ready for restoration after all synchronous setup is complete (F8 handshake)
+            signalReadyForRestoration()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? String(localized: "An unexpected error occurred.", bundle: .module)
+            // Still signal ready on error so waiters don't hang
+            signalReadyForRestoration()
         }
     }
 
@@ -309,6 +328,9 @@ public final class EditorSession {
     /// Clears text, note reference, undo stack, and editing state.
     /// The EditorContainerView stays mounted — it shows the empty state based on `note == nil`.
     public func closeNote() {
+        // Reset readiness state (F8 handshake)
+        resetReadinessState()
+
         // Save a final snapshot if there are unsaved changes
         if isDirty, let noteURL = note?.fileURL, let vaultRoot = vaultRootURL {
             let content = currentText
@@ -469,6 +491,42 @@ public final class EditorSession {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
         #endif
+    }
+
+    /// Awaits until the editor is ready for cursor/scroll restoration.
+    /// **Per CODEX.md F8:** Replaces `Task.sleep(100ms)` with explicit handshake.
+    ///
+    /// - Returns: Immediately if already ready, otherwise suspends until `signalReadyForRestoration()` is called.
+    public func awaitReadiness() async {
+        if isReadyForRestoration { return }
+
+        await withCheckedContinuation { continuation in
+            readinessContinuations.append(continuation)
+        }
+    }
+
+    /// Signals that the editor is ready for cursor/scroll restoration.
+    /// Called after `loadNote` completes and the text view is populated.
+    /// Resumes all waiting continuations.
+    public func signalReadyForRestoration() {
+        guard !isReadyForRestoration else { return }
+        isReadyForRestoration = true
+
+        // Resume all waiting continuations
+        for continuation in readinessContinuations {
+            continuation.resume()
+        }
+        readinessContinuations.removeAll()
+    }
+
+    /// Resets the readiness state (called before loading a new note).
+    private func resetReadinessState() {
+        isReadyForRestoration = false
+        // Any pending continuations are stale — resume them to unblock waiters
+        for continuation in readinessContinuations {
+            continuation.resume()
+        }
+        readinessContinuations.removeAll()
     }
 
     // MARK: - Undo / Redo
