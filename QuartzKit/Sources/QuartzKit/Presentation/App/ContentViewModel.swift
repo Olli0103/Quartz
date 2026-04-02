@@ -53,8 +53,10 @@ public final class ContentViewModel {
     private var currentVaultRootURL: URL?
     /// Debounced task for re-indexing embeddings after note saves.
     private var embeddingReindexTask: Task<Void, Never>?
-    /// Observer token for `.quartzNoteSaved` notifications.
+    /// Observer token for `.quartzNoteSaved` notifications (embedding reindex).
     private var noteSavedObserver: Any?
+    /// Observer tokens for note lifecycle notifications (spotlight, preview, search).
+    private var noteLifecycleObservers: [Any] = []
     /// Background semantic link discovery engine.
     public var semanticLinkService: SemanticLinkService?
     /// Background AI concept extraction engine.
@@ -186,6 +188,7 @@ public final class ContentViewModel {
 
         // Observe note saves for debounced embedding re-indexing (5s after last save)
         startEmbeddingReindexObserver()
+        startNoteLifecycleObservers()
 
         // Auto-backup check (runs in background if enabled)
         scheduleAutoBackupIfNeeded(vaultRoot: vault.rootURL)
@@ -223,6 +226,82 @@ public final class ContentViewModel {
             guard !Task.isCancelled else { return }
             updateEmbeddingForNote(at: url)
         }
+    }
+
+    /// Subscribes to note lifecycle notifications for spotlight, preview, and search index updates.
+    /// **Per CODEX.md F1:** Extracted from ContentView's onReceive handlers.
+    private func startNoteLifecycleObservers() {
+        // Clear any existing observers
+        for observer in noteLifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        noteLifecycleObservers.removeAll()
+
+        // .quartzNoteSaved — update spotlight, preview, and search index
+        let savedObserver = NotificationCenter.default.addObserver(
+            forName: .quartzNoteSaved,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let url = notification.object as? URL else { return }
+            Task { @MainActor in
+                self.spotlightIndexNote(at: url)
+                self.updatePreviewForNote(at: url)
+                self.updateSearchIndex(for: url)
+            }
+        }
+        noteLifecycleObservers.append(savedObserver)
+
+        // .quartzSpotlightNotesRemoved — remove spotlight and preview entries
+        let removedObserver = NotificationCenter.default.addObserver(
+            forName: .quartzSpotlightNotesRemoved,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let urls = notification.userInfo?["urls"] as? [URL] else { return }
+            Task { @MainActor in
+                self.spotlightRemoveNotes(at: urls)
+                self.removePreviewsForNotes(at: urls)
+            }
+        }
+        noteLifecycleObservers.append(removedObserver)
+
+        // .quartzSpotlightNoteRelocated — update spotlight and preview paths
+        let relocatedObserver = NotificationCenter.default.addObserver(
+            forName: .quartzSpotlightNoteRelocated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let oldURL = notification.userInfo?["old"] as? URL,
+                  let newURL = notification.userInfo?["new"] as? URL else { return }
+            Task { @MainActor in
+                self.spotlightRelocateNote(from: oldURL, to: newURL)
+                self.relocatePreview(from: oldURL, to: newURL)
+            }
+        }
+        noteLifecycleObservers.append(relocatedObserver)
+
+        // .quartzReindexRequested — full vault reindex
+        let reindexObserver = NotificationCenter.default.addObserver(
+            forName: .quartzReindexRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reindexVault()
+            }
+        }
+        noteLifecycleObservers.append(reindexObserver)
+    }
+
+    /// Stops all note lifecycle observers.
+    private func stopNoteLifecycleObservers() {
+        for observer in noteLifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        noteLifecycleObservers.removeAll()
     }
 
     // MARK: - Note Opening
@@ -690,6 +769,7 @@ public final class ContentViewModel {
         cloudSyncStatus = .notApplicable
         sidebarViewModel?.cloudSyncStatus = .notApplicable
         conflictingFileURLs = []
+        stopNoteLifecycleObservers()
     }
 
     private static func isICloudDriveURL(_ url: URL) -> Bool {

@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var securityOrchestrator = SecurityOrchestrator.shared
     @State private var commandPaletteEngine = CommandPaletteEngine(previewRepository: nil, commands: [])
     @State private var vaultCoordinator: VaultCoordinator?
+    @State private var deepLinkCoordinator: DeepLinkCoordinator?
     @State private var exportFileData: Data?
     @State private var exportFileName: String = "note.pdf"
     @State private var exportContentType: UTType = .pdf
@@ -329,8 +330,9 @@ struct ContentView: View {
             )
         }
         .onContinueUserActivity(QuartzUserActivity.openNoteActivityType) { activity in
-            guard let link = QuartzUserActivity.quartzDeepLink(from: activity) else { return }
-            applyPendingOpenNoteDeepLink(link)
+            deepLinkCoordinator?.handleOpenNoteActivity(activity) { url in
+                selectedNoteURL = url
+            }
         }
         .task {
             if viewModel == nil {
@@ -338,6 +340,9 @@ struct ContentView: View {
             }
             if vaultCoordinator == nil {
                 vaultCoordinator = VaultCoordinator(appState: appState)
+            }
+            if deepLinkCoordinator == nil {
+                deepLinkCoordinator = DeepLinkCoordinator(appState: appState)
             }
             if appState.currentVault == nil {
                 if !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) {
@@ -361,12 +366,18 @@ struct ContentView: View {
                 workspaceStore.setRoute(.empty)
             }
             coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
-            consumePendingWidgetDeepLinks()
+            deepLinkCoordinator?.consumePendingWidgetDeepLinks(
+                coordinator: coordinator,
+                workspaceStore: workspaceStore
+            ) { url in selectedNoteURL = url }
         }
         .onChange(of: scenePhase) { _, phase in
             securityOrchestrator.scenePhaseDidChange(to: phase)
             if phase == .active {
-                consumePendingWidgetDeepLinks()
+                deepLinkCoordinator?.consumePendingWidgetDeepLinks(
+                    coordinator: coordinator,
+                    workspaceStore: workspaceStore
+                ) { url in selectedNoteURL = url }
             }
             if phase == .background || phase == .inactive {
                 saveStateForRestoration()
@@ -421,69 +432,8 @@ struct ContentView: View {
                 workspaceStore: workspaceStore
             )
         }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzReindexRequested)) { _ in
-            viewModel?.reindexVault()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzNoteSaved)) { output in
-            if let url = output.object as? URL {
-                viewModel?.spotlightIndexNote(at: url)
-                viewModel?.updatePreviewForNote(at: url)
-                viewModel?.updateSearchIndex(for: url)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzSpotlightNotesRemoved)) { output in
-            if let urls = output.userInfo?["urls"] as? [URL] {
-                viewModel?.spotlightRemoveNotes(at: urls)
-                viewModel?.removePreviewsForNotes(at: urls)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzSpotlightNoteRelocated)) { output in
-            guard let oldURL = output.userInfo?["old"] as? URL,
-                  let newURL = output.userInfo?["new"] as? URL else { return }
-            viewModel?.spotlightRelocateNote(from: oldURL, to: newURL)
-            viewModel?.relocatePreview(from: oldURL, to: newURL)
-        }
-    }
-
-    // MARK: - Deep Links
-
-    private func consumePendingWidgetDeepLinks() {
-        let d = UserDefaults(suiteName: "group.app.quartz.shared")
-        if d?.bool(forKey: "pendingDocumentScanner") == true {
-            d?.removeObject(forKey: "pendingDocumentScanner")
-            // TODO: Scanner presentation needs architectural fix (see CODEX.md F3)
-            #if os(iOS)
-            // Currently no-op until EditorContainerView observes AppState
-            #endif
-        }
-        guard let link = d?.string(forKey: "pendingDeepLink") else { return }
-        d?.removeObject(forKey: "pendingDeepLink")
-        if let url = URL(string: link), url.scheme == "quartz", url.host() == "note" {
-            applyPendingOpenNoteDeepLink(url)
-            return
-        }
-        switch link {
-        case "quartz://new":
-            appState.pendingCommand = .newNote
-        case "quartz://daily":
-            appState.pendingCommand = .dailyNote
-        case "quartz://audio":
-            coordinator.activeSheet = .voiceNote
-        case "quartz://dashboard":
-            workspaceStore.setRoute(.dashboard)
-        case "quartz://scan":
-            // TODO: Scanner presentation needs architectural fix (see CODEX.md F3)
-            #if os(iOS)
-            // Currently no-op until EditorContainerView observes AppState
-            #endif
-        default:
-            break
-        }
-    }
-
-    private func applyPendingOpenNoteDeepLink(_ url: URL) {
-        guard let noteURL = QuartzUserActivity.resolveNoteFileURL(fromQuartzDeepLink: url, vaultRoot: appState.currentVault?.rootURL) else { return }
-        selectedNoteURL = noteURL
+        // Note: Notification handlers (.quartzNoteSaved, .quartzSpotlightNotesRemoved, etc.)
+        // are now managed by ContentViewModel.startNoteLifecycleObservers() per CODEX.md F1.
     }
 
     // MARK: - Sheet Builders
