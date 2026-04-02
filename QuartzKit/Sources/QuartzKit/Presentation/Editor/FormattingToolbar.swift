@@ -485,7 +485,19 @@ public struct MarkdownFormatter: Sendable {
 
         let headingPrefixPattern = /^#{1,6}\s/
         if prefix.hasPrefix("#"), let match = line.prefixMatch(of: headingPrefixPattern) {
+            let existingPrefix = String(line[match.range])
             let trimmedLine = String(line[match.range.upperBound...])
+
+            // If the existing heading prefix matches the requested one, toggle OFF
+            if existingPrefix == prefix {
+                return MarkdownFormatEdit(
+                    range: lineRange,
+                    replacement: trimmedLine,
+                    cursorAfter: NSRange(location: lineRange.location, length: 0)
+                )
+            }
+
+            // Otherwise, replace with the new heading level
             let newLine = prefix + trimmedLine
             let prefixDiff = (prefix as NSString).length - match.range.upperBound.utf16Offset(in: line)
             return MarkdownFormatEdit(
@@ -654,10 +666,19 @@ public struct MarkdownFormatter: Sendable {
         let lineRange = nsText.lineRange(for: selection)
         let line = nsText.substring(with: lineRange)
 
-        // For heading prefixes, remove any existing heading prefix first
+        // For heading prefixes, check existing heading
         let headingPrefixPattern = /^#{1,6}\s/
         if prefix.hasPrefix("#"), let match = line.prefixMatch(of: headingPrefixPattern) {
+            let existingPrefix = String(line[match.range])
             let trimmedLine = String(line[match.range.upperBound...])
+
+            // If the existing heading prefix matches the requested one, toggle OFF
+            if existingPrefix == prefix {
+                let newText = nsText.replacingCharacters(in: lineRange, with: trimmedLine)
+                return (newText, NSRange(location: lineRange.location, length: 0))
+            }
+
+            // Otherwise, replace with the new heading level
             let newLine = prefix + trimmedLine
             let newText = nsText.replacingCharacters(in: lineRange, with: newLine)
             let prefixDiff = prefix.count - match.range.upperBound.utf16Offset(in: line)

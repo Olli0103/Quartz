@@ -149,7 +149,7 @@ struct MarkdownFormatterTests {
 
     @Test("Action count is correct")
     func actionCount() {
-        #expect(FormattingAction.allCases.count == 17)
+        #expect(FormattingAction.allCases.count == 24)
     }
 
     // MARK: - Selection Preservation

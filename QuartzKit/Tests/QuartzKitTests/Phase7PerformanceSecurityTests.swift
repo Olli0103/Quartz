@@ -712,10 +712,10 @@ final class Phase7TelemetrySignpostTests: XCTestCase {
             CIPerformanceBudget(testName: "testGraphBuild", maxDuration: 5.0, baseline: 3.5, maxRegressionPercent: 30)
         ]
 
-        // Simulated test results
+        // Simulated test results (within acceptable budgets and regression limits)
         let results: [String: TimeInterval] = [
             "testTypingLatency": 0.014,  // Within budget
-            "testGraphBuild": 4.8  // Above baseline but within max regression
+            "testGraphBuild": 4.2  // Within max duration and regression (20% above baseline)
         ]
 
         var violations: [String] = []

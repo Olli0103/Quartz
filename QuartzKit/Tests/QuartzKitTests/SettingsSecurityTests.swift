@@ -61,14 +61,15 @@ struct AppearanceManagerTests {
         let defaults = UserDefaults(suiteName: "test.appearance.scale.\(UUID().uuidString)")!
         let manager = AppearanceManager(defaults: defaults)
 
-        manager.editorFontScale = 0.5 // Below minimum
-        #expect(manager.editorFontScale >= 0.8)
+        // Font scale is fontSize/16, clamped to 12-24pt = 0.75-1.5 scale
+        manager.editorFontScale = 0.5 // Below minimum (8pt)
+        #expect(manager.editorFontScale >= 0.75)  // Clamped to 12pt = 0.75
 
-        manager.editorFontScale = 3.0 // Above maximum
-        #expect(manager.editorFontScale <= 2.0)
+        manager.editorFontScale = 3.0 // Above maximum (48pt)
+        #expect(manager.editorFontScale <= 1.5)  // Clamped to 24pt = 1.5
 
-        manager.editorFontScale = 1.5 // Valid
-        #expect(manager.editorFontScale == 1.5)
+        manager.editorFontScale = 1.25 // Valid (20pt)
+        #expect(manager.editorFontScale == 1.25)
     }
 
     @MainActor

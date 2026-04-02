@@ -74,8 +74,10 @@ struct FileNodeTests {
 
     @Test("IDs are unique")
     func uniqueIDs() {
-        let a = FileNode(name: "a.md", url: testURL, nodeType: .note)
-        let b = FileNode(name: "b.md", url: testURL, nodeType: .note)
+        let urlA = URL(fileURLWithPath: "/vault/notes/a.md")
+        let urlB = URL(fileURLWithPath: "/vault/notes/b.md")
+        let a = FileNode(name: "a.md", url: urlA, nodeType: .note)
+        let b = FileNode(name: "b.md", url: urlB, nodeType: .note)
         #expect(a.id != b.id)
     }
 }
@@ -185,8 +187,9 @@ struct VaultConfigTests {
     @Test("Equatable works by ID")
     func equatable() {
         let id = UUID()
-        let a = VaultConfig(id: id, name: "A", rootURL: rootURL)
-        let b = VaultConfig(id: id, name: "A", rootURL: rootURL)
+        let date = Date(timeIntervalSince1970: 0)
+        let a = VaultConfig(id: id, name: "A", rootURL: rootURL, createdAt: date)
+        let b = VaultConfig(id: id, name: "A", rootURL: rootURL, createdAt: date)
         #expect(a == b)
     }
 
@@ -250,8 +253,9 @@ struct FrontmatterTests {
 
     @Test("Equatable conformance")
     func equatable() {
-        let a = Frontmatter(title: "Same", tags: ["x"])
-        let b = Frontmatter(title: "Same", tags: ["x"])
+        let date = Date(timeIntervalSince1970: 0)
+        let a = Frontmatter(title: "Same", tags: ["x"], createdAt: date, modifiedAt: date)
+        let b = Frontmatter(title: "Same", tags: ["x"], createdAt: date, modifiedAt: date)
         #expect(a == b)
     }
 

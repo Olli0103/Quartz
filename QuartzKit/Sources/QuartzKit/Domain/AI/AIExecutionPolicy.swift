@@ -149,6 +149,21 @@ public actor AIExecutionPolicy {
 
     /// Extracts concepts from text using AI or local NLP fallback.
     public func extractConcepts(from text: String) async -> [String] {
+        return await extractConcepts(from: text, model: nil)
+    }
+
+    /// Extracts concepts from text using AI or local NLP fallback.
+    ///
+    /// - Parameters:
+    ///   - text: The text to extract concepts from
+    ///   - model: Optional model ID override
+    ///   - systemPrompt: Optional custom system prompt for concept extraction
+    /// - Returns: Array of extracted concept strings
+    public func extractConcepts(
+        from text: String,
+        model: String?,
+        systemPrompt: String? = nil
+    ) async -> [String] {
         // Offline mode: go straight to on-device
         if isOffline {
             lastExecutionPath = .onDeviceDirect
@@ -169,7 +184,7 @@ public actor AIExecutionPolicy {
         if let provider = primaryProvider, provider.isConfigured {
             do {
                 let result = try await withTimeout(remoteTimeout) {
-                    try await self.remoteConcepts(from: text, provider: provider)
+                    try await self.remoteConcepts(from: text, provider: provider, model: model, systemPrompt: systemPrompt)
                 }
                 recordSuccess()
                 lastExecutionPath = .remote
@@ -201,12 +216,18 @@ public actor AIExecutionPolicy {
         return [response.content]
     }
 
-    private func remoteConcepts(from text: String, provider: any AIProvider) async throws -> [String] {
+    private func remoteConcepts(
+        from text: String,
+        provider: any AIProvider,
+        model: String? = nil,
+        systemPrompt: String? = nil
+    ) async throws -> [String] {
+        let prompt = systemPrompt ?? "Extract key concepts from the text. Return a JSON array of concept strings. Only output the JSON array."
         let messages = [
-            AIMessage(role: .system, content: "Extract key concepts from the text. Return a JSON array of concept strings. Only output the JSON array."),
+            AIMessage(role: .system, content: prompt),
             AIMessage(role: .user, content: text)
         ]
-        let response = try await provider.chat(messages: messages, model: nil, temperature: 0.1)
+        let response = try await provider.chat(messages: messages, model: model, temperature: 0.1)
         return parseConceptsFromResponse(response.content)
     }
 

@@ -171,7 +171,7 @@ struct EditorHardeningFormattingActionTests {
 
     @Test("All cases count is correct")
     func allCasesCount() {
-        #expect(FormattingAction.allCases.count == 18)
+        #expect(FormattingAction.allCases.count == 24)
     }
 }
 

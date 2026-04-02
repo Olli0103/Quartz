@@ -7,24 +7,26 @@ import XCTest
 // Tests: NoteEditorView, FormattingToolbar, MarkdownRenderer, FocusModeManager, FrontmatterEditorView
 
 // ============================================================================
-// MARK: - FormattingAction Tests (ALL 17 Actions)
+// MARK: - FormattingAction Tests (ALL 24 Actions)
 // ============================================================================
 
 @Suite("Phase3FormattingAction")
 struct Phase3FormattingActionTests {
 
-    @Test("FormattingAction enum has exactly 17 cases")
+    @Test("FormattingAction enum has exactly 24 cases")
     func formattingActionCount() {
         let allActions = FormattingAction.allCases
-        #expect(allActions.count == 17, "Should have exactly 17 formatting actions")
+        #expect(allActions.count == 24, "Should have exactly 24 formatting actions (17 base + 6 heading levels + paragraph)")
     }
 
-    @Test("All 17 FormattingActions are present")
+    @Test("All 24 FormattingActions are present")
     func allActionsPresent() {
         let expectedActions: Set<FormattingAction> = [
             .bold, .italic, .strikethrough, .heading, .bulletList, .numberedList, .checkbox,
             .code, .codeBlock, .link, .image, .blockquote, .highlight,
-            .table, .math, .footnote, .mermaid
+            .table, .math, .footnote, .mermaid,
+            // Heading level actions for HeadingDropdown
+            .heading1, .heading2, .heading3, .heading4, .heading5, .heading6, .paragraph
         ]
 
         #expect(Set(FormattingAction.allCases) == expectedActions)

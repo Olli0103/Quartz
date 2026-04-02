@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var noteListStore = NoteListStore()
     @State private var securityOrchestrator = SecurityOrchestrator.shared
     @State private var commandPaletteEngine = CommandPaletteEngine(previewRepository: nil, commands: [])
+    @State private var vaultCoordinator: VaultCoordinator?
     @State private var exportFileData: Data?
     @State private var exportFileName: String = "note.pdf"
     @State private var exportContentType: UTType = .pdf
@@ -190,6 +191,7 @@ struct ContentView: View {
             #if os(iOS)
             VaultPickerView { vault in
                 QuartzFeedback.success()
+                vaultCoordinator?.persistBookmark(for: vault.rootURL, vaultName: vault.name)
                 openVault(vault)
             }
             #else
@@ -333,11 +335,18 @@ struct ContentView: View {
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)
             }
+            if vaultCoordinator == nil {
+                vaultCoordinator = VaultCoordinator(appState: appState)
+            }
             if appState.currentVault == nil {
                 if !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) {
                     coordinator.activeSheet = .onboarding
                 } else {
-                    restoreLastVault()
+                    vaultCoordinator?.restoreLastVault(
+                        viewModel: viewModel,
+                        noteListStore: noteListStore,
+                        workspaceStore: workspaceStore
+                    ) { restoreSelectedNoteIfNeeded() }
                     // If restoration failed (deleted folder, stale bookmark), show onboarding
                     if appState.currentVault == nil {
                         coordinator.activeSheet = .onboarding
@@ -398,7 +407,7 @@ struct ContentView: View {
                 return
             case .createVault:
                 #if os(macOS)
-                createVaultFolderMacOS()
+                presentCreateVaultFlow()
                 #endif
                 return
             default:
@@ -484,7 +493,7 @@ struct ContentView: View {
             Task { @MainActor in
                 UserDefaults.standard.set(true, forKey: ContentView.onboardingCompletedKey)
                 coordinator.activeSheet = nil
-                persistBookmark(for: vault.rootURL, vaultName: vault.name)
+                vaultCoordinator?.persistBookmark(for: vault.rootURL, vaultName: vault.name)
                 QuartzFeedback.success()
                 openVault(vault)
             }
@@ -742,20 +751,18 @@ struct ContentView: View {
     }
 
     private func openVault(_ vault: VaultConfig) {
-        appState.switchVault(to: vault)
-        viewModel?.loadVault(vault, noteListStore: noteListStore)
-        selectedNoteURL = nil
+        vaultCoordinator?.openVault(
+            vault,
+            viewModel: viewModel,
+            noteListStore: noteListStore,
+            workspaceStore: workspaceStore
+        ) { restoreSelectedNoteIfNeeded() }
 
         #if os(macOS)
         coordinator.quickNoteManager?.unregisterHotkey()
         coordinator.quickNoteManager = QuickNoteManager(vaultRoot: vault.rootURL)
         coordinator.quickNoteManager?.registerHotkey()
         #endif
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
-            restoreSelectedNoteIfNeeded()
-        }
     }
 
     #if os(macOS)
@@ -772,19 +779,20 @@ struct ContentView: View {
         panel.begin { response in
             Task { @MainActor in
                 guard response == .OK, let url = panel.url else { return }
-                guard url.startAccessingSecurityScopedResource() else {
-                    appState.showError(String(localized: "Unable to access the selected folder. Please try again."))
-                    return
+                let success = vaultCoordinator?.openVaultFromURL(
+                    url,
+                    viewModel: viewModel,
+                    noteListStore: noteListStore,
+                    workspaceStore: workspaceStore
+                ) { restoreSelectedNoteIfNeeded() }
+                if success != true {
+                    // Error already shown by VaultCoordinator
                 }
-                let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-                persistBookmark(for: url, vaultName: vault.name)
-                QuartzFeedback.success()
-                openVault(vault)
             }
         }
     }
 
-    private func createVaultFolderMacOS() {
+    private func presentCreateVaultFlow() {
         let panel = NSSavePanel()
         panel.title = String(localized: "Create Vault")
         panel.message = String(localized: "Choose where to create your Quartz Notes vault folder.")
@@ -798,44 +806,19 @@ struct ContentView: View {
         panel.begin { response in
             Task { @MainActor in
                 guard response == .OK, let url = panel.url else { return }
-                do {
-                    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-                } catch {
-                    appState.showError(String(localized: "Could not create the vault folder."))
-                    return
+                let success = vaultCoordinator?.createVault(
+                    at: url,
+                    viewModel: viewModel,
+                    noteListStore: noteListStore,
+                    workspaceStore: workspaceStore
+                ) { restoreSelectedNoteIfNeeded() }
+                if success != true {
+                    // Error already shown by VaultCoordinator
                 }
-                _ = url.startAccessingSecurityScopedResource()
-                let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-                persistBookmark(for: url, vaultName: vault.name)
-                QuartzFeedback.success()
-                openVault(vault)
             }
         }
     }
     #endif
-
-    // MARK: - Vault Restoration
-
-    private func restoreLastVault() {
-        do {
-            if let vault = try VaultAccessManager.shared.restoreLastVault() {
-                openVault(vault)
-            }
-        } catch {
-            // Bookmark invalid or access denied - will show onboarding
-            Logger(subsystem: "com.quartz", category: "ContentView")
-                .warning("Failed to restore vault: \(error.localizedDescription)")
-        }
-    }
-
-    private func persistBookmark(for url: URL, vaultName: String) {
-        do {
-            try VaultAccessManager.shared.persistBookmark(for: url, vaultName: vaultName)
-        } catch {
-            Logger(subsystem: "com.quartz", category: "ContentView")
-                .error("Failed to persist bookmark: \(error.localizedDescription)")
-        }
-    }
 
     // MARK: - State Restoration
 

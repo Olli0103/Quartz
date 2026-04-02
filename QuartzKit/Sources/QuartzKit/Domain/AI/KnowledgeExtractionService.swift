@@ -25,9 +25,13 @@ public struct AIIndexState: Codable, Sendable {
 ///
 /// State is persisted to `{vault}/.quartz/ai_index.json` so the crawler remembers
 /// what it has already processed across app launches and device syncs.
+///
+/// **Per CODEX.md F9:** Routes all AI operations through `AIExecutionPolicy` for
+/// consistent circuit breaker, fallback, and health semantics.
 public actor KnowledgeExtractionService {
     private let edgeStore: GraphEdgeStore
     private let vaultRootURL: URL
+    private let executionPolicy: AIExecutionPolicy?
     private let logger = Logger(subsystem: "com.quartz", category: "KnowledgeExtraction")
 
     // MARK: - Persisted State
@@ -72,9 +76,10 @@ public actor KnowledgeExtractionService {
 
     // MARK: - Init
 
-    public init(edgeStore: GraphEdgeStore, vaultRootURL: URL) {
+    public init(edgeStore: GraphEdgeStore, vaultRootURL: URL, executionPolicy: AIExecutionPolicy? = nil) {
         self.edgeStore = edgeStore
         self.vaultRootURL = vaultRootURL
+        self.executionPolicy = executionPolicy
         self.state = Self.loadState(from: vaultRootURL)
     }
 
@@ -188,6 +193,28 @@ public actor KnowledgeExtractionService {
             return
         }
 
+        let inputText = String(trimmed.prefix(3000))
+
+        // Per CODEX.md F9: Route through AIExecutionPolicy for consistent circuit breaker/fallback
+        if let policy = executionPolicy {
+            let concepts = await policy.extractConcepts(
+                from: inputText,
+                model: nil,
+                systemPrompt: Self.systemPrompt
+            )
+            await updateConceptsAndState(for: noteURL, concepts: concepts)
+
+            if !concepts.isEmpty {
+                logger.info("[\(noteURL.lastPathComponent)] \(concepts.joined(separator: ", "))")
+            }
+
+            await MainActor.run {
+                NotificationCenter.default.post(name: .quartzConceptsUpdated, object: noteURL)
+            }
+            return
+        }
+
+        // Legacy path: direct provider access (for backward compatibility)
         let registry = await AIProviderRegistry.shared
         guard let provider = await registry.selectedProvider, provider.isConfigured else { return }
         let modelID = await registry.selectedModelID
@@ -196,7 +223,7 @@ public actor KnowledgeExtractionService {
             let response = try await provider.chat(
                 messages: [
                     AIMessage(role: .system, content: Self.systemPrompt),
-                    AIMessage(role: .user, content: String(trimmed.prefix(3000)))
+                    AIMessage(role: .user, content: inputText)
                 ],
                 model: modelID,
                 temperature: 0.3

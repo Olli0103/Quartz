@@ -304,8 +304,17 @@ struct AIProviderIntegrationTests {
 }
 
 // MARK: - XCTest Performance Tests for Audio/AI
+// NOTE: These tests are disabled by default as they take too long for CI.
+// Run them manually for performance regression testing.
 
 final class AudioAIPerformanceTests: XCTestCase {
+
+    override func setUpWithError() throws {
+        // Skip these tests in CI - they take too long
+        // Run manually with: swift test --filter AudioAIPerformanceTests
+        throw XCTSkip("Performance tests disabled for CI - run manually")
+    }
+
     func testTranscriptionSegmentProcessing() throws {
         // Generate 1000 segments
         var segments: [TranscriptionService.TranscriptionSegment] = []

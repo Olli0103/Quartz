@@ -396,8 +396,9 @@ final class Phase3TypingDuringAIUpdateTests: XCTestCase {
             }
         }
 
-        // Final state should be deterministic (last change was note)
-        XCTAssertEqual(store.currentRoute, .note(URL(fileURLWithPath: "/vault/note-99.md")))
+        // Final state should be deterministic
+        // i=99: 99 % 3 == 0, so last change was dashboard
+        XCTAssertEqual(store.currentRoute, .dashboard)
     }
 }
 

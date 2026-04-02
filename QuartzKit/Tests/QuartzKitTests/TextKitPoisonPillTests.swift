@@ -143,8 +143,9 @@ struct TextKitPoisonPillTests {
         let circuitBreaker = TextKitCircuitBreaker.shared
         circuitBreaker.reset()
 
-        // Create a 100KB document (under limit)
-        let text = String(repeating: "Test content. ", count: 7_000)
+        // Create a ~100KB document with reasonable line lengths (under limits)
+        let line = "Test content for a normal document line.\n"
+        let text = String(repeating: line, count: 2_500)  // ~100KB, short lines
 
         let validation = circuitBreaker.validateInput(text)
 
