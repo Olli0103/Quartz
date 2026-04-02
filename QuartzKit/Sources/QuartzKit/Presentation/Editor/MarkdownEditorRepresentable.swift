@@ -277,9 +277,12 @@ final class MarkdownEditorNSTextView: NSTextView {
         var currentBlock: [TableLineInfo] = []
         let docStart = layoutManager.documentRange.location
 
+        // NOTE: Do NOT use .ensuresLayout here — we're inside drawBackground,
+        // and triggering layout during drawing causes recursion warnings.
+        // Layout should already be complete by the time we're drawing.
         layoutManager.enumerateTextLayoutFragments(
             from: docStart,
-            options: [.ensuresLayout]
+            options: []
         ) { fragment in
             let charOffset = contentStorage.offset(from: docStart, to: fragment.rangeInElement.location)
             guard charOffset >= 0, charOffset < storage.length else {
