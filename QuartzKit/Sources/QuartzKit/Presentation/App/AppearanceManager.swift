@@ -101,6 +101,11 @@ public final class AppearanceManager {
         didSet { save() }
     }
 
+    /// How syntax delimiters (`**`, `#`, `` ` ``) are displayed in the editor.
+    public var syntaxVisibilityMode: SyntaxVisibilityMode {
+        didSet { save() }
+    }
+
     /// Resolved accent color for tinting the app.
     public var accentColor: Color {
         Color(hex: accentColorHex)
@@ -121,6 +126,7 @@ public final class AppearanceManager {
         self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
         self.accentColorHex = UInt(defaults.integer(forKey: Keys.accentColorHex)).clamped(to: 1...0xFFFFFF, default: 0xF2994A)
         self.showDashboardOnLaunch = defaults.object(forKey: Keys.showDashboardOnLaunch) as? Bool ?? true
+        self.syntaxVisibilityMode = Self.loadSyntaxVisibilityMode(from: defaults)
 
         // Migration: if editorFontSize was never set but editorFontScale was, derive size
         if defaults.object(forKey: Keys.editorFontSize) == nil {
@@ -144,6 +150,7 @@ public final class AppearanceManager {
         static let vibrantTransparency = "quartz.appearance.vibrantTransparency"
         static let accentColorHex = "quartz.appearance.accentColorHex"
         static let showDashboardOnLaunch = "quartz.appearance.showDashboardOnLaunch"
+        static let syntaxVisibilityMode = "quartz.appearance.syntaxVisibilityMode"
     }
 
     private func save() {
@@ -157,6 +164,7 @@ public final class AppearanceManager {
         defaults.set(vibrantTransparency, forKey: Keys.vibrantTransparency)
         defaults.set(Int(accentColorHex), forKey: Keys.accentColorHex)
         defaults.set(showDashboardOnLaunch, forKey: Keys.showDashboardOnLaunch)
+        defaults.set(syntaxVisibilityMode.rawValue, forKey: Keys.syntaxVisibilityMode)
     }
 
     private static func loadTheme(from defaults: UserDefaults) -> Theme {
@@ -173,6 +181,14 @@ public final class AppearanceManager {
             return .system
         }
         return family
+    }
+
+    private static func loadSyntaxVisibilityMode(from defaults: UserDefaults) -> SyntaxVisibilityMode {
+        guard let raw = defaults.string(forKey: Keys.syntaxVisibilityMode),
+              let mode = SyntaxVisibilityMode(rawValue: raw) else {
+            return .full
+        }
+        return mode
     }
 }
 

@@ -328,4 +328,61 @@ public actor GraphEdgeStore {
             }
         }
     }
+
+    // MARK: - Cache Integration
+
+    /// Populates the edge store from a cached graph.
+    ///
+    /// Loads forward edges, reverse edges, and semantic edges from the
+    /// `GraphCache.CachedGraph`. Clears existing state first.
+    /// Call this on startup when the cache fingerprint is valid.
+    public func loadFromCache(_ cached: GraphCache.CachedGraph, allVaultURLs: [URL]) {
+        edges.removeAll(keepingCapacity: true)
+        reverseEdges.removeAll(keepingCapacity: true)
+        semanticEdges.removeAll(keepingCapacity: true)
+
+        // Build URL lookup from node IDs
+        var nodeURLs: [String: URL] = [:]
+        for node in cached.nodes {
+            nodeURLs[node.id] = node.url
+        }
+
+        // Populate forward and reverse edges from cached data
+        for edge in cached.edges {
+            guard let fromURL = nodeURLs[edge.from],
+                  let toURL = nodeURLs[edge.to] else { continue }
+
+            if edge.isSemantic {
+                semanticEdges[fromURL, default: []].append(toURL)
+            } else {
+                edges[fromURL, default: []].append(toURL)
+                reverseEdges[toURL, default: []].insert(fromURL)
+            }
+        }
+
+        // Build title index for future resolution
+        rebuildTitleIndex(from: allVaultURLs)
+    }
+
+    /// Exports the current edge state for caching via `GraphCache`.
+    ///
+    /// Returns all forward edges (wiki-link) and semantic edges as
+    /// `(from: URL, to: URL, isSemantic: Bool)` tuples.
+    public func exportForCache() -> [(from: URL, to: URL, isSemantic: Bool)] {
+        var result: [(from: URL, to: URL, isSemantic: Bool)] = []
+
+        for (source, targets) in edges {
+            for target in targets {
+                result.append((from: source, to: target, isSemantic: false))
+            }
+        }
+
+        for (source, targets) in semanticEdges {
+            for target in targets {
+                result.append((from: source, to: target, isSemantic: true))
+            }
+        }
+
+        return result
+    }
 }

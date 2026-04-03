@@ -1,14 +1,18 @@
 import Foundation
+import CryptoKit
 import os
 
-/// In-memory search index for the entire vault.
+/// Search index for the entire vault with disk persistence.
 ///
-/// Built when opening the vault and incrementally updated
-/// on changes. Searches frontmatter + body.
+/// On first open, builds the full index from the filesystem and saves to
+/// `{vault}/.quartz/search-index.json`. On subsequent opens, loads the
+/// cached index if the vault fingerprint matches (no files changed).
+/// Incrementally updated on note saves with debounced cache writes.
+///
 /// System-wide discovery uses ``QuartzSpotlightIndexer`` (Core Spotlight), not this type.
 public actor VaultSearchIndex {
     /// Indexed entry for a note.
-    private struct IndexEntry: Sendable {
+    private struct IndexEntry: Sendable, Codable {
         let url: URL
         let title: String
         let titleLower: String
@@ -20,9 +24,22 @@ public actor VaultSearchIndex {
         let modifiedAt: Date
     }
 
+    /// Codable wrapper for persisting the full index to disk.
+    private struct CachedIndex: Codable, Sendable {
+        let entries: [URL: IndexEntry]
+        let fingerprint: String
+    }
+
     private var entries: [URL: IndexEntry] = [:]
     private let vaultProvider: any VaultProviding
     private let logger = Logger(subsystem: "com.quartz", category: "VaultSearchIndex")
+
+    /// Root URL of the current vault (set after buildIndex or loadIndex).
+    private var vaultRoot: URL?
+
+    /// Debounce task for cache saves — max one save per 5s window.
+    private var saveCacheTask: Task<Void, Never>?
+    private var lastCacheSave: Date = .distantPast
 
     /// Regex for inline `#tag` extraction. Matches `#word` only after whitespace
     /// (never at line start — that's a heading). Captures alphanumeric + underscore + hyphen tags.
@@ -36,9 +53,26 @@ public actor VaultSearchIndex {
     }
 
     /// Builds the complete index for a vault.
+    ///
+    /// Checks the disk cache first. If the cache fingerprint matches the current
+    /// vault state (no files added/removed/modified), loads from cache. Otherwise
+    /// rebuilds from the filesystem and saves the new cache.
     public func buildIndex(at root: URL) async throws {
+        vaultRoot = root
         let tree = try await vaultProvider.loadFileTree(at: root)
+        let noteURLs = collectNoteURLs(from: tree)
+        let fingerprint = Self.computeFingerprint(for: noteURLs)
+
+        // Try loading from cache
+        if let cached = loadCache(vaultRoot: root), cached.fingerprint == fingerprint {
+            entries = cached.entries
+            logger.info("Loaded search index from cache (\(cached.entries.count) entries)")
+            return
+        }
+
+        // Cache miss — rebuild from filesystem
         await indexNodes(tree)
+        scheduleCacheSave()
     }
 
     /// Indexes notes from an already loaded file tree (avoids duplicate I/O).
@@ -77,6 +111,7 @@ public actor VaultSearchIndex {
                 bodyLower: body.lowercased(),
                 modifiedAt: note.frontmatter.modifiedAt
             )
+            scheduleCacheSave()
         } catch {
             logger.warning("Could not index note at \(url.lastPathComponent): \(error.localizedDescription)")
             entries.removeValue(forKey: url)
@@ -86,6 +121,7 @@ public actor VaultSearchIndex {
     /// Removes a note from the index.
     public func removeEntry(for url: URL) {
         entries.removeValue(forKey: url)
+        scheduleCacheSave()
     }
 
     /// Returns all unique tags across the vault, mapped to the note URLs that contain them.
@@ -245,6 +281,88 @@ public actor VaultSearchIndex {
             .replacingOccurrences(of: "\n", with: " ")
 
         return String(context.prefix(120))
+    }
+
+    // MARK: - Cache Persistence
+
+    /// Returns the cache file URL for the given vault root.
+    private static func cacheURL(for vaultRoot: URL) -> URL {
+        vaultRoot
+            .appending(path: ".quartz")
+            .appending(path: "search-index.json")
+    }
+
+    /// Computes a SHA256 fingerprint from note URLs and modification dates.
+    /// Uses the same approach as `GraphCache.computeFingerprint`.
+    public static func computeFingerprint(for noteURLs: [URL]) -> String {
+        let fm = FileManager.default
+        var pairs: [(String, TimeInterval)] = []
+        for url in noteURLs {
+            let mtime: TimeInterval
+            if let attrs = try? fm.attributesOfItem(atPath: url.path(percentEncoded: false)),
+               let date = attrs[.modificationDate] as? Date {
+                mtime = date.timeIntervalSince1970
+            } else {
+                mtime = 0
+            }
+            pairs.append((url.absoluteString, mtime))
+        }
+        pairs.sort { $0.0 < $1.0 }
+        let data = pairs.flatMap { "\($0.0):\($0.1)".utf8 }
+        let hash = SHA256.hash(data: Data(data))
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Loads the cached index from disk.
+    private func loadCache(vaultRoot: URL) -> CachedIndex? {
+        let url = Self.cacheURL(for: vaultRoot)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)),
+              let data = try? Data(contentsOf: url),
+              let cached = try? JSONDecoder().decode(CachedIndex.self, from: data) else {
+            return nil
+        }
+        return cached
+    }
+
+    /// Saves the current index to disk. Called on a debounced schedule.
+    public func saveCache() {
+        guard let root = vaultRoot else { return }
+        let url = Self.cacheURL(for: root)
+        let noteURLs = Array(entries.keys)
+        let fingerprint = Self.computeFingerprint(for: noteURLs)
+        let cached = CachedIndex(entries: entries, fingerprint: fingerprint)
+
+        do {
+            let dir = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(cached)
+            try data.write(to: url, options: .atomic)
+            lastCacheSave = Date()
+            logger.debug("Saved search index cache (\(self.entries.count) entries)")
+        } catch {
+            logger.warning("Failed to save search index cache: \(error.localizedDescription)")
+        }
+    }
+
+    /// Schedules a debounced cache save (max one per 5 seconds).
+    private func scheduleCacheSave() {
+        saveCacheTask?.cancel()
+        let sinceLastSave = Date().timeIntervalSince(lastCacheSave)
+        let delay: Duration = sinceLastSave < 5 ? .seconds(5 - sinceLastSave) : .milliseconds(100)
+
+        saveCacheTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.saveCache()
+        }
+    }
+
+    /// Forces a full rebuild on next `buildIndex` call by deleting the cache file.
+    public func invalidateCache() {
+        guard let root = vaultRoot else { return }
+        let url = Self.cacheURL(for: root)
+        try? FileManager.default.removeItem(at: url)
+        logger.info("Invalidated search index cache")
     }
 }
 

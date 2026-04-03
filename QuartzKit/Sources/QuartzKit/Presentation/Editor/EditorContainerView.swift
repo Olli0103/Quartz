@@ -78,7 +78,8 @@ public struct EditorContainerView: View {
                 editorFontScale: appearance.editorFontScale,
                 editorFontFamily: appearance.editorFontFamily,
                 editorLineSpacing: appearance.editorLineSpacing,
-                editorMaxWidth: appearance.editorMaxWidth
+                editorMaxWidth: appearance.editorMaxWidth,
+                syntaxVisibilityMode: appearance.syntaxVisibilityMode
             )
             .disabled(isInTrash) // Read-only when viewing a trashed note
 
@@ -231,7 +232,8 @@ public struct EditorContainerView: View {
                         cursorAfter: NSRange(
                             location: range.location + (processedText as NSString).length,
                             length: 0
-                        )
+                        ),
+                        origin: .aiInsert
                     )
                 }
             }
@@ -466,7 +468,8 @@ public struct EditorContainerView: View {
         session.applyExternalEdit(
             replacement: text,
             range: NSRange(location: insertLocation, length: 0),
-            cursorAfter: NSRange(location: insertLocation + (text as NSString).length, length: 0)
+            cursorAfter: NSRange(location: insertLocation + (text as NSString).length, length: 0),
+            origin: .pasteOrDrop
         )
     }
 

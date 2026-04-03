@@ -65,6 +65,8 @@ public final class ContentViewModel {
     public var intelligenceCoordinator: IntelligenceEngineCoordinator?
     /// Shared graph edge store for wiki-link and semantic edges.
     public let graphEdgeStore = GraphEdgeStore()
+    /// Startup phase coordinator — deterministic handshake replacing timing heuristics.
+    public let startupCoordinator = StartupCoordinator()
 
     public init(appState: AppState) {
         self.appState = appState
@@ -79,8 +81,12 @@ public final class ContentViewModel {
         stopCloudSync()
         indexingTask?.cancel()
         indexingTask = nil
+        startupCoordinator.reset()
 
         currentVaultRootURL = vault.rootURL
+
+        // Phase: vault resolved (bookmark acquired, directory accessible)
+        startupCoordinator.advance(to: StartupCoordinator.StartupPhase.vaultResolved)
 
         let provider = ServiceContainer.shared.resolveVaultProvider()
         vaultProvider = provider
@@ -140,6 +146,9 @@ public final class ContentViewModel {
         session.graphEdgeStore = graphEdgeStore
         editorSession = session
 
+        // Phase: editor mounted
+        startupCoordinator.advance(to: StartupCoordinator.StartupPhase.editorMounted)
+
         // Create DocumentChatSession ONCE per vault — reuses the same EditorSession.
         documentChatSession = DocumentChatSession(editorSession: session)
 
@@ -163,6 +172,18 @@ public final class ContentViewModel {
             }
 
             await index.indexFromPreloadedTree(viewModel.fileTree)
+
+            // Pre-populate graph edge store from cache for instant backlinks
+            let noteURLs = Self.collectNoteURLs(from: viewModel.fileTree)
+            let graphCache = GraphCache(vaultRoot: vault.rootURL)
+            let graphFingerprint = graphCache.computeFingerprint(for: noteURLs)
+            if let cached = graphCache.loadIfValid(fingerprint: graphFingerprint) {
+                await self.graphEdgeStore.loadFromCache(cached, allVaultURLs: noteURLs)
+            }
+
+            // Phase: index warm (search + graph loaded)
+            self.startupCoordinator.advance(to: StartupCoordinator.StartupPhase.indexWarm)
+
             if let root = currentVaultRootURL {
                 await spotlightIndexer?.removeAllInDomain()
                 await spotlightIndexer?.indexAllNotes(

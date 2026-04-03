@@ -922,6 +922,9 @@ public struct KnowledgeGraphView: View {
             ? String(localized: "Currently selected", bundle: .module)
             : String(localized: "Double tap to filter", bundle: .module))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(isSelected
+            ? String(localized: "Active", bundle: .module)
+            : String(localized: "Inactive", bundle: .module))
     }
 
     // MARK: - Zoom Controls
@@ -939,6 +942,7 @@ public struct KnowledgeGraphView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Zoom in", bundle: .module))
+            .accessibilityInputLabels([Text("Zoom in"), Text("Plus")])
             Button {
                 withAnimation { zoom = max(0.3, zoom - 0.2) }
             } label: {
@@ -950,6 +954,7 @@ public struct KnowledgeGraphView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Zoom out", bundle: .module))
+            .accessibilityInputLabels([Text("Zoom out"), Text("Minus")])
             Button {
                 withAnimation { pan = .zero; zoom = 1.0 }
             } label: {
@@ -961,6 +966,7 @@ public struct KnowledgeGraphView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Reset view", bundle: .module))
+            .accessibilityInputLabels([Text("Reset view"), Text("Reset"), Text("Center")])
         }
     }
 

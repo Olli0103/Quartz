@@ -135,10 +135,14 @@ public actor MarkdownASTHighlighter {
     private(set) public var baseFontSize: CGFloat
     public var fontFamily: AppearanceManager.EditorFontFamily = .system
     public var lineSpacing: CGFloat = 1.5
+    /// How syntax delimiters are displayed (full, gentle fade, hidden until caret).
+    public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
     /// Root URL of the current vault. Used to resolve relative image paths in `![](assets/...)`.
     public var vaultRootURL: URL?
     /// URL of the currently open note. Used for relative path resolution.
     public var noteURL: URL?
+    /// Cached spans from the last full or incremental parse. Used for incremental patching.
+    private var cachedSpans: [HighlightSpan] = []
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 150_000_000 // 150ms in nanoseconds
 
@@ -195,7 +199,9 @@ public actor MarkdownASTHighlighter {
             return Self.parseSync(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL)
         }
         parseTask = task
-        return await task.value
+        let result = await task.value
+        cachedSpans = result
+        return result
     }
 
     /// Debounced parse: waits `debounceInterval` then parses. Cancels previous.
@@ -213,12 +219,135 @@ public actor MarkdownASTHighlighter {
         return await parse(markdown)
     }
 
+    // MARK: - Incremental Parsing
+
+    /// Incrementally parses only the dirty region of the document and merges with cached spans.
+    ///
+    /// Falls back to full parse when:
+    /// - No cached spans exist (first parse)
+    /// - The dirty region contains a code fence boundary (affects all subsequent content)
+    /// - The edit range is invalid
+    ///
+    /// - Parameters:
+    ///   - markdown: The full document text after the edit.
+    ///   - editRange: The post-edit range where changes occurred.
+    ///   - preEditLength: The length of the text that was replaced (pre-edit).
+    /// - Returns: Merged highlight spans for the full document.
+    public func parseIncremental(
+        _ markdown: String,
+        editRange: NSRange,
+        preEditLength: Int
+    ) async -> [HighlightSpan] {
+        // Fall back to full parse if no cache
+        guard !cachedSpans.isEmpty else {
+            return await parse(markdown)
+        }
+
+        // Compute expanded dirty range (±1 paragraph context)
+        guard let dirtyRange = ASTDirtyRegionTracker.expandedDirtyRange(
+            in: markdown,
+            editRange: editRange
+        ) else {
+            return await parse(markdown)
+        }
+
+        // Fall back if dirty range contains code fence (affects everything after it)
+        if ASTDirtyRegionTracker.containsCodeFenceBoundary(in: markdown, range: dirtyRange) {
+            return await parse(markdown)
+        }
+
+        let nsMarkdown = markdown as NSString
+        let docLength = nsMarkdown.length
+
+        // Validate dirty range
+        guard dirtyRange.location >= 0,
+              dirtyRange.location + dirtyRange.length <= docLength else {
+            return await parse(markdown)
+        }
+
+        // Extract dirty substring and parse it
+        let dirtyText = nsMarkdown.substring(with: dirtyRange)
+        let dirtySpans = Self.parseSync(
+            dirtyText,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL
+        )
+
+        // Offset dirty spans to global coordinates
+        let offsetSpans = dirtySpans.map { span -> HighlightSpan in
+            HighlightSpan(
+                range: NSRange(location: span.range.location + dirtyRange.location, length: span.range.length),
+                font: span.font,
+                color: span.color,
+                traits: span.traits,
+                backgroundColor: span.backgroundColor,
+                strikethrough: span.strikethrough,
+                isOverlay: span.isOverlay,
+                attachment: span.attachment,
+                paragraphStyle: span.paragraphStyle,
+                tableRowStyle: span.tableRowStyle,
+                kern: span.kern,
+                wikiLinkTitle: span.wikiLinkTitle
+            )
+        }
+
+        // Compute length delta for shifting spans after the dirty region
+        let lengthDelta = editRange.length - preEditLength
+
+        // Merge: keep spans before dirty range, insert new spans, shift spans after
+        var merged: [HighlightSpan] = []
+
+        // 1. Spans entirely before the dirty range (unchanged)
+        for span in cachedSpans {
+            if span.range.location + span.range.length <= dirtyRange.location {
+                merged.append(span)
+            }
+        }
+
+        // 2. New spans from the dirty region parse
+        merged.append(contentsOf: offsetSpans)
+
+        // 3. Spans entirely after the dirty range (shifted by length delta)
+        let oldDirtyEnd = dirtyRange.location + dirtyRange.length - lengthDelta
+        for span in cachedSpans {
+            if span.range.location >= oldDirtyEnd {
+                let shifted = NSRange(
+                    location: span.range.location + lengthDelta,
+                    length: span.range.length
+                )
+                // Validate shifted range
+                guard shifted.location >= 0, shifted.location + shifted.length <= docLength else { continue }
+                merged.append(HighlightSpan(
+                    range: shifted,
+                    font: span.font,
+                    color: span.color,
+                    traits: span.traits,
+                    backgroundColor: span.backgroundColor,
+                    strikethrough: span.strikethrough,
+                    isOverlay: span.isOverlay,
+                    attachment: span.attachment,
+                    paragraphStyle: span.paragraphStyle,
+                    tableRowStyle: span.tableRowStyle,
+                    kern: span.kern,
+                    wikiLinkTitle: span.wikiLinkTitle
+                ))
+            }
+        }
+
+        cachedSpans = merged
+        return merged
+    }
+
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
         collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         // Post-AST pass: highlight [[wiki-links]] which swift-markdown treats as plain text
         appendWikiLinkSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+        // Post-AST pass: highlight $..$ (inline) and $$...$$ (display) LaTeX
+        appendLatexSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
     }
 
@@ -298,6 +427,10 @@ public actor MarkdownASTHighlighter {
             offset = adjustedEnd
             await Task.yield()
         }
+
+        // LaTeX pass (non-chunked — regex is fast enough for large docs)
+        guard !Task.isCancelled else { return spans }
+        appendLatexSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
 
         return spans
     }
@@ -848,6 +981,137 @@ public actor MarkdownASTHighlighter {
         }
 
         return ranges
+    }
+
+    // MARK: - LaTeX Highlighting
+
+    /// Post-AST pass that finds `$...$` (inline) and `$$...$$` (display) LaTeX expressions
+    /// and styles them with monospace font and a subtle background color.
+    /// Skips LaTeX inside fenced code blocks and inline code.
+    private static func appendLatexSpans(
+        in source: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsSource = source as NSString
+        guard nsSource.length > 0 else { return }
+
+        let codeRanges = codeBlockNSRanges(in: source)
+        let codeFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
+        let noTraits = FontTraits(bold: false, italic: false)
+
+        let latexColor: PlatformColor
+        let delimiterColor: PlatformColor
+        let latexBg: PlatformColor
+        #if canImport(UIKit)
+        latexColor = UIColor.label
+        delimiterColor = UIColor.tertiaryLabel
+        latexBg = UIColor.systemFill.withAlphaComponent(0.08)
+        #elseif canImport(AppKit)
+        latexColor = NSColor.labelColor
+        delimiterColor = NSColor.tertiaryLabelColor
+        latexBg = NSColor.controlBackgroundColor.withAlphaComponent(0.3)
+        #endif
+
+        // Display math: $$...$$  (must be checked before inline $...$)
+        if let displayRegex = try? NSRegularExpression(pattern: #"\$\$(.+?)\$\$"#, options: [.dotMatchesLineSeparators]) {
+            let matches = displayRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+            for match in matches {
+                let fullRange = match.range
+                guard match.numberOfRanges >= 2 else { continue }
+                let contentRange = match.range(at: 1)
+
+                let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
+                guard !isInCode else { continue }
+                guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
+
+                // Opening $$ delimiter
+                spans.append(HighlightSpan(
+                    range: NSRange(location: fullRange.location, length: 2),
+                    font: codeFont,
+                    color: delimiterColor,
+                    traits: noTraits,
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    isOverlay: true
+                ))
+
+                // LaTeX content
+                if contentRange.length > 0 {
+                    spans.append(HighlightSpan(
+                        range: contentRange,
+                        font: codeFont,
+                        color: latexColor,
+                        traits: noTraits,
+                        backgroundColor: latexBg,
+                        strikethrough: false
+                    ))
+                }
+
+                // Closing $$ delimiter
+                let closingStart = fullRange.location + fullRange.length - 2
+                spans.append(HighlightSpan(
+                    range: NSRange(location: closingStart, length: 2),
+                    font: codeFont,
+                    color: delimiterColor,
+                    traits: noTraits,
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    isOverlay: true
+                ))
+            }
+        }
+
+        // Inline math: $...$  (single dollar, not preceded/followed by another $)
+        if let inlineRegex = try? NSRegularExpression(pattern: #"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)"#) {
+            let matches = inlineRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+            for match in matches {
+                let fullRange = match.range
+                guard match.numberOfRanges >= 2 else { continue }
+                let contentRange = match.range(at: 1)
+
+                let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
+                guard !isInCode else { continue }
+                // Also skip if this overlaps with a display math range ($$)
+                guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
+
+                // Opening $ delimiter
+                spans.append(HighlightSpan(
+                    range: NSRange(location: fullRange.location, length: 1),
+                    font: codeFont,
+                    color: delimiterColor,
+                    traits: noTraits,
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    isOverlay: true
+                ))
+
+                // LaTeX content
+                if contentRange.length > 0 {
+                    spans.append(HighlightSpan(
+                        range: contentRange,
+                        font: codeFont,
+                        color: latexColor,
+                        traits: noTraits,
+                        backgroundColor: latexBg,
+                        strikethrough: false
+                    ))
+                }
+
+                // Closing $ delimiter
+                let closingStart = fullRange.location + fullRange.length - 1
+                spans.append(HighlightSpan(
+                    range: NSRange(location: closingStart, length: 1),
+                    font: codeFont,
+                    color: delimiterColor,
+                    traits: noTraits,
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    isOverlay: true
+                ))
+            }
+        }
     }
 
     // MARK: - Table Helpers

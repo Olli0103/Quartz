@@ -130,6 +130,8 @@ public struct AppearanceSettingsView: View {
                     }
                 }
                 .tint(appearance.accentColor)
+                .accessibilityLabel(Text(String(localized: "Vibrant Transparency", bundle: .module)))
+                .accessibilityHint(Text(String(localized: "Apply a translucent glass effect to sidebar and toolbars", bundle: .module)))
 
                 Toggle(isOn: Binding(
                     get: { appearance.pureDarkMode },
@@ -144,6 +146,8 @@ public struct AppearanceSettingsView: View {
                 }
                 .tint(appearance.accentColor)
                 .disabled(appearance.theme == .light)
+                .accessibilityLabel(Text(String(localized: "Pure Dark Mode", bundle: .module)))
+                .accessibilityHint(Text(String(localized: "True black background for OLED displays", bundle: .module)))
             } header: {
                 Text(String(localized: "Visual Effects", bundle: .module))
             }
@@ -163,6 +167,8 @@ public struct AppearanceSettingsView: View {
                     }
                 }
                 .tint(appearance.accentColor)
+                .accessibilityLabel(Text(String(localized: "Show Dashboard", bundle: .module)))
+                .accessibilityHint(Text(String(localized: "Display the command center when no note is selected", bundle: .module)))
             } header: {
                 Text(String(localized: "Dashboard", bundle: .module))
             }

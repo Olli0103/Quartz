@@ -21,19 +21,22 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
     var editorFontFamily: AppearanceManager.EditorFontFamily = .system
     var editorLineSpacing: CGFloat = 1.5
     var editorMaxWidth: CGFloat = 720
+    var syntaxVisibilityMode: SyntaxVisibilityMode = .full
 
     public init(
         session: EditorSession,
         editorFontScale: CGFloat = 1.0,
         editorFontFamily: AppearanceManager.EditorFontFamily = .system,
         editorLineSpacing: CGFloat = 1.5,
-        editorMaxWidth: CGFloat = 720
+        editorMaxWidth: CGFloat = 720,
+        syntaxVisibilityMode: SyntaxVisibilityMode = .full
     ) {
         self.session = session
         self.editorFontScale = editorFontScale
         self.editorFontFamily = editorFontFamily
         self.editorLineSpacing = editorLineSpacing
         self.editorMaxWidth = editorMaxWidth
+        self.syntaxVisibilityMode = syntaxVisibilityMode
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -79,6 +82,7 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         session.highlighterBaseFontSize = baseFontSize
         session.highlighterFontFamily = editorFontFamily
         session.highlighterLineSpacing = editorLineSpacing
+        session.syntaxVisibilityMode = syntaxVisibilityMode
         Task { [editorFontFamily, editorLineSpacing] in
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
@@ -143,6 +147,7 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         let session: EditorSession
         weak var textView: UITextView?
         private let listContinuation = MarkdownListContinuation()
+        private let tableNavigation = MarkdownTableNavigation()
         private var scrollThrottleTask: Task<Void, Never>?
         var lastFontScale: CGFloat = -1
         var lastFontFamily: AppearanceManager.EditorFontFamily = .system
@@ -195,9 +200,29 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         // MARK: - Newline Interception (List Continuation)
 
         public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText newText: String) -> Bool {
-            guard newText == "\n" else { return true }
             // Don't intercept during IME composition
             guard textView.markedTextRange == nil else { return true }
+
+            // Tab interception for table navigation
+            if newText == "\t" {
+                let currentText = textView.text ?? ""
+                if let result = tableNavigation.handleTab(in: currentText, cursorPosition: range.location, isShiftTab: false) {
+                    if let insertion = result.newRowInsertion {
+                        session.applyExternalEdit(
+                            replacement: insertion.rowText,
+                            range: NSRange(location: insertion.insertionPoint, length: 0),
+                            cursorAfter: result.selectionRange,
+                            origin: .tableNavigation
+                        )
+                    } else {
+                        textView.selectedRange = result.selectionRange
+                    }
+                    return false
+                }
+            }
+
+            // Newline interception for list continuation
+            guard newText == "\n" else { return true }
 
             let currentText = textView.text ?? ""
             guard let result = listContinuation.handleNewline(in: currentText, cursorPosition: range.location) else {
@@ -208,7 +233,8 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
             session.applyExternalEdit(
                 replacement: result.insertionText,
                 range: result.replacementRange,
-                cursorAfter: NSRange(location: result.newCursorPosition, length: 0)
+                cursorAfter: NSRange(location: result.newCursorPosition, length: 0),
+                origin: .listContinuation
             )
             return false
         }
@@ -376,6 +402,33 @@ final class MarkdownEditorNSTextView: NSTextView {
         }
     }
 
+    // MARK: - Table Tab Navigation
+
+    private let tableNavigation = MarkdownTableNavigation()
+
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(insertTab(_:)) || selector == #selector(insertBacktab(_:)) {
+            let isShiftTab = selector == #selector(insertBacktab(_:))
+            let cursor = selectedRange().location
+            if let result = tableNavigation.handleTab(in: string, cursorPosition: cursor, isShiftTab: isShiftTab) {
+                if let insertion = result.newRowInsertion {
+                    // Insert new row, then select first cell
+                    editorSession?.applyExternalEdit(
+                        replacement: insertion.rowText,
+                        range: NSRange(location: insertion.insertionPoint, length: 0),
+                        cursorAfter: result.selectionRange,
+                        origin: .tableNavigation
+                    )
+                } else {
+                    // Just move selection to target cell
+                    setSelectedRange(result.selectionRange)
+                }
+                return
+            }
+        }
+        super.doCommand(by: selector)
+    }
+
     // MARK: - Wiki-Link Click Interception
 
     override func mouseDown(with event: NSEvent) {
@@ -485,7 +538,8 @@ final class MarkdownEditorNSTextView: NSTextView {
             session.applyExternalEdit(
                 replacement: finalText,
                 range: range,
-                cursorAfter: cursorAfter
+                cursorAfter: cursorAfter,
+                origin: .pasteOrDrop
             )
         }
 
@@ -524,19 +578,22 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
     var editorFontFamily: AppearanceManager.EditorFontFamily = .system
     var editorLineSpacing: CGFloat = 1.5
     var editorMaxWidth: CGFloat = 720
+    var syntaxVisibilityMode: SyntaxVisibilityMode = .full
 
     public init(
         session: EditorSession,
         editorFontScale: CGFloat = 1.0,
         editorFontFamily: AppearanceManager.EditorFontFamily = .system,
         editorLineSpacing: CGFloat = 1.5,
-        editorMaxWidth: CGFloat = 720
+        editorMaxWidth: CGFloat = 720,
+        syntaxVisibilityMode: SyntaxVisibilityMode = .full
     ) {
         self.session = session
         self.editorFontScale = editorFontScale
         self.editorFontFamily = editorFontFamily
         self.editorLineSpacing = editorLineSpacing
         self.editorMaxWidth = editorMaxWidth
+        self.syntaxVisibilityMode = syntaxVisibilityMode
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -578,6 +635,7 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         session.highlighterBaseFontSize = baseFontSize
         session.highlighterFontFamily = editorFontFamily
         session.highlighterLineSpacing = editorLineSpacing
+        session.syntaxVisibilityMode = syntaxVisibilityMode
         Task { [editorFontFamily, editorLineSpacing] in
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
@@ -707,7 +765,8 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
             session.applyExternalEdit(
                 replacement: result.insertionText,
                 range: result.replacementRange,
-                cursorAfter: NSRange(location: result.newCursorPosition, length: 0)
+                cursorAfter: NSRange(location: result.newCursorPosition, length: 0),
+                origin: .listContinuation
             )
             return false
         }

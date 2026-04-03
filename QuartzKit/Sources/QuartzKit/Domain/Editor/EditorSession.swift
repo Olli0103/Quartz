@@ -62,6 +62,10 @@ public final class EditorSession {
     /// Set when an external modification is detected while the user has unsaved edits.
     public var externalModificationDetected: Bool = false
 
+    /// The active mutation transaction, set during any text edit.
+    /// Used by the undo system and incremental highlighter to determine policy.
+    public private(set) var currentTransaction: MutationTransaction?
+
     /// Guard flag: true while `applyHighlightSpans` is modifying the text storage.
     /// Prevents `textDidChange` from re-triggering highlights during attachment insertion.
     public private(set) var isApplyingHighlights: Bool = false
@@ -259,6 +263,11 @@ public final class EditorSession {
         // Reset readiness state for new note (F8 handshake)
         resetReadinessState()
 
+        // CRITICAL: Save dirty content before switching notes to prevent data loss
+        if isDirty, note != nil {
+            await save(force: true)
+        }
+
         // Save a snapshot of the previous note before switching
         if let previousNoteURL = note?.fileURL, let vaultRoot = vaultRootURL, !currentText.isEmpty {
             let content = currentText
@@ -401,6 +410,16 @@ public final class EditorSession {
         let previousText = currentText
         currentText = newText
         guard newText != previousText else { return }
+
+        // Track mutation origin for undo/highlight policy
+        let editLen = (newText as NSString).length - (previousText as NSString).length
+        let editLocation = cursorPosition.location - max(editLen, 0)
+        currentTransaction = MutationTransaction(
+            origin: .userTyping,
+            editedRange: NSRange(location: max(editLocation, 0), length: editLen < 0 ? -editLen : 0),
+            replacementLength: max(editLen, 0)
+        )
+
         isDirty = true
         scheduleAutosave()
         scheduleWordCountUpdate()
@@ -592,10 +611,9 @@ public final class EditorSession {
         applyExternalEdit(
             replacement: edit.replacement,
             range: edit.range,
-            cursorAfter: edit.cursorAfter
+            cursorAfter: edit.cursorAfter,
+            origin: .formatting
         )
-
-        // Update formatting state after the edit
         formattingState = FormattingState.detect(in: currentText, at: edit.cursorAfter.location)
 
         // Run highlight IMMEDIATELY with NO DIFF — force all attributes to be rewritten.
@@ -675,7 +693,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: color, range: r)
+                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color), range: r)
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -757,7 +775,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: color, range: r)
+                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color), range: r)
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -794,15 +812,44 @@ public final class EditorSession {
     /// for proper undo registration and minimal layout invalidation.
     ///
     /// **IME Guard**: Refuses to mutate text during active composition.
+    ///
+    /// - Parameters:
+    ///   - replacement: The text to insert.
+    ///   - range: The range to replace.
+    ///   - cursorAfter: Optional cursor position after the edit.
+    ///   - origin: The mutation origin — determines undo/highlight policy.
     public func applyExternalEdit(
         replacement: String,
         range: NSRange,
-        cursorAfter: NSRange? = nil
+        cursorAfter: NSRange? = nil,
+        origin: MutationOrigin = .formatting
     ) {
         guard !isComposing else { return }
 
+        // Track mutation transaction
+        currentTransaction = MutationTransaction(
+            origin: origin,
+            editedRange: range,
+            replacementLength: (replacement as NSString).length
+        )
+
+        let transaction = currentTransaction!
+
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
+        let undoManager = textView.undoManager
+
+        // Undo policy from transaction
+        if transaction.clearsUndoStack {
+            undoManager?.removeAllActions()
+        }
+        if !transaction.registersUndo {
+            undoManager?.disableUndoRegistration()
+        }
+        if transaction.needsExplicitUndoGroup {
+            undoManager?.beginUndoGrouping()
+        }
+
         textView.textStorage.replaceCharacters(in: range, with: replacement)
 
         if let cursor = cursorAfter {
@@ -812,15 +859,42 @@ public final class EditorSession {
             }
         }
 
+        if transaction.needsExplicitUndoGroup {
+            undoManager?.endUndoGrouping()
+        }
+        if !transaction.registersUndo {
+            undoManager?.enableUndoRegistration()
+        }
+
         // Sync snapshot
         currentText = textView.text ?? ""
 
         #elseif canImport(AppKit)
         guard let textView = activeTextView, let storage = textView.textStorage else { return }
+        let undoManager = textView.undoManager
+
+        // Undo policy from transaction
+        if transaction.clearsUndoStack {
+            undoManager?.removeAllActions()
+        }
+        if !transaction.registersUndo {
+            undoManager?.disableUndoRegistration()
+        }
+        if transaction.needsExplicitUndoGroup {
+            undoManager?.beginUndoGrouping()
+        }
+
         storage.replaceCharacters(in: range, with: replacement)
 
         if let cursor = cursorAfter {
             textView.setSelectedRange(cursor)
+        }
+
+        if transaction.needsExplicitUndoGroup {
+            undoManager?.endUndoGrouping()
+        }
+        if !transaction.registersUndo {
+            undoManager?.enableUndoRegistration()
         }
 
         // Sync snapshot
@@ -854,10 +928,11 @@ public final class EditorSession {
         isSavingToFileSystem = true
         defer {
             isSaving = false
-            // Delay clearing the flag slightly to allow file system events to be processed
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
-                self.isSavingToFileSystem = false
+            // Delay clearing isSavingToFileSystem to suppress file-watcher echo
+            // from our own write. 200ms is sufficient (was 500ms).
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                self?.isSavingToFileSystem = false
             }
         }
 
@@ -936,17 +1011,40 @@ public final class EditorSession {
     public var highlighterFontFamily: AppearanceManager.EditorFontFamily = .system
     /// Line spacing multiplier. Set by the representable.
     public var highlighterLineSpacing: CGFloat = 1.5
+    /// Syntax visibility mode. Set by the representable from AppearanceManager.
+    public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
     nonisolated(unsafe) private var highlightTask: Task<Void, Never>?
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
+    /// Uses incremental parsing when the current transaction supports it.
     public func scheduleHighlight() {
         guard !isComposing else { return }
+
+        // Capture transaction info for the incremental path
+        let transaction = currentTransaction
 
         highlightTask?.cancel()
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
-            let spans = await highlighter.parseDebounced(text)
+
+            let spans: [HighlightSpan]
+            if let tx = transaction, tx.prefersIncrementalHighlight {
+                // Incremental path: re-parse only the dirty region
+                let postEditRange = NSRange(
+                    location: tx.editedRange.location,
+                    length: tx.replacementLength
+                )
+                spans = await highlighter.parseIncremental(
+                    text,
+                    editRange: postEditRange,
+                    preEditLength: tx.editedRange.length
+                )
+            } else {
+                // Full re-parse path
+                spans = await highlighter.parseDebounced(text)
+            }
+
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpans(spans)
@@ -1048,9 +1146,10 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
+                let adjusted = adjustedOverlayColor(color)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
-                if !colorsEqual(existing[.foregroundColor] as? UIColor, color as? UIColor) {
-                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted as? UIColor) {
+                    storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
             }
             if let kern = span.kern {
@@ -1137,9 +1236,10 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
+                let adjusted = adjustedOverlayColor(color)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
-                if !colorsEqual(existing[.foregroundColor] as? NSColor, color as? NSColor) {
-                    storage.addAttribute(.foregroundColor, value: color, range: r)
+                if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted as? NSColor) {
+                    storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
             }
             if let kern = span.kern {
@@ -1276,10 +1376,13 @@ public final class EditorSession {
 
     private func scheduleAutosave() {
         autosaveTask?.cancel()
+        let capturedNoteURL = note?.fileURL
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: self?.autosaveDelay ?? .seconds(1))
             guard !Task.isCancelled else { return }
-            await self?.save()
+            // Verify we're still on the same note (prevents saving wrong note after switch)
+            guard let self, self.note?.fileURL == capturedNoteURL else { return }
+            await self.save()
         }
     }
 
@@ -1518,7 +1621,8 @@ public final class EditorSession {
                     cursorAfter: NSRange(
                         location: range.location + (result as NSString).length,
                         length: 0
-                    )
+                    ),
+                    origin: .aiInsert
                 )
                 self.isInlineAIProcessing = false
             } catch let error as OnDeviceWritingToolsService.AIError {
@@ -1587,6 +1691,27 @@ public final class EditorSession {
         return a == b
     }
     #endif
+
+    // MARK: - Syntax Visibility
+
+    /// Adjusts an overlay color based on the current `syntaxVisibilityMode`.
+    /// - `.full`: returns the color unchanged (tertiaryLabel).
+    /// - `.gentleFade`: returns the color at 0.4 alpha.
+    /// - `.hiddenUntilCaret`: returns `.clear`.
+    private func adjustedOverlayColor(_ color: PlatformColor) -> PlatformColor {
+        switch syntaxVisibilityMode {
+        case .full:
+            return color
+        case .gentleFade:
+            return color.withAlphaComponent(0.4)
+        case .hiddenUntilCaret:
+            #if canImport(UIKit)
+            return UIColor.clear
+            #elseif canImport(AppKit)
+            return NSColor.clear
+            #endif
+        }
+    }
 }
 
 // MARK: - Wiki-Link Navigation Types

@@ -316,6 +316,7 @@ public struct QuartzLiquidGlassModifier: ViewModifier {
 
 public extension View {
     /// Ultra-thin material on iOS/macOS; on visionOS uses regular material + `glassBackgroundEffect()` for floating chrome.
+    /// Respects `accessibilityReduceTransparency` — falls back to opaque `.background`.
     func quartzFloatingUltraThinSurface(cornerRadius: CGFloat = 12) -> some View {
         #if os(visionOS)
         self
@@ -325,7 +326,7 @@ public extension View {
             }
             .glassBackgroundEffect()
         #else
-        self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        self.modifier(ReduceTransparencyAwareUltraThinModifier(cornerRadius: cornerRadius))
         #endif
     }
 
@@ -553,6 +554,23 @@ public struct GlassCard: ViewModifier {
                         lineWidth: 0.5
                     )
             }
+    }
+}
+
+// MARK: - Reduce Transparency Fallback for Ultra-Thin Material
+
+/// Applies `.ultraThinMaterial` by default, falling back to opaque `.background`
+/// when the user has enabled Reduce Transparency in system accessibility settings.
+private struct ReduceTransparencyAwareUltraThinModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content.background(.background, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
     }
 }
 

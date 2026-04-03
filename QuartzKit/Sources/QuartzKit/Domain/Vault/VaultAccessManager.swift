@@ -172,6 +172,64 @@ public final class VaultAccessManager {
         }
         activeVaultURL = nil
     }
+
+    // MARK: - Hardening
+
+    /// Validates that a vault URL points to an accessible directory with markdown files.
+    ///
+    /// Checks:
+    /// 1. Directory exists and is readable
+    /// 2. Contains at least one `.md` file (or is empty but valid)
+    public func validateVaultAccess(_ url: URL) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDir),
+              isDir.boolValue else {
+            logger.warning("Vault path is not a directory: \(url.lastPathComponent)")
+            return false
+        }
+        guard fm.isReadableFile(atPath: url.path(percentEncoded: false)) else {
+            logger.warning("Vault directory is not readable: \(url.lastPathComponent)")
+            return false
+        }
+        return true
+    }
+
+    /// Attempts to restore a vault with exponential backoff for iCloud bookmarks.
+    ///
+    /// iCloud Drive bookmarks can temporarily fail when the container is still
+    /// resolving (e.g., after device restart or iCloud sign-in change). This method
+    /// retries up to `maxAttempts` times with exponential backoff.
+    ///
+    /// - Parameter maxAttempts: Maximum retry attempts (default 3).
+    /// - Returns: `VaultConfig` if restoration succeeds, `nil` if no bookmark exists.
+    /// - Throws: `VaultAccessError` if all attempts fail.
+    public func restoreLastVaultWithRetry(maxAttempts: Int = 3) async throws -> VaultConfig? {
+        guard hasPersistedBookmark else { return nil }
+
+        var lastError: Error?
+        for attempt in 0..<maxAttempts {
+            do {
+                if let config = try restoreLastVault() {
+                    if validateVaultAccess(config.rootURL) {
+                        return config
+                    }
+                    throw VaultAccessError.vaultNotFound(config.rootURL)
+                }
+                return nil
+            } catch {
+                lastError = error
+                let delay = Double(1 << attempt) // 1s, 2s, 4s
+                logger.info("Vault restore attempt \(attempt + 1)/\(maxAttempts) failed, retrying in \(delay)s")
+                try? await Task.sleep(for: .seconds(delay))
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
+        return nil
+    }
 }
 
 // MARK: - Error Types

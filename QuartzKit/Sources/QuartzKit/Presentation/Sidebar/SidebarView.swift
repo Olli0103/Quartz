@@ -84,6 +84,7 @@ public struct SidebarView: View {
     var onSwitchVault: (() -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var showNewFolderDialog = false
     @State private var showNewNoteDialog = false
     @State private var showRenameDialog = false
@@ -317,71 +318,106 @@ public struct SidebarView: View {
     private var fileTreeContent: some View {
         OutlineGroup(viewModel.filteredTree, children: \.children) { node in
             if node.isNote {
-                // Notes are selectable via custom listRowBackground (no .tag to avoid system highlight)
-                FileNodeRow(node: node)
-                    .tag(node.url)
-                    #if os(macOS)
-                    .background(TableViewSelectionRemover())
-                    #endif
-                    .draggable(SidebarItemTransferable(url: node.url)) {
-                        Label(node.name, systemImage: "doc.text")
-                            .padding(8)
-                            .background(.regularMaterial)
-                            .cornerRadius(8)
-                    }
-                    .dropDestination(for: SidebarItemTransferable.self) { items, _ in
-                        handleDrop(items: items, onto: node.url.deletingLastPathComponent())
-                    } isTargeted: { targeted in
-                        dropTargetURL = targeted ? node.url : nil
-                    }
-                    .contextMenu { noteContextMenu(for: node) }
-                    #if os(iOS)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button {
-                            viewModel.toggleFavorite(node.url)
-                            QuartzFeedback.toggle()
-                        } label: {
-                            Label(
-                                viewModel.isFavorite(node.url)
-                                    ? String(localized: "Unfavorite", bundle: .module)
-                                    : String(localized: "Favorite", bundle: .module),
-                                systemImage: viewModel.isFavorite(node.url) ? "star.slash" : "star"
-                            )
-                        }
-                        .tint(.yellow)
-
-                        Button(role: .destructive) {
-                            pendingDeleteURL = node.url
-                            pendingDeleteIsNote = true
-                            showDeleteConfirmation = true
-                        } label: {
-                            Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
-                        }
-                    }
-                    #endif
-                    .listRowBackground(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(noteRowFill(for: node.url))
-                    )
+                noteRow(for: node)
             } else {
-                // Folders are not selectable but can be drag targets
-                FileNodeRow(node: node)
-                    #if os(macOS)
-                    .background(TableViewSelectionRemover())
-                    #endif
-                    .draggable(SidebarItemTransferable(url: node.url))
-                    .dropDestination(for: SidebarItemTransferable.self) { items, _ in
-                        handleDrop(items: items, onto: node.url)
-                    } isTargeted: { targeted in
-                        dropTargetURL = targeted ? node.url : nil
-                    }
-                    .contextMenu { folderContextMenu(for: node) }
-                    .listRowBackground(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(dropTargetURL == node.url ? appearance.accentColor.opacity(0.14) : Color.clear)
-                    )
+                folderRow(for: node)
             }
         }
+    }
+
+    // MARK: - Note Row
+
+    @ViewBuilder
+    private func noteRow(for node: FileNode) -> some View {
+        FileNodeRow(node: node)
+            .tag(node.url)
+            .accessibilityAction(named: "Favorite") {
+                viewModel.toggleFavorite(node.url)
+            }
+            .accessibilityAction(named: "Rename") {
+                renameTargetURL = node.url
+                newItemName = node.url.deletingPathExtension().lastPathComponent
+                showRenameDialog = true
+            }
+            .accessibilityAction(named: "Delete") {
+                pendingDeleteURL = node.url
+                pendingDeleteIsNote = true
+                showDeleteConfirmation = true
+            }
+            #if os(macOS)
+            .background(TableViewSelectionRemover())
+            #endif
+            .draggable(SidebarItemTransferable(url: node.url)) {
+                Label(node.name, systemImage: "doc.text")
+                    .padding(8)
+                    .background(.regularMaterial)
+                    .cornerRadius(8)
+            }
+            .dropDestination(for: SidebarItemTransferable.self) { items, _ in
+                handleDrop(items: items, onto: node.url.deletingLastPathComponent())
+            } isTargeted: { targeted in
+                dropTargetURL = targeted ? node.url : nil
+            }
+            .contextMenu { noteContextMenu(for: node) }
+            #if os(iOS)
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button {
+                    viewModel.toggleFavorite(node.url)
+                    QuartzFeedback.toggle()
+                } label: {
+                    Label(
+                        viewModel.isFavorite(node.url)
+                            ? String(localized: "Unfavorite", bundle: .module)
+                            : String(localized: "Favorite", bundle: .module),
+                        systemImage: viewModel.isFavorite(node.url) ? "star.slash" : "star"
+                    )
+                }
+                .tint(.yellow)
+
+                Button(role: .destructive) {
+                    pendingDeleteURL = node.url
+                    pendingDeleteIsNote = true
+                    showDeleteConfirmation = true
+                } label: {
+                    Label(String(localized: "Delete", bundle: .module), systemImage: "trash")
+                }
+            }
+            #endif
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(noteRowFill(for: node.url))
+            )
+    }
+
+    // MARK: - Folder Row
+
+    @ViewBuilder
+    private func folderRow(for node: FileNode) -> some View {
+        FileNodeRow(node: node)
+            .accessibilityAction(named: String(localized: "Rename", bundle: .module)) {
+                renameTargetURL = node.url
+                newItemName = node.url.lastPathComponent
+                showRenameDialog = true
+            }
+            .accessibilityAction(named: String(localized: "Delete", bundle: .module)) {
+                pendingDeleteURL = node.url
+                pendingDeleteIsNote = false
+                showDeleteConfirmation = true
+            }
+            #if os(macOS)
+            .background(TableViewSelectionRemover())
+            #endif
+            .draggable(SidebarItemTransferable(url: node.url))
+            .dropDestination(for: SidebarItemTransferable.self) { items, _ in
+                handleDrop(items: items, onto: node.url)
+            } isTargeted: { targeted in
+                dropTargetURL = targeted ? node.url : nil
+            }
+            .contextMenu { folderContextMenu(for: node) }
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(dropTargetURL == node.url ? appearance.accentColor.opacity(0.14) : Color.clear)
+            )
     }
 
     // MARK: - Drop Handler
@@ -424,8 +460,9 @@ public struct SidebarView: View {
     }
 
     private func noteRowFill(for url: URL) -> Color {
-        if dropTargetURL == url { return appearance.accentColor.opacity(0.14) }
-        if selectedNoteURL == url { return appearance.accentColor.opacity(0.12) }
+        let boost: Double = contrast == .increased ? 1.5 : 1.0
+        if dropTargetURL == url { return appearance.accentColor.opacity(0.14 * boost) }
+        if selectedNoteURL == url { return appearance.accentColor.opacity(0.12 * boost) }
         return .clear
     }
 
@@ -634,6 +671,11 @@ public struct SidebarView: View {
                 .foregroundStyle(.secondary)
             TextField(String(localized: "Search notes, tags\u{2026}", bundle: .module), text: $searchQuery)
                 .textFieldStyle(.plain)
+                .accessibilityInputLabels([
+                    String(localized: "Search", bundle: .module),
+                    String(localized: "Search notes", bundle: .module),
+                    String(localized: "Find", bundle: .module)
+                ])
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -721,6 +763,10 @@ public struct SidebarView: View {
         .onHover { newNoteButtonHovered = $0 }
         #endif
         .accessibilityLabel(String(localized: "New Note", bundle: .module))
+        .accessibilityInputLabels([
+            String(localized: "New note", bundle: .module),
+            String(localized: "Create note", bundle: .module)
+        ])
     }
 
     // MARK: - iOS Floating Action Button
@@ -784,6 +830,11 @@ public struct SidebarView: View {
         )
         .accessibilityLabel(String(localized: "New Note", bundle: .module))
         .accessibilityHint(String(localized: "Long press for template options", bundle: .module))
+        .accessibilityInputLabels([
+            String(localized: "New note", bundle: .module),
+            String(localized: "Create", bundle: .module),
+            String(localized: "Plus", bundle: .module)
+        ])
     }
     #endif
 
@@ -941,6 +992,7 @@ public struct SidebarView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityInputLabels([label])
     }
 
     // MARK: - Tags Section

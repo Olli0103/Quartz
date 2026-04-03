@@ -122,6 +122,7 @@ public struct CommandPaletteOverlay: View {
             .textFieldStyle(.plain)
             .font(.title3)
             .focused($isSearchFieldFocused)
+            .accessibilityInputLabels([Text("Search"), Text("Search notes"), Text("Commands")])
             #if os(iOS)
             .submitLabel(.go)
             .onSubmit { executeAndDismiss() }

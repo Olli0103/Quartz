@@ -230,6 +230,7 @@ private struct FormatButton: View {
                     .onEnded { _ in isPressed = false }
             )
             .accessibilityLabel(action.label)
+            .accessibilityInputLabels([Text(action.label)])
             .help(helpText)
     }
 
