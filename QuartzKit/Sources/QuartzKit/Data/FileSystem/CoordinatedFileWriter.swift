@@ -15,12 +15,18 @@ public struct CoordinatedFileWriter: Sendable {
     public init() {}
 
     /// Reads data from a URL in a coordinated manner.
-    public func read(from url: URL) throws -> Data {
+    ///
+    /// - Parameters:
+    ///   - url: The file URL to read from.
+    ///   - filePresenter: The NSFilePresenter presenting this file, if any.
+    ///     Passing the presenter prevents the coordinator from sending
+    ///     callbacks to our own presenter, which could cause a deadlock.
+    public func read(from url: URL, filePresenter: NSFilePresenter? = nil) throws -> Data {
         var coordinatorError: NSError?
         var readError: NSError?
         var result: Data?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             readingItemAt: url,
             options: [],
@@ -44,8 +50,8 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Reads file contents as text (UTF-8 by default) using coordinated access.
-    public func readString(from url: URL, encoding: String.Encoding = .utf8) throws -> String {
-        let data = try read(from: url)
+    public func readString(from url: URL, encoding: String.Encoding = .utf8, filePresenter: NSFilePresenter? = nil) throws -> String {
+        let data = try read(from: url, filePresenter: filePresenter)
         guard let text = String(data: data, encoding: encoding) else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -57,15 +63,21 @@ public struct CoordinatedFileWriter: Sendable {
     /// Uses `NSFileCoordinator` to ensure that iCloud Drive
     /// does not interrupt or overwrite the write operation.
     ///
-    /// - Important: If the coordination blocks for longer than the timeout,
-    ///   the operation is cancelled and an error is thrown. This prevents
-    ///   the app from hanging indefinitely when iCloud sync is stuck.
-    public func write(_ data: Data, to url: URL, timeout: TimeInterval = defaultTimeout) throws {
+    /// - Parameters:
+    ///   - data: The data to write.
+    ///   - url: The destination URL.
+    ///   - timeout: Maximum wait time for coordination (default 10s).
+    ///   - filePresenter: The NSFilePresenter presenting this file, if any.
+    ///     **Critical for iCloud**: passing the presenter prevents the coordinator
+    ///     from calling `savePresentedItemChanges` back on our own presenter,
+    ///     which would cause a self-coordination deadlock (Apple TN3151).
+    public func write(_ data: Data, to url: URL, timeout: TimeInterval = defaultTimeout,
+                      filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var writeError: NSError?
         var didComplete = false
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
 
         // Use a semaphore to implement timeout
         let semaphore = DispatchSemaphore(value: 0)
@@ -106,11 +118,12 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Creates a directory in a coordinated manner.
-    public func createDirectory(at url: URL, withIntermediateDirectories: Bool = true) throws {
+    public func createDirectory(at url: URL, withIntermediateDirectories: Bool = true,
+                                filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var writeError: NSError?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             writingItemAt: url,
             options: .forReplacing,
@@ -132,11 +145,12 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Moves a file or directory using coordinated access (iCloud-safe rename / trash moves).
-    public func moveItem(from sourceURL: URL, to destinationURL: URL) throws {
+    public func moveItem(from sourceURL: URL, to destinationURL: URL,
+                         filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var moveError: NSError?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             readingItemAt: sourceURL,
             options: [],
@@ -157,11 +171,11 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Moves an item to the system Trash using coordinated access (macOS / supported platforms).
-    public func moveItemToTrash(at url: URL) throws {
+    public func moveItemToTrash(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var opError: NSError?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             writingItemAt: url,
             options: [],
@@ -180,11 +194,12 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Copies a file in a coordinated manner.
-    public func copyItem(from sourceURL: URL, to destinationURL: URL) throws {
+    public func copyItem(from sourceURL: URL, to destinationURL: URL,
+                         filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var copyError: NSError?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             readingItemAt: sourceURL,
             options: [],
@@ -205,11 +220,11 @@ public struct CoordinatedFileWriter: Sendable {
     }
 
     /// Deletes a file in a coordinated manner.
-    public func removeItem(at url: URL) throws {
+    public func removeItem(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var removeError: NSError?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
             writingItemAt: url,
             options: .forDeleting,

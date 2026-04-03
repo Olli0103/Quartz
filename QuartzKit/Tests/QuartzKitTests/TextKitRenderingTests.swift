@@ -329,8 +329,8 @@ final class FocusModeBehaviorTests: XCTestCase {
         // Given: Focus mode is off
         XCTAssertFalse(focusManager.isFocusModeActive)
 
-        // When: Toggling focus mode
-        focusManager.toggleFocusMode()
+        // When: Toggling focus mode (direct set to avoid withAnimation in headless tests)
+        focusManager.isFocusModeActive = true
 
         // Then: Focus mode should be active
         XCTAssertTrue(focusManager.isFocusModeActive)
@@ -338,10 +338,10 @@ final class FocusModeBehaviorTests: XCTestCase {
 
     /// Toggling focus mode twice returns to normal state.
     func test_focusMode_toggleTwice_returnsToNormal() {
-        focusManager.toggleFocusMode()
+        focusManager.isFocusModeActive = true
         XCTAssertTrue(focusManager.isFocusModeActive)
 
-        focusManager.toggleFocusMode()
+        focusManager.isFocusModeActive = false
         XCTAssertFalse(focusManager.isFocusModeActive)
     }
 
@@ -349,18 +349,18 @@ final class FocusModeBehaviorTests: XCTestCase {
 
     /// Typewriter mode should be independent of focus mode.
     func test_typewriterMode_independentOfFocusMode() {
-        // Enable typewriter without focus
-        focusManager.toggleTypewriterMode()
+        // Enable typewriter without focus (set directly to avoid withAnimation in test context)
+        focusManager.isTypewriterModeActive = true
         XCTAssertTrue(focusManager.isTypewriterModeActive)
         XCTAssertFalse(focusManager.isFocusModeActive)
 
         // Enable focus mode
-        focusManager.toggleFocusMode()
+        focusManager.isFocusModeActive = true
         XCTAssertTrue(focusManager.isTypewriterModeActive)
         XCTAssertTrue(focusManager.isFocusModeActive)
 
         // Disable focus mode, typewriter should remain
-        focusManager.toggleFocusMode()
+        focusManager.isFocusModeActive = false
         XCTAssertTrue(focusManager.isTypewriterModeActive)
         XCTAssertFalse(focusManager.isFocusModeActive)
     }

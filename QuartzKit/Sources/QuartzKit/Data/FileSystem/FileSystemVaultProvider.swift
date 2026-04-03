@@ -47,6 +47,10 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func saveNote(_ note: NoteDocument) async throws {
+        try await saveNote(note, filePresenter: nil)
+    }
+
+    public func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
         let yamlString = try frontmatterParser.serialize(note.frontmatter)
         let rawContent: String
         if yamlString.isEmpty {
@@ -58,7 +62,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard let data = rawContent.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(note.fileURL)
         }
-        try await coordinatedWrite(data: data, to: note.fileURL)
+        try await coordinatedWrite(data: data, to: note.fileURL, filePresenter: filePresenter)
     }
 
     public func createNote(named name: String, in folder: URL) async throws -> NoteDocument {
@@ -240,7 +244,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         return false
     }
 
-    private func coordinatedWrite(data: Data, to url: URL) async throws {
+    private func coordinatedWrite(data: Data, to url: URL, filePresenter: NSFilePresenter? = nil) async throws {
         // Create parent directory if needed (e.g. for new notes in new folders)
         let parent = url.deletingLastPathComponent()
         if !fileManager.fileExists(atPath: parent.path(percentEncoded: false)) {
@@ -248,8 +252,11 @@ public actor FileSystemVaultProvider: VaultProviding {
                 try CoordinatedFileWriter.shared.createDirectory(at: parent, withIntermediateDirectories: true)
             }.value
         }
+        // Wrap presenter for Sendable safety across Task.detached boundary.
+        // NSFilePresenter is @objc and not Sendable, but NSFileCoordinator(filePresenter:) is thread-safe.
+        nonisolated(unsafe) let sendablePresenter = filePresenter
         try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.write(data, to: url)
+            try CoordinatedFileWriter.shared.write(data, to: url, filePresenter: sendablePresenter)
         }.value
     }
 

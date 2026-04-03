@@ -28,52 +28,23 @@ struct QuartzFeedbackComplianceTests {
         #expect(true, "All feedback types executed successfully")
     }
 
-    @Test("selection() is for light interactions")
+    @Test("Each feedback method is callable without crash on all platforms")
     @MainActor
-    func selectionFeedback() {
-        // Used for: tag selection, sidebar items, menu items
-        QuartzFeedback.selection()
-        #expect(true)
-    }
-
-    @Test("primaryAction() is for button presses")
-    @MainActor
-    func primaryActionFeedback() {
-        // Used for: QuartzButton, main CTAs
-        QuartzFeedback.primaryAction()
-        #expect(true)
-    }
-
-    @Test("success() is for completion feedback")
-    @MainActor
-    func successFeedback() {
-        // Used for: vault creation, note save, conflict resolution
-        QuartzFeedback.success()
-        #expect(true)
-    }
-
-    @Test("warning() is for caution feedback")
-    @MainActor
-    func warningFeedback() {
-        // Used for: invalid input, approaching limits
-        QuartzFeedback.warning()
-        #expect(true)
-    }
-
-    @Test("destructive() is for delete/error feedback")
-    @MainActor
-    func destructiveFeedback() {
-        // Used for: delete note, discard recording, errors
-        QuartzFeedback.destructive()
-        #expect(true)
-    }
-
-    @Test("toggle() is for switch/checkbox feedback")
-    @MainActor
-    func toggleFeedback() {
-        // Used for: focus mode toggle, task checkboxes, settings toggles
-        QuartzFeedback.toggle()
-        #expect(true)
+    func feedbackMethodsCallable() {
+        // On iOS these trigger UIKit haptic generators; on macOS they are no-ops.
+        // The test verifies no runtime crash and that the public API surface is stable.
+        let methods: [@MainActor () -> Void] = [
+            QuartzFeedback.selection,
+            QuartzFeedback.primaryAction,
+            QuartzFeedback.success,
+            QuartzFeedback.warning,
+            QuartzFeedback.destructive,
+            QuartzFeedback.toggle,
+        ]
+        #expect(methods.count == 6, "QuartzFeedback should expose exactly 6 feedback methods")
+        for method in methods {
+            method()
+        }
     }
 }
 

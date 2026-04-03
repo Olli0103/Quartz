@@ -130,6 +130,15 @@ public final class VaultCoordinator {
             logger.warning("Failed to restore vault: \(error.localizedDescription)")
         }
 
+        // Fallback: check if another device synced an iCloud vault via KVStore
+        if let iCloudVault = VaultAccessManager.shared.resolveICloudVault() {
+            logger.info("Resolved iCloud vault from remote device: \(iCloudVault.name)")
+            persistBookmark(for: iCloudVault.rootURL, vaultName: iCloudVault.name)
+            UserDefaults.standard.set(true, forKey: "quartz.hasCompletedOnboarding")
+            openVault(iCloudVault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+            return iCloudVault
+        }
+
         return nil
     }
 

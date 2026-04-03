@@ -102,60 +102,21 @@ public actor CloudSyncService {
         metadataQuery = nil
     }
 
-    // MARK: - Coordinated File Access (Swift 6 Cooperative Concurrency)
+    // MARK: - Coordinated File Access (delegates to CoordinatedFileWriter)
 
-    /// Reads a file using NSFileCoordinator. Uses Task.detached to avoid blocking the actor.
-    public func coordinatedRead(at url: URL) async throws -> Data {
-        try await Task.detached(priority: .userInitiated) {
-            var readError: NSError?
-            var data: Data?
-            var coordinatorError: NSError?
-
-            let coordinator = NSFileCoordinator()
-            coordinator.coordinate(
-                readingItemAt: url,
-                options: [],
-                error: &coordinatorError
-            ) { actualURL in
-                do {
-                    data = try Data(contentsOf: actualURL)
-                } catch {
-                    readError = error as NSError
-                }
-            }
-
-            if let error = coordinatorError ?? readError {
-                throw error
-            }
-            guard let result = data else {
-                throw CloudSyncError.readFailed(url)
-            }
-            return result
+    /// Reads a file using NSFileCoordinator via the centralized CoordinatedFileWriter.
+    public func coordinatedRead(at url: URL, filePresenter: NSFilePresenter? = nil) async throws -> Data {
+        let wrappedPresenter = filePresenter.map { UncheckedSendablePresenter($0) }
+        return try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.read(from: url, filePresenter: wrappedPresenter?.value)
         }.value
     }
 
-    /// Writes a file using NSFileCoordinator. Uses Task.detached for non-blocking I/O.
-    public func coordinatedWrite(data: Data, to url: URL) async throws {
+    /// Writes a file using NSFileCoordinator via the centralized CoordinatedFileWriter.
+    public func coordinatedWrite(data: Data, to url: URL, filePresenter: NSFilePresenter? = nil) async throws {
+        let wrappedPresenter = filePresenter.map { UncheckedSendablePresenter($0) }
         try await Task.detached(priority: .userInitiated) {
-            var writeError: NSError?
-            var coordinatorError: NSError?
-
-            let coordinator = NSFileCoordinator()
-            coordinator.coordinate(
-                writingItemAt: url,
-                options: .forReplacing,
-                error: &coordinatorError
-            ) { actualURL in
-                do {
-                    try data.write(to: actualURL, options: .atomic)
-                } catch {
-                    writeError = error as NSError
-                }
-            }
-
-            if let error = coordinatorError ?? writeError {
-                throw error
-            }
+            try CoordinatedFileWriter.shared.write(data, to: url, filePresenter: wrappedPresenter?.value)
         }.value
     }
 
@@ -436,6 +397,14 @@ public actor CloudSyncService {
             return .notApplicable
         }
     }
+}
+
+/// Wrapper to pass NSFilePresenter across Sendable boundaries safely.
+/// NSFilePresenter is an @objc protocol and not Sendable, but we only
+/// pass it to NSFileCoordinator(filePresenter:) which is thread-safe.
+private struct UncheckedSendablePresenter: @unchecked Sendable {
+    let value: NSFilePresenter
+    init(_ value: NSFilePresenter) { self.value = value }
 }
 
 // MARK: - Errors

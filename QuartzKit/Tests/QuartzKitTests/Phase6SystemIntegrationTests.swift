@@ -170,12 +170,20 @@ struct ShareExtensionTests {
         #expect(url.path.contains("swift-concurrency"))
     }
 
-    @Test("Text capture preserves content")
+    @Test("Text capture preserves content through encode/decode roundtrip")
     func textCapture() {
         let sharedText = "This is some interesting content I want to save."
 
         #expect(!sharedText.isEmpty)
-        #expect(sharedText == sharedText) // No modification
+
+        // Simulate the capture pipeline: encode to Data, decode back
+        let encoded = Data(sharedText.utf8)
+        let decoded = String(data: encoded, encoding: .utf8)
+
+        #expect(decoded == sharedText,
+            "Text must survive UTF-8 roundtrip without modification")
+        #expect(decoded?.count == sharedText.count,
+            "Character count must be preserved")
     }
 
     @Test("Note creation from shared content")

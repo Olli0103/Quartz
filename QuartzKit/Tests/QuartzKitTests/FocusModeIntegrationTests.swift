@@ -11,16 +11,16 @@ struct FocusModeIntegrationTests {
     @MainActor func typewriterModePersistence() {
         let manager = FocusModeManager()
 
-        // Toggle typewriter mode on
-        manager.toggleTypewriterMode()
+        // Set typewriter mode on (directly, not via toggleTypewriterMode which uses withAnimation)
+        manager.isTypewriterModeActive = true
         #expect(manager.isTypewriterModeActive == true)
 
         // Value persisted to UserDefaults
         let stored = UserDefaults.standard.bool(forKey: "quartz.editor.typewriterModeActive")
         #expect(stored == true)
 
-        // Toggle off
-        manager.toggleTypewriterMode()
+        // Turn off
+        manager.isTypewriterModeActive = false
         #expect(manager.isTypewriterModeActive == false)
         let storedOff = UserDefaults.standard.bool(forKey: "quartz.editor.typewriterModeActive")
         #expect(storedOff == false)

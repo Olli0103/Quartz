@@ -7,13 +7,13 @@ import AppKit
 
 /// Native text view bridge for the EditorSession-based editor.
 ///
-/// **Critical architectural difference from `MarkdownTextViewRepresentable`:**
+/// **Key architectural property:**
 /// - No `@Binding var text` — the native text view is the source of truth.
 /// - `updateUIView` / `updateNSView` **never writes text** to the view.
 /// - All text mutations go through `EditorSession.applyExternalEdit`.
 /// - Delegate callbacks flow text snapshots back to `EditorSession.textDidChange`.
 ///
-/// This eliminates the SwiftUI → TextKit feedback cycle that caused cursor jitter.
+/// This eliminates the SwiftUI → TextKit feedback cycle that causes cursor jitter.
 #if os(iOS)
 public struct MarkdownEditorRepresentable: UIViewRepresentable {
     let session: EditorSession
@@ -788,5 +788,3 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
 }
 
 #endif
-
-// MarkdownTextKit2Stack is defined in MarkdownTextView.swift and shared by both representables.

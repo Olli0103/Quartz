@@ -37,6 +37,7 @@ struct ContentView: View {
     @SceneStorage("quartz.cursorLocation") private var restoredCursorLocation: Int = 0
     @SceneStorage("quartz.cursorLength") private var restoredCursorLength: Int = 0
     @SceneStorage("quartz.scrollOffset") private var restoredScrollOffset: Double = 0
+    @SceneStorage("quartz.sidebarSource") private var restoredSidebarSource: String = SidebarFilter.all.rawValue
 
     /// Local text binding for alert TextFields.
     @State private var alertTextFieldValue = ""
@@ -402,6 +403,11 @@ struct ContentView: View {
                 restoredNotePath = relativePath
             } else {
                 restoredNotePath = nil
+            }
+        }
+        .onChange(of: viewModel?.sidebarViewModel?.activeFilter) { _, newFilter in
+            if let newFilter {
+                restoredSidebarSource = newFilter.rawValue
             }
         }
         .onChange(of: appState.pendingCommand) { _, command in
@@ -781,6 +787,11 @@ struct ContentView: View {
     }
 
     private func restoreSelectedNoteIfNeeded() {
+        // Restore sidebar source (All Notes / Favorites / Recent)
+        if let filter = SidebarFilter(rawValue: restoredSidebarSource) {
+            viewModel?.sidebarViewModel?.activeFilter = filter
+        }
+
         guard let vaultRoot = appState.currentVault?.rootURL,
               let relativePath = restoredNotePath,
               !relativePath.isEmpty else { return }

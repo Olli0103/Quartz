@@ -13,6 +13,10 @@ public protocol VaultProviding: Actor {
     /// Saves a note to the file system.
     func saveNote(_ note: NoteDocument) async throws
 
+    /// Saves a note to the file system, passing the active NSFilePresenter
+    /// so NSFileCoordinator skips calling back our own presenter (prevents deadlock).
+    func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws
+
     /// Creates a new note with default frontmatter.
     func createNote(named name: String, in folder: URL) async throws -> NoteDocument
 
@@ -27,4 +31,12 @@ public protocol VaultProviding: Actor {
 
     /// Creates a new folder.
     func createFolder(named name: String, in parent: URL) async throws -> URL
+}
+
+/// Default implementation: delegates to the no-presenter overload.
+/// Existing conformances that don't need presenter support keep working.
+public extension VaultProviding {
+    func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
+        try await saveNote(note)
+    }
 }

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftUI
 import XCTest
 #if canImport(LocalAuthentication)
 import LocalAuthentication
@@ -53,12 +54,25 @@ struct OnboardingViewTests {
         #expect(config.templateStructure == .para)
     }
 
-    @Test("OnboardingView respects accessibilityReduceMotion")
+    @Test("Reduce-motion pattern provides distinct animation constants")
     func accessibilityReduceMotionCompliance() {
-        // QuartzAnimation.onboarding should be used when reduceMotion is false
-        // .default should be used when reduceMotion is true
-        // Verified via code inspection - OnboardingView line 51 checks reduceMotion
-        #expect(true, "OnboardingView correctly checks @Environment(\\.accessibilityReduceMotion)")
+        // QuartzAnimation.onboarding is .smooth(duration: 0.5).
+        // When reduceMotion is true, views must fall back to .default.
+        // Verify both animation constants are defined and usable.
+        let rich: Animation = QuartzAnimation.onboarding
+        let fallback: Animation = .default
+
+        // Both are valid Animation values (not crashing at construction)
+        let richDesc = String(describing: rich)
+        let fallbackDesc = String(describing: fallback)
+
+        #expect(!richDesc.isEmpty, "Rich animation should have a description")
+        #expect(!fallbackDesc.isEmpty, "Fallback animation should have a description")
+
+        // The descriptions should differ, confirming the conditional branch
+        // in OnboardingView produces a different animation.
+        #expect(richDesc != fallbackDesc,
+            "QuartzAnimation.onboarding should differ from .default")
     }
 }
 
@@ -137,15 +151,22 @@ struct BiometricAuthenticationTests {
         }
     }
 
-    @Test("BiometricAuthService is an actor for thread safety")
+    @Test("BiometricAuthService returns consistent biometry type across calls")
     func serviceIsActor() async {
         let service = BiometricAuthService()
 
-        // Actor isolation ensures thread-safe access
-        let _ = await service.availableBiometry()
-        let _ = await service.isBiometryAvailable()
+        // Actor isolation ensures thread-safe access — consecutive calls must be consistent
+        let biometry1 = await service.availableBiometry()
+        let isAvailable = await service.isBiometryAvailable()
+        let biometry2 = await service.availableBiometry()
 
-        #expect(true, "BiometricAuthService correctly uses actor isolation")
+        #expect(biometry1 == biometry2,
+            "Consecutive biometry checks should return the same type")
+        // If biometry is .none, it should NOT be reported as available
+        if biometry1 == .none {
+            #expect(isAvailable == false,
+                "BiometryType.none should mean biometry is not available")
+        }
     }
 
     @Test("Authentication reason is localizable")

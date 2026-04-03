@@ -35,7 +35,11 @@ public final class VaultAccessManager {
 
     private let bookmarkKey = "quartz.lastVault.bookmark"
     private let nameKey = "quartz.lastVault.name"
+    private let iCloudVaultRelativePathKey = "icloud.vault.relativePath"
+    private let iCloudVaultNameKey = "icloud.vault.name"
+    private let iCloudContainerID = "iCloud.olli.QuartzNotes"
     private let logger = Logger(subsystem: "com.quartz", category: "VaultAccessManager")
+    nonisolated(unsafe) private var kvStoreObserver: Any?
 
     // MARK: - Init
 
@@ -67,6 +71,11 @@ public final class VaultAccessManager {
 
             UserDefaults.standard.set(bookmarkData, forKey: bookmarkKey)
             UserDefaults.standard.set(vaultName, forKey: nameKey)
+
+            // Sync vault identity to iCloud for cross-device detection.
+            // Security-scoped bookmarks are device-specific, but the vault path is not.
+            syncVaultPathToICloud(url: url, vaultName: vaultName)
+
             logger.info("Persisted bookmark for vault: \(vaultName)")
         } catch {
             logger.error("Failed to persist vault bookmark: \(error.localizedDescription)")
@@ -127,12 +136,16 @@ public final class VaultAccessManager {
         return VaultConfig(name: name, rootURL: url)
     }
 
-    /// Clears the persisted bookmark.
+    /// Clears the persisted bookmark and iCloud-synced vault info.
     public func clearBookmark() {
         UserDefaults.standard.removeObject(forKey: bookmarkKey)
         UserDefaults.standard.removeObject(forKey: nameKey)
+        let kvStore = NSUbiquitousKeyValueStore.default
+        kvStore.removeObject(forKey: iCloudVaultRelativePathKey)
+        kvStore.removeObject(forKey: iCloudVaultNameKey)
+        kvStore.synchronize()
         activeVaultURL = nil
-        logger.info("Cleared vault bookmark")
+        logger.info("Cleared vault bookmark and iCloud sync")
     }
 
     /// Checks if a persisted bookmark exists.
@@ -193,6 +206,103 @@ public final class VaultAccessManager {
             return false
         }
         return true
+    }
+
+    // MARK: - Cross-Device iCloud Vault Sync
+
+    /// Syncs the vault's iCloud-relative path to `NSUbiquitousKeyValueStore` for cross-device detection.
+    ///
+    /// Only syncs vaults located in iCloud Drive (`Mobile Documents`). Local-only vaults are skipped.
+    private func syncVaultPathToICloud(url: URL, vaultName: String) {
+        guard let relativePath = iCloudRelativePath(for: url) else {
+            logger.debug("Vault is not in iCloud Drive — skipping KVStore sync")
+            return
+        }
+        let kvStore = NSUbiquitousKeyValueStore.default
+        kvStore.set(relativePath, forKey: iCloudVaultRelativePathKey)
+        kvStore.set(vaultName, forKey: iCloudVaultNameKey)
+        kvStore.synchronize()
+        logger.info("Synced vault path to iCloud KVStore: \(relativePath)")
+    }
+
+    /// Extracts the path relative to the iCloud container's Documents folder.
+    ///
+    /// Example: `/Users/.../Mobile Documents/iCloud~olli~QuartzNotes/Documents/My Vault`
+    ///       → `"My Vault"`
+    internal func iCloudRelativePath(for url: URL) -> String? {
+        let path = url.path(percentEncoded: false)
+        // Look for the iCloud container's Documents folder in the path.
+        // The container ID in the filesystem uses tildes: "iCloud~olli~QuartzNotes"
+        let patterns = [
+            "Mobile Documents/iCloud~olli~QuartzNotes/Documents/",
+            "Mobile Documents/iCloud.olli.QuartzNotes/Documents/"
+        ]
+        for pattern in patterns {
+            if let range = path.range(of: pattern) {
+                let relativePath = String(path[range.upperBound...])
+                return relativePath.isEmpty ? nil : relativePath
+            }
+        }
+        return nil
+    }
+
+    /// Returns vault info synced from another device via `NSUbiquitousKeyValueStore`, if any.
+    public func iCloudSyncedVaultInfo() -> (name: String, relativePath: String)? {
+        let kvStore = NSUbiquitousKeyValueStore.default
+        guard let relativePath = kvStore.string(forKey: iCloudVaultRelativePathKey),
+              let name = kvStore.string(forKey: iCloudVaultNameKey),
+              !relativePath.isEmpty else {
+            return nil
+        }
+        return (name: name, relativePath: relativePath)
+    }
+
+    /// Attempts to resolve an iCloud vault synced from another device.
+    ///
+    /// Looks up the synced vault path in `NSUbiquitousKeyValueStore`, locates it in
+    /// the local iCloud container, and returns a `VaultConfig` if the directory exists.
+    ///
+    /// - Returns: `VaultConfig` if the vault exists locally, `nil` otherwise.
+    public func resolveICloudVault() -> VaultConfig? {
+        guard let info = iCloudSyncedVaultInfo() else { return nil }
+
+        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: iCloudContainerID) else {
+            logger.debug("iCloud container not available on this device")
+            return nil
+        }
+
+        let vaultURL = containerURL.appending(path: "Documents").appending(path: info.relativePath)
+
+        guard validateVaultAccess(vaultURL) else {
+            logger.debug("iCloud vault not yet available locally: \(info.relativePath)")
+            return nil
+        }
+
+        logger.info("Resolved iCloud vault from remote sync: \(info.name)")
+        return VaultConfig(name: info.name, rootURL: vaultURL)
+    }
+
+    /// Begins observing `NSUbiquitousKeyValueStore` for vault changes from other devices.
+    ///
+    /// Call once at app launch. When another device persists a vault, this device
+    /// receives the updated path and posts `.quartzRemoteVaultDetected`.
+    public func startObservingRemoteChanges() {
+        kvStoreObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let changedKeys = notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String],
+                  changedKeys.contains(self.iCloudVaultRelativePathKey) else { return }
+            Task { @MainActor in
+                self.logger.info("Received remote vault change from iCloud KVStore")
+                NotificationCenter.default.post(name: .quartzRemoteVaultDetected, object: nil)
+            }
+        }
+        // Pull latest values on launch
+        NSUbiquitousKeyValueStore.default.synchronize()
+        logger.info("Started observing iCloud KVStore for vault changes")
     }
 
     /// Attempts to restore a vault with exponential backoff for iCloud bookmarks.

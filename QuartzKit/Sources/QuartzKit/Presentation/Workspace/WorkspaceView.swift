@@ -106,6 +106,18 @@ public struct WorkspaceView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+        #if os(iOS)
+        .onChange(of: store.route) { _, newRoute in
+            switch newRoute {
+            case .note:
+                store.preferredCompactColumn = .detail
+            case .dashboard, .graph:
+                store.preferredCompactColumn = .detail
+            case .empty:
+                store.preferredCompactColumn = .content
+            }
+        }
+        #endif
         .onChange(of: focusMode.isFocusModeActive) { _, isActive in
             store.applyFocusMode(isActive)
         }

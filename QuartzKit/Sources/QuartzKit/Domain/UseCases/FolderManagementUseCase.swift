@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.quartz.notes", category: "FolderManagement")
 
 /// Use case for folder operations in the vault.
 public struct FolderManagementUseCase: Sendable {
@@ -23,12 +26,11 @@ public struct FolderManagementUseCase: Sendable {
         let fileName = sourceURL.lastPathComponent
         let destination = destinationFolder.appending(path: fileName)
 
-        print("[FolderManagementUseCase] move: \(sourceURL.path) -> \(destinationFolder.path)")
-        print("[FolderManagementUseCase] destination: \(destination.path)")
+        logger.debug("move: \(sourceURL.path) -> \(destinationFolder.path)")
 
         // Validate source exists
         guard FileManager.default.fileExists(atPath: sourceURL.path(percentEncoded: false)) else {
-            print("[FolderManagementUseCase] ERROR: source not found")
+            logger.error("source not found: \(sourceURL.path)")
             throw FileSystemError.fileNotFound(sourceURL)
         }
 
@@ -36,13 +38,13 @@ public struct FolderManagementUseCase: Sendable {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: destinationFolder.path(percentEncoded: false), isDirectory: &isDir),
               isDir.boolValue else {
-            print("[FolderManagementUseCase] ERROR: destination folder not found or not a directory")
+            logger.error("destination folder not found: \(destinationFolder.path)")
             throw FileSystemError.fileNotFound(destinationFolder)
         }
 
         // Check if destination already exists
         if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
-            print("[FolderManagementUseCase] ERROR: destination already exists")
+            logger.error("destination already exists: \(destination.path)")
             throw FileSystemError.fileAlreadyExists(destination)
         }
 
@@ -50,35 +52,14 @@ public struct FolderManagementUseCase: Sendable {
         // Resolve symlinks to prevent bypass via symbolic link chains.
         guard destination.resolvingSymlinksInPath().standardizedFileURL.path()
                 .hasPrefix(destinationFolder.resolvingSymlinksInPath().standardizedFileURL.path()) else {
-            print("[FolderManagementUseCase] ERROR: path traversal detected")
+            logger.error("path traversal detected for: \(fileName)")
             throw FileSystemError.invalidName(fileName)
         }
 
-        // Use file coordination for iCloud-safe moves
-        var coordinatorError: NSError?
-        var moveError: Error?
+        // Use CoordinatedFileWriter for iCloud-safe moves
+        try CoordinatedFileWriter.shared.moveItem(from: sourceURL, to: destination)
 
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(
-            writingItemAt: sourceURL, options: .forMoving,
-            writingItemAt: destination, options: .forReplacing,
-            error: &coordinatorError
-        ) { actualSource, actualDest in
-            do {
-                print("[FolderManagementUseCase] moveItem: \(actualSource.path) -> \(actualDest.path)")
-                try FileManager.default.moveItem(at: actualSource, to: actualDest)
-                print("[FolderManagementUseCase] moveItem succeeded")
-            } catch {
-                print("[FolderManagementUseCase] moveItem failed: \(error)")
-                moveError = error
-            }
-        }
-
-        if let error = coordinatorError ?? moveError {
-            print("[FolderManagementUseCase] coordination error: \(error)")
-            throw error
-        }
-
+        logger.debug("move succeeded: \(destination.path)")
         return destination
     }
 

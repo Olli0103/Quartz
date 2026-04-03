@@ -13,6 +13,8 @@ public extension Notification.Name {
     static let quartzNoteRenamed = Notification.Name("quartzNoteRenamed")
     /// Posted when the preview cache changes (note save, reindex).
     static let quartzPreviewCacheDidChange = Notification.Name("quartzPreviewCacheDidChange")
+    /// Posted when another device syncs a vault path via iCloud KVStore.
+    static let quartzRemoteVaultDetected = Notification.Name("quartzRemoteVaultDetected")
 }
 
 public enum SidebarFilter: String, CaseIterable, Sendable {
@@ -63,9 +65,9 @@ public final class SidebarViewModel {
     public var trashedItems: [FileNode] = []
 
     private let trashService = VaultTrashService()
-    /// Set by ContentViewModel for sidebar indexing status display.
+    /// Mirror of ContentViewModel's indexing progress. Set ONLY by ContentViewModel — do not mutate independently.
     public var indexingProgress: (current: Int, total: Int)?
-    /// Set by ContentViewModel for sidebar sync status display.
+    /// Mirror of ContentViewModel's cloud sync status. Set ONLY by ContentViewModel — do not mutate independently.
     public var cloudSyncStatus: CloudSyncStatus = .notApplicable
 
     /// Returns `true` if any note in the vault has an unresolved iCloud sync conflict.

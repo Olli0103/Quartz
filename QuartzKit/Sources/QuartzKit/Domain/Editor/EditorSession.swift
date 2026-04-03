@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -77,6 +78,10 @@ public final class EditorSession {
     /// Guard flag: true while we are saving. Prevents file watcher from reloading
     /// when it detects changes that we ourselves triggered.
     private var isSavingToFileSystem: Bool = false
+
+    /// SHA-256 hash of the last content we wrote to disk.
+    /// Used for content-based echo suppression (replaces timing-based guard).
+    private var lastSavedContentHash: SHA256Digest?
 
     // MARK: - Restoration Readiness (F8 fix)
 
@@ -928,10 +933,11 @@ public final class EditorSession {
         isSavingToFileSystem = true
         defer {
             isSaving = false
-            // Delay clearing isSavingToFileSystem to suppress file-watcher echo
-            // from our own write. 200ms is sufficient (was 500ms).
+            // Delay clearing isSavingToFileSystem to allow NSFilePresenter callback
+            // to see the flag before it's cleared. Content hash provides the
+            // authoritative echo check; this flag is a fast-path optimization.
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .seconds(1))
                 self?.isSavingToFileSystem = false
             }
         }
@@ -949,7 +955,21 @@ public final class EditorSession {
 
         do {
             let savedURL = currentNote.fileURL
-            try await vaultProvider.saveNote(currentNote)
+            try await vaultProvider.saveNote(currentNote, filePresenter: filePresenter)
+
+            // Compute and store content hash for echo suppression.
+            // Hash the FULL serialized content (frontmatter + body) to match what's on disk.
+            // If a file-change event arrives and the on-disk hash matches this,
+            // we know it's our own write — not an external modification.
+            if let yamlString = try? frontmatterParser.serialize(currentNote.frontmatter) {
+                let fullContent = yamlString.isEmpty
+                    ? textSnapshot
+                    : "---\n\(yamlString)---\n\n\(textSnapshot)"
+                if let savedData = fullContent.data(using: .utf8) {
+                    lastSavedContentHash = SHA256.hash(data: savedData)
+                }
+            }
+
             note = currentNote
             // Only clear dirty if content hasn't changed since snapshot
             if currentText == textSnapshot {
@@ -994,8 +1014,8 @@ public final class EditorSession {
     /// Returns true if enough time has passed since the last snapshot.
     private func shouldSaveVersionSnapshot() -> Bool {
         guard let lastDate = lastSnapshotDate else {
-            lastSnapshotDate = Date() // Set to now so we don't snapshot on first autosave
-            return false
+            lastSnapshotDate = Date()
+            return true // Create snapshot on first save of this editing session
         }
         return Date().timeIntervalSince(lastDate) >= Self.versionSnapshotInterval
     }
@@ -1471,10 +1491,17 @@ public final class EditorSession {
     private func startFileWatching(for url: URL) {
         stopFileWatching()
 
-        // Start NSFilePresenter for iCloud-coordinated change detection
+        // Start NSFilePresenter for iCloud-coordinated change detection.
+        // This is the primary monitor — it receives all coordinated writes
+        // from iCloud daemon, Finder, and other processes.
         filePresenter = NoteFilePresenter(url: url, delegate: self)
 
-        // Also keep the FileWatcher for local change detection
+        // Only use DispatchSource (FileWatcher) for non-iCloud vaults.
+        // For iCloud vaults, NSFilePresenter is sufficient and avoids
+        // dual-monitoring race conditions (double reload, echo after save).
+        let isICloudVault = url.path(percentEncoded: false).contains("Mobile Documents")
+        guard !isICloudVault else { return }
+
         let watcher = FileWatcher(url: url)
         fileWatchTask = Task { [weak self] in
             let stream = await watcher.startWatching()
@@ -1497,11 +1524,23 @@ public final class EditorSession {
     private func handleFileChange(_ event: FileChangeEvent) {
         // Ignore file changes during version restore to prevent spurious warnings
         guard !isRestoringVersion else { return }
-        // Ignore file changes that we triggered by saving
+        // Fast-path: ignore file changes that we triggered by saving
         guard !isSavingToFileSystem else { return }
 
         switch event {
         case .modified:
+            // Content-hash echo suppression: read the file and compare hash.
+            // If it matches what we last wrote, this is our own save echoing back.
+            if let noteURL = note?.fileURL, let lastHash = lastSavedContentHash {
+                let diskData = try? Data(contentsOf: noteURL)
+                if let diskData {
+                    let diskHash = SHA256.hash(data: diskData)
+                    if diskHash == lastHash {
+                        return // Echo from our own save — ignore
+                    }
+                }
+            }
+
             if isDirty {
                 externalModificationDetected = true
             } else {
@@ -1737,8 +1776,20 @@ extension EditorSession: NoteFilePresenterDelegate {
     public func filePresenterDidDetectChange(_ presenter: NoteFilePresenter) {
         // Ignore during version restore
         guard !isRestoringVersion else { return }
-        // Ignore changes we triggered by saving
+        // Fast-path: ignore changes we triggered by saving
         guard !isSavingToFileSystem else { return }
+
+        // Content-hash echo suppression: if the on-disk content matches
+        // what we last wrote, this is our own save echoing through NSFilePresenter.
+        if let noteURL = presenter.presentedItemURL, let lastHash = lastSavedContentHash {
+            let diskData = try? Data(contentsOf: noteURL)
+            if let diskData {
+                let diskHash = SHA256.hash(data: diskData)
+                if diskHash == lastHash {
+                    return // Echo from our own save — ignore
+                }
+            }
+        }
 
         // Post notification so Intelligence Engine can re-index the file
         if let url = presenter.presentedItemURL {
@@ -1798,7 +1849,47 @@ extension EditorSession: NoteFilePresenterDelegate {
     }
 
     /// Called when we should save pending changes before another process writes.
+    ///
+    /// **Critical**: When `savePresentedItemChanges` is called by the system,
+    /// NSFileCoordinator already holds a lock on the file. We MUST NOT create
+    /// another NSFileCoordinator here — that would self-coordinate and deadlock.
+    /// Instead, write directly to the file using atomic Data.write().
     public func filePresenterShouldSave(_ presenter: NoteFilePresenter) async throws {
-        await save(force: true)
+        guard let currentNote = note, isDirty else { return }
+
+        // Snapshot from native view (the source of truth)
+        let textSnapshot: String
+        #if canImport(UIKit)
+        textSnapshot = activeTextView?.text ?? currentText
+        #elseif canImport(AppKit)
+        textSnapshot = activeTextView?.string ?? currentText
+        #endif
+
+        var noteToSave = currentNote
+        noteToSave.body = textSnapshot
+        noteToSave.frontmatter.modifiedAt = .now
+
+        // Serialize frontmatter
+        let yamlString = try frontmatterParser.serialize(noteToSave.frontmatter)
+        let rawContent: String
+        if yamlString.isEmpty {
+            rawContent = noteToSave.body
+        } else {
+            rawContent = "---\n\(yamlString)---\n\n\(noteToSave.body)"
+        }
+
+        guard let data = rawContent.data(using: .utf8) else { return }
+
+        // Write DIRECTLY — the system already holds coordination for this file.
+        // Creating a new NSFileCoordinator here would deadlock (Apple TN3151).
+        try data.write(to: noteToSave.fileURL, options: .atomic)
+
+        // Update echo suppression hash so file watcher ignores our own write
+        lastSavedContentHash = SHA256.hash(data: data)
+
+        note = noteToSave
+        if currentText == textSnapshot {
+            isDirty = false
+        }
     }
 }

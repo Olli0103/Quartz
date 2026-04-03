@@ -40,6 +40,7 @@ struct QuartzApp: App {
                 .tint(appearanceManager.accentColor)
                 .task {
                     ServiceContainer.shared.bootstrap()
+                    VaultAccessManager.shared.startObservingRemoteChanges()
                 }
         }
         .commands {
