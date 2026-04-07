@@ -378,7 +378,7 @@ public struct AudioRecordingView: View {
                 .font(.system(size: 48, weight: .light, design: .monospaced))
                 .foregroundStyle(viewModel.recordingService.isRecording ? QuartzColors.accent : .primary)
                 .contentTransition(.numericText())
-                .animation(.linear(duration: 0.3), value: viewModel.recordingService.duration)
+                .animation(QuartzAnimation.standard, value: viewModel.recordingService.duration)
 
             if viewModel.recordingService.isRecording {
                 HStack(spacing: 6) {

@@ -1,6 +1,6 @@
 import Foundation
 import NaturalLanguage
-@preconcurrency import Accelerate
+import Accelerate
 import CryptoKit
 import os
 

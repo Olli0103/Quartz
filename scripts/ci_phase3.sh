@@ -8,12 +8,44 @@ set -euo pipefail
 PACKAGE_PATH="QuartzKit"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
 pass() { echo -e "${GREEN}${BOLD}✓ $1${RESET}"; }
 fail() { echo -e "${RED}${BOLD}✗ $1${RESET}"; exit 1; }
 step() { echo -e "\n${BOLD}→ $1${RESET}"; }
+
+# ── Self-Healing: Failure Classification ─────────────────────────────
+classify_failures() {
+    local output="$1"
+    echo -e "${YELLOW}${BOLD}Failure Classification:${RESET}"
+    echo "$output" | grep "failed after" | while read -r line; do
+        case "$line" in
+            *Editor*|*AST*|*Highlight*|*Cursor*|*IME*|*WritingTools*)
+                echo -e "  ${YELLOW}[EDITOR]${RESET} $line"
+                echo "    → Check: EditorSession, MarkdownASTHighlighter, MarkdownTextView" ;;
+            *Vault*|*Sync*|*Persist*|*Conflict*|*Bookmark*|*iCloud*|*Version*)
+                echo -e "  ${YELLOW}[PERSISTENCE]${RESET} $line"
+                echo "    → Check: VaultProvider, VaultAccessManager, VersionHistoryService" ;;
+            *VoiceOver*|*Accessibility*|*DynamicType*|*Contrast*|*ReduceMotion*)
+                echo -e "  ${YELLOW}[ACCESSIBILITY]${RESET} $line"
+                echo "    → Check: Accessibility labels, Dynamic Type scaling, animation preferences" ;;
+            *Performance*|*Budget*|*Latency*|*Memory*)
+                echo -e "  ${YELLOW}[PERFORMANCE]${RESET} $line"
+                echo "    → Check: Parse timing, memory allocation, main thread budget" ;;
+            *Sidebar*|*Navigation*|*DragDrop*|*FileNode*)
+                echo -e "  ${YELLOW}[NAVIGATION]${RESET} $line"
+                echo "    → Check: SidebarViewModel, WorkspaceStore, NavigationSplitView" ;;
+            *E2E*|*Flow*|*Integration*)
+                echo -e "  ${YELLOW}[E2E]${RESET} $line"
+                echo "    → Check: End-to-end flow, state transitions, cross-module interaction" ;;
+            *)
+                echo -e "  ${YELLOW}[GENERAL]${RESET} $line"
+                echo "    → Check: Test isolation, mock setup, async timing" ;;
+        esac
+    done
+}
 
 # ── Step 1: Phase 2 regression gate ─────────────────────────────────
 step "Running Phase 2 CI (regression gate)"
@@ -32,7 +64,7 @@ P3_FAIL=$(echo "$P3_OUTPUT" | grep -c "failed after" || true)
 echo "  Phase 3 suites passed: $P3_PASS"
 echo "  Phase 3 tests failed: $P3_FAIL"
 if [ "$P3_FAIL" -gt 0 ]; then
-    echo "$P3_OUTPUT" | grep "failed after"
+    classify_failures "$P3_OUTPUT"
     fail "Phase 3 test failures: $P3_FAIL"
 fi
 pass "Phase 3 tests all passed"
@@ -44,11 +76,11 @@ FULL_PASS=$(echo "$FULL_OUTPUT" | grep -c "passed" || true)
 FULL_FAIL=$(echo "$FULL_OUTPUT" | grep -c "failed after" || true)
 echo "  Total suites passed: $FULL_PASS"
 echo "  Total tests failed: $FULL_FAIL"
-if [ "$FULL_FAIL" -gt 2 ]; then
-    echo "$FULL_OUTPUT" | grep "failed after"
-    fail "Too many test failures: $FULL_FAIL"
+if [ "$FULL_FAIL" -gt 0 ]; then
+    classify_failures "$FULL_OUTPUT"
+    fail "Test failures: $FULL_FAIL (zero tolerance)"
 fi
-pass "Full suite completed (failures: $FULL_FAIL, tolerance: <=2 flaky)"
+pass "Full suite completed (zero failures)"
 
 # ── Step 4: Count Phase 3 tests ─────────────────────────────────────
 step "Counting Phase 3 test annotations"
@@ -75,10 +107,44 @@ if [ "$TOTAL_TESTS" -gt 1200 ]; then
 fi
 pass "Total @Test budget: $TOTAL_TESTS (<= 1200)"
 
+# ── Step 6: Generate report ──────────────────────────────────────────
+step "Generating Phase 3 report"
+mkdir -p reports
+cat > reports/phase3_report.json <<REPORT_EOF
+{
+  "phase": 3,
+  "status": "pass",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "tests": {
+    "total": $TOTAL_TESTS,
+    "phase3_specific": $P3_COUNT,
+    "full_suite_failed": $FULL_FAIL,
+    "full_suite_passed": $FULL_PASS
+  },
+  "phase3_suites": [
+    "VoiceOverEditorTests",
+    "VoiceOverSidebarTests",
+    "DynamicTypeScalingTests",
+    "ReduceMotionAnimationTests",
+    "ContrastComplianceTests",
+    "VoiceControlCommandTests",
+    "PlatformNavigationTests",
+    "FocusModeIntegrationTests",
+    "DesignTokenConsistencyTests",
+    "E2ECreateNoteTests",
+    "E2ESearchFlowTests",
+    "E2EAppearanceFlowTests"
+  ],
+  "ship_gate": "PASS"
+}
+REPORT_EOF
+pass "Report written to reports/phase3_report.json"
+
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}Phase 3 CI passed ✓${RESET}"
+echo -e "${GREEN}${BOLD}Phase 3 CI passed ✓ — SHIP GATE CLEAR${RESET}"
 echo "  Total @Test annotations: $TOTAL_TESTS"
 echo "  Phase 3 tests: $P3_COUNT"
-echo "  Full suite failures: $FULL_FAIL (tolerance: <=2)"
+echo "  Full suite: zero failures"
+echo "  All platforms: macOS, iOS Simulator, iPad Simulator"
 exit 0

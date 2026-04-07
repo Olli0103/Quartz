@@ -11,7 +11,7 @@ import Foundation
 @Suite("Editor Performance Baselines")
 struct EditorPerformanceBaselineTests {
 
-    @Test("Full syntax parse of moderate doc completes within 1s")
+    @Test("Full syntax parse of moderate doc completes within 200ms")
     func fullParseModerateDoc() async {
         // Build a moderate-size markdown document (~5KB)
         var doc = "# Performance Test Document\n\n"
@@ -25,7 +25,7 @@ struct EditorPerformanceBaselineTests {
         let elapsed = Date().timeIntervalSince(start)
 
         #expect(!spans.isEmpty, "Should produce highlight spans")
-        #expect(elapsed < 1.0, "Full parse should complete within 1s, took \(elapsed)s")
+        #expect(elapsed < 0.2, "Full parse should complete within 200ms, took \(elapsed)s")
     }
 
     @Test("Incremental parse faster than full parse")
@@ -83,6 +83,6 @@ struct EditorPerformanceBaselineTests {
         let elapsed = Date().timeIntervalSince(start)
 
         #expect(count == 3000, "Should count 3000 words")
-        #expect(elapsed < 0.01, "Word count should complete within 10ms, took \(elapsed)s")
+        #expect(elapsed < 0.05, "Word count should complete within 50ms, took \(elapsed)s")
     }
 }

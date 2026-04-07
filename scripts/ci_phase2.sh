@@ -8,12 +8,38 @@ set -euo pipefail
 PACKAGE_PATH="QuartzKit"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
 pass() { echo -e "${GREEN}${BOLD}✓ $1${RESET}"; }
 fail() { echo -e "${RED}${BOLD}✗ $1${RESET}"; exit 1; }
 step() { echo -e "\n${BOLD}→ $1${RESET}"; }
+
+# ── Self-Healing: Failure Classification ─────────────────────────────
+classify_failures() {
+    local output="$1"
+    echo -e "${YELLOW}${BOLD}Failure Classification:${RESET}"
+    echo "$output" | grep "failed after" | while read -r line; do
+        case "$line" in
+            *Editor*|*AST*|*Highlight*|*Cursor*|*IME*|*WritingTools*)
+                echo -e "  ${YELLOW}[EDITOR]${RESET} $line"
+                echo "    → Check: EditorSession, MarkdownASTHighlighter, MarkdownTextView" ;;
+            *Vault*|*Sync*|*Persist*|*Conflict*|*Bookmark*|*iCloud*|*Version*)
+                echo -e "  ${YELLOW}[PERSISTENCE]${RESET} $line"
+                echo "    → Check: VaultProvider, VaultAccessManager, VersionHistoryService" ;;
+            *VoiceOver*|*Accessibility*|*DynamicType*|*Contrast*|*ReduceMotion*)
+                echo -e "  ${YELLOW}[ACCESSIBILITY]${RESET} $line"
+                echo "    → Check: Accessibility labels, Dynamic Type scaling, animation preferences" ;;
+            *Performance*|*Budget*|*Latency*|*Memory*)
+                echo -e "  ${YELLOW}[PERFORMANCE]${RESET} $line"
+                echo "    → Check: Parse timing, memory allocation, main thread budget" ;;
+            *)
+                echo -e "  ${YELLOW}[GENERAL]${RESET} $line"
+                echo "    → Check: Test isolation, mock setup, async timing" ;;
+        esac
+    done
+}
 
 # ── Step 1: Phase 1 regression gate ─────────────────────────────────
 step "Running Phase 1 CI (regression gate)"
@@ -32,7 +58,7 @@ P2_FAIL=$(echo "$P2_OUTPUT" | grep -c "failed after" || true)
 echo "  Phase 2 suites passed: $P2_PASS"
 echo "  Phase 2 tests failed: $P2_FAIL"
 if [ "$P2_FAIL" -gt 0 ]; then
-    echo "$P2_OUTPUT" | grep "failed after"
+    classify_failures "$P2_OUTPUT"
     fail "Phase 2 test failures: $P2_FAIL"
 fi
 pass "Phase 2 tests all passed"
@@ -44,11 +70,11 @@ FULL_PASS=$(echo "$FULL_OUTPUT" | grep -c "passed" || true)
 FULL_FAIL=$(echo "$FULL_OUTPUT" | grep -c "failed after" || true)
 echo "  Total suites passed: $FULL_PASS"
 echo "  Total tests failed: $FULL_FAIL"
-if [ "$FULL_FAIL" -gt 2 ]; then
-    echo "$FULL_OUTPUT" | grep "failed after"
-    fail "Too many test failures: $FULL_FAIL"
+if [ "$FULL_FAIL" -gt 0 ]; then
+    classify_failures "$FULL_OUTPUT"
+    fail "Test failures: $FULL_FAIL (zero tolerance)"
 fi
-pass "Full suite completed (failures: $FULL_FAIL, tolerance: <=2 flaky)"
+pass "Full suite completed (zero failures)"
 
 # ── Step 4: Count Phase 2 tests ─────────────────────────────────────
 step "Counting Phase 2 test annotations"
@@ -66,11 +92,38 @@ if [ "$P2_COUNT" -lt 15 ]; then
 fi
 pass "Phase 2 test count: $P2_COUNT (>= 15)"
 
-# ── Summary ──────────────────────────────────────────────────────────
+# ── Step 5: Generate report ──────────────────────────────────────────
+step "Generating Phase 2 report"
 TOTAL_TESTS=$(grep -r "@Test" "$PACKAGE_PATH/Tests/" --include="*.swift" | wc -l | tr -d ' ')
+mkdir -p reports
+cat > reports/phase2_report.json <<REPORT_EOF
+{
+  "phase": 2,
+  "status": "pass",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "tests": {
+    "total": $TOTAL_TESTS,
+    "phase2_specific": $P2_COUNT,
+    "full_suite_failed": $FULL_FAIL,
+    "full_suite_passed": $FULL_PASS
+  },
+  "phase2_suites": [
+    "VaultRestorationTests",
+    "SecurityScopedURLTests",
+    "SearchIndexPersistenceTests",
+    "GraphEdgePersistenceTests",
+    "ConflictStateMachineTests",
+    "VersionHistoryServiceTests",
+    "IndexRebuildTests"
+  ]
+}
+REPORT_EOF
+pass "Report written to reports/phase2_report.json"
+
+# ── Summary ──────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}Phase 2 CI passed ✓${RESET}"
 echo "  Total @Test annotations: $TOTAL_TESTS"
 echo "  Phase 2 tests: $P2_COUNT"
-echo "  Full suite failures: $FULL_FAIL (tolerance: <=2)"
+echo "  Full suite: zero failures"
 exit 0

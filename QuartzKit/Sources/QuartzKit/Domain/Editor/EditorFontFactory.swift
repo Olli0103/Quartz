@@ -76,16 +76,20 @@ public enum EditorFontFactory {
         case .system:
             font = .systemFont(ofSize: size, weight: weight)
         case .serif:
-            if let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body).withDesign(.serif) {
-                font = NSFont(descriptor: descriptor, size: size) ?? .systemFont(ofSize: size, weight: weight)
+            if let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body).withDesign(.serif),
+               let resolved = NSFont(descriptor: descriptor, size: size),
+               resolved.pointSize > 0 {
+                font = resolved
             } else {
                 font = .systemFont(ofSize: size, weight: weight)
             }
         case .monospaced:
             return .monospacedSystemFont(ofSize: size, weight: weight)
         case .rounded:
-            if let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body).withDesign(.rounded) {
-                font = NSFont(descriptor: descriptor, size: size) ?? .systemFont(ofSize: size, weight: weight)
+            if let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body).withDesign(.rounded),
+               let resolved = NSFont(descriptor: descriptor, size: size),
+               resolved.pointSize > 0 {
+                font = resolved
             } else {
                 font = .systemFont(ofSize: size, weight: weight)
             }

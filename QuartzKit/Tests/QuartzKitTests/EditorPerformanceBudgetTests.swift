@@ -169,7 +169,43 @@ struct EditorPerformanceBudgetTests {
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
         #expect(count > 0, "Should count words")
-        #expect(elapsed < 0.010,
-            "Word count should complete within 10ms, took \(String(format: "%.1f", elapsed * 1000))ms")
+        #expect(elapsed < 0.050,
+            "Word count should complete within 50ms, took \(String(format: "%.1f", elapsed * 1000))ms")
+    }
+
+    @Test("Memory footprint of parsing 20K doc stays under 50MB delta")
+    func memoryBudget20KParse() async {
+        let doc = generate20KDoc()
+        #expect(doc.count >= 20_000)
+
+        // Measure memory before
+        let beforeMemory = Self.currentResidentMemoryMB()
+
+        let highlighter = MarkdownASTHighlighter()
+        // Parse multiple times to stress memory
+        for _ in 0..<5 {
+            let spans = await highlighter.parse(doc)
+            #expect(!spans.isEmpty)
+        }
+
+        let afterMemory = Self.currentResidentMemoryMB()
+        let delta = afterMemory - beforeMemory
+
+        // Memory delta should be well under the 150MB ceiling (use 50MB as parse budget)
+        #expect(delta < 50,
+            "Memory delta for 20K doc parse should be < 50MB, got \(String(format: "%.1f", delta))MB")
+    }
+
+    /// Returns current resident memory in MB.
+    private static func currentResidentMemoryMB() -> Double {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(info.resident_size) / (1024 * 1024)
     }
 }

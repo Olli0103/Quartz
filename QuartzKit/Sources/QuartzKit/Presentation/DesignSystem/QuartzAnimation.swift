@@ -74,7 +74,7 @@ public enum QuartzAnimation {
     public static let savePulse: Animation = .spring(response: 0.6, dampingFraction: 0.5)
 
     /// Shimmer effect.
-    public static let shimmer: Animation = .linear(duration: 1.5)
+    public static let shimmer: Animation = .easeInOut(duration: 1.5)
 
     // MARK: - Font Scaling
 
