@@ -56,7 +56,7 @@ struct MarkdownLatexHighlightTests {
             }
         }
         // The test primarily verifies no crash and proper skip behavior
-        #expect(true, "LaTeX inside code block should not cause issues")
+        #expect(!spans.isEmpty, "Code block should produce spans even with LaTeX content inside")
     }
 
     @Test("LaTeX inside inline code is not highlighted")
@@ -66,7 +66,7 @@ struct MarkdownLatexHighlightTests {
         // The $x$ should be styled as inline code, not LaTeX
         let xSpans = spansOverlapping(text, substring: "x", in: spans)
         // Verify we get spans (from inline code styling)
-        #expect(!xSpans.isEmpty || true, "Should not crash for LaTeX inside inline code")
+        // Inline code spans may or may not cover 'x' depending on parser — no crash is the baseline
     }
 
     @Test("No LaTeX in plain text")

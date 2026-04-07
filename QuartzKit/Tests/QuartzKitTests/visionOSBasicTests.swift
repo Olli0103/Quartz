@@ -6,6 +6,8 @@ import Foundation
 //
 // visionOS-compatible data contracts: Sendable conformance for
 // spatial computing, ambient mesh styles, and type portability.
+// Sendable is verified by assigning to `any Sendable` then casting back
+// and asserting properties survive the erasure roundtrip.
 
 @Suite("visionOSBasic")
 struct visionOSBasicTests {
@@ -13,10 +15,16 @@ struct visionOSBasicTests {
     @Test("DetailRoute is Sendable for visionOS window management")
     func detailRouteSendable() {
         let route: any Sendable = DetailRoute.dashboard
-        #expect(route is DetailRoute)
+        let recovered = route as? DetailRoute
+        #expect(recovered == .dashboard, "DetailRoute should survive Sendable erasure")
 
-        let noteRoute: any Sendable = DetailRoute.note(URL(fileURLWithPath: "/vault/note.md"))
-        #expect(noteRoute is DetailRoute)
+        let noteURL = URL(fileURLWithPath: "/vault/note.md")
+        let noteRoute: any Sendable = DetailRoute.note(noteURL)
+        if case .note(let url) = noteRoute as? DetailRoute {
+            #expect(url == noteURL, "Note URL should survive Sendable roundtrip")
+        } else {
+            #expect(Bool(false), "DetailRoute.note should survive Sendable erasure")
+        }
     }
 
     @Test("FileNode is Sendable for spatial scene transfer")
@@ -26,7 +34,9 @@ struct visionOSBasicTests {
             url: URL(fileURLWithPath: "/vault/Note.md"),
             nodeType: .note
         )
-        #expect(node is FileNode)
+        let recovered = node as? FileNode
+        #expect(recovered?.name == "Note.md", "FileNode name should survive Sendable roundtrip")
+        #expect(recovered?.nodeType == .note, "FileNode nodeType should survive Sendable roundtrip")
     }
 
     @Test("NoteDocument is Sendable for window isolation")
@@ -37,7 +47,8 @@ struct visionOSBasicTests {
             frontmatter: Frontmatter(),
             body: "Content"
         )
-        #expect(doc is NoteDocument)
+        let recovered = doc as? NoteDocument
+        #expect(recovered?.body == "Content", "NoteDocument body should survive Sendable roundtrip")
     }
 
     @Test("VaultConfig is Sendable for scene transfer")
@@ -51,7 +62,9 @@ struct visionOSBasicTests {
             encryptionEnabled: false,
             createdAt: Date()
         )
-        #expect(config is VaultConfig)
+        let recovered = config as? VaultConfig
+        #expect(recovered?.name == "Vault", "VaultConfig name should survive Sendable roundtrip")
+        #expect(recovered?.storageType == .local, "VaultConfig storageType should survive Sendable roundtrip")
     }
 
     @Test("Citation is Sendable for spatial chat views")
@@ -64,7 +77,9 @@ struct visionOSBasicTests {
             excerpt: "...",
             similarity: 0.9
         )
-        #expect(citation is Citation)
+        let recovered = citation as? Citation
+        #expect(recovered?.noteTitle == "Note", "Citation noteTitle should survive Sendable roundtrip")
+        #expect(recovered?.similarity == 0.9, "Citation similarity should survive Sendable roundtrip")
     }
 
     @Test("QuartzAmbientMeshStyle has all cases for spatial rendering")

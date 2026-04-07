@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-04-07T12:00:00Z",
+  "platforms_tested": ["macOS (arm64)"],
+  "spm_tests": "macOS (arm64)",
+  "xcodebuild_available": true,
+  "notes": "SPM tests cover data model and logic layers. UI snapshot tests require Xcode UI test target."
+}

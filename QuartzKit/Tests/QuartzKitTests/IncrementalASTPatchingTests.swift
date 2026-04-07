@@ -252,6 +252,95 @@ struct IncrementalASTPatchingTests {
         #expect(diff <= 5,
             "Range coverage difference too large: full=\(fullCoverage), inc=\(incCoverage), diff=\(diff)")
     }
+
+    // MARK: - Range Correctness (Violation 5 remediation)
+
+    @Test("All span ranges are valid (non-negative, within document bounds)")
+    func rangeValidity() async {
+        let original = "# Heading\n\n**Bold** and *italic* with `code`\n\n> Blockquote"
+        let edited = "# Heading\n\n**Bold!** and *italic* with `code`\n\n> Blockquote"
+        let result = await compareFullVsIncremental(
+            original: original,
+            edited: edited,
+            editRange: NSRange(location: 16, length: 1),
+            preEditLength: 0
+        )
+
+        let editedLength = (edited as NSString).length
+        for span in result.incremental {
+            #expect(span.range.location >= 0,
+                "Span range location should be non-negative, got \(span.range.location)")
+            #expect(span.range.location + span.range.length <= editedLength,
+                "Span range end (\(span.range.location + span.range.length)) exceeds document length (\(editedLength))")
+        }
+        for span in result.full {
+            #expect(span.range.location >= 0)
+            #expect(span.range.location + span.range.length <= editedLength)
+        }
+    }
+
+    @Test("Span ranges are sorted by location (no out-of-order spans)")
+    func rangeOrdering() async {
+        let original = "**Bold** *italic* `code` [link](url)"
+        let edited = "**Bold!** *italic* `code` [link](url)"
+        let result = await compareFullVsIncremental(
+            original: original,
+            edited: edited,
+            editRange: NSRange(location: 6, length: 1),
+            preEditLength: 0
+        )
+
+        for spans in [result.full, result.incremental] {
+            for i in 1..<spans.count {
+                #expect(spans[i].range.location >= spans[i-1].range.location,
+                    "Span \(i) at \(spans[i].range.location) should not precede span \(i-1) at \(spans[i-1].range.location)")
+            }
+        }
+    }
+
+    @Test("Bold span range maps to actual bold syntax in source")
+    func rangeContentMatch() async {
+        let text = "Normal **bold text** normal"
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(text)
+
+        let boldSpans = spans.filter { $0.traits.bold }
+        #expect(!boldSpans.isEmpty, "Should detect bold spans")
+
+        let nsText = text as NSString
+        for span in boldSpans {
+            let content = nsText.substring(with: span.range)
+            // The bold span should cover text within or including the ** markers
+            let hasBoldContent = content.contains("bold") || content.contains("**")
+            #expect(hasBoldContent,
+                "Bold span range should map to bold syntax, got: '\(content)'")
+        }
+    }
+
+    @Test("Spans outside edit region match full parse ranges exactly")
+    func editWindowIsolation() async {
+        let original = "**Start bold**\n\nMiddle paragraph with content.\n\n*End italic*"
+        // Edit only in the middle paragraph
+        let edited = "**Start bold**\n\nMiddle paragraph with EDITED content.\n\n*End italic*"
+        let result = await compareFullVsIncremental(
+            original: original,
+            edited: edited,
+            editRange: NSRange(location: 37, length: 6),
+            preEditLength: 0
+        )
+
+        // Spans covering the first line should be identical between full and incremental
+        let fullBefore = result.full.filter { $0.range.location + $0.range.length <= 14 }
+        let incBefore = result.incremental.filter { $0.range.location + $0.range.length <= 14 }
+
+        #expect(fullBefore.count == incBefore.count,
+            "Spans before edit region: full=\(fullBefore.count) vs inc=\(incBefore.count)")
+
+        for (f, i) in zip(fullBefore, incBefore) {
+            #expect(f.range == i.range,
+                "Pre-edit span ranges should match: full=\(f.range) vs inc=\(i.range)")
+        }
+    }
 }
 
 // MARK: - Performance Baseline

@@ -70,9 +70,10 @@ struct QuartzAppIntentsTests {
         let folder: String? = "Projects"
 
         // All parameters should be optional for Siri flexibility
-        #expect(title != nil || title == nil)
-        #expect(template != nil || template == nil)
-        #expect(folder != nil || folder == nil)
+        // All Siri intent parameters are optional — verify they can hold values
+        #expect(title == "Meeting Notes")
+        #expect(template == "meeting")
+        #expect(folder == "Projects")
     }
 
     @Test("OpenNoteIntent requires note identifier")

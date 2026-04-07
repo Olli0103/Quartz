@@ -368,9 +368,9 @@ struct HelpMenuIntegrationTests {
     func helpBookRegistered() {
         // Check if help book bundle identifier is set
         let helpBookName = Bundle.main.object(forInfoDictionaryKey: "CFBundleHelpBookName") as? String
-        // In tests, main bundle won't have this - just verify the check doesn't crash
-        _ = helpBookName
-        #expect(true, "Help book check should not crash")
+        // In test runner, main bundle lacks CFBundleHelpBookName — that's expected
+        #expect(helpBookName == nil || !helpBookName!.isEmpty,
+            "Help book name should be nil (test env) or non-empty (app env)")
     }
 
     @Test("Help anchors are defined")
@@ -415,7 +415,7 @@ struct iOSHelpModalTests {
         let results = await helpIndex.search(query: "sync")
 
         // Should find sync-related help
-        #expect(!results.isEmpty || true) // Allow empty for now
+        // Search completes without error; results may be empty in test env (no indexed content)
     }
 }
 #endif

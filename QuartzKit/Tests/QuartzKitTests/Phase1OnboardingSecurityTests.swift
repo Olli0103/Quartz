@@ -273,7 +273,7 @@ struct OnboardingFeedbackTests {
         // QuartzFeedback.selection() is used in template card selection
         // Should not crash even on non-iOS platforms
         QuartzFeedback.selection()
-        #expect(true, "Selection feedback executed without crash")
+        // QuartzFeedback calls are no-ops on non-haptic platforms; execution without crash is the test
     }
 
     @Test("Primary action feedback is available")
@@ -281,7 +281,7 @@ struct OnboardingFeedbackTests {
     func primaryActionFeedbackAvailable() {
         // QuartzFeedback.primaryAction() is used in QuartzButton
         QuartzFeedback.primaryAction()
-        #expect(true, "Primary action feedback executed without crash")
+        // Execution without crash is the test; no observable state to assert on non-haptic platforms
     }
 
     @Test("Success feedback is available")
@@ -289,7 +289,7 @@ struct OnboardingFeedbackTests {
     func successFeedbackAvailable() {
         // QuartzFeedback.success() is used after vault creation
         QuartzFeedback.success()
-        #expect(true, "Success feedback executed without crash")
+        // Execution without crash is the test for haptic feedback
     }
 }
 
@@ -345,7 +345,7 @@ struct VaultPickerViewTests {
         // Cleanup
         try? FileManager.default.removeItem(at: tempURL)
 
-        #expect(true, "Security-scoped URL pattern executed correctly")
+        // Security-scoped URL access pattern completed without error
     }
 }
 
@@ -499,10 +499,12 @@ struct Phase1IntegrationTests {
         // Apply template (empty/custom is safest for testing)
         do {
             try await service.applyTemplate(.custom, to: tempURL)
-            #expect(true, "Template applied successfully")
+            // Template applied — verify directory still exists
+            #expect(FileManager.default.fileExists(atPath: tempURL.path(percentEncoded: false)),
+                "Vault directory should exist after template application")
         } catch {
-            // Template application may fail in test environment
-            #expect(true, "Template service is functional")
+            // Template application may fail in test environment — that's acceptable
+            // The test validates the API is callable, not that it succeeds in all environments
         }
 
         // Cleanup
@@ -517,10 +519,12 @@ struct Phase1IntegrationTests {
         let biometry = await authService.availableBiometry()
 
         // Verify we get a valid response
+        // Exhaustive switch proves all BiometryType cases handled
         switch biometry {
         case .faceID, .touchID, .opticID, .passcodeOnly, .none:
-            #expect(true, "Valid biometry type returned")
+            break
         }
+        // If we reach here, the switch was exhaustive — no assertion needed
     }
 }
 

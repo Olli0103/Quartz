@@ -103,4 +103,21 @@ struct VoiceOverNavigationTests {
         #expect(store.columnVisibility == .all,
             "Default column visibility should show all panes for full VoiceOver traversal")
     }
+
+    // NOTE: True VoiceOver focus-order and rotor testing requires XCUITest.
+    // These tests validate model properties that feed into accessibilityLabel/Hint.
+
+    @Test("HeadingItem text is non-empty for VoiceOver anchor labels")
+    func headingTextNonEmpty() {
+        let heading = HeadingItem(id: "h2-section", level: 2, text: "Section Title", characterOffset: 10)
+        #expect(!heading.text.isEmpty, "Heading text must be non-empty for VoiceOver label")
+        #expect(heading.level >= 1 && heading.level <= 6, "Heading level must be 1-6")
+    }
+
+    @Test("NoteStats reading time is computable for VoiceOver announcements")
+    func readingTimeComputable() {
+        let stats = NoteStats(wordCount: 500, characterCount: 2500, readingTimeMinutes: 3)
+        #expect(stats.readingTimeMinutes > 0, "Reading time must be positive for 'N min read' label")
+        #expect(stats.wordCount > 0, "Word count must be positive for 'N words' announcement")
+    }
 }
