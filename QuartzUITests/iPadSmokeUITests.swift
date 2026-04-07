@@ -23,13 +23,14 @@ final class iPadSmokeUITests: QuartzUITestCase {
     func testLaunchShowsSplitView() throws {
         launchApp()
 
+        // iPad must show both split view and sidebar simultaneously
         let splitView = app.otherElements["workspace-split-view"]
         let sidebar = app.otherElements["sidebar-file-tree"]
 
-        let foundSplit = splitView.waitForExistence(timeout: 15)
-        let foundSidebar = sidebar.waitForExistence(timeout: 10)
-
-        XCTAssertTrue(foundSplit || foundSidebar, "iPad should launch with split view layout")
+        XCTAssertTrue(splitView.waitForExistence(timeout: 15),
+                      "iPad must launch with workspace split view")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 10),
+                      "iPad must show sidebar in split view layout")
 
         takeScreenshot(named: "iPad_Launch_SplitView")
     }
@@ -52,11 +53,12 @@ final class iPadSmokeUITests: QuartzUITestCase {
             welcomeCell.tap()
 
             let editor = app.otherElements["editor-text-view"]
-            let editorVisible = editor.waitForExistence(timeout: 10)
-            let sidebarStillVisible = sidebar.exists
+            XCTAssertTrue(editor.waitForExistence(timeout: 10),
+                         "iPad must show editor after tapping note in split view")
 
-            XCTAssertTrue(editorVisible || sidebarStillVisible,
-                         "iPad should show split layout with sidebar and editor")
+            // Sidebar must remain visible alongside editor
+            XCTAssertTrue(sidebar.exists,
+                         "iPad sidebar must remain visible in split layout")
         }
 
         takeScreenshot(named: "iPad_SplitView_SidebarAndEditor")
@@ -96,15 +98,17 @@ final class iPadSmokeUITests: QuartzUITestCase {
     func testAccessibilityLabelsExist() throws {
         launchApp()
 
+        // Sidebar must be present and accessible
         let sidebar = app.otherElements["sidebar-file-tree"]
-        if sidebar.waitForExistence(timeout: 15) {
-            XCTAssertTrue(sidebar.isEnabled, "Sidebar should be accessible on iPad")
-        }
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "Sidebar must exist on iPad")
+        XCTAssertTrue(sidebar.isEnabled, "Sidebar must be accessible on iPad")
 
+        // Dashboard must be present and accessible
         let dashboard = app.otherElements["dashboard-view"]
-        if dashboard.waitForExistence(timeout: 5) {
-            XCTAssertTrue(dashboard.isEnabled, "Dashboard should be accessible")
-        }
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5),
+                      "Dashboard must exist on iPad")
+        XCTAssertTrue(dashboard.isEnabled, "Dashboard must be accessible on iPad")
 
         takeScreenshot(named: "iPad_Accessibility")
     }
@@ -114,13 +118,13 @@ final class iPadSmokeUITests: QuartzUITestCase {
     @MainActor
     func testScreenshotCapture() throws {
         launchApp()
-        takeScreenshot(named: "iPad_MainScreen")
+        assertScreenshotNonEmpty(named: "iPad_MainScreen")
 
         let welcomeCell = app.staticTexts["Welcome"]
         if welcomeCell.waitForExistence(timeout: 10) {
             welcomeCell.tap()
             _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
-            takeScreenshot(named: "iPad_Editor")
+            assertScreenshotNonEmpty(named: "iPad_Editor")
         }
     }
 }

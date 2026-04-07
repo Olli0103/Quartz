@@ -23,13 +23,10 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
     func testLaunchToMainView() throws {
         launchApp()
 
-        // With --mock-vault, app should skip vault picker and show the workspace
+        // With --mock-vault, app must skip vault picker and show the sidebar
         let sidebar = app.otherElements["sidebar-file-tree"]
-        let welcomeNote = app.staticTexts["Welcome"]
-
-        let foundSidebar = sidebar.waitForExistence(timeout: 15)
-        let foundNote = welcomeNote.waitForExistence(timeout: 5)
-        XCTAssertTrue(foundSidebar || foundNote, "App should launch to workspace with mock vault")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "iPhone must launch to sidebar file tree with mock vault")
 
         takeScreenshot(named: "iPhone_Launch")
     }
@@ -49,14 +46,10 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
 
         welcomeCell.tap()
 
-        // Editor should appear
+        // Editor must appear
         let editor = app.otherElements["editor-text-view"]
-        let editorExists = editor.waitForExistence(timeout: 10)
-
-        if !editorExists {
-            let anyTextView = app.textViews.firstMatch
-            XCTAssertTrue(anyTextView.waitForExistence(timeout: 5), "Editor should appear after tapping note")
-        }
+        XCTAssertTrue(editor.waitForExistence(timeout: 10),
+                      "Editor must appear after tapping note on iPhone")
 
         takeScreenshot(named: "iPhone_NoteOpen")
     }
@@ -67,15 +60,18 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
     func testAccessibilityLabelsExist() throws {
         launchApp()
 
+        // Sidebar must be present and accessible
         let sidebar = app.otherElements["sidebar-file-tree"]
-        if sidebar.waitForExistence(timeout: 15) {
-            XCTAssertTrue(sidebar.isEnabled, "Sidebar file tree should be accessible")
-        }
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "Sidebar file tree must exist on iPhone")
+        XCTAssertTrue(sidebar.isEnabled, "Sidebar file tree must be accessible")
 
+        // FAB must exist, be hittable, and have an accessibility label
         let fab = app.buttons.matching(identifier: "sidebar-new-note-fab").firstMatch
-        if fab.waitForExistence(timeout: 5) {
-            XCTAssertTrue(fab.isHittable, "New note FAB should be hittable")
-        }
+        XCTAssertTrue(fab.waitForExistence(timeout: 5),
+                      "New note FAB must exist on iPhone")
+        XCTAssertTrue(fab.isHittable, "New note FAB must be hittable")
+        assertAccessibilityLabelNonEmpty(fab, context: "iPhone new-note FAB")
 
         takeScreenshot(named: "iPhone_Accessibility")
     }
@@ -85,13 +81,13 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
     @MainActor
     func testScreenshotCapture() throws {
         launchApp()
-        takeScreenshot(named: "iPhone_MainScreen")
+        assertScreenshotNonEmpty(named: "iPhone_MainScreen")
 
         let welcomeCell = app.staticTexts["Welcome"]
         if welcomeCell.waitForExistence(timeout: 10) {
             welcomeCell.tap()
             _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
-            takeScreenshot(named: "iPhone_Editor")
+            assertScreenshotNonEmpty(named: "iPhone_Editor")
         }
     }
 }

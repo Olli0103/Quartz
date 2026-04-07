@@ -13,14 +13,12 @@ final class macOSSmokeUITests: QuartzUITestCase {
     func testLaunchToMainWindow() throws {
         launchApp()
 
-        // With --mock-vault, app should open directly to workspace
+        // With --mock-vault, app must open directly to the workspace.
+        // On macOS, NavigationSplitView renders via NSSplitView which does not
+        // surface as otherElements — assert the sidebar outline instead.
         let sidebar = app.outlines.firstMatch
-        let splitView = app.otherElements["workspace-split-view"]
-
-        let foundSidebar = sidebar.waitForExistence(timeout: 15)
-        let foundSplit = splitView.waitForExistence(timeout: 10)
-
-        XCTAssertTrue(foundSidebar || foundSplit, "macOS should launch with main window showing workspace")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "macOS must launch to workspace with sidebar outline visible")
 
         takeScreenshot(named: "macOS_Launch")
     }
@@ -68,8 +66,8 @@ final class macOSSmokeUITests: QuartzUITestCase {
 
         guard let note = noteElement else {
             takeScreenshot(named: "macOS_NoNote_InSidebar")
-            // This test is non-blocking — mock vault may not load in all environments
-            throw XCTSkip("Note not found in sidebar — mock vault may not have loaded")
+            XCTFail("Note not found in sidebar — mock vault must load for edit round-trip")
+            return
         }
 
         note.click()
@@ -93,14 +91,27 @@ final class macOSSmokeUITests: QuartzUITestCase {
     func testAccessibilityLabelsExist() throws {
         launchApp()
 
+        // Sidebar must be present and accessible
         let sidebar = app.outlines.firstMatch
-        if sidebar.waitForExistence(timeout: 15) {
-            XCTAssertTrue(sidebar.isEnabled, "Sidebar outline should be accessible")
-        }
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "Sidebar outline must exist")
+        XCTAssertTrue(sidebar.isEnabled, "Sidebar outline must be accessible")
 
+        // Verify sidebar contains accessible child elements
+        let outlineRows = app.outlineRows
+        XCTAssertGreaterThan(outlineRows.count, 0,
+                             "Sidebar must contain at least one outline row")
+
+        // New-note button — may be in toolbar or sidebar header
         let newNote = app.buttons.matching(identifier: "sidebar-new-note").firstMatch
         if newNote.waitForExistence(timeout: 5) {
-            XCTAssertTrue(newNote.isEnabled, "New note button should be accessible")
+            XCTAssertTrue(newNote.isEnabled, "New note button must be accessible")
+            assertAccessibilityLabelNonEmpty(newNote, context: "macOS new-note button")
+        } else {
+            // Toolbar buttons on macOS may not surface with identifier queries.
+            // Assert that at least one button exists in the toolbar area.
+            XCTAssertGreaterThan(app.buttons.count, 0,
+                                 "macOS window must contain accessible buttons")
         }
 
         takeScreenshot(named: "macOS_Accessibility")
@@ -111,7 +122,7 @@ final class macOSSmokeUITests: QuartzUITestCase {
     @MainActor
     func testScreenshotCapture() throws {
         launchApp()
-        takeScreenshot(named: "macOS_MainWindow")
+        assertScreenshotNonEmpty(named: "macOS_MainWindow")
 
         // Try to find and open a note for editor screenshot
         let predicate = NSPredicate(format: "label CONTAINS[c] 'Welcome' OR label CONTAINS[c] 'Todo'")
@@ -120,7 +131,7 @@ final class macOSSmokeUITests: QuartzUITestCase {
             if match.waitForExistence(timeout: 3) {
                 match.click()
                 _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
-                takeScreenshot(named: "macOS_Editor")
+                assertScreenshotNonEmpty(named: "macOS_Editor")
                 break
             }
         }

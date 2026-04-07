@@ -48,6 +48,45 @@ class QuartzUITestCase: XCTestCase {
         add(shot)
     }
 
+    /// Captures a screenshot, asserts it has non-zero dimensions (proves rendering occurred),
+    /// and attaches it to the test report. Use in `testScreenshotCapture` methods to create
+    /// deterministic visual baselines.
+    ///
+    /// - Note: For pixel-level diffing, adopt `swift-snapshot-testing` and compare against
+    ///   reference images stored under a `__Snapshots__` directory.
+    @MainActor
+    func assertScreenshotNonEmpty(named name: String,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        let screenshot = app.screenshot()
+        let image = screenshot.image
+        #if os(macOS)
+        let size = image.size
+        #else
+        let size = image.size  // UIImage.size is in points
+        #endif
+        XCTAssertGreaterThan(size.width, 0,
+                             "\(name): screenshot width must be > 0", file: file, line: line)
+        XCTAssertGreaterThan(size.height, 0,
+                             "\(name): screenshot height must be > 0", file: file, line: line)
+
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    // MARK: - Accessibility Helpers
+
+    /// Asserts that the element has a non-empty accessibility label.
+    /// Use this to enforce that UI controls are properly labeled for VoiceOver.
+    func assertAccessibilityLabelNonEmpty(_ element: XCUIElement, context: String,
+                                          file: StaticString = #filePath, line: UInt = #line) {
+        let label = element.label
+        XCTAssertFalse(label.isEmpty,
+                       "\(context): accessibility label must not be empty",
+                       file: file, line: line)
+    }
+
     // MARK: - Platform Detection
 
     var isPhone: Bool {

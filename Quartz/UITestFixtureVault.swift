@@ -30,24 +30,18 @@ enum UITestFixtureVault {
         let projectsDir = baseDir.appending(path: "Projects", directoryHint: .isDirectory)
         try fm.createDirectory(at: projectsDir, withIntermediateDirectories: true)
 
-        // Write fixture notes
-        try "# Welcome\n\nThis is a test note for UI testing.\n".write(
-            to: baseDir.appending(path: "Welcome.md"),
-            atomically: true,
-            encoding: .utf8
-        )
+        // Write fixture notes.
+        // NSFileCoordinator (CoordinatedFileWriter) is unnecessary for ephemeral /tmp
+        // test fixtures — coordinated access protects against iCloud conflicts on
+        // production vault I/O, which does not apply here.
+        try writeFixture("# Welcome\n\nThis is a test note for UI testing.\n",
+                         to: baseDir.appending(path: "Welcome.md"))
 
-        try "# Todo\n\n- [ ] First task\n- [x] Completed task\n- [ ] Third task\n".write(
-            to: baseDir.appending(path: "Todo.md"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try writeFixture("# Todo\n\n- [ ] First task\n- [x] Completed task\n- [ ] Third task\n",
+                         to: baseDir.appending(path: "Todo.md"))
 
-        try "# Project A\n\nProject details and notes go here.\n".write(
-            to: projectsDir.appending(path: "Project A.md"),
-            atomically: true,
-            encoding: .utf8
-        )
+        try writeFixture("# Project A\n\nProject details and notes go here.\n",
+                         to: projectsDir.appending(path: "Project A.md"))
 
         return VaultConfig(name: "UI Test Vault", rootURL: baseDir)
     }
@@ -55,5 +49,14 @@ enum UITestFixtureVault {
     /// Removes the fixture vault directory if it exists.
     static func cleanup() {
         try? FileManager.default.removeItem(at: baseDir)
+    }
+
+    /// Writes fixture content directly to a /tmp path.
+    ///
+    /// NSFileCoordinator is unnecessary for ephemeral test fixtures that live
+    /// outside the production vault directory. Coordinated access is reserved
+    /// for production vault I/O where iCloud conflict avoidance matters.
+    private static func writeFixture(_ content: String, to url: URL) throws {
+        try content.write(to: url, atomically: true, encoding: .utf8)
     }
 }

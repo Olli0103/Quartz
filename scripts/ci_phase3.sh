@@ -40,6 +40,9 @@ classify_failures() {
             *E2E*|*Flow*|*Integration*)
                 echo -e "  ${YELLOW}[E2E]${RESET} $line"
                 echo "    → Check: End-to-end flow, state transitions, cross-module interaction" ;;
+            *UI*|*UITests*|*XCUITest*|*Screenshot*|*Launch*|*Smoke*)
+                echo -e "  ${YELLOW}[UI_MATRIX]${RESET} $line"
+                echo "    → Check: Mock vault loading, accessibility identifiers, simulator availability" ;;
             *)
                 echo -e "  ${YELLOW}[GENERAL]${RESET} $line"
                 echo "    → Check: Test isolation, mock setup, async timing" ;;
@@ -109,21 +112,19 @@ pass "Total @Test budget: $TOTAL_TESTS (<= 1200)"
 
 # ── Step 6: Platform matrix verification ──────────────────────────────
 step "Verifying platform matrix"
+# Platforms are only added after verified test execution (Step 6b)
 PLATFORMS_TESTED="macOS"
-# Attempt iOS Simulator build if xcodebuild available
+PLATFORMS_DETECTED="macOS"
 if command -v xcodebuild &>/dev/null; then
-    echo "  xcodebuild available — checking simulator builds"
+    echo "  xcodebuild available — checking simulator SDKs"
     if xcodebuild -showsdks 2>/dev/null | grep -q "iphonesimulator"; then
-        PLATFORMS_TESTED="$PLATFORMS_TESTED,iOS_Simulator"
-    fi
-    if xcodebuild -showsdks 2>/dev/null | grep -q "iphonesimulator"; then
-        PLATFORMS_TESTED="$PLATFORMS_TESTED,iPadOS_Simulator"
+        PLATFORMS_DETECTED="$PLATFORMS_DETECTED,iOS_Simulator,iPadOS_Simulator"
     fi
 else
     echo "  xcodebuild not available — SPM-only testing (macOS)"
     echo "  NOTE: Full ADA-grade platform matrix requires Xcode UI tests"
 fi
-pass "Platform matrix: $PLATFORMS_TESTED"
+pass "Platform detection: $PLATFORMS_DETECTED"
 
 # ── Step 6b: UI Test Matrix ──────────────────────────────────────────
 step "Running UI test matrix (xcodebuild)"
@@ -134,32 +135,39 @@ UI_SKIP=0
 if command -v xcodebuild &>/dev/null; then
     # macOS UI tests
     echo "  Running macOS UI tests..."
-    if xcodebuild test -scheme Quartz \
+    MACOS_UI_OUTPUT=$(xcodebuild test -scheme Quartz \
         -destination 'platform=macOS' \
         -only-testing:QuartzUITests \
         -resultBundlePath /tmp/QuartzUITests_macOS.xcresult \
-        2>&1 | tail -5; then
+        2>&1 || true)
+    echo "$MACOS_UI_OUTPUT" | tail -5
+    if echo "$MACOS_UI_OUTPUT" | grep -q "** TEST SUCCEEDED **"; then
         UI_PASS=$((UI_PASS + 1))
         pass "  macOS UI tests passed"
     else
         UI_FAIL=$((UI_FAIL + 1))
         echo -e "  ${RED}macOS UI tests failed${RESET}"
+        classify_failures "$MACOS_UI_OUTPUT"
     fi
 
     # iPhone UI tests (if simulator available)
     if xcrun simctl list devices available 2>/dev/null | grep -q "iPhone"; then
         IPHONE_SIM=$(xcrun simctl list devices available 2>/dev/null | grep "iPhone" | head -1 | sed 's/(.*//' | xargs)
         echo "  Running iPhone UI tests on: $IPHONE_SIM"
-        if xcodebuild test -scheme Quartz \
+        IPHONE_UI_OUTPUT=$(xcodebuild test -scheme Quartz \
             -destination "platform=iOS Simulator,name=$IPHONE_SIM" \
             -only-testing:QuartzUITests \
             -resultBundlePath /tmp/QuartzUITests_iPhone.xcresult \
-            2>&1 | tail -5; then
+            2>&1 || true)
+        echo "$IPHONE_UI_OUTPUT" | tail -5
+        if echo "$IPHONE_UI_OUTPUT" | grep -q "** TEST SUCCEEDED **"; then
             UI_PASS=$((UI_PASS + 1))
+            PLATFORMS_TESTED="$PLATFORMS_TESTED,iOS_Simulator"
             pass "  iPhone UI tests passed"
         else
             UI_FAIL=$((UI_FAIL + 1))
             echo -e "  ${RED}iPhone UI tests failed${RESET}"
+            classify_failures "$IPHONE_UI_OUTPUT"
         fi
     else
         UI_SKIP=$((UI_SKIP + 1))
@@ -170,16 +178,20 @@ if command -v xcodebuild &>/dev/null; then
     if xcrun simctl list devices available 2>/dev/null | grep -q "iPad"; then
         IPAD_SIM=$(xcrun simctl list devices available 2>/dev/null | grep "iPad" | head -1 | sed 's/(.*//' | xargs)
         echo "  Running iPad UI tests on: $IPAD_SIM"
-        if xcodebuild test -scheme Quartz \
+        IPAD_UI_OUTPUT=$(xcodebuild test -scheme Quartz \
             -destination "platform=iOS Simulator,name=$IPAD_SIM" \
             -only-testing:QuartzUITests \
             -resultBundlePath /tmp/QuartzUITests_iPad.xcresult \
-            2>&1 | tail -5; then
+            2>&1 || true)
+        echo "$IPAD_UI_OUTPUT" | tail -5
+        if echo "$IPAD_UI_OUTPUT" | grep -q "** TEST SUCCEEDED **"; then
             UI_PASS=$((UI_PASS + 1))
+            PLATFORMS_TESTED="$PLATFORMS_TESTED,iPadOS_Simulator"
             pass "  iPad UI tests passed"
         else
             UI_FAIL=$((UI_FAIL + 1))
             echo -e "  ${RED}iPad UI tests failed${RESET}"
+            classify_failures "$IPAD_UI_OUTPUT"
         fi
     else
         UI_SKIP=$((UI_SKIP + 1))
@@ -200,16 +212,37 @@ fi
 # ── Step 7: Generate reports ──────────────────────────────────────────
 step "Generating Phase 3 report"
 mkdir -p reports
+
+# Determine status from actual test results (Violation 5 fix: no hardcoded PASS)
+if [ "$FULL_FAIL" -eq 0 ] && [ "$UI_FAIL" -eq 0 ] && [ "$UI_SKIP" -eq 0 ]; then
+    PHASE3_STATUS="pass"
+    SHIP_GATE="PASS"
+elif [ "$FULL_FAIL" -eq 0 ] && [ "$UI_FAIL" -eq 0 ]; then
+    PHASE3_STATUS="partial"
+    SHIP_GATE="PARTIAL — $UI_SKIP UI platform(s) skipped"
+elif [ "$FULL_FAIL" -eq 0 ]; then
+    PHASE3_STATUS="partial"
+    SHIP_GATE="PARTIAL — $UI_FAIL UI platform(s) failed"
+else
+    PHASE3_STATUS="fail"
+    SHIP_GATE="FAIL"
+fi
+
 cat > reports/phase3_report.json <<REPORT_EOF
 {
   "phase": 3,
-  "status": "pass",
+  "status": "$PHASE3_STATUS",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "tests": {
     "total": $TOTAL_TESTS,
     "phase3_specific": $P3_COUNT,
     "full_suite_failed": $FULL_FAIL,
     "full_suite_passed": $FULL_PASS
+  },
+  "ui_test_matrix": {
+    "passed": $UI_PASS,
+    "failed": $UI_FAIL,
+    "skipped": $UI_SKIP
   },
   "phase3_suites": [
     "VoiceOverEditorTests",
@@ -225,15 +258,17 @@ cat > reports/phase3_report.json <<REPORT_EOF
     "E2ESearchFlowTests",
     "E2EAppearanceFlowTests"
   ],
-  "platforms_tested": "$PLATFORMS_TESTED",
-  "ship_gate": "PASS"
+  "platforms_detected": "$PLATFORMS_DETECTED",
+  "platforms_actually_tested": "$PLATFORMS_TESTED",
+  "ship_gate": "$SHIP_GATE"
 }
 REPORT_EOF
 
 cat > reports/platform_matrix.json <<MATRIX_EOF
 {
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "platforms_tested": "$(echo $PLATFORMS_TESTED | tr ',' '", "')",
+  "platforms_detected": "$(echo $PLATFORMS_DETECTED | tr ',' '", "')",
+  "platforms_actually_tested": "$(echo $PLATFORMS_TESTED | tr ',' '", "')",
   "spm_tests": "macOS (arm64)",
   "xcodebuild_available": $(command -v xcodebuild &>/dev/null && echo true || echo false),
   "ui_test_matrix": {
@@ -241,16 +276,20 @@ cat > reports/platform_matrix.json <<MATRIX_EOF
     "failed": $UI_FAIL,
     "skipped": $UI_SKIP
   },
-  "notes": "SPM tests cover data model and logic layers. UI smoke tests run via xcodebuild on available platforms."
+  "notes": "SPM tests cover data model and logic layers. UI smoke tests run via xcodebuild. Only platforms with verified test passes are listed in platforms_actually_tested."
 }
 MATRIX_EOF
 pass "Reports written to reports/"
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}Phase 3 CI passed ✓ — SHIP GATE CLEAR${RESET}"
+echo -e "${GREEN}${BOLD}Phase 3 CI completed — $SHIP_GATE${RESET}"
 echo "  Total @Test annotations: $TOTAL_TESTS"
 echo "  Phase 3 tests: $P3_COUNT"
-echo "  Full suite: zero failures"
-echo "  All platforms: macOS, iOS Simulator, iPad Simulator"
+echo "  Full suite failures: $FULL_FAIL"
+echo "  UI matrix: $UI_PASS passed, $UI_FAIL failed, $UI_SKIP skipped"
+echo "  Platforms actually tested: $PLATFORMS_TESTED"
+if [ "$PHASE3_STATUS" = "fail" ]; then
+    exit 1
+fi
 exit 0
