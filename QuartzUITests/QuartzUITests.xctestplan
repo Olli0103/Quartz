@@ -1,0 +1,89 @@
+{
+  "configurations" : [
+    {
+      "id" : "iphone-default",
+      "name" : "iPhone-Default",
+      "options" : {
+        "commandLineArgumentEntries" : [
+          { "argument" : "--uitesting", "enabled" : true },
+          { "argument" : "--reset-state", "enabled" : true },
+          { "argument" : "--mock-vault", "enabled" : true },
+          { "argument" : "--disable-animations", "enabled" : true }
+        ],
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:Quartz.xcodeproj",
+          "identifier" : "QuartzUITests",
+          "name" : "QuartzUITests"
+        }
+      }
+    },
+    {
+      "id" : "ipad-default",
+      "name" : "iPad-Default",
+      "options" : {
+        "commandLineArgumentEntries" : [
+          { "argument" : "--uitesting", "enabled" : true },
+          { "argument" : "--reset-state", "enabled" : true },
+          { "argument" : "--mock-vault", "enabled" : true },
+          { "argument" : "--disable-animations", "enabled" : true }
+        ],
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:Quartz.xcodeproj",
+          "identifier" : "QuartzUITests",
+          "name" : "QuartzUITests"
+        }
+      }
+    },
+    {
+      "id" : "macos-default",
+      "name" : "macOS-Default",
+      "options" : {
+        "commandLineArgumentEntries" : [
+          { "argument" : "--uitesting", "enabled" : true },
+          { "argument" : "--reset-state", "enabled" : true },
+          { "argument" : "--mock-vault", "enabled" : true },
+          { "argument" : "--disable-animations", "enabled" : true }
+        ],
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:Quartz.xcodeproj",
+          "identifier" : "QuartzUITests",
+          "name" : "QuartzUITests"
+        }
+      }
+    },
+    {
+      "id" : "accessibility-xl",
+      "name" : "Accessibility-XL",
+      "options" : {
+        "commandLineArgumentEntries" : [
+          { "argument" : "--uitesting", "enabled" : true },
+          { "argument" : "--reset-state", "enabled" : true },
+          { "argument" : "--mock-vault", "enabled" : true },
+          { "argument" : "--disable-animations", "enabled" : true },
+          { "argument" : "-UIPreferredContentSizeCategoryName", "enabled" : true },
+          { "argument" : "UICTContentSizeCategoryAccessibilityExtraLarge", "enabled" : true }
+        ],
+        "targetForVariableExpansion" : {
+          "containerPath" : "container:Quartz.xcodeproj",
+          "identifier" : "QuartzUITests",
+          "name" : "QuartzUITests"
+        }
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testTimeoutsEnabled" : true,
+    "defaultTestExecutionTimeAllowance" : 120,
+    "maximumTestExecutionTimeAllowance" : 300
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Quartz.xcodeproj",
+        "identifier" : "QuartzUITests",
+        "name" : "QuartzUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

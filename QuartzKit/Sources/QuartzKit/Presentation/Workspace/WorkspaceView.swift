@@ -106,6 +106,7 @@ public struct WorkspaceView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+        .accessibilityIdentifier("workspace-split-view")
         #if os(iOS)
         .onChange(of: store.route) { _, newRoute in
             switch newRoute {

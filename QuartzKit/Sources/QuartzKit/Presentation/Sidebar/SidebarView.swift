@@ -181,6 +181,7 @@ public struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("sidebar-file-tree")
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 68)
@@ -763,6 +764,7 @@ public struct SidebarView: View {
         .onHover { newNoteButtonHovered = $0 }
         #endif
         .accessibilityLabel(String(localized: "New Note", bundle: .module))
+        .accessibilityIdentifier("sidebar-new-note")
         .accessibilityInputLabels([
             String(localized: "New note", bundle: .module),
             String(localized: "Create note", bundle: .module)
@@ -829,6 +831,7 @@ public struct SidebarView: View {
                 .onEnded { _ in fabPressed = false }
         )
         .accessibilityLabel(String(localized: "New Note", bundle: .module))
+        .accessibilityIdentifier("sidebar-new-note-fab")
         .accessibilityHint(String(localized: "Long press for template options", bundle: .module))
         .accessibilityInputLabels([
             String(localized: "New note", bundle: .module),

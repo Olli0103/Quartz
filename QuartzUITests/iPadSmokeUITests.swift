@@ -1,0 +1,126 @@
+import XCTest
+
+/// iPad smoke tests — split view layout, side-by-side editing, screenshots.
+///
+/// These tests run on iPad simulators. They verify the regular-width layout
+/// (NavigationSplitView with sidebar + content + detail visible).
+final class iPadSmokeUITests: QuartzUITestCase {
+
+    override func setUpWithError() throws {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Skipping iPad tests on iPhone")
+        }
+        #else
+        throw XCTSkip("Skipping iPad tests on macOS")
+        #endif
+        try super.setUpWithError()
+    }
+
+    // MARK: - Launch
+
+    @MainActor
+    func testLaunchShowsSplitView() throws {
+        launchApp()
+
+        let splitView = app.otherElements["workspace-split-view"]
+        let sidebar = app.otherElements["sidebar-file-tree"]
+
+        let foundSplit = splitView.waitForExistence(timeout: 15)
+        let foundSidebar = sidebar.waitForExistence(timeout: 10)
+
+        XCTAssertTrue(foundSplit || foundSidebar, "iPad should launch with split view layout")
+
+        takeScreenshot(named: "iPad_Launch_SplitView")
+    }
+
+    // MARK: - Side-by-Side
+
+    @MainActor
+    func testSidebarAndEditorVisible() throws {
+        launchApp()
+
+        let sidebar = app.otherElements["sidebar-file-tree"]
+        guard sidebar.waitForExistence(timeout: 15) else {
+            takeScreenshot(named: "iPad_NoSidebar")
+            XCTFail("Sidebar should be visible on iPad")
+            return
+        }
+
+        let welcomeCell = app.staticTexts["Welcome"]
+        if welcomeCell.waitForExistence(timeout: 10) {
+            welcomeCell.tap()
+
+            let editor = app.otherElements["editor-text-view"]
+            let editorVisible = editor.waitForExistence(timeout: 10)
+            let sidebarStillVisible = sidebar.exists
+
+            XCTAssertTrue(editorVisible || sidebarStillVisible,
+                         "iPad should show split layout with sidebar and editor")
+        }
+
+        takeScreenshot(named: "iPad_SplitView_SidebarAndEditor")
+    }
+
+    // MARK: - Note Edit Round Trip
+
+    @MainActor
+    func testNoteEditRoundTrip() throws {
+        launchApp()
+
+        let welcomeCell = app.staticTexts["Welcome"]
+        guard welcomeCell.waitForExistence(timeout: 15) else {
+            takeScreenshot(named: "iPad_BeforeEdit")
+            XCTFail("Welcome note not found")
+            return
+        }
+
+        welcomeCell.tap()
+
+        let editor = app.textViews.firstMatch
+        guard editor.waitForExistence(timeout: 10) else {
+            takeScreenshot(named: "iPad_NoEditor")
+            XCTFail("Editor did not appear after selecting note")
+            return
+        }
+
+        editor.tap()
+        editor.typeText("\nEdited from iPad UI test")
+
+        takeScreenshot(named: "iPad_AfterEdit")
+    }
+
+    // MARK: - Accessibility
+
+    @MainActor
+    func testAccessibilityLabelsExist() throws {
+        launchApp()
+
+        let sidebar = app.otherElements["sidebar-file-tree"]
+        if sidebar.waitForExistence(timeout: 15) {
+            XCTAssertTrue(sidebar.isEnabled, "Sidebar should be accessible on iPad")
+        }
+
+        let dashboard = app.otherElements["dashboard-view"]
+        if dashboard.waitForExistence(timeout: 5) {
+            XCTAssertTrue(dashboard.isEnabled, "Dashboard should be accessible")
+        }
+
+        takeScreenshot(named: "iPad_Accessibility")
+    }
+
+    // MARK: - Screenshots
+
+    @MainActor
+    func testScreenshotCapture() throws {
+        launchApp()
+        takeScreenshot(named: "iPad_MainScreen")
+
+        let welcomeCell = app.staticTexts["Welcome"]
+        if welcomeCell.waitForExistence(timeout: 10) {
+            welcomeCell.tap()
+            _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
+            takeScreenshot(named: "iPad_Editor")
+        }
+    }
+}

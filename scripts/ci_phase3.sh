@@ -125,6 +125,78 @@ else
 fi
 pass "Platform matrix: $PLATFORMS_TESTED"
 
+# ── Step 6b: UI Test Matrix ──────────────────────────────────────────
+step "Running UI test matrix (xcodebuild)"
+UI_PASS=0
+UI_FAIL=0
+UI_SKIP=0
+
+if command -v xcodebuild &>/dev/null; then
+    # macOS UI tests
+    echo "  Running macOS UI tests..."
+    if xcodebuild test -scheme Quartz \
+        -destination 'platform=macOS' \
+        -only-testing:QuartzUITests \
+        -resultBundlePath /tmp/QuartzUITests_macOS.xcresult \
+        2>&1 | tail -5; then
+        UI_PASS=$((UI_PASS + 1))
+        pass "  macOS UI tests passed"
+    else
+        UI_FAIL=$((UI_FAIL + 1))
+        echo -e "  ${RED}macOS UI tests failed${RESET}"
+    fi
+
+    # iPhone UI tests (if simulator available)
+    if xcrun simctl list devices available 2>/dev/null | grep -q "iPhone"; then
+        IPHONE_SIM=$(xcrun simctl list devices available 2>/dev/null | grep "iPhone" | head -1 | sed 's/(.*//' | xargs)
+        echo "  Running iPhone UI tests on: $IPHONE_SIM"
+        if xcodebuild test -scheme Quartz \
+            -destination "platform=iOS Simulator,name=$IPHONE_SIM" \
+            -only-testing:QuartzUITests \
+            -resultBundlePath /tmp/QuartzUITests_iPhone.xcresult \
+            2>&1 | tail -5; then
+            UI_PASS=$((UI_PASS + 1))
+            pass "  iPhone UI tests passed"
+        else
+            UI_FAIL=$((UI_FAIL + 1))
+            echo -e "  ${RED}iPhone UI tests failed${RESET}"
+        fi
+    else
+        UI_SKIP=$((UI_SKIP + 1))
+        echo "  iPhone simulator not available — skipped"
+    fi
+
+    # iPad UI tests (if simulator available)
+    if xcrun simctl list devices available 2>/dev/null | grep -q "iPad"; then
+        IPAD_SIM=$(xcrun simctl list devices available 2>/dev/null | grep "iPad" | head -1 | sed 's/(.*//' | xargs)
+        echo "  Running iPad UI tests on: $IPAD_SIM"
+        if xcodebuild test -scheme Quartz \
+            -destination "platform=iOS Simulator,name=$IPAD_SIM" \
+            -only-testing:QuartzUITests \
+            -resultBundlePath /tmp/QuartzUITests_iPad.xcresult \
+            2>&1 | tail -5; then
+            UI_PASS=$((UI_PASS + 1))
+            pass "  iPad UI tests passed"
+        else
+            UI_FAIL=$((UI_FAIL + 1))
+            echo -e "  ${RED}iPad UI tests failed${RESET}"
+        fi
+    else
+        UI_SKIP=$((UI_SKIP + 1))
+        echo "  iPad simulator not available — skipped"
+    fi
+
+    echo "  UI matrix: $UI_PASS passed, $UI_FAIL failed, $UI_SKIP skipped"
+    if [ "$UI_FAIL" -gt 0 ]; then
+        fail "UI test matrix failures: $UI_FAIL"
+    fi
+    pass "UI test matrix: $UI_PASS platforms passed"
+else
+    echo "  xcodebuild not available — UI test matrix skipped"
+    echo "  NOTE: Full UI test matrix requires Xcode"
+    UI_SKIP=3
+fi
+
 # ── Step 7: Generate reports ──────────────────────────────────────────
 step "Generating Phase 3 report"
 mkdir -p reports
@@ -164,7 +236,12 @@ cat > reports/platform_matrix.json <<MATRIX_EOF
   "platforms_tested": "$(echo $PLATFORMS_TESTED | tr ',' '", "')",
   "spm_tests": "macOS (arm64)",
   "xcodebuild_available": $(command -v xcodebuild &>/dev/null && echo true || echo false),
-  "notes": "SPM tests cover data model and logic layers. UI snapshot tests require Xcode UI test target."
+  "ui_test_matrix": {
+    "passed": $UI_PASS,
+    "failed": $UI_FAIL,
+    "skipped": $UI_SKIP
+  },
+  "notes": "SPM tests cover data model and logic layers. UI smoke tests run via xcodebuild on available platforms."
 }
 MATRIX_EOF
 pass "Reports written to reports/"

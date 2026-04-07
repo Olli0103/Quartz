@@ -12,10 +12,26 @@ struct QuartzApp: App {
         CommandLine.arguments.contains("--uitesting")
     }
 
+    /// Auto-create and open a fixture vault instead of showing the vault picker.
+    private static var shouldMockVault: Bool {
+        CommandLine.arguments.contains("--mock-vault")
+    }
+
+    /// Disable animations for deterministic UI testing.
+    private static var shouldDisableAnimations: Bool {
+        CommandLine.arguments.contains("--disable-animations")
+    }
+
     init() {
         // Reset state for UI testing to ensure a clean slate
         if Self.isUITesting {
             Self.resetUITestingState()
+        }
+        if Self.shouldDisableAnimations {
+            Self.disableAnimations()
+        }
+        if Self.shouldMockVault {
+            Self.setupMockVault()
         }
     }
 
@@ -28,6 +44,46 @@ struct QuartzApp: App {
         defaults.removeObject(forKey: "quartz.appLockEnabled")
         defaults.removeObject(forKey: "quartz.lockTimeoutMinutes")
         defaults.synchronize()
+    }
+
+    /// Disable all animations for deterministic UI test snapshots.
+    private static func disableAnimations() {
+        #if os(iOS)
+        UIView.setAnimationsEnabled(false)
+        #elseif os(macOS)
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.endGrouping()
+        #endif
+    }
+
+    /// Create a fixture vault and mark onboarding as complete so the app launches
+    /// directly into the workspace with known content.
+    private static func setupMockVault() {
+        do {
+            let vault = try UITestFixtureVault.create()
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: "quartz.hasCompletedOnboarding")
+            defaults.set(vault.name, forKey: "quartz.lastVault.name")
+            // Persist a bookmark matching VaultAccessManager's expected format
+            #if os(macOS)
+            let bookmarkData = try vault.rootURL.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            #else
+            let bookmarkData = try vault.rootURL.bookmarkData(
+                options: .minimalBookmark,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            #endif
+            defaults.set(bookmarkData, forKey: "quartz.lastVault.bookmark")
+            defaults.synchronize()
+        } catch {
+            print("UITest: Failed to create fixture vault: \(error)")
+        }
     }
 
     var body: some Scene {

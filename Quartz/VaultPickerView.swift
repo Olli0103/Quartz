@@ -82,6 +82,7 @@ struct VaultPickerView: View {
                     QuartzButton(String(localized: "Open Existing Folder"), icon: "folder") {
                         showFilePicker = true
                     }
+                    .accessibilityIdentifier("vault-picker-open")
 
                     Button {
                         QuartzFeedback.selection()
@@ -95,6 +96,7 @@ struct VaultPickerView: View {
                         .foregroundStyle(QuartzColors.accent)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("vault-picker-create")
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 32)

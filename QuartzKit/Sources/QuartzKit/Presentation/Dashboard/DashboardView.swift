@@ -60,6 +60,7 @@ public struct DashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .quartzAmbientShellBackground()
+        .accessibilityIdentifier("dashboard-view")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sensoryFeedback(.success, trigger: taskToggledSuccessfully)
         .sensoryFeedback(.success, trigger: quickCaptureSent)

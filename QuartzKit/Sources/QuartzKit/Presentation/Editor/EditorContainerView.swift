@@ -81,6 +81,7 @@ public struct EditorContainerView: View {
                 editorMaxWidth: appearance.editorMaxWidth,
                 syntaxVisibilityMode: appearance.syntaxVisibilityMode
             )
+            .accessibilityIdentifier("editor-text-view")
             .disabled(isInTrash) // Read-only when viewing a trashed note
 
             editorStatusBar
