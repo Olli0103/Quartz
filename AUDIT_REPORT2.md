@@ -26,8 +26,9 @@
    - Tests explicitly use relaxed CI thresholds (`50ms` full parse and `30ms` incremental) rather than enforcing `<16ms main-thread budget` requirement.
    - Memory test checks parser delta `<50MB` only; it does not validate the full runtime ceiling (`<=150MB`) for the specified feature matrix.
 
-7. **Phase 3 CI script can pass without proving ADA-grade platform screenshot matrix.**
-   - Script validates test counts and filtered suites but does not verify platform snapshot artifacts for macOS + iOS + iPadOS in the Phase 1–3 gate itself.
+7. **UI evidence requirement is currently unimplementable in this repo state (no Xcode UI test target matrix).**
+   - There is no committed Xcode UI/snapshot matrix setup for macOS + iOS + iPadOS in the audited Phase 1–3 path, so the gate cannot validate ADA-grade visual behavior from CI artifacts.
+   - This is a process/tooling gap that must be closed before a screenshot-matrix gate can be enforced.
 
 8. **Strict Swift 6 Concurrency compliance not conclusively demonstrated by evidence package.**
    - CI script counts diagnostics text heuristically and accepts nonzero warnings; it does not enforce a strict zero-warning or “warnings as errors” concurrency gate for the audited phase.
@@ -54,8 +55,10 @@ $EDITOR QuartzKit/Tests/QuartzKitTests/IncrementalASTPatchingTests.swift
 $EDITOR QuartzKit/Tests/QuartzKitTests/EditorUndoBundleTests.swift
 $EDITOR QuartzKit/Tests/QuartzKitTests/IMEProtectionTests.swift
 
-# 4) Add cross-platform snapshot matrix for macOS + iOS + iPadOS
-# and wire them into Phase 3 CI as required gates
+# 4) Establish UI test infrastructure first (currently missing), then add snapshot matrix
+# for macOS + iOS + iPadOS and wire into Phase 3 CI gates
+$EDITOR Quartz.xcodeproj/project.pbxproj
+$EDITOR QuartzUITests/QuartzUITests.swift
 $EDITOR QuartzKit/Tests/QuartzKitTests/Phase3SnapshotMatrixTests.swift
 $EDITOR scripts/ci_phase3.sh
 
