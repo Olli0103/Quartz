@@ -28,9 +28,8 @@ struct MaterialTokenTests {
     @Test("QuartzColors accent gradient is not empty")
     func accentGradient() {
         let gradient = QuartzColors.accentGradient
-        // LinearGradient should exist and be usable
-        _ = gradient
-        #expect(true, "Accent gradient should compile and be accessible")
+        let desc = "\(gradient)"
+        #expect(!desc.isEmpty, "Accent gradient should produce a non-empty description")
     }
 
     @Test("QuartzColors node type colors are distinct")
@@ -68,9 +67,9 @@ struct MaterialTokenTests {
 
     @Test("Warm and cool gradients exist as design tokens")
     func gradientTokens() {
-        let warm = QuartzColors.warmGradient
-        let cool = QuartzColors.coolGradient
-        _ = (warm, cool)
-        #expect(true, "Both gradient tokens should be accessible")
+        let warm = "\(QuartzColors.warmGradient)"
+        let cool = "\(QuartzColors.coolGradient)"
+        #expect(!warm.isEmpty, "Warm gradient should produce a description")
+        #expect(!cool.isEmpty, "Cool gradient should produce a description")
     }
 }

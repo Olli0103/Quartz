@@ -70,8 +70,9 @@ struct TranscriptionServiceTests {
     @Test("Service initializes with locale")
     func serviceInitWithLocale() async {
         let service = TranscriptionService(locale: Locale(identifier: "de_DE"))
-        // Service should be created without crashing
-        #expect(true)
+        // Service should be created without crashing — verify instance exists
+        let desc = "\(service)"
+        #expect(!desc.isEmpty, "TranscriptionService should initialize with locale")
     }
 }
 

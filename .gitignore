@@ -16,6 +16,9 @@ xcuserdata/
 .claude/settings.local.json
 .claude/*.log
 
+# CI logs (reports/*.json are committed as evidence)
+reports/*.log
+
 # Keep these committed
 !.claude/commands/
 !.claude/agents/

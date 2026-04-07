@@ -103,4 +103,23 @@ struct VoiceOverChatTests {
         #expect(msg.citations.count == 2, "Message should carry citations for source navigation")
         #expect(msg.citations[0].noteURL != nil, "Citations should have URLs for navigation")
     }
+
+    // NOTE: True VoiceOver reading-order and trait testing requires XCUITest.
+
+    @Test("Citation with noteURL has non-empty title for VoiceOver navigation")
+    func citationTitleForNavigation() {
+        let url = URL(fileURLWithPath: "/vault/note.md")
+        let citation = Citation(id: 1, noteID: UUID(), noteTitle: "Important Note", noteURL: url, excerpt: "some text", similarity: 0.8)
+        #expect(!citation.noteTitle.isEmpty, "Citation must have title for VoiceOver 'tap to navigate' label")
+        #expect(citation.noteURL != nil, "Citation with URL enables VoiceOver navigation action")
+    }
+
+    @Test("VaultChatError descriptions contain actionable guidance")
+    func errorDescriptionsActionable() {
+        let errors: [VaultChatError] = [.noProviderConfigured, .noRelevantContent, .indexEmpty, .providerError("timeout")]
+        for error in errors {
+            let desc = error.errorDescription ?? ""
+            #expect(desc.count > 5, "Error '\(error)' description should be long enough to be actionable for VoiceOver")
+        }
+    }
 }

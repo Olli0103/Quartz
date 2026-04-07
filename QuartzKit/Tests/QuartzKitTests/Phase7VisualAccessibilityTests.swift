@@ -61,19 +61,19 @@ struct Phase7SnapshotMatrixTests {
     func reduceTransparencyDetected() {
         let settings = TestAccessibilitySettings()
         // Should have a property for reduce transparency
-        #expect(settings.reduceTransparencyEnabled != nil || true)
+        #expect(settings.reduceTransparencyEnabled == false, "Default reduce transparency should be false")
     }
 
     @Test("Reduce motion mode is detected")
     func reduceMotionDetected() {
         let settings = TestAccessibilitySettings()
-        #expect(settings.reduceMotionEnabled != nil || true)
+        #expect(settings.reduceMotionEnabled == false, "Default reduce motion should be false")
     }
 
     @Test("Color inversion is detected")
     func colorInversionDetected() {
         let settings = TestAccessibilitySettings()
-        #expect(settings.invertColorsEnabled != nil || true)
+        #expect(settings.invertColorsEnabled == false, "Default invert colors should be false")
     }
 }
 

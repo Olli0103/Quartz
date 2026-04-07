@@ -117,4 +117,22 @@ struct VoiceOverSidebarTests {
         let _ = node.metadata.modifiedAt
         let _ = node.metadata.fileSize
     }
+
+    // NOTE: True VoiceOver custom-action and focus-order testing requires XCUITest.
+
+    @Test("FileNode name is non-empty for all node types (VoiceOver label source)")
+    func nodeNameNonEmpty() {
+        let note = FileNode(name: "Note.md", url: URL(fileURLWithPath: "/d/Note.md"), nodeType: .note)
+        let folder = FileNode(name: "Projects", url: URL(fileURLWithPath: "/d/Projects"), nodeType: .folder, children: [])
+        #expect(!note.name.isEmpty, "Note name is the VoiceOver label")
+        #expect(!folder.name.isEmpty, "Folder name is the VoiceOver label")
+    }
+
+    @Test("Folder children count available for VoiceOver hint")
+    func folderChildrenCountForHint() {
+        let child1 = FileNode(name: "A.md", url: URL(fileURLWithPath: "/d/A.md"), nodeType: .note)
+        let child2 = FileNode(name: "B.md", url: URL(fileURLWithPath: "/d/B.md"), nodeType: .note)
+        let folder = FileNode(name: "Docs", url: URL(fileURLWithPath: "/d"), nodeType: .folder, children: [child1, child2])
+        #expect(folder.children?.count == 2, "Children count enables 'folder with N items' VoiceOver hint")
+    }
 }

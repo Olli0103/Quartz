@@ -98,15 +98,15 @@ if [ "$TEST_COUNT" -lt 100 ]; then
 fi
 pass "Test count: $TEST_COUNT (>= 100)"
 
-# ── Step 5: Check for concurrency warnings ───────────────────────────
+# ── Step 5: Check for concurrency warnings (ZERO TOLERANCE) ─────────
 step "Checking for concurrency warnings"
 BUILD_OUTPUT=$(swift build --package-path "$PACKAGE_PATH" 2>&1 || true)
 CONCURRENCY_WARNINGS=$(echo "$BUILD_OUTPUT" | grep -c "Sendable\|data race\|actor-isolated" || true)
 echo "  Concurrency-related diagnostics: $CONCURRENCY_WARNINGS"
-if [ "$CONCURRENCY_WARNINGS" -gt 20 ]; then
-    echo "  ⚠️  High concurrency warning count — review before shipping"
+if [ "$CONCURRENCY_WARNINGS" -gt 0 ]; then
+    fail "Concurrency warnings detected: $CONCURRENCY_WARNINGS (zero tolerance)"
 fi
-pass "Concurrency check complete"
+pass "Concurrency check: 0 warnings"
 
 # ── Step 6: Generate report ──────────────────────────────────────────
 step "Generating Phase 1 report"

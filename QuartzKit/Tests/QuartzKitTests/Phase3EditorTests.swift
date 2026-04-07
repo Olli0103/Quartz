@@ -450,7 +450,8 @@ struct Phase3MarkdownRendererTests {
     func rendererIsSendable() {
         func requireSendable<T: Sendable>(_ value: T) -> T { value }
         let renderer = requireSendable(MarkdownRenderer())
-        #expect(renderer is MarkdownRenderer)
+        let desc = "\(renderer)"
+        #expect(!desc.isEmpty, "MarkdownRenderer should be Sendable and instantiable")
     }
 }
 

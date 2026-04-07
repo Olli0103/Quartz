@@ -91,4 +91,23 @@ struct VoiceOverSettingsTests {
         let rawValues = Set(types.map(\.rawValue))
         #expect(rawValues.count == types.count, "All storage type rawValues must be unique")
     }
+
+    // NOTE: True VoiceOver control labeling requires XCUITest.
+
+    @Test("ExportFormat displayName is non-empty for VoiceOver picker labels")
+    func exportFormatDisplayNames() {
+        for format in ExportFormat.allCases {
+            #expect(!format.rawValue.isEmpty, "ExportFormat.\(format) rawValue is used as VoiceOver label")
+            #expect(!format.fileExtension.isEmpty, "ExportFormat.\(format) extension provides context")
+        }
+    }
+
+    @Test("Theme rawValues are human-readable for VoiceOver")
+    func themeRawValuesReadable() {
+        for theme in AppearanceManager.Theme.allCases {
+            let raw = theme.rawValue
+            #expect(!raw.isEmpty, "Theme rawValue should be non-empty for settings label")
+            #expect(raw.count >= 4, "Theme rawValue '\(raw)' should be human-readable (not abbreviated)")
+        }
+    }
 }

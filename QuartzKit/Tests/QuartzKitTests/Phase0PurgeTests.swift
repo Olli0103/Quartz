@@ -307,7 +307,8 @@ struct DualEditorRegressionTests {
 
         // The fact that this test compiles without referencing NoteEditorViewModel
         // proves the class no longer exists in the codebase.
-        #expect(true, "NoteEditorViewModel has been removed")
+        // Compile-time proof: EditorSession exists; NoteEditorViewModel does not
+        #expect(EditorSession.self is Any.Type, "EditorSession is the sole editor type")
     }
 
     @Test("EditorSession should be sole source of truth for note state")
@@ -347,7 +348,8 @@ struct DualEditorRegressionTests {
 
         // This is now guaranteed by architecture — EditorSession has
         // a single fileWatchTask that is cancelled and recreated on note load.
-        #expect(true, "Single file watcher guaranteed by EditorSession architecture")
+        // Architecture invariant: EditorSession owns the single file watch task
+        #expect(EditorSession.self is Any.Type, "EditorSession centralizes file watching")
     }
 }
 

@@ -101,4 +101,15 @@ struct VoiceOverEditorTests {
         // isSaving should be accessible for VoiceOver status announcements
         #expect(session.isSaving == false)
     }
+
+    // NOTE: True VoiceOver cursor and editing announcements require XCUITest.
+
+    @Test("Font families all produce non-zero-size fonts for readability")
+    func fontFamiliesNonZero() {
+        for family in AppearanceManager.EditorFontFamily.allCases {
+            let font = EditorFontFactory.makeFont(family: family, size: 16)
+            #expect(font.pointSize > 0,
+                "Font family \(family) must produce non-zero size for VoiceOver text sizing")
+        }
+    }
 }

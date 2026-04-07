@@ -119,4 +119,33 @@ struct VoiceOverDashboardTests {
         )
         #expect(noTasks.isEmpty, "Document without checkboxes should produce no tasks")
     }
+
+    // NOTE: True VoiceOver label testing requires XCUITest.
+
+    @Test("DashboardTaskItem text is non-empty for VoiceOver cell label")
+    func taskItemTextForLabel() {
+        let item = DashboardTaskItem(
+            text: "Review pull request",
+            isCompleted: false,
+            noteURL: URL(fileURLWithPath: "/vault/tasks.md"),
+            noteTitle: "Dev Tasks",
+            lineNumber: 1,
+            lineContent: "- [ ] Review pull request"
+        )
+        #expect(!item.text.isEmpty, "Task text is used as VoiceOver cell label")
+        #expect(!item.noteTitle.isEmpty, "Note title provides context in VoiceOver")
+    }
+
+    @Test("SearchResult title is non-empty for VoiceOver result labeling")
+    func searchResultTitleForLabel() {
+        let result = SearchResult(
+            noteURL: URL(fileURLWithPath: "/vault/note.md"),
+            title: "Architecture Decisions",
+            score: 10,
+            context: "We decided to use TextKit 2...",
+            matchedTags: []
+        )
+        #expect(!result.title.isEmpty, "Search result title is the primary VoiceOver label")
+        #expect(result.context != nil && !result.context!.isEmpty, "Search context provides VoiceOver hint text")
+    }
 }

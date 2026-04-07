@@ -376,6 +376,7 @@ final class FocusModeBehaviorTests: XCTestCase {
     // MARK: - Persistence
 
     /// Typewriter mode state should persist (focus mode should not).
+    @MainActor
     func test_typewriterMode_persistsAcrossInstances() {
         // Clear any previous state first
         UserDefaults.standard.removeObject(forKey: "quartz.editor.typewriterModeActive")
@@ -383,7 +384,7 @@ final class FocusModeBehaviorTests: XCTestCase {
         // Create first manager and enable typewriter mode
         let manager1 = FocusModeManager()
         XCTAssertFalse(manager1.isTypewriterModeActive, "Should start disabled")
-        manager1.toggleTypewriterMode()
+        manager1.isTypewriterModeActive = true  // Direct set avoids withAnimation in headless tests
         XCTAssertTrue(manager1.isTypewriterModeActive, "Should be enabled after toggle")
 
         // Create new instance - should restore typewriter state
