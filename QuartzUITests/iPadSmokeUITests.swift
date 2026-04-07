@@ -113,6 +113,34 @@ final class iPadSmokeUITests: QuartzUITestCase {
         takeScreenshot(named: "iPad_Accessibility")
     }
 
+    // MARK: - Dynamic Type / Accessibility XL
+
+    @MainActor
+    func testAccessibilityXLLayout() throws {
+        // Launch with accessibility extra-large text
+        app = XCUIApplication()
+        app.launchArguments += [
+            "--uitesting",
+            "--reset-state",
+            "--mock-vault",
+            "--disable-animations",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityExtraLarge"
+        ]
+        app.launch()
+
+        // Split view must still be present at XL text size
+        let splitView = app.otherElements["workspace-split-view"]
+        let sidebar = app.otherElements["sidebar-file-tree"]
+
+        XCTAssertTrue(splitView.waitForExistence(timeout: 15),
+                      "Split view must remain visible at Accessibility XL text size")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 10),
+                      "Sidebar must remain visible at Accessibility XL text size")
+
+        assertScreenshotNonEmpty(named: "iPad_AccessibilityXL")
+    }
+
     // MARK: - Screenshots
 
     @MainActor

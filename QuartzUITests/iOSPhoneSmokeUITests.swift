@@ -76,6 +76,37 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
         takeScreenshot(named: "iPhone_Accessibility")
     }
 
+    // MARK: - Dynamic Type / Accessibility XL
+
+    @MainActor
+    func testAccessibilityXLLayout() throws {
+        // Launch with accessibility extra-large text
+        app = XCUIApplication()
+        app.launchArguments += [
+            "--uitesting",
+            "--reset-state",
+            "--mock-vault",
+            "--disable-animations",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityExtraLarge"
+        ]
+        app.launch()
+
+        // Sidebar must still be present and usable at XL text size
+        let sidebar = app.otherElements["sidebar-file-tree"]
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "Sidebar must remain visible at Accessibility XL text size")
+
+        // FAB must still be hittable (not pushed offscreen by large text)
+        let fab = app.buttons.matching(identifier: "sidebar-new-note-fab").firstMatch
+        if fab.waitForExistence(timeout: 5) {
+            XCTAssertTrue(fab.isHittable,
+                          "New note FAB must be hittable at Accessibility XL text size")
+        }
+
+        assertScreenshotNonEmpty(named: "iPhone_AccessibilityXL")
+    }
+
     // MARK: - Screenshots
 
     @MainActor

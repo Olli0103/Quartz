@@ -1,0 +1,614 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -scheme Quartz -destination platform=macOS "-only-testing:QuartzUITests/macOSSmokeUITests"
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  swift-markdown: https://github.com/swiftlang/swift-markdown.git @ 0.6.0
+  swift-concurrency-extras: https://github.com/pointfreeco/swift-concurrency-extras @ 1.3.2
+  QuartzKit: /Users/I533181/Developments/Quartz/QuartzKit @ local
+  cmark-gfm: https://github.com/swiftlang/swift-cmark.git @ 0.7.1
+  swiftui-math: https://github.com/gonzalezreal/swiftui-math @ 0.1.0
+  textual: https://github.com/gonzalezreal/textual @ 0.3.1
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, arch:arm64, id:00006020-000E40AA3633C01E, name:My Mac }
+{ platform:macOS, arch:x86_64, id:00006020-000E40AA3633C01E, name:My Mac }
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (21 targets)
+    Target 'QuartzUITests' in project 'Quartz'
+        ➜ Explicit dependency on target 'Quartz' in project 'Quartz'
+    Target 'QuartzTests' in project 'Quartz'
+        ➜ Explicit dependency on target 'Quartz' in project 'Quartz'
+    Target 'Quartz' in project 'Quartz'
+        ➜ Explicit dependency on target 'QuartzKit' in project 'QuartzKit'
+    Target 'QuartzKit' in project 'QuartzKit'
+        ➜ Explicit dependency on target 'QuartzKit' in project 'QuartzKit'
+        ➜ Explicit dependency on target 'QuartzKit_QuartzKit' in project 'QuartzKit'
+        ➜ Explicit dependency on target 'Markdown' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'Textual' in project 'textual'
+    Target 'QuartzKit' in project 'QuartzKit'
+        ➜ Explicit dependency on target 'QuartzKit_QuartzKit' in project 'QuartzKit'
+        ➜ Explicit dependency on target 'Markdown' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'Textual' in project 'textual'
+    Target 'Textual' in project 'textual'
+        ➜ Explicit dependency on target 'Textual' in project 'textual'
+        ➜ Explicit dependency on target 'textual_Textual' in project 'textual'
+        ➜ Explicit dependency on target 'ConcurrencyExtras' in project 'swift-concurrency-extras'
+        ➜ Explicit dependency on target 'SwiftUIMath' in project 'swiftui-math'
+    Target 'Textual' in project 'textual'
+        ➜ Explicit dependency on target 'textual_Textual' in project 'textual'
+        ➜ Explicit dependency on target 'ConcurrencyExtras' in project 'swift-concurrency-extras'
+        ➜ Explicit dependency on target 'SwiftUIMath' in project 'swiftui-math'
+    Target 'SwiftUIMath' in project 'swiftui-math'
+        ➜ Explicit dependency on target 'SwiftUIMath' in project 'swiftui-math'
+        ➜ Explicit dependency on target 'swiftui-math_SwiftUIMath' in project 'swiftui-math'
+    Target 'SwiftUIMath' in project 'swiftui-math'
+        ➜ Explicit dependency on target 'swiftui-math_SwiftUIMath' in project 'swiftui-math'
+    Target 'swiftui-math_SwiftUIMath' in project 'swiftui-math' (no dependencies)
+    Target 'ConcurrencyExtras' in project 'swift-concurrency-extras'
+        ➜ Explicit dependency on target 'ConcurrencyExtras' in project 'swift-concurrency-extras'
+    Target 'ConcurrencyExtras' in project 'swift-concurrency-extras' (no dependencies)
+    Target 'textual_Textual' in project 'textual' (no dependencies)
+    Target 'Markdown' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'Markdown' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'CAtomic' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+    Target 'Markdown' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'CAtomic' in project 'swift-markdown'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm' (no dependencies)
+    Target 'CAtomic' in project 'swift-markdown' (no dependencies)
+    Target 'QuartzKit_QuartzKit' in project 'QuartzKit' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/xcstringstool compile --dry-run --output-directory /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build /Users/I533181/Developments/Quartz/QuartzKit/Sources/QuartzKit/Resources/Localizable.xcstrings
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+ReadFileContents /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/docc/features.json
+
+Build description signature: 55ee4a6b52a8bc007f00cdc708002ba0
+Build description path: /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/XCBuildData/55ee4a6b52a8bc007f00cdc708002ba0.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk /Users/I533181/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.4-25E236-30f9ca8789b706f8bd3fc906a70d770f.sdkstatcache
+    cd /Users/I533181/Developments/Quartz/Quartz.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -o /Users/I533181/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.4-25E236-30f9ca8789b706f8bd3fc906a70d770f.sdkstatcache
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/textual_Textual.bundle/Contents/Info.plist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/textual.build/Debug/textual_Textual.build/empty-textual_Textual.plist (in target 'textual_Textual' from project 'textual')
+    cd /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/SourcePackages/checkouts/textual
+    builtin-infoPlistUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/textual.build/Debug/textual_Textual.build/empty-textual_Textual.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/textual_Textual.bundle/Contents/Info.plist
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/swiftui-math_SwiftUIMath.bundle/Contents/Info.plist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/swiftui-math.build/Debug/swiftui-math_SwiftUIMath.build/empty-swiftui-math_SwiftUIMath.plist (in target 'swiftui-math_SwiftUIMath' from project 'swiftui-math')
+    cd /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/SourcePackages/checkouts/swiftui-math
+    builtin-infoPlistUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/swiftui-math.build/Debug/swiftui-math_SwiftUIMath.build/empty-swiftui-math_SwiftUIMath.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/swiftui-math_SwiftUIMath.bundle/Contents/Info.plist
+
+SwiftDriver QuartzUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name QuartzUITests -Onone @/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -target arm64-apple-macos15.0 -g -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 6 -I /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib -F /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -F /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.4-25E236-30f9ca8789b706f8bd3fc906a70d770f.sdkstatcache -output-file-map /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-generated-files.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-own-target-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz-919de695119a44940038e9dc45eeb797-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-project-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/include -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-Swift.h -working-directory /Users/I533181/Developments/Quartz -experimental-emit-module-separately -disable-cmo
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Info.plist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/empty-QuartzKit_QuartzKit.plist (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-infoPlistUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/empty-QuartzKit_QuartzKit.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Info.plist
+
+CompileXCStrings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/ /Users/I533181/Developments/Quartz/QuartzKit/Sources/QuartzKit/Resources/Localizable.xcstrings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcstringstool compile --output-directory /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build /Users/I533181/Developments/Quartz/QuartzKit/Sources/QuartzKit/Resources/Localizable.xcstrings
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/zh-Hans.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/zh-Hans.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/zh-Hans.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/zh-Hans.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/zh-Hans.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/ja.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/ja.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/ja.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/ja.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/ja.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/fr.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/fr.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/fr.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/fr.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/fr.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/en.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/en.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/en.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/en.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/en.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/de.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/de.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/de.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/de.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/de.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/it.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/it.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/it.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/it.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/it.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopyStringsFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/es.lproj/Localizable.strings /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/es.lproj/Localizable.strings (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+    cd /Users/I533181/Developments/Quartz/QuartzKit
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle/Contents/Resources/es.lproj -- /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/es.lproj/Localizable.strings
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/QuartzKit.build/Debug/QuartzKit_QuartzKit.build/es.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'QuartzKit_QuartzKit' from project 'QuartzKit')
+
+CopySwiftLibs /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-swiftStdLibTool --copy --verbose --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 --scan-executable /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/Quartz.debug.dylib --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Frameworks --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Library/SystemExtensions --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+Copy /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Resources/QuartzKit_QuartzKit.bundle /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Resources
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Info.plist /Users/I533181/Developments/Quartz/Info.plist (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-infoPlistUtility /Users/I533181/Developments/Quartz/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PkgInfo -expandbuildsettings -platform macosx -additionalcontentfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz.build/assetcatalog_generated_info.plist -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Resources/QuartzKit_QuartzKit.bundle -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Resources/swiftui-math_SwiftUIMath.bundle -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Resources/textual_Textual.bundle -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/Info.plist
+
+Copy /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Resources/QuartzKit_QuartzKit.bundle /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle (in target 'QuartzTests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzKit_QuartzKit.bundle /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Resources
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Info.plist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzTests.build/empty-QuartzTests.plist (in target 'QuartzTests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-infoPlistUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzTests.build/empty-QuartzTests.plist -producttype com.apple.product-type.bundle.unit-test -expandbuildsettings -platform macosx -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Resources/QuartzKit_QuartzKit.bundle -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Resources/swiftui-math_SwiftUIMath.bundle -scanforprivacyfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Resources/textual_Textual.bundle -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Info.plist
+
+CopySwiftLibs /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest (in target 'QuartzTests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-swiftStdLibTool --copy --verbose --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 --scan-executable /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/MacOS/QuartzTests --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Frameworks --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/PlugIns --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Library/SystemExtensions --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/PlugIns/QuartzTests.xctest/Contents/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+CodeSign /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/Quartz.debug.dylib (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+    Signing Identity:     "Apple Development: Oliver Posselt (BFW598VQVA)"
+    Provisioning Profile: "Mac Team Provisioning Profile: olli.QuartzNotes"
+                          (fba23896-e38f-4e0a-bf86-7863ee1d4a32)
+    
+    /usr/bin/codesign --force --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 -o runtime --timestamp\=none --generate-entitlement-der /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/Quartz.debug.dylib
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/Quartz.debug.dylib: replacing existing signature
+
+CodeSign /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/__preview.dylib (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+    Signing Identity:     "Apple Development: Oliver Posselt (BFW598VQVA)"
+    Provisioning Profile: "Mac Team Provisioning Profile: olli.QuartzNotes"
+                          (fba23896-e38f-4e0a-bf86-7863ee1d4a32)
+    
+    /usr/bin/codesign --force --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 -o runtime --timestamp\=none --generate-entitlement-der /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/__preview.dylib
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app/Contents/MacOS/__preview.dylib: replacing existing signature
+
+CodeSign /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+    Signing Identity:     "Apple Development: Oliver Posselt (BFW598VQVA)"
+    Provisioning Profile: "Mac Team Provisioning Profile: olli.QuartzNotes"
+                          (fba23896-e38f-4e0a-bf86-7863ee1d4a32)
+    
+    /usr/bin/codesign --force --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 -o runtime --entitlements /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz.build/Quartz.app.xcent --timestamp\=none --generate-entitlement-der /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app: replacing existing signature
+
+Validate /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-validationUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app -no-validate-extension -infoplist-subpath Contents/Info.plist
+
+RegisterWithLaunchServices /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app (in target 'Quartz' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f -R -trusted /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/Quartz.app
+
+ProcessInfoPlistFile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Info.plist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/empty-QuartzUITests.plist (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-infoPlistUtility /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/empty-QuartzUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -platform macosx -additionalcontentfile /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Info.plist
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ QuartzUITests (in target 'QuartzUITests' from project 'Quartz')
+
+EmitSwiftModule normal arm64 (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+
+SwiftCompile normal arm64 Compiling\ macOSSmokeUITests.swift /Users/I533181/Developments/Quartz/QuartzUITests/macOSSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+SwiftCompile normal arm64 /Users/I533181/Developments/Quartz/QuartzUITests/macOSSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+
+SwiftCompile normal arm64 Compiling\ iPadSmokeUITests.swift /Users/I533181/Developments/Quartz/QuartzUITests/iPadSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftCompile normal arm64 /Users/I533181/Developments/Quartz/QuartzUITests/iPadSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+/Users/I533181/Developments/Quartz/QuartzUITests/iPadSmokeUITests.swift:17:9: warning: code after 'throw' will never be executed
+        try super.setUpWithError()
+        ^
+
+SwiftCompile normal arm64 Compiling\ iOSPhoneSmokeUITests.swift /Users/I533181/Developments/Quartz/QuartzUITests/iOSPhoneSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftCompile normal arm64 /Users/I533181/Developments/Quartz/QuartzUITests/iOSPhoneSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+/Users/I533181/Developments/Quartz/QuartzUITests/iOSPhoneSmokeUITests.swift:17:9: warning: code after 'throw' will never be executed
+        try super.setUpWithError()
+        ^
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for QuartzUITests (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftDriver\ Compilation\ Requirements QuartzUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name QuartzUITests -Onone @/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -target arm64-apple-macos15.0 -g -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 6 -I /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib -F /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -F /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.4-25E236-30f9ca8789b706f8bd3fc906a70d770f.sdkstatcache -output-file-map /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-generated-files.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-own-target-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz-919de695119a44940038e9dc45eeb797-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-project-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/include -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-Swift.h -working-directory /Users/I533181/Developments/Quartz -experimental-emit-module-separately -disable-cmo
+
+Copy /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftsourceinfo (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftsourceinfo /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo
+
+Copy /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/arm64-apple-macos.swiftmodule /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/arm64-apple-macos.swiftmodule
+
+Copy /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/arm64-apple-macos.abi.json /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.abi.json (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.abi.json /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests.swiftmodule/arm64-apple-macos.abi.json
+
+SwiftDriverJobDiscovery normal arm64 Compiling iPadSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftDriverJobDiscovery normal arm64 Compiling iOSPhoneSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftDriverJobDiscovery normal arm64 Compiling macOSSmokeUITests.swift (in target 'QuartzUITests' from project 'Quartz')
+
+SwiftDriver\ Compilation QuartzUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name QuartzUITests -Onone @/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -target arm64-apple-macos15.0 -g -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 6 -I /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib -F /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -F /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks -c -j12 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.4-25E236-30f9ca8789b706f8bd3fc906a70d770f.sdkstatcache -output-file-map /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/I533181/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-generated-files.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-own-target-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/Quartz-919de695119a44940038e9dc45eeb797-VFS/all-product-headers.yaml -Xcc -iquote -Xcc /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests-project-headers.hmap -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/include -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources/arm64 -Xcc -I/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-Swift.h -working-directory /Users/I533181/Developments/Quartz -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/MacOS/QuartzUITests normal (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos15.0 -bundle -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk -O0 -L/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -L/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib -F/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug -iframework /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks -filelist /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @loader_path/../Frameworks -Xlinker -object_path_lto -Xlinker /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_dependency_info.dat -fobjc-link-runtime -fprofile-instr-generate -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.swiftmodule @/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests-linker-args.resp -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport -Xlinker -no_adhoc_codesign -o /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/MacOS/QuartzUITests
+
+CopySwiftLibs /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    builtin-swiftStdLibTool --copy --verbose --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 --scan-executable /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/MacOS/QuartzUITests --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Frameworks --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/PlugIns --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Library/SystemExtensions --scan-folder /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Extensions --platform macosx --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+ExtractAppIntentsMetadata (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name QuartzUITests --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk --xcode-version 17E192 --platform-family macOS --deployment-target 15.0 --bundle-identifier olli.QuartzUITests --output /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/Resources --target-triple arm64-apple-macos15.0 --binary-file /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest/Contents/MacOS/QuartzUITests --dependency-file /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests_dependency_info.dat --stringsdata-file /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.SwiftFileList --metadata-file-list /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests.DependencyMetadataFileList --static-metadata-file-list /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests.DependencyStaticMetadataFileList --swift-const-vals-list /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/Objects-normal/arm64/QuartzUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-04-07 16:10:27.949 appintentsmetadataprocessor[55936:31608697] Starting appintentsmetadataprocessor export
+2026-04-07 16:10:27.951 appintentsmetadataprocessor[55936:31608697] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CodeSign /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+    Signing Identity:     "Apple Development: Oliver Posselt (BFW598VQVA)"
+    
+    /usr/bin/codesign --force --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 --entitlements /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests.xctest.xcent --timestamp\=none --generate-entitlement-der /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app/Contents/PlugIns/QuartzUITests.xctest
+
+CodeSign /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app (in target 'QuartzUITests' from project 'Quartz')
+    cd /Users/I533181/Developments/Quartz
+    
+    Signing Identity:     "Apple Development: Oliver Posselt (BFW598VQVA)"
+    
+    /usr/bin/codesign --force --sign 3F8B495CE4F1D4608DF908D7D36EFF9B88F4D089 --entitlements /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Intermediates.noindex/Quartz.build/Debug/QuartzUITests.build/QuartzUITests.xctest.xcent --timestamp\=none --generate-entitlement-der /Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app
+/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Build/Products/Debug/QuartzUITests-Runner.app: replacing existing signature
+
+2026-04-07 16:10:30.405671+0200 QuartzUITests-Runner[55944:31608818] [Default] Running tests...
+Test Suite 'Selected tests' started at 2026-04-07 16:10:30.510.
+Test Suite 'QuartzUITests.xctest' started at 2026-04-07 16:10:30.510.
+Test Suite 'macOSSmokeUITests' started at 2026-04-07 16:10:30.511.
+Test Case '-[QuartzUITests.macOSSmokeUITests testAccessibilityLabelsExist]' started.
+    t =     0.00s Start Test at 2026-04-07 16:10:30.514
+    t =     0.32s Set Up
+    t =     0.32s Open olli.QuartzNotes
+    t =     0.32s     Launch olli.QuartzNotes
+2026-04-07 16:10:31.433 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:10:31.433 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     2.00s         Wait for accessibility to load
+    t =     3.04s         Setting up automation session
+    t =     3.07s         Wait for olli.QuartzNotes to idle
+    t =     3.18s Waiting 15.0s for Outline (First Match) to exist
+    t =     4.21s     Checking `Expect predicate `existsNoRetry == 1` for object Outline (First Match)`
+    t =     4.21s         Checking existence of `Outline (First Match)`
+    t =     4.38s Find the Outline (First Match)
+    t =     4.45s Get number of matches for: Descendants matching type OutlineRow
+    t =     4.65s Waiting 5.0s for "sidebar-new-note" Button to exist
+    t =     5.69s     Checking `Expect predicate `existsNoRetry == 1` for object "sidebar-new-note" Button`
+    t =     5.69s         Checking existence of `"sidebar-new-note" Button`
+    t =     5.79s         Capturing element debug description
+    t =     6.72s     Checking `Expect predicate `existsNoRetry == 1` for object "sidebar-new-note" Button`
+    t =     6.72s         Checking existence of `"sidebar-new-note" Button`
+    t =     6.81s         Capturing element debug description
+    t =     7.74s     Checking `Expect predicate `existsNoRetry == 1` for object "sidebar-new-note" Button`
+    t =     7.74s         Checking existence of `"sidebar-new-note" Button`
+    t =     7.81s         Capturing element debug description
+    t =     8.74s     Checking `Expect predicate `existsNoRetry == 1` for object "sidebar-new-note" Button`
+    t =     8.74s         Checking existence of `"sidebar-new-note" Button`
+    t =     8.87s         Capturing element debug description
+    t =     9.65s     Checking `Expect predicate `existsNoRetry == 1` for object "sidebar-new-note" Button`
+    t =     9.66s         Checking existence of `"sidebar-new-note" Button`
+    t =     9.73s         Capturing element debug description
+    t =     9.73s     Checking existence of `"sidebar-new-note" Button`
+    t =     9.80s Collecting debug information to assist test failure triage
+    t =     9.80s     Requesting snapshot of accessibility hierarchy for app with pid 55946
+    t =     9.94s Get number of matches for: Descendants matching type Button
+    t =    10.01s Find the Target Application 'olli.QuartzNotes'
+    t =    10.55s Added attachment named 'macOS_Accessibility'
+    t =    10.55s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testAccessibilityLabelsExist]' passed (11.080 seconds).
+Test Case '-[QuartzUITests.macOSSmokeUITests testAccessibilityXLLayout]' started.
+    t =     0.00s Start Test at 2026-04-07 16:10:41.597
+    t =     0.25s Set Up
+    t =     0.25s Open olli.QuartzNotes
+    t =     0.25s     Launch olli.QuartzNotes
+    t =     0.25s         Terminate olli.QuartzNotes:55946
+2026-04-07 16:10:42.877 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:10:42.877 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.81s         Wait for accessibility to load
+    t =     2.43s         Setting up automation session
+    t =     2.44s         Wait for olli.QuartzNotes to idle
+    t =     2.51s Waiting 15.0s for Outline (First Match) to exist
+    t =     3.55s     Checking `Expect predicate `existsNoRetry == 1` for object Outline (First Match)`
+    t =     3.55s         Checking existence of `Outline (First Match)`
+    t =     3.66s Get number of matches for: Descendants matching type OutlineRow
+    t =     3.82s Find the Target Application 'olli.QuartzNotes'
+    t =     4.16s Added attachment named 'macOS_AccessibilityXL'
+    t =     4.16s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testAccessibilityXLLayout]' passed (4.510 seconds).
+Test Case '-[QuartzUITests.macOSSmokeUITests testKeyboardShortcuts]' started.
+    t =     0.00s Start Test at 2026-04-07 16:10:46.107
+    t =     0.20s Set Up
+    t =     0.20s Open olli.QuartzNotes
+    t =     0.20s     Launch olli.QuartzNotes
+    t =     0.20s         Terminate olli.QuartzNotes:55970
+2026-04-07 16:10:47.404 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:10:47.404 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.79s         Wait for accessibility to load
+    t =     2.41s         Setting up automation session
+    t =     2.41s         Wait for olli.QuartzNotes to idle
+    t =     2.42s Waiting 15.0s for Outline (First Match) to exist
+    t =     3.45s     Checking `Expect predicate `existsNoRetry == 1` for object Outline (First Match)`
+    t =     3.46s         Checking existence of `Outline (First Match)`
+    t =     3.57s Type 'k' key with modifiers '⌘' (0x10)
+    t =     3.57s     Wait for olli.QuartzNotes to idle
+    t =     3.58s     Find the Target Application 'olli.QuartzNotes'
+    t =     3.72s     Check for interrupting elements affecting "Quartz" Application
+    t =     3.72s     Synthesize event
+    t =     4.00s     Wait for olli.QuartzNotes to idle
+    t =     4.01s Waiting 5.0s for SearchField (First Match) to exist
+    t =     5.01s     Checking `Expect predicate `existsNoRetry == 1` for object SearchField (First Match)`
+    t =     5.01s         Checking existence of `SearchField (First Match)`
+    t =     5.03s Find the Target Application 'olli.QuartzNotes'
+    t =     5.36s Added attachment named 'macOS_CommandPalette'
+    t =     5.36s Type '⎋' key (XCUIKeyboardKeyEscape) with no modifiers
+    t =     5.36s     Wait for olli.QuartzNotes to idle
+    t =     5.36s     Find the Target Application 'olli.QuartzNotes'
+    t =     5.40s     Check for interrupting elements affecting "Quartz" Application
+    t =     5.40s     Synthesize event
+    t =     5.46s     Wait for olli.QuartzNotes to idle
+    t =     5.46s Find the Target Application 'olli.QuartzNotes'
+    t =     5.74s Added attachment named 'macOS_AfterKeyboard'
+    t =     5.74s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testKeyboardShortcuts]' passed (6.191 seconds).
+Test Case '-[QuartzUITests.macOSSmokeUITests testLaunchToMainWindow]' started.
+    t =     0.00s Start Test at 2026-04-07 16:10:52.299
+    t =     0.23s Set Up
+    t =     0.23s Open olli.QuartzNotes
+    t =     0.23s     Launch olli.QuartzNotes
+    t =     0.23s         Terminate olli.QuartzNotes:55973
+2026-04-07 16:10:53.554 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:10:53.555 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.73s         Wait for accessibility to load
+    t =     8.17s         Setting up automation session
+    t =     8.18s         Wait for olli.QuartzNotes to idle
+    t =     8.19s Waiting 15.0s for Outline (First Match) to exist
+    t =     9.22s     Checking `Expect predicate `existsNoRetry == 1` for object Outline (First Match)`
+    t =     9.22s         Checking existence of `Outline (First Match)`
+    t =     9.35s Find the Target Application 'olli.QuartzNotes'
+    t =     9.76s Added attachment named 'macOS_Launch'
+    t =     9.76s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testLaunchToMainWindow]' passed (10.194 seconds).
+Test Case '-[QuartzUITests.macOSSmokeUITests testNoteEditRoundTrip]' started.
+    t =     0.00s Start Test at 2026-04-07 16:11:02.493
+    t =     0.18s Set Up
+    t =     0.18s Open olli.QuartzNotes
+    t =     0.18s     Launch olli.QuartzNotes
+    t =     0.18s         Terminate olli.QuartzNotes:55998
+2026-04-07 16:11:03.770 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:11:03.770 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.75s         Wait for accessibility to load
+    t =     1.76s         Setting up automation session
+    t =     1.76s         Wait for olli.QuartzNotes to idle
+    t =     2.41s Waiting 3.0s for StaticText (First Match) to exist
+    t =     3.42s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     3.42s         Checking existence of `StaticText (First Match)`
+    t =     3.65s         Capturing element debug description
+    t =     4.47s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     4.47s         Checking existence of `StaticText (First Match)`
+    t =     4.56s         Capturing element debug description
+    t =     5.41s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     5.41s         Checking existence of `StaticText (First Match)`
+    t =     5.55s         Capturing element debug description
+    t =     5.55s     Checking existence of `StaticText (First Match)`
+    t =     5.62s Collecting debug information to assist test failure triage
+    t =     5.62s     Requesting snapshot of accessibility hierarchy for app with pid 56001
+    t =     5.77s Waiting 3.0s for Cell (First Match) to exist
+    t =     6.81s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     6.81s         Checking existence of `Cell (First Match)`
+    t =     6.92s         Capturing element debug description
+    t =     7.84s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     7.84s         Checking existence of `Cell (First Match)`
+    t =     7.92s         Capturing element debug description
+    t =     8.78s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     8.78s         Checking existence of `Cell (First Match)`
+    t =     8.85s         Capturing element debug description
+    t =     8.85s     Checking existence of `Cell (First Match)`
+    t =     8.91s Collecting debug information to assist test failure triage
+    t =     8.91s     Requesting snapshot of accessibility hierarchy for app with pid 56001
+    t =     9.07s Waiting 3.0s for OutlineRow (First Match) to exist
+    t =    10.10s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    10.10s         Checking existence of `OutlineRow (First Match)`
+    t =    10.22s         Capturing element debug description
+    t =    11.16s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    11.16s         Checking existence of `OutlineRow (First Match)`
+    t =    11.25s         Capturing element debug description
+    t =    12.07s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    12.07s         Checking existence of `OutlineRow (First Match)`
+    t =    12.15s         Capturing element debug description
+    t =    12.15s     Checking existence of `OutlineRow (First Match)`
+    t =    12.22s Collecting debug information to assist test failure triage
+    t =    12.22s     Requesting snapshot of accessibility hierarchy for app with pid 56001
+    t =    12.39s Waiting 3.0s for Button (First Match) to exist
+    t =    13.42s     Checking `Expect predicate `existsNoRetry == 1` for object Button (First Match)`
+    t =    13.42s         Checking existence of `Button (First Match)`
+    t =    13.52s Click Button (First Match)
+    t =    13.52s     Wait for olli.QuartzNotes to idle
+    t =    13.52s     Find the Button (First Match)
+    t =    13.64s     Check for interrupting elements affecting "Heading level 1: Todo" Button
+    t =    13.80s     Open olli.QuartzNotes
+    t =    13.80s         Activate olli.QuartzNotes
+    t =    13.83s             Wait for olli.QuartzNotes to idle
+    t =    13.95s     Synthesize event
+    t =    14.35s     Wait for olli.QuartzNotes to idle
+    t =    14.35s Waiting 10.0s for TextView (First Match) to exist
+    t =    15.42s     Checking `Expect predicate `existsNoRetry == 1` for object TextView (First Match)`
+    t =    15.42s         Checking existence of `TextView (First Match)`
+    t =    15.54s Click TextView (First Match)
+    t =    15.54s     Wait for olli.QuartzNotes to idle
+    t =    15.54s     Find the TextView (First Match)
+    t =    15.60s     Check for interrupting elements affecting "# Todo
+
+- [ ] First task
+- [x] Completed task
+- [ ] Third task
+" TextView
+    t =    15.63s     Open olli.QuartzNotes
+    t =    15.63s         Activate olli.QuartzNotes
+    t =    15.66s             Wait for olli.QuartzNotes to idle
+    t =    15.79s     Synthesize event
+    t =    16.43s     Wait for olli.QuartzNotes to idle
+    t =    16.43s Type '
+Edited from macOS...' into "# Todo
+
+- [ ] First task
+- [x] Completed task
+- [ ] Third task
+" TextView
+    t =    16.43s     Wait for olli.QuartzNotes to idle
+    t =    16.43s     Find the "# Todo
+
+- [ ] First task
+- [x] Completed task
+- [ ] Third task
+" TextView
+    t =    16.60s     Check for interrupting elements affecting "# Todo
+
+- [ ] First task
+- [x] Completed task
+- [ ] Third task
+" TextView
+    t =    16.74s     Synthesize event
+    t =    18.19s     Wait for olli.QuartzNotes to idle
+    t =    18.19s Find the Target Application 'olli.QuartzNotes'
+    t =    18.56s Added attachment named 'macOS_AfterEdit'
+    t =    18.56s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testNoteEditRoundTrip]' passed (19.590 seconds).
+Test Case '-[QuartzUITests.macOSSmokeUITests testScreenshotCapture]' started.
+    t =     0.00s Start Test at 2026-04-07 16:11:22.084
+    t =     0.27s Set Up
+    t =     0.27s Open olli.QuartzNotes
+    t =     0.27s     Launch olli.QuartzNotes
+    t =     0.27s         Terminate olli.QuartzNotes:56001
+2026-04-07 16:11:23.439 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: The operation couldn’t be completed. (DebuggerLLDB.DebuggerVersionStore.StoreError error 0.)
+2026-04-07 16:11:23.439 xcodebuild[55251:31601946] [MT] IDELaunchParametersSnapshot: no debugger version
+    t =     1.82s         Wait for accessibility to load
+    t =     2.55s         Setting up automation session
+    t =     2.56s         Wait for olli.QuartzNotes to idle
+    t =     2.57s Find the Target Application 'olli.QuartzNotes'
+    t =     3.04s Added attachment named 'macOS_MainWindow'
+    t =     3.05s Waiting 3.0s for StaticText (First Match) to exist
+    t =     4.08s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     4.08s         Checking existence of `StaticText (First Match)`
+    t =     4.19s         Capturing element debug description
+    t =     5.13s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     5.13s         Checking existence of `StaticText (First Match)`
+    t =     5.22s         Capturing element debug description
+    t =     6.05s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =     6.05s         Checking existence of `StaticText (First Match)`
+    t =     6.12s         Capturing element debug description
+    t =     6.12s     Checking existence of `StaticText (First Match)`
+    t =     6.19s Collecting debug information to assist test failure triage
+    t =     6.19s     Requesting snapshot of accessibility hierarchy for app with pid 56056
+    t =     6.34s Waiting 3.0s for Cell (First Match) to exist
+    t =     7.38s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     7.38s         Checking existence of `Cell (First Match)`
+    t =     7.45s         Capturing element debug description
+    t =     8.39s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     8.39s         Checking existence of `Cell (First Match)`
+    t =     8.47s         Capturing element debug description
+    t =     9.34s     Checking `Expect predicate `existsNoRetry == 1` for object Cell (First Match)`
+    t =     9.35s         Checking existence of `Cell (First Match)`
+    t =     9.42s         Capturing element debug description
+    t =     9.42s     Checking existence of `Cell (First Match)`
+    t =     9.50s Collecting debug information to assist test failure triage
+    t =     9.50s     Requesting snapshot of accessibility hierarchy for app with pid 56056
+    t =     9.63s Waiting 3.0s for OutlineRow (First Match) to exist
+    t =    10.65s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    10.65s         Checking existence of `OutlineRow (First Match)`
+    t =    10.73s         Capturing element debug description
+    t =    11.65s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    11.65s         Checking existence of `OutlineRow (First Match)`
+    t =    11.73s         Capturing element debug description
+    t =    12.63s     Checking `Expect predicate `existsNoRetry == 1` for object OutlineRow (First Match)`
+    t =    12.63s         Checking existence of `OutlineRow (First Match)`
+    t =    12.70s         Capturing element debug description
+    t =    12.70s     Checking existence of `OutlineRow (First Match)`
+    t =    12.77s Collecting debug information to assist test failure triage
+    t =    12.77s     Requesting snapshot of accessibility hierarchy for app with pid 56056
+    t =    12.91s Tear Down
+Test Case '-[QuartzUITests.macOSSmokeUITests testScreenshotCapture]' passed (13.379 seconds).
+Test Suite 'macOSSmokeUITests' passed at 2026-04-07 16:11:35.463.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 64.944 (64.952) seconds
+Test Suite 'QuartzUITests.xctest' passed at 2026-04-07 16:11:35.463.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 64.944 (64.953) seconds
+Test Suite 'Selected tests' passed at 2026-04-07 16:11:35.464.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 64.944 (64.954) seconds
+2026-04-07 16:11:35.870 xcodebuild[55251:31601946] [MT] IDETestOperationsObserverDebug: 67.297 elapsed -- Testing started completed.
+2026-04-07 16:11:35.870 xcodebuild[55251:31601946] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-04-07 16:11:35.870 xcodebuild[55251:31601946] [MT] IDETestOperationsObserverDebug: 67.297 sec, +67.297 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/I533181/Library/Developer/Xcode/DerivedData/Quartz-dxdgbevcngpjbfeajptuwkhctcba/Logs/Test/Test-Quartz-2026.04.07_16-10-16-+0200.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
+Test suite 'Selected tests' started on 'My Mac - QuartzUITests-Runner (55944)'
+Test suite 'QuartzUITests.xctest' started on 'My Mac - QuartzUITests-Runner (55944)'
+Test suite 'macOSSmokeUITests' started on 'My Mac - QuartzUITests-Runner (55944)'
+Test case 'macOSSmokeUITests.testAccessibilityLabelsExist()' passed on 'My Mac - QuartzUITests-Runner (55944)' (11.080 seconds)
+Test case 'macOSSmokeUITests.testAccessibilityXLLayout()' passed on 'My Mac - QuartzUITests-Runner (55944)' (4.510 seconds)
+Test case 'macOSSmokeUITests.testKeyboardShortcuts()' passed on 'My Mac - QuartzUITests-Runner (55944)' (6.191 seconds)
+Test case 'macOSSmokeUITests.testLaunchToMainWindow()' passed on 'My Mac - QuartzUITests-Runner (55944)' (10.194 seconds)
+Test case 'macOSSmokeUITests.testNoteEditRoundTrip()' passed on 'My Mac - QuartzUITests-Runner (55944)' (19.590 seconds)
+Test case 'macOSSmokeUITests.testScreenshotCapture()' passed on 'My Mac - QuartzUITests-Runner (55944)' (13.379 seconds)

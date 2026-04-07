@@ -117,6 +117,35 @@ final class macOSSmokeUITests: QuartzUITestCase {
         takeScreenshot(named: "macOS_Accessibility")
     }
 
+    // MARK: - Dynamic Type / Accessibility XL
+
+    @MainActor
+    func testAccessibilityXLLayout() throws {
+        // Launch with accessibility extra-large text to verify layout doesn't break
+        app = XCUIApplication()
+        app.launchArguments += [
+            "--uitesting",
+            "--reset-state",
+            "--mock-vault",
+            "--disable-animations",
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityExtraLarge"
+        ]
+        app.launch()
+
+        // Sidebar must still be present at XL text size
+        let sidebar = app.outlines.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
+                      "Sidebar must remain visible at Accessibility XL text size")
+
+        // Outline rows must still be present and not clipped
+        let outlineRows = app.outlineRows
+        XCTAssertGreaterThan(outlineRows.count, 0,
+                             "Sidebar must contain rows at Accessibility XL text size")
+
+        assertScreenshotNonEmpty(named: "macOS_AccessibilityXL")
+    }
+
     // MARK: - Screenshots
 
     @MainActor

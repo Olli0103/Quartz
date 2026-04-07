@@ -18,6 +18,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-markdown.git", "0.5.0"..<"0.7.0"),
         .package(url: "https://github.com/gonzalezreal/textual", from: "0.1.0"),
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.17.0"),
     ],
     targets: [
         .target(
@@ -33,7 +34,10 @@ let package = Package(
         ),
         .testTarget(
             name: "QuartzKitTests",
-            dependencies: ["QuartzKit"],
+            dependencies: [
+                "QuartzKit",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
+            ],
             path: "Tests/QuartzKitTests"
         ),
     ]
