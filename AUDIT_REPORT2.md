@@ -1,78 +1,67 @@
-# Gatekeeper Audit: Phase 3 UI Matrix Remediation Claim (commit b4bd427)
+# Gatekeeper Audit: Phase 3 Remediation Claim (commit e35277d)
 
 ## 🛑 PASS / FAIL STATUS (Make this explicit in huge text)
-# **FAIL — REJECTED (SHIP GATE NOT MET)**
+# **FAIL — REJECTED (MANDATORY GATES STILL VIOLATED)**
 
 ## 🔍 Discovered Violations (List every shortcut, lazy test, and architectural breach)
 
-1. **The new accessibility suite is largely tautological and does not exercise UI behavior.**
-   - `Phase3AccessibilityTraversalTests` repeatedly asserts constants or `Bool(true)` instead of querying rendered accessibility trees (for example: `#expect(Bool(true), ...)` in VoiceOver/focus/motion/contrast tests).
-   - Multiple tests are “verified by code inspection” comments rather than runtime assertions, which is explicitly non-forensic.
-   - Dynamic Type tests only validate model values (`title`, `tags`, `scale > 0`) and never verify clipping, truncation, focus order, or spoken output.
-   - Gatekeeper verdict: test integrity breach (superficial tests).
+1. **3-platform snapshot/UI mandate is still not satisfied.**
+   - `reports/phase3_report.json` explicitly records `platforms_actually_tested: "macOS"` and `ship_gate: "PARTIAL — 2 UI platform(s) skipped"`.
+   - `reports/platform_matrix.json` also confirms only macOS was verified.
+   - Gatekeeper rule requires macOS + iOS + iPadOS runtime validation for this phase; skipped simulators are not acceptable for PASS.
 
-2. **Snapshot mandate is still incomplete for a true 3-platform matrix.**
-   - `Phase3SnapshotMatrixTests` stores one baseline set (10 PNGs) without distinct per-platform baselines/fixtures; this is not a macOS+iPhone+iPad matrix.
-   - The helper uses generic hosting wrappers and fixed container sizes rather than explicit destination-verified per-platform snapshot execution.
-   - No evidence artifact shows successful snapshot diff execution on iPhone and iPad in this remediation run.
+2. **Snapshot evidence metadata is internally misleading.**
+   - Report claims `platform_suffixed: true`, but Phase 3 accessibility snapshot baselines are not platform-suffixed (e.g., `DynamicType_Default.png`, `MarkdownPreview_AX3.png`) and therefore cannot prove cross-platform rendering parity.
+   - Net: matrix evidence is incomplete for ADA-grade cross-device UX.
 
-3. **UI matrix requirement is unmet: two required platforms are skipped.**
-   - `reports/phase3_report.json` shows `platforms_actually_tested: "macOS"` and `ship_gate: "PARTIAL — 2 UI platform(s) skipped"`.
-   - `reports/platform_matrix.json` confirms only macOS was actually tested.
-   - Roadmap/blueprint Phase 3 demands macOS + iPhone + iPad validation before releasable gate.
+3. **Test integrity still contains superficial/tautological patterns in the audited test corpus.**
+   - `TextKitRenderingTests` contains assertions like `XCTAssertTrue(true, "...")` for bold-italic, checkbox, and nested-list paths, which do not validate behavior and can never fail meaningfully.
+   - This violates the forensic test-quality bar and leaves real parser/regression risk unguarded.
 
-4. **Evidence inconsistency: full-suite health is reported as green while the attached test log contains a failure and process crash.**
-   - `reports/phase3_report.json` claims `"full_suite_failed": 0` and `"status": "pass"`.
-   - `reports/quartzkit_full_post_remediation.log` contains a failing test (`QuickCaptureUseCase creates note within latency budget`) and a `swiftpm-testing-helper` unexpected signal 10.
-   - Gatekeeper verdict: CI evidence is internally contradictory and therefore non-authoritative.
+4. **Strict Swift 6 Concurrency compliance is not clean (explicit bypass annotations present).**
+   - `@preconcurrency` is still used in runtime code (`FocusModeManagerKey`, `AppearanceManagerKey`).
+   - Gatekeeper standard for this phase was “proper actor isolation, no bypass hacks.”
 
-5. **Performance gate is not enforcing Phase 3 KPI thresholds (<16ms main-thread, <=150MB system budget).**
-   - `Phase3UIBootstrapPerformanceTests` uses `measure` blocks but does not apply explicit threshold assertions to measured wall-clock metric outputs.
-   - There is no P95 `<16ms` assertion for UI path metrics and no report artifact proving this KPI was met.
-   - The custom memory check validates a narrow 10MB/50-cycle bootstrap scenario, not the mandated end-to-end Phase 3 runtime budget enforcement.
+5. **Self-healing matrix execution is wired but not healthy in evidence.**
+   - `reports/self_heal_evidence.log` shows performance heal failing with a real finding: synchronous file read in presentation/widget code (`String(contentsOf:)`).
+   - A failing heal step means the matrix detected unresolved debt but did not converge to green.
 
-6. **Self-healing loop is classified but not executed.**
-   - `scripts/ci_phase3.sh` classifies failures (`classify_failures`) but does not invoke any healing scripts (`heal_*.sh`) or emit remediation-run evidence.
-   - This violates the autonomous loop requirement (reproduce → localize → patch → re-run full matrix) as enforced by blueprint doctrine.
+6. **Architectural compliance gap vs. TextKit 2 mandate remains ambiguous on iOS path.**
+   - iOS editor path still instantiates `UITextView`; while wired to a TextKit 2 container, there is no dedicated gate test proving no legacy fallback behavior in high-risk editing paths (IME/undo/range-diff under UI runtime on iPhone/iPad destinations).
+   - Given skipped iOS/iPad runtime matrix, this remains unproven and must be treated as a release blocker.
 
 ## 🔨 Remediation Orders (Direct terminal commands for Claude Code to fix the violations)
 
 ```bash
-# 0) Reproduce current contradiction and capture canonical machine output
-bash scripts/ci_phase3.sh | tee reports/phase3_ci_forensic_rerun.log
-swift test --package-path QuartzKit --parallel | tee reports/quartzkit_full_forensic_rerun.log
+# 0) Re-run canonical CI and archive fresh artifacts
+bash scripts/ci_phase3.sh | tee reports/phase3_ci_gatekeeper_rerun.log
+swift test --package-path QuartzKit --parallel | tee reports/quartzkit_full_gatekeeper_rerun.log
 
-# 1) Replace tautological accessibility tests with runtime UI-tree assertions
-$EDITOR QuartzKit/Tests/QuartzKitTests/Phase3AccessibilityTraversalTests.swift
-# Requirements:
-# - remove Bool(true)/comment-only checks
-# - assert focus order via concrete accessibility element sequence
-# - assert Dynamic Type clipping/overflow using rendered snapshots or measured frames
-# - assert Reduce Motion / Increase Contrast behavior through observable state changes
+# 1) Eliminate tautological tests in TextKit rendering suite
+$EDITOR QuartzKit/Tests/QuartzKitTests/TextKitRenderingTests.swift
+# Replace every XCTAssertTrue(true)/"should not crash" with concrete assertions on spans/ranges/traits.
 
-# 2) Split snapshot matrix into explicit platform suites with per-platform baselines
-$EDITOR QuartzKit/Tests/QuartzKitTests/Phase3SnapshotMatrixTests.swift
-mkdir -p QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3SnapshotMatrixTests/{macOS,iPhone,iPad}
-# Add deterministic platform-specific snapshot assertions and run them under each destination.
-
-# 3) Run mandatory UI matrix (all three platforms) and persist logs
+# 2) Produce true 3-platform UI matrix evidence (must be PASS on all)
 xcodebuild test -scheme Quartz -destination 'platform=macOS' -only-testing:QuartzUITests | tee reports/ui_matrix_macos.log
-xcodebuild test -scheme Quartz -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -only-testing:QuartzUITests | tee reports/ui_matrix_iphone.log
-xcodebuild test -scheme Quartz -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' -only-testing:QuartzUITests | tee reports/ui_matrix_ipad.log
+xcodebuild test -scheme Quartz -destination 'platform=iOS Simulator,name=iPhone 16 Pro' -only-testing:QuartzUITests | tee reports/ui_matrix_ios.log
+xcodebuild test -scheme Quartz -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' -only-testing:QuartzUITests | tee reports/ui_matrix_ipados.log
 
-# 4) Harden performance gates with explicit thresholds and P95 parsing
-$EDITOR QuartzKit/Tests/QuartzKitTests/Phase3UIBootstrapPerformanceTests.swift
-# Add assertions for:
-# - main-thread bootstrap P95 < 16ms
-# - memory ceiling checks aligned with blueprint budgets
+# 3) Regenerate platform-specific snapshot baselines for ALL target platforms
+swift test --package-path QuartzKit --filter Phase3SnapshotMatrixTests
+swift test --package-path QuartzKit --filter Phase3AccessibilityTraversalTests
+# Ensure baseline names encode platform consistently (macOS/iOS/iPadOS) and commit all resulting PNGs.
 
-# 5) Enforce honest CI status synthesis from real exit codes/artifacts
-$EDITOR scripts/ci_phase3.sh
+# 4) Remove Swift 6 concurrency bypass annotations
+$EDITOR QuartzKit/Sources/QuartzKit/Presentation/Editor/FocusModeManager.swift
+$EDITOR QuartzKit/Sources/QuartzKit/Presentation/App/AppearanceManager.swift
+# Replace @preconcurrency usages with explicit actor-safe key/value design.
+
+# 5) Fix self-heal PERFORMANCE finding (sync I/O on presentation path)
+$EDITOR QuartzKit/Sources/QuartzKit/Presentation/Widgets/QuartzWidgets.swift
+# Move file read off main thread and/or cache asynchronously; remove direct String(contentsOf:) on UI path.
+
+# 6) Rebuild reports only from observed results (no optimistic claims)
 $EDITOR reports/phase3_report.json
 $EDITOR reports/platform_matrix.json
-# Ensure status=fail/partial whenever any suite fails or any required platform is skipped.
-
-# 6) Implement real self-healing execution path and evidence capture
-$EDITOR scripts/ci_phase3.sh
-# Wire failure classes to heal_*.sh invocations, then rerun and archive post-heal results.
+# PASS only if full_suite_failed=0 AND UI skip=0 AND all three platforms pass.
 ```
