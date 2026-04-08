@@ -16,9 +16,27 @@ import AppKit
 /// against committed baselines in `__Snapshots__/`. First run records baselines
 /// (mode `.missing`); subsequent runs compare against them.
 ///
-/// **Platforms tested**: macOS (NSHostingController), iOS (UIHostingController).
+/// **Platform-conditional baselines**: Each snapshot name includes a platform suffix
+/// (e.g., `_macOS`, `_iOS`) so baselines are stored separately per platform.
+/// This prevents cross-platform false positives from rendering differences.
+///
+/// **Platforms tested**: macOS (NSHostingView), iOS (UIHostingController).
 /// Each test renders the view in a fixed frame to ensure deterministic output.
 final class Phase3SnapshotMatrixTests: XCTestCase {
+
+    // MARK: - Platform Suffix
+
+    private var platformSuffix: String {
+        #if os(macOS)
+        return "macOS"
+        #elseif os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad ? "iPadOS" : "iOS"
+        #elseif os(visionOS)
+        return "visionOS"
+        #else
+        return "unknown"
+        #endif
+    }
 
     // MARK: - MarkdownPreviewView (Zero Dependencies)
 
@@ -30,7 +48,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         )
         .frame(width: 400, height: 300)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_HeadingParagraph")
+        assertViewSnapshot(view, named: "MarkdownPreview_HeadingParagraph_\(platformSuffix)")
     }
 
     @MainActor
@@ -41,7 +59,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         )
         .frame(width: 400, height: 300)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_TaskList")
+        assertViewSnapshot(view, named: "MarkdownPreview_TaskList_\(platformSuffix)")
     }
 
     @MainActor
@@ -52,7 +70,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         )
         .frame(width: 400, height: 300)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_LargeFont")
+        assertViewSnapshot(view, named: "MarkdownPreview_LargeFont_\(platformSuffix)")
     }
 
     // MARK: - NoteListRow (Minimal Dependencies)
@@ -70,7 +88,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
 
         assertViewSnapshot(
             NoteListRow(item: item).frame(width: 320, height: 80),
-            named: "NoteListRow_Standard"
+            named: "NoteListRow_Standard_\(platformSuffix)"
         )
     }
 
@@ -88,7 +106,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
 
         assertViewSnapshot(
             NoteListRow(item: item).frame(width: 320, height: 80),
-            named: "NoteListRow_Favorite"
+            named: "NoteListRow_Favorite_\(platformSuffix)"
         )
     }
 
@@ -105,7 +123,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
 
         assertViewSnapshot(
             NoteListRow(item: item).frame(width: 320, height: 80),
-            named: "NoteListRow_LongTitle"
+            named: "NoteListRow_LongTitle_\(platformSuffix)"
         )
     }
 
@@ -120,7 +138,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         .frame(width: 400, height: 200)
         .preferredColorScheme(.dark)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_DarkMode")
+        assertViewSnapshot(view, named: "MarkdownPreview_DarkMode_\(platformSuffix)")
     }
 
     @MainActor
@@ -138,7 +156,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
             NoteListRow(item: item)
                 .frame(width: 320, height: 80)
                 .preferredColorScheme(.dark),
-            named: "NoteListRow_DarkMode"
+            named: "NoteListRow_DarkMode_\(platformSuffix)"
         )
     }
 
@@ -152,7 +170,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         )
         .frame(width: 320, height: 400)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_CompactWidth")
+        assertViewSnapshot(view, named: "MarkdownPreview_CompactWidth_\(platformSuffix)")
     }
 
     @MainActor
@@ -163,7 +181,7 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         )
         .frame(width: 768, height: 400)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_RegularWidth")
+        assertViewSnapshot(view, named: "MarkdownPreview_RegularWidth_\(platformSuffix)")
     }
 
     // MARK: - Helpers

@@ -1,0 +1,18 @@
+[0;33m[HEAL:EDITOR] Running editor self-heal checks...[0m
+  ✓ MarkdownASTHighlighter.swift exists
+[0;33m[HEAL:ACCESSIBILITY] Running accessibility self-heal checks...[0m
+  ✓ Found identifier: sidebar-file-tree
+  ✓ Found identifier: sidebar-new-note
+  ✓ Found identifier: workspace-split-view
+  ✓ Found identifier: editor-text-view
+  ✓ Found identifier: dashboard-view
+  ✓ Found 111 .accessibilityLabel instances
+  Found 24 .accessibilityHint instances
+[0;33m[HEAL:PERFORMANCE] Running performance self-heal checks...[0m
+  [0;31m✗ Found 1 synchronous file reads in Presentation layer[0m
+QuartzKit/Sources/QuartzKit/Presentation/Widgets/QuartzWidgets.swift:82:        let preview = (try? String(contentsOf: url, encoding: .utf8))?
+  Found 66 array properties in Presentation (review for unbounded growth)
+  ✓ All ViewModels have proper actor isolation
+[0;31m[HEAL:PERFORMANCE] Manual fixes needed — see above[0m
+[0;33m[HEAL:UI_MATRIX] Running UI matrix self-heal checks...[0m
+  ✓ UITestFixtureVault.swift exists

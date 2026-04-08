@@ -175,6 +175,7 @@ final class SecurityOrchestratorTimeoutTests: XCTestCase {
     func testTimeoutMinutesDefaultsToFive() {
         // Clean slate
         UserDefaults.standard.removeObject(forKey: "quartz.lockTimeoutMinutes")
+        UserDefaults.standard.synchronize()
         let orchestrator = SecurityOrchestrator()
         XCTAssertEqual(orchestrator.lockTimeoutMinutes, 5)
     }

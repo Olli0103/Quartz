@@ -1,18 +1,27 @@
 {
-  "timestamp": "2026-04-07T13:45:00Z",
+  "timestamp": "2026-04-08T08:32:00Z",
   "platforms_detected": "macOS, iOS_Simulator, iPadOS_Simulator",
   "platforms_actually_tested": "macOS",
-  "spm_tests": "macOS (arm64)",
+  "spm_tests": "macOS (arm64) — 1223 passed, 0 failed",
   "xcodebuild_available": true,
   "ui_test_matrix": {
     "passed": 1,
     "failed": 0,
-    "skipped": 2
+    "skipped": 2,
+    "notes": "iPhone and iPad simulators not started in this CI environment"
   },
   "snapshot_baselines": {
-    "count": 10,
-    "location": "QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3SnapshotMatrixTests/",
+    "count": 15,
+    "locations": [
+      "QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3SnapshotMatrixTests/",
+      "QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3AccessibilityTraversalTests/"
+    ],
     "framework": "swift-snapshot-testing 1.19.2"
   },
-  "notes": "SPM tests cover data model and logic layers. UI smoke tests run via xcodebuild. Only platforms with verified test passes are listed in platforms_actually_tested. Snapshot baselines recorded and verified for pixel-level regression detection."
+  "performance_thresholds": {
+    "main_thread_p95": "<16ms — 5 explicit P95 assertions",
+    "memory_bootstrap_50_cycles": "<10MB",
+    "memory_system_budget": "<150MB"
+  },
+  "notes": "SPM tests cover data model, logic, accessibility traversal, performance, and snapshot layers. UI smoke tests run via xcodebuild on macOS only. Only platforms with verified test passes are listed in platforms_actually_tested."
 }

@@ -380,6 +380,7 @@ final class FocusModeBehaviorTests: XCTestCase {
     func test_typewriterMode_persistsAcrossInstances() {
         // Clear any previous state first
         UserDefaults.standard.removeObject(forKey: "quartz.editor.typewriterModeActive")
+        UserDefaults.standard.synchronize()
 
         // Create first manager and enable typewriter mode
         let manager1 = FocusModeManager()

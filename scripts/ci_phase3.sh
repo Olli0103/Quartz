@@ -12,28 +12,36 @@ YELLOW='\033[0;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+# Clean up heal category tracker from previous runs
+rm -f /tmp/quartz_heal_categories.txt
+
 pass() { echo -e "${GREEN}${BOLD}✓ $1${RESET}"; }
 fail() { echo -e "${RED}${BOLD}✗ $1${RESET}"; exit 1; }
 step() { echo -e "\n${BOLD}→ $1${RESET}"; }
 
 # ── Self-Healing: Failure Classification ─────────────────────────────
+HEAL_CATEGORIES=""
+
 classify_failures() {
     local output="$1"
     echo -e "${YELLOW}${BOLD}Failure Classification:${RESET}"
-    echo "$output" | grep "failed after" | while read -r line; do
+    echo "$output" | grep -E "failed after|Test Case.*failed" | while read -r line; do
         case "$line" in
             *Editor*|*AST*|*Highlight*|*Cursor*|*IME*|*WritingTools*)
                 echo -e "  ${YELLOW}[EDITOR]${RESET} $line"
-                echo "    → Check: EditorSession, MarkdownASTHighlighter, MarkdownTextView" ;;
+                echo "    → Check: EditorSession, MarkdownASTHighlighter, MarkdownTextView"
+                echo "EDITOR" >> /tmp/quartz_heal_categories.txt ;;
             *Vault*|*Sync*|*Persist*|*Conflict*|*Bookmark*|*iCloud*|*Version*)
                 echo -e "  ${YELLOW}[PERSISTENCE]${RESET} $line"
                 echo "    → Check: VaultProvider, VaultAccessManager, VersionHistoryService" ;;
             *VoiceOver*|*Accessibility*|*DynamicType*|*Contrast*|*ReduceMotion*)
                 echo -e "  ${YELLOW}[ACCESSIBILITY]${RESET} $line"
-                echo "    → Check: Accessibility labels, Dynamic Type scaling, animation preferences" ;;
+                echo "    → Check: Accessibility labels, Dynamic Type scaling, animation preferences"
+                echo "ACCESSIBILITY" >> /tmp/quartz_heal_categories.txt ;;
             *Performance*|*Budget*|*Latency*|*Memory*)
                 echo -e "  ${YELLOW}[PERFORMANCE]${RESET} $line"
-                echo "    → Check: Parse timing, memory allocation, main thread budget" ;;
+                echo "    → Check: Parse timing, memory allocation, main thread budget"
+                echo "PERFORMANCE" >> /tmp/quartz_heal_categories.txt ;;
             *Sidebar*|*Navigation*|*DragDrop*|*FileNode*)
                 echo -e "  ${YELLOW}[NAVIGATION]${RESET} $line"
                 echo "    → Check: SidebarViewModel, WorkspaceStore, NavigationSplitView" ;;
@@ -42,12 +50,54 @@ classify_failures() {
                 echo "    → Check: End-to-end flow, state transitions, cross-module interaction" ;;
             *UI*|*UITests*|*XCUITest*|*Screenshot*|*Launch*|*Smoke*)
                 echo -e "  ${YELLOW}[UI_MATRIX]${RESET} $line"
-                echo "    → Check: Mock vault loading, accessibility identifiers, simulator availability" ;;
+                echo "    → Check: Mock vault loading, accessibility identifiers, simulator availability"
+                echo "UI_MATRIX" >> /tmp/quartz_heal_categories.txt ;;
             *)
                 echo -e "  ${YELLOW}[GENERAL]${RESET} $line"
                 echo "    → Check: Test isolation, mock setup, async timing" ;;
         esac
     done
+}
+
+# Self-healing: invoke heal scripts for classified failure categories
+run_self_healing() {
+    if [ ! -f /tmp/quartz_heal_categories.txt ]; then
+        return 0
+    fi
+
+    local categories
+    categories=$(sort -u /tmp/quartz_heal_categories.txt)
+    rm -f /tmp/quartz_heal_categories.txt
+
+    echo -e "\n${BOLD}→ Running self-healing scripts...${RESET}"
+    mkdir -p reports
+
+    for cat in $categories; do
+        case "$cat" in
+            EDITOR)
+                if [ -x scripts/heal_editor.sh ]; then
+                    echo "  Running heal_editor.sh..."
+                    bash scripts/heal_editor.sh "$PACKAGE_PATH" 2>&1 | tee -a reports/self_heal.log || true
+                fi ;;
+            ACCESSIBILITY)
+                if [ -x scripts/heal_accessibility.sh ]; then
+                    echo "  Running heal_accessibility.sh..."
+                    bash scripts/heal_accessibility.sh "$PACKAGE_PATH" 2>&1 | tee -a reports/self_heal.log || true
+                fi ;;
+            PERFORMANCE)
+                if [ -x scripts/heal_performance.sh ]; then
+                    echo "  Running heal_performance.sh..."
+                    bash scripts/heal_performance.sh "$PACKAGE_PATH" 2>&1 | tee -a reports/self_heal.log || true
+                fi ;;
+            UI_MATRIX)
+                if [ -x scripts/heal_ui_matrix.sh ]; then
+                    echo "  Running heal_ui_matrix.sh..."
+                    bash scripts/heal_ui_matrix.sh 2>&1 | tee -a reports/self_heal.log || true
+                fi ;;
+        esac
+    done
+
+    echo -e "${GREEN}Self-healing complete — see reports/self_heal.log${RESET}"
 }
 
 # ── Step 1: Phase 2 regression gate ─────────────────────────────────
@@ -63,11 +113,12 @@ step "Running Phase 3 accessibility & platform tests"
 P3_FILTER="VoiceOverEditor|VoiceOverSidebar|DynamicTypeScaling|ReduceMotionAnimation|ContrastCompliance|VoiceControlCommand|PlatformNavigation|FocusModeIntegration|DesignTokenConsistency|E2ECreateNote|E2ESearchFlow|E2EAppearanceFlow"
 P3_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --filter "$P3_FILTER" 2>&1 || true)
 P3_PASS=$(echo "$P3_OUTPUT" | grep -c "passed" || true)
-P3_FAIL=$(echo "$P3_OUTPUT" | grep -c "failed after" || true)
+P3_FAIL=$(echo "$P3_OUTPUT" | grep -cE "failed after|Test Case.*failed" || true)
 echo "  Phase 3 suites passed: $P3_PASS"
 echo "  Phase 3 tests failed: $P3_FAIL"
 if [ "$P3_FAIL" -gt 0 ]; then
     classify_failures "$P3_OUTPUT"
+    run_self_healing
     fail "Phase 3 test failures: $P3_FAIL"
 fi
 pass "Phase 3 tests all passed"
@@ -76,11 +127,12 @@ pass "Phase 3 tests all passed"
 step "Running full test suite (Phase 1 + Phase 2 + Phase 3)"
 FULL_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --parallel 2>&1 || true)
 FULL_PASS=$(echo "$FULL_OUTPUT" | grep -c "passed" || true)
-FULL_FAIL=$(echo "$FULL_OUTPUT" | grep -c "failed after" || true)
+FULL_FAIL=$(echo "$FULL_OUTPUT" | grep -cE "failed after|Test Case.*failed" || true)
 echo "  Total suites passed: $FULL_PASS"
 echo "  Total tests failed: $FULL_FAIL"
 if [ "$FULL_FAIL" -gt 0 ]; then
     classify_failures "$FULL_OUTPUT"
+    run_self_healing
     fail "Test failures: $FULL_FAIL (zero tolerance)"
 fi
 pass "Full suite completed (zero failures)"
@@ -200,6 +252,7 @@ if command -v xcodebuild &>/dev/null; then
 
     echo "  UI matrix: $UI_PASS passed, $UI_FAIL failed, $UI_SKIP skipped"
     if [ "$UI_FAIL" -gt 0 ]; then
+        run_self_healing
         fail "UI test matrix failures: $UI_FAIL"
     fi
     pass "UI test matrix: $UI_PASS platforms passed"

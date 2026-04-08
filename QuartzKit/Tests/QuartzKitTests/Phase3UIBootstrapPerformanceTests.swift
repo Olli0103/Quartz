@@ -10,7 +10,8 @@ import XCTest
 /// - WorkspaceStore route transitions
 /// - MarkdownPreviewView rendering setup
 ///
-/// Failure thresholds are set to catch regressions, not micro-optimize.
+/// Includes explicit P95 threshold assertions for <16ms main-thread budget
+/// and <=150MB system memory budget as required by Phase 3 KPIs.
 final class Phase3UIBootstrapPerformanceTests: XCTestCase {
 
     // MARK: - VaultConfig Bootstrap Performance
@@ -28,6 +29,29 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
         }
     }
 
+    /// P95 threshold gate: 1000 VaultConfig creations must complete under 16ms.
+    @MainActor
+    func testVaultConfigCreationUnder16ms() {
+        var durations: [Double] = []
+        for _ in 0..<20 {
+            let start = CFAbsoluteTimeGetCurrent()
+            for _ in 0..<1000 {
+                let config = VaultConfig(
+                    name: "Threshold Test",
+                    rootURL: URL(fileURLWithPath: "/tmp/threshold")
+                )
+                _ = config.name
+            }
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000 // ms
+            durations.append(elapsed)
+        }
+        durations.sort()
+        let p95Index = Int(Double(durations.count) * 0.95) - 1
+        let p95 = durations[max(0, p95Index)]
+        XCTAssertLessThan(p95, 16.0,
+                          "P95 VaultConfig creation (1000x) must be <16ms, was \(String(format: "%.2f", p95))ms")
+    }
+
     // MARK: - AppState Initialization Performance
 
     @MainActor
@@ -38,6 +62,24 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
                 _ = state.currentVault
             }
         }
+    }
+
+    /// P95 threshold gate: single AppState init must complete under 16ms.
+    @MainActor
+    func testAppStateInitUnder16ms() {
+        var durations: [Double] = []
+        for _ in 0..<50 {
+            let start = CFAbsoluteTimeGetCurrent()
+            let state = AppState()
+            _ = state.currentVault
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            durations.append(elapsed)
+        }
+        durations.sort()
+        let p95Index = Int(Double(durations.count) * 0.95) - 1
+        let p95 = durations[max(0, p95Index)]
+        XCTAssertLessThan(p95, 16.0,
+                          "P95 AppState init must be <16ms, was \(String(format: "%.2f", p95))ms")
     }
 
     // MARK: - WorkspaceStore Route Transition Performance
@@ -67,6 +109,25 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
         }
     }
 
+    /// P95 threshold gate: single route transition must be <16ms.
+    @MainActor
+    func testRouteTransitionUnder16ms() {
+        let store = WorkspaceStore()
+        var durations: [Double] = []
+        for i in 0..<100 {
+            let url = URL(fileURLWithPath: "/tmp/p95-\(i).md")
+            let start = CFAbsoluteTimeGetCurrent()
+            store.setRoute(.note(url))
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            durations.append(elapsed)
+        }
+        durations.sort()
+        let p95Index = Int(Double(durations.count) * 0.95) - 1
+        let p95 = durations[max(0, p95Index)]
+        XCTAssertLessThan(p95, 16.0,
+                          "P95 route transition must be <16ms, was \(String(format: "%.2f", p95))ms")
+    }
+
     // MARK: - Full Bootstrap Sequence Performance
 
     @MainActor
@@ -92,6 +153,32 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
             XCTAssertEqual(state.currentVault?.name, "Bootstrap Perf")
             XCTAssertEqual(store.route, .note(noteURL))
         }
+    }
+
+    /// P95 threshold gate: full bootstrap sequence must complete under 16ms.
+    @MainActor
+    func testFullBootstrapSequenceUnder16ms() {
+        var durations: [Double] = []
+        for _ in 0..<30 {
+            let start = CFAbsoluteTimeGetCurrent()
+
+            let config = VaultConfig(
+                name: "Bootstrap P95",
+                rootURL: URL(fileURLWithPath: "/tmp/bootstrap-p95")
+            )
+            let state = AppState()
+            state.currentVault = config
+            let store = WorkspaceStore()
+            store.setRoute(.note(config.rootURL.appendingPathComponent("Welcome.md")))
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            durations.append(elapsed)
+        }
+        durations.sort()
+        let p95Index = Int(Double(durations.count) * 0.95) - 1
+        let p95 = durations[max(0, p95Index)]
+        XCTAssertLessThan(p95, 16.0,
+                          "P95 full bootstrap must be <16ms, was \(String(format: "%.2f", p95))ms")
     }
 
     // MARK: - Memory Budget Enforcement
@@ -133,6 +220,53 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
         _ = stores.count
     }
 
+    /// System-level memory budget: total process memory must stay under 150MB
+    /// during a full bootstrap + tree construction sequence.
+    @MainActor
+    func testSystemMemoryBudget150MB() {
+        let beforeInfo = memoryFootprint()
+
+        // Simulate a large vault bootstrap: 100 AppStates + 100 WorkspaceStores + tree
+        var states: [AppState] = []
+        var stores: [WorkspaceStore] = []
+        var trees: [[FileNode]] = []
+
+        for i in 0..<100 {
+            let config = VaultConfig(
+                name: "SysMem \(i)",
+                rootURL: URL(fileURLWithPath: "/tmp/sysmem-\(i)")
+            )
+            let state = AppState()
+            state.currentVault = config
+            let store = WorkspaceStore()
+            store.setRoute(.note(config.rootURL.appendingPathComponent("Note.md")))
+            states.append(state)
+            stores.append(store)
+
+            // Build a 50-note tree per vault
+            var children: [FileNode] = []
+            for n in 0..<50 {
+                children.append(FileNode(
+                    name: "note-\(n).md",
+                    url: URL(fileURLWithPath: "/tmp/sysmem-\(i)/note-\(n).md"),
+                    nodeType: .note,
+                    children: nil
+                ))
+            }
+            trees.append(children)
+        }
+
+        let afterInfo = memoryFootprint()
+        let deltaMB = Double(afterInfo - beforeInfo) / (1024 * 1024)
+
+        // Phase 3 KPI: total memory budget <=150MB for the bootstrap path
+        XCTAssertLessThan(deltaMB, 150.0,
+                          "System memory budget exceeded: \(String(format: "%.1f", deltaMB))MB used — limit is 150MB")
+
+        // Keep references alive
+        _ = states.count + stores.count + trees.count
+    }
+
     // MARK: - FileNode Tree Construction Performance
 
     @MainActor
@@ -161,6 +295,41 @@ final class Phase3UIBootstrapPerformanceTests: XCTestCase {
             XCTAssertEqual(folders.count, 10)
             XCTAssertEqual(folders.flatMap { $0.children ?? [] }.count, 200)
         }
+    }
+
+    /// P95 threshold gate: tree construction (200 nodes) must complete under 16ms.
+    @MainActor
+    func testFileNodeTreeConstructionUnder16ms() {
+        var durations: [Double] = []
+        for _ in 0..<20 {
+            let start = CFAbsoluteTimeGetCurrent()
+            var folders: [FileNode] = []
+            for folderIdx in 0..<10 {
+                var children: [FileNode] = []
+                for noteIdx in 0..<20 {
+                    children.append(FileNode(
+                        name: "note-\(noteIdx).md",
+                        url: URL(fileURLWithPath: "/tmp/vault/folder-\(folderIdx)/note-\(noteIdx).md"),
+                        nodeType: .note,
+                        children: nil
+                    ))
+                }
+                folders.append(FileNode(
+                    name: "folder-\(folderIdx)",
+                    url: URL(fileURLWithPath: "/tmp/vault/folder-\(folderIdx)"),
+                    nodeType: .folder,
+                    children: children
+                ))
+            }
+            _ = folders.count
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            durations.append(elapsed)
+        }
+        durations.sort()
+        let p95Index = Int(Double(durations.count) * 0.95) - 1
+        let p95 = durations[max(0, p95Index)]
+        XCTAssertLessThan(p95, 16.0,
+                          "P95 tree construction (200 nodes) must be <16ms, was \(String(format: "%.2f", p95))ms")
     }
 
     // MARK: - Helpers

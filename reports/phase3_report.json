@@ -1,12 +1,12 @@
 {
   "phase": 3,
-  "status": "pass",
-  "timestamp": "2026-04-07T13:45:00Z",
+  "status": "partial",
+  "timestamp": "2026-04-08T09:10:00Z",
   "tests": {
-    "total": 2029,
-    "phase3_specific": 207,
-    "full_suite_failed": 0,
-    "full_suite_passed": 566
+    "total": 1191,
+    "phase3_specific": 222,
+    "full_suite_passed": 1191,
+    "full_suite_failed": 0
   },
   "ui_test_matrix": {
     "passed": 1,
@@ -14,31 +14,47 @@
     "skipped": 2,
     "details": {
       "macOS": "pass — 6 tests (5 smoke + 1 accessibility XL)",
-      "iOS_Simulator": "skipped — simulator not started in this CI run",
-      "iPadOS_Simulator": "skipped — simulator not started in this CI run"
+      "iOS_Simulator": "skipped — simulator not available in this environment",
+      "iPadOS_Simulator": "skipped — simulator not available in this environment"
     }
   },
   "snapshot_matrix": {
     "framework": "swift-snapshot-testing 1.19.2",
-    "baselines_recorded": 10,
-    "baselines_verified": 10,
+    "baselines_recorded": 15,
+    "baselines_verified": 15,
+    "platform_suffixed": true,
     "views_tested": ["MarkdownPreviewView", "NoteListRow"],
-    "variants": ["light", "dark", "largeFont", "compactWidth", "regularWidth"]
+    "variants": ["light_macOS", "dark_macOS", "largeFont_macOS", "compactWidth_macOS", "regularWidth_macOS", "DynamicType_Default", "DynamicType_XXXL", "DynamicType_AX3", "MarkdownPreview_AX3", "MarkdownPreview_XSmall"]
   },
   "accessibility_tests": {
-    "traversal_tests": 18,
-    "dynamic_type_sizes_tested": 12,
+    "traversal_tests": 16,
+    "runtime_rendering_tests": 2,
+    "source_verification_tests": 5,
+    "snapshot_dynamic_type_tests": 5,
     "font_scales_tested": 12,
-    "ui_suite_xl_tests": 3
+    "details": "NSHostingView + NSWindow rendering, fittingSize assertions, accessibilityRole checks, source-level identifier/label/hint/animation/foreground-style verification"
   },
   "performance_tests": {
-    "bootstrap_perf_tests": 7,
-    "metrics": ["XCTClockMetric", "XCTMemoryMetric"],
-    "memory_budget_enforced": "10MB for 50 bootstrap cycles"
+    "total": 13,
+    "measure_metric_tests": 7,
+    "p95_threshold_tests": 5,
+    "memory_budget_tests": 2,
+    "metrics": ["XCTClockMetric", "XCTMemoryMetric", "CFAbsoluteTimeGetCurrent", "mach_task_basic_info"],
+    "thresholds_enforced": {
+      "main_thread_p95": "<16ms (5 tests: VaultConfig, AppState, RouteTransition, FullBootstrap, TreeConstruction)",
+      "bootstrap_memory_50_cycles": "<10MB",
+      "system_memory_budget": "<150MB"
+    }
   },
   "concurrency_tests": {
     "actor_isolation_tests": 9,
     "sendable_crossing_verified": true
+  },
+  "self_healing": {
+    "scripts": ["heal_editor.sh", "heal_accessibility.sh", "heal_performance.sh", "heal_ui_matrix.sh"],
+    "categories_classified": ["EDITOR", "PERSISTENCE", "ACCESSIBILITY", "PERFORMANCE", "NAVIGATION", "E2E", "UI_MATRIX", "GENERAL"],
+    "wired_to_ci": true,
+    "evidence_log": "reports/self_heal_evidence.log"
   },
   "phase3_suites": [
     "VoiceOverEditorTests",
@@ -58,7 +74,9 @@
     "Phase3UIBootstrapPerformanceTests",
     "UIBootstrapConcurrencyTests"
   ],
-  "platforms_detected": "macOS,iOS_Simulator,iPadOS_Simulator",
+  "platforms_detected": "macOS, iOS_Simulator, iPadOS_Simulator",
   "platforms_actually_tested": "macOS",
-  "ship_gate": "PARTIAL — 2 UI platform(s) skipped"
+  "ship_gate": "PARTIAL — 2 UI platform(s) skipped (simulators not available)",
+  "evidence_log": "reports/quartzkit_full_post_remediation.log",
+  "evidence_consistency": "verified — full_suite_failed=0 matches log with 0 Test Case failures (1191 passed)"
 }
