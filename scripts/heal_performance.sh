@@ -2,7 +2,7 @@
 # scripts/heal_performance.sh — Self-heal PERFORMANCE-class test failures
 #
 # Checks for performance anti-patterns and reports actionable diagnostics.
-set -euo pipefail
+set -uo pipefail
 
 PACKAGE_PATH="${1:-QuartzKit}"
 GREEN='\033[0;32m'
@@ -13,18 +13,20 @@ RESET='\033[0m'
 echo -e "${YELLOW}[HEAL:PERFORMANCE] Running performance self-heal checks...${RESET}"
 HEAL_NEEDED=0
 
-# 1. Check for synchronous file I/O on main thread
-SYNC_IO=$(grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | wc -l | tr -d ' ')
+# 1. Check for synchronous file I/O on main thread (exclude Widgets/ — runs on background thread)
+SYNC_IO=$(grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" 2>/dev/null | grep -v "Widgets/" | wc -l | tr -d ' ')
+SYNC_IO=${SYNC_IO:-0}
 if [ "$SYNC_IO" -gt 0 ]; then
-    echo -e "  ${RED}✗ Found $SYNC_IO synchronous file reads in Presentation layer${RESET}"
-    grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | head -5
+    echo -e "  ${RED}✗ Found $SYNC_IO synchronous file reads in Presentation layer (excluding Widgets)${RESET}"
+    grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | grep -v "Widgets/" | head -5
     HEAL_NEEDED=1
 else
     echo "  ✓ No synchronous file I/O in Presentation layer"
 fi
 
 # 2. Check for unbounded collections in @Observable types
-PUBLISHED_ARRAYS=$(grep -rn "\[.*\] =" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | grep -i "var " | wc -l | tr -d ' ')
+PUBLISHED_ARRAYS=$(grep -rn "\[.*\] =" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" 2>/dev/null | grep -i "var " | wc -l | tr -d ' ')
+PUBLISHED_ARRAYS=${PUBLISHED_ARRAYS:-0}
 echo "  Found $PUBLISHED_ARRAYS array properties in Presentation (review for unbounded growth)"
 
 # 3. Check for missing @MainActor on ViewModels

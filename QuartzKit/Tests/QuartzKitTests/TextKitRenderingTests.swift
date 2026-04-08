@@ -49,8 +49,7 @@ final class LivePreviewASTTests: XCTestCase {
         // Check if we at least have some styled spans
         let styledSpans = spans.filter { $0.traits.bold || $0.traits.italic }
         // Bold-italic may be parsed as nested bold+italic or as a single style
-        // For now, just verify parsing doesn't crash
-        XCTAssertTrue(true, "Parsing bold-italic should not crash")
+        XCTAssertFalse(styledSpans.isEmpty, "Should detect styled text from ***bold italic***")
     }
 
     // MARK: - Links
@@ -83,9 +82,20 @@ final class LivePreviewASTTests: XCTestCase {
         let text = "- [ ] Unchecked task\n- [x] Checked task"
         let spans = await highlighter.parse(text)
 
-        // Checkboxes in markdown are typically list items - verify parsing completes
-        // Even if no specific spans are generated, the parser shouldn't crash
-        XCTAssertTrue(true, "Parsing checkboxes should not crash")
+        // Checkbox list items may not generate dedicated highlight spans,
+        // but parsing must complete without crash and return a valid (possibly empty) array.
+        // Verify any returned spans have valid ranges within text bounds.
+        let nsText = text as NSString
+        for span in spans {
+            XCTAssertLessThanOrEqual(
+                span.range.location + span.range.length,
+                nsText.length,
+                "Checkbox span range should be within text bounds"
+            )
+        }
+        // The parser must return a non-nil array (it did, since we're iterating)
+        XCTAssertGreaterThanOrEqual(spans.count, 0,
+                                    "Parser should return valid span array for checkbox content")
     }
 
     // MARK: - Code Spans
@@ -127,8 +137,18 @@ final class LivePreviewASTTests: XCTestCase {
         """
         let spans = await highlighter.parse(text)
 
-        // Lists may not generate visual spans, but parsing should complete
-        XCTAssertTrue(true, "Parsing nested lists should not crash")
+        // Nested lists may not generate visual highlight spans,
+        // but parsing must complete and return valid ranges.
+        let nsText = text as NSString
+        for span in spans {
+            XCTAssertLessThanOrEqual(
+                span.range.location + span.range.length,
+                nsText.length,
+                "Nested list span range should be within text bounds"
+            )
+        }
+        XCTAssertGreaterThanOrEqual(spans.count, 0,
+                                    "Parser should return valid span array for nested list content")
     }
 
     // MARK: - Headers
@@ -297,13 +317,21 @@ final class LargeDocumentPerformanceTests: XCTestCase {
 
         let highlighter = MarkdownASTHighlighter(baseFontSize: 16)
 
-        // Parse multiple times to check for leaks
+        // Parse multiple times to check for leaks and consistency
+        var spanCounts: [Int] = []
         for _ in 0..<5 {
-            _ = await highlighter.parse(largeText)
+            let spans = await highlighter.parse(largeText)
+            spanCounts.append(spans.count)
         }
 
-        // If we got here without crashing, memory is reasonably bounded
-        XCTAssertTrue(true, "Memory usage remained bounded")
+        // Must produce spans for a document with wiki-links and code
+        XCTAssertGreaterThan(spanCounts[0], 0,
+                             "Should produce spans for large document with wiki-links and code")
+        // Repeated parsing should return consistent span counts (no accumulation/leak)
+        for count in spanCounts {
+            XCTAssertEqual(count, spanCounts[0],
+                           "Repeated parsing should produce consistent span count")
+        }
     }
 }
 

@@ -52,8 +52,10 @@ public final class FocusModeManager {
 
 // MARK: - SwiftUI Environment
 
-private struct FocusModeManagerKey: @preconcurrency EnvironmentKey {
-    @MainActor static let defaultValue = FocusModeManager()
+private struct FocusModeManagerKey: EnvironmentKey {
+    static var defaultValue: FocusModeManager {
+        MainActor.assumeIsolated { FocusModeManager() }
+    }
 }
 
 extension EnvironmentValues {

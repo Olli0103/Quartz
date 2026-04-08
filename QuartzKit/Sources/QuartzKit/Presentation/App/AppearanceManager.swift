@@ -194,8 +194,10 @@ public final class AppearanceManager {
 
 // MARK: - SwiftUI Environment
 
-private struct AppearanceManagerKey: @preconcurrency EnvironmentKey {
-    @MainActor static let defaultValue = AppearanceManager()
+private struct AppearanceManagerKey: EnvironmentKey {
+    static var defaultValue: AppearanceManager {
+        MainActor.assumeIsolated { AppearanceManager() }
+    }
 }
 
 extension EnvironmentValues {

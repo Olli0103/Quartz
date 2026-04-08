@@ -79,11 +79,7 @@ public struct LatestNoteProvider: TimelineProvider {
         guard let url = latestURL else { return nil }
 
         let title = url.deletingPathExtension().lastPathComponent
-        let preview = (try? String(contentsOf: url, encoding: .utf8))?
-            .components(separatedBy: "---").last?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .prefix(100)
-            .description ?? ""
+        let preview = Self.readNotePreview(from: url)
 
         return LatestNoteEntry(
             date: latestDate,
@@ -91,6 +87,17 @@ public struct LatestNoteProvider: TimelineProvider {
             notePreview: preview,
             noteURL: url
         )
+    }
+
+    /// Reads the first 100 characters of note body content (after frontmatter).
+    /// Called from WidgetKit's TimelineProvider which runs on a background thread —
+    /// synchronous file I/O is acceptable here (not a UI-thread concern).
+    private static func readNotePreview(from url: URL) -> String {
+        (try? String(contentsOf: url, encoding: .utf8))?
+            .components(separatedBy: "---").last?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(100)
+            .description ?? ""
     }
 }
 

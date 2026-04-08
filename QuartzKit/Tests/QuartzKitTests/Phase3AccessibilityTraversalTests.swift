@@ -17,6 +17,20 @@ import AppKit
 /// No `Bool(true)` tautologies — every assertion exercises runtime behavior.
 final class Phase3AccessibilityTraversalTests: XCTestCase {
 
+    // MARK: - Platform Suffix
+
+    private var platformSuffix: String {
+        #if os(macOS)
+        return "macOS"
+        #elseif os(iOS)
+        return "iOS"
+        #elseif os(visionOS)
+        return "visionOS"
+        #else
+        return "unknown"
+        #endif
+    }
+
     // MARK: - NoteListRow Accessibility Tree
 
     #if canImport(AppKit)
@@ -110,7 +124,7 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
     func testNoteListRowSnapshotAtDefaultScale() {
         let item = makeTestItem(title: "Default Scale")
         let view = NoteListRow(item: item).frame(width: 320, height: 80)
-        assertViewSnapshot(view, named: "DynamicType_Default")
+        assertViewSnapshot(view, named: "DynamicType_Default_\(platformSuffix)")
     }
 
     @MainActor
@@ -119,7 +133,7 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         let view = NoteListRow(item: item)
             .frame(width: 320, height: 120)
             .dynamicTypeSize(.xxxLarge)
-        assertViewSnapshot(view, named: "DynamicType_XXXL")
+        assertViewSnapshot(view, named: "DynamicType_XXXL_\(platformSuffix)")
     }
 
     @MainActor
@@ -128,7 +142,7 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         let view = NoteListRow(item: item)
             .frame(width: 320, height: 160)
             .dynamicTypeSize(.accessibility3)
-        assertViewSnapshot(view, named: "DynamicType_AX3")
+        assertViewSnapshot(view, named: "DynamicType_AX3_\(platformSuffix)")
     }
 
     @MainActor
@@ -140,7 +154,7 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         .frame(width: 400, height: 400)
         .dynamicTypeSize(.accessibility3)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_AX3")
+        assertViewSnapshot(view, named: "MarkdownPreview_AX3_\(platformSuffix)")
     }
 
     @MainActor
@@ -152,7 +166,7 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         .frame(width: 400, height: 300)
         .dynamicTypeSize(.xSmall)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_XSmall")
+        assertViewSnapshot(view, named: "MarkdownPreview_XSmall_\(platformSuffix)")
     }
 
     // MARK: - Accessibility Identifier Source Verification
