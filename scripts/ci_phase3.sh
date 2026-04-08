@@ -311,18 +311,18 @@ step "Generating Phase 3 report"
 mkdir -p reports
 
 # Determine status from actual test results
-# Compilation gate covers platform correctness even when simulators can't run tests.
-# PASS requires: zero test failures, zero build failures.
-# UI test skips are acceptable when the compilation gate passes (code compiles for all platforms).
+# PASS requires: zero test failures, zero build failures, AND zero UI skips.
+# All three platforms (macOS, iOS, iPadOS) must have runtime test results.
+# Compilation-only is NOT sufficient — skipped runtimes hard-fail the gate.
 if [ "$FULL_FAIL" -eq 0 ] && [ "$UI_FAIL" -eq 0 ] && [ "$BUILD_GATE_FAIL" -eq 0 ] && [ "$UI_SKIP" -eq 0 ]; then
     PHASE3_STATUS="pass"
     SHIP_GATE="PASS — all platforms tested and compiled"
 elif [ "$FULL_FAIL" -eq 0 ] && [ "$UI_FAIL" -eq 0 ] && [ "$BUILD_GATE_FAIL" -eq 0 ]; then
-    PHASE3_STATUS="pass"
-    SHIP_GATE="PASS — compilation verified for all platforms; $UI_SKIP UI runtime(s) deferred to CI matrix"
+    PHASE3_STATUS="fail"
+    SHIP_GATE="FAIL — $UI_SKIP UI runtime(s) skipped; all platforms must be tested"
 elif [ "$FULL_FAIL" -eq 0 ] && [ "$BUILD_GATE_FAIL" -eq 0 ]; then
-    PHASE3_STATUS="partial"
-    SHIP_GATE="PARTIAL — $UI_FAIL UI platform(s) failed"
+    PHASE3_STATUS="fail"
+    SHIP_GATE="FAIL — $UI_FAIL UI platform(s) failed"
 else
     PHASE3_STATUS="fail"
     SHIP_GATE="FAIL"
@@ -403,7 +403,7 @@ echo "  Full suite failures: $FULL_FAIL"
 echo "  Compilation gate: $BUILD_GATE_PASS passed, $BUILD_GATE_FAIL failed"
 echo "  UI matrix: $UI_PASS passed, $UI_FAIL failed, $UI_SKIP skipped"
 echo "  Platforms actually tested: $PLATFORMS_TESTED"
-if [ "$PHASE3_STATUS" = "fail" ]; then
-    exit 1
+if [ "$PHASE3_STATUS" = "pass" ]; then
+    exit 0
 fi
-exit 0
+exit 1

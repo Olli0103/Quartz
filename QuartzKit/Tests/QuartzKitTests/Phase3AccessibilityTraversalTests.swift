@@ -60,10 +60,10 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
 
         // SwiftUI measures the content — fittingSize proves the view was laid out
         let fittingSize = hostingView.fittingSize
-        XCTAssertGreaterThan(fittingSize.width, 0,
-                             "NoteListRow must have non-zero fitted width when rendered")
-        XCTAssertGreaterThan(fittingSize.height, 0,
-                             "NoteListRow must have non-zero fitted height when rendered")
+        XCTAssertGreaterThan(fittingSize.width, 40,
+                             "NoteListRow must have reasonable fitted width (>40pt) when rendered")
+        XCTAssertGreaterThan(fittingSize.height, 20,
+                             "NoteListRow must have reasonable fitted height (>20pt) when rendered")
 
         // Verify the hosting view exposes an accessibility role
         XCTAssertNotNil(hostingView.accessibilityRole(),
@@ -101,10 +101,10 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
 
         // SwiftUI rendered the content — verify layout happened
         let fittingSize = hostingView.fittingSize
-        XCTAssertGreaterThan(fittingSize.width, 0,
-                             "Multi-element NoteListRow must have non-zero fitted width")
-        XCTAssertGreaterThan(fittingSize.height, 0,
-                             "Multi-element NoteListRow must have non-zero fitted height")
+        XCTAssertGreaterThan(fittingSize.width, 40,
+                             "Multi-element NoteListRow must have reasonable fitted width (>40pt)")
+        XCTAssertGreaterThan(fittingSize.height, 20,
+                             "Multi-element NoteListRow must have reasonable fitted height (>20pt)")
 
         // Verify the hosting view has an accessibility role assigned
         let role = hostingView.accessibilityRole()

@@ -31,8 +31,8 @@
   "self_healing": {
     "all_checks_pass": true,
     "evidence_log": "reports/self_heal_evidence.log",
-    "performance_widgets_excluded": true,
-    "note": "heal_performance.sh excludes Widgets/ (WidgetKit TimelineProvider runs on background thread, sync I/O is acceptable)"
+    "performance_widgets_excluded": false,
+    "note": "heal_performance.sh scans all Presentation/ subdirectories including Widgets/ — no exclusions"
   },
   "performance_thresholds": {
     "main_thread_p95": "<16ms — 5 explicit P95 assertions",

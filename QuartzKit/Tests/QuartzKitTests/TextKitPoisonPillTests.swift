@@ -354,7 +354,7 @@ struct MarkdownASTHighlighterFuzzTests {
         let spans = await highlighter.parse(markdown)
 
         // Should return spans without crashing
-        #expect(spans.count >= 0, "Should return spans array")
+        // Test passes by reaching this point without crashing
     }
 
     @Test("Highlighter handles many wiki-links")

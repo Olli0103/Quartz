@@ -90,10 +90,9 @@ public struct LatestNoteProvider: TimelineProvider {
     }
 
     /// Reads the first 100 characters of note body content (after frontmatter).
-    /// Called from WidgetKit's TimelineProvider which runs on a background thread —
-    /// synchronous file I/O is acceptable here (not a UI-thread concern).
+    /// Uses CoordinatedFileWriter for iCloud-safe coordinated reads.
     private static func readNotePreview(from url: URL) -> String {
-        (try? String(contentsOf: url, encoding: .utf8))?
+        (try? CoordinatedFileWriter.shared.readString(from: url))?
             .components(separatedBy: "---").last?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(100)

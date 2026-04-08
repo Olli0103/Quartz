@@ -306,7 +306,7 @@ final class MainThreadIsolationTests: XCTestCase {
 
         // Then: Should complete without error (actor handles threading)
         let count = await service.entryCount
-        XCTAssertGreaterThanOrEqual(count, 0)
+        XCTAssertGreaterThan(count, 0, "indexNote should produce at least one embedding entry")
     }
 }
 

@@ -351,8 +351,8 @@ final class Phase5FlakyQuarantineTests: XCTestCase {
         let registry = FlakyTestQuarantine.shared
 
         XCTAssertNotNil(registry)
-        XCTAssertTrue(registry.quarantinedTests.isEmpty || registry.quarantinedTests.count >= 0,
-            "Registry should be queryable")
+        XCTAssertTrue(registry.quarantinedTests.isEmpty,
+                      "Fresh registry should start with no quarantined tests")
     }
 
     /// Tests that test can be quarantined.

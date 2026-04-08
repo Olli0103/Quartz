@@ -13,12 +13,12 @@ RESET='\033[0m'
 echo -e "${YELLOW}[HEAL:PERFORMANCE] Running performance self-heal checks...${RESET}"
 HEAL_NEEDED=0
 
-# 1. Check for synchronous file I/O on main thread (exclude Widgets/ — runs on background thread)
-SYNC_IO=$(grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" 2>/dev/null | grep -v "Widgets/" | wc -l | tr -d ' ')
+# 1. Check for synchronous file I/O in Presentation layer
+SYNC_IO=$(grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" 2>/dev/null | wc -l | tr -d ' ')
 SYNC_IO=${SYNC_IO:-0}
 if [ "$SYNC_IO" -gt 0 ]; then
     echo -e "  ${RED}✗ Found $SYNC_IO synchronous file reads in Presentation layer (excluding Widgets)${RESET}"
-    grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | grep -v "Widgets/" | head -5
+    grep -rn "String(contentsOf:" "$PACKAGE_PATH/Sources/QuartzKit/Presentation/" --include="*.swift" | head -5
     HEAL_NEEDED=1
 else
     echo "  ✓ No synchronous file I/O in Presentation layer"
