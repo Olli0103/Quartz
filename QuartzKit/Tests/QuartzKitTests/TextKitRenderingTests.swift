@@ -82,23 +82,23 @@ final class LivePreviewASTTests: XCTestCase {
         let text = "- [ ] Unchecked task\n- [x] Checked task"
         let spans = await highlighter.parse(text)
 
-        // Checkbox list items may not generate dedicated highlight spans,
-        // but parsing must complete without crash and return a valid (possibly empty) array.
-        // Verify any returned spans have valid ranges within text bounds.
-        let nsText = text as NSString
-        for span in spans {
-            XCTAssertLessThanOrEqual(
-                span.range.location + span.range.length,
-                nsText.length,
-                "Checkbox span range should be within text bounds"
-            )
+        // Verify any returned spans have valid ranges within text bounds
+        if !spans.isEmpty {
+            let nsText = text as NSString
+            for span in spans {
+                XCTAssertLessThanOrEqual(
+                    span.range.location + span.range.length,
+                    nsText.length,
+                    "Checkbox span range should be within text bounds"
+                )
+            }
         }
-        // Checkbox list items may not generate dedicated highlight spans,
-        // but parsing must complete without crash and return a valid array.
-        // The range-checking loop above is the real assertion.
-        // Verify span count matches observed behavior (0 spans for checkbox-only content).
-        XCTAssertEqual(spans.count, 0,
-                       "Checkbox-only content produces no highlight spans (parsing verified via range checks)")
+        // Checkbox markdown is plain list content for the AST highlighter —
+        // checkbox rendering is handled by the text view's attachment system,
+        // not by syntax highlighting spans. Verify no spurious spans are produced.
+        XCTAssertTrue(spans.isEmpty,
+                      "Checkbox-only content should not produce spurious highlight spans — " +
+                      "checkbox rendering is handled by the text view, not the AST highlighter")
     }
 
     // MARK: - Code Spans
@@ -140,21 +140,23 @@ final class LivePreviewASTTests: XCTestCase {
         """
         let spans = await highlighter.parse(text)
 
-        // Nested lists may not generate visual highlight spans,
-        // but parsing must complete and return valid ranges.
-        let nsText = text as NSString
-        for span in spans {
-            XCTAssertLessThanOrEqual(
-                span.range.location + span.range.length,
-                nsText.length,
-                "Nested list span range should be within text bounds"
-            )
+        // Verify any returned spans have valid ranges within text bounds
+        if !spans.isEmpty {
+            let nsText = text as NSString
+            for span in spans {
+                XCTAssertLessThanOrEqual(
+                    span.range.location + span.range.length,
+                    nsText.length,
+                    "Nested list span range should be within text bounds"
+                )
+            }
         }
-        // Nested lists may not generate dedicated highlight spans,
-        // but parsing must complete without crash and return valid ranges.
-        // The range-checking loop above is the real assertion.
-        XCTAssertEqual(spans.count, 0,
-                       "Nested list content produces no highlight spans (parsing verified via range checks)")
+        // Plain nested list content is structural (indentation-based) —
+        // the AST highlighter does not style plain list items.
+        // Verify no spurious spans are produced for unstyled list content.
+        XCTAssertTrue(spans.isEmpty,
+                      "Plain nested list content produces no highlight spans — " +
+                      "list indentation is structural, not styled by the AST highlighter")
     }
 
     // MARK: - Headers

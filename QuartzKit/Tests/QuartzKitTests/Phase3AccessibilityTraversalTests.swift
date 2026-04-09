@@ -145,10 +145,17 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         XCTAssertGreaterThan(size.height, 20,
                              "NoteListRow must have reasonable fitted height (>20pt) when rendered")
 
-        // Verify the view exposes accessibility elements
+        // Verify the view exposes accessibility elements from rendered tree
+        let axElements = collectAccessibleElements(from: hostingController.view)
         let axCount = hostingController.view.accessibilityElementCount()
-        XCTAssertTrue(hostingController.view.isAccessibilityElement || axCount > 0,
-                      "NoteListRow must expose accessibility elements on iOS")
+        XCTAssertTrue(!axElements.isEmpty || axCount > 0,
+                      "NoteListRow must expose accessibility elements when rendered on iOS")
+
+        // Verify at least one element carries a meaningful accessibility label
+        if axCount > 0, let firstEl = hostingController.view.accessibilityElement(at: 0) as? NSObject {
+            XCTAssertNotNil(firstEl.accessibilityLabel,
+                            "First accessibility element should have a label")
+        }
     }
 
     @MainActor
@@ -173,10 +180,16 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         XCTAssertGreaterThan(size.height, 20,
                              "Multi-element NoteListRow must have reasonable fitted height (>20pt)")
 
-        // Verify the row model has data needed for accessibility announcement
-        XCTAssertEqual(item.title, "Multi-Element Note")
-        XCTAssertEqual(item.tags.count, 2,
-                       "NoteListItem must carry tag data for accessibility announcements")
+        // Query rendered accessibility tree — not model constants
+        let axCount = hostingController.view.accessibilityElementCount()
+        XCTAssertGreaterThan(axCount, 0,
+                             "Multi-element NoteListRow must expose accessibility children when rendered")
+
+        // Verify first element has a meaningful accessibility label
+        if axCount > 0, let firstEl = hostingController.view.accessibilityElement(at: 0) as? NSObject {
+            XCTAssertNotNil(firstEl.accessibilityLabel,
+                            "First accessibility element of multi-element row should have a label")
+        }
     }
     #endif
 

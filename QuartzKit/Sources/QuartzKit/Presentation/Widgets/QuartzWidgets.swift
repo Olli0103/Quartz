@@ -21,8 +21,8 @@ public struct LatestNoteEntry: TimelineEntry, Sendable {
         self.noteURL = noteURL
     }
 
-    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
-    nonisolated(unsafe) public static let placeholder = LatestNoteEntry(
+    /// WidgetKit static placeholder — Sendable struct, no unsafe annotation needed.
+    public static let placeholder = LatestNoteEntry(
         date: .now,
         noteTitle: String(localized: "My Note", bundle: .module),
         notePreview: String(localized: "Start writing to see your latest note here…", bundle: .module),
@@ -335,8 +335,8 @@ public struct PinnedNotesEntry: TimelineEntry, Sendable {
         self.notes = notes
     }
 
-    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
-    nonisolated(unsafe) public static let placeholder = PinnedNotesEntry(
+    /// WidgetKit static placeholder — Sendable struct, no unsafe annotation needed.
+    public static let placeholder = PinnedNotesEntry(
         date: .now,
         notes: [
             PinnedNote(title: String(localized: "Meeting Notes", bundle: .module), icon: "doc.text"),
@@ -422,8 +422,8 @@ public struct RecentNotesEntry: TimelineEntry, Sendable {
         self.notes = notes
     }
 
-    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
-    nonisolated(unsafe) public static let placeholder = RecentNotesEntry(
+    /// WidgetKit static placeholder — Sendable struct, no unsafe annotation needed.
+    public static let placeholder = RecentNotesEntry(
         date: .now,
         notes: [
             RecentNoteItem(id: "1", title: String(localized: "Meeting Notes", bundle: .module), relativePath: "Meeting.md", modified: .now),
@@ -643,8 +643,8 @@ public struct WritingStreakEntry: TimelineEntry, Sendable {
         self.todayWordCount = todayWordCount
     }
 
-    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
-    nonisolated(unsafe) public static let placeholder = WritingStreakEntry(
+    /// WidgetKit static placeholder — Sendable struct, no unsafe annotation needed.
+    public static let placeholder = WritingStreakEntry(
         date: .now,
         streakDays: 7,
         totalNotes: 42,
