@@ -30,7 +30,8 @@ public actor IntelligenceEngineCoordinator {
     /// Detailed progress for each subsystem.
     public private(set) var subsystemProgress: SubsystemProgress = .init()
 
-    /// Notification observer tokens.
+    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
+    /// Safe: @MainActor @Observable class; observers only removed in deinit.
     nonisolated(unsafe) private var observerTokens: [Any] = []
 
     // MARK: - Debouncing

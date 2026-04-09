@@ -52,7 +52,8 @@ public final class InspectorStore {
     /// Current Intelligence Engine status — drives the status indicator in the inspector.
     public var intelligenceStatus: IntelligenceEngineStatus = .idle
 
-    /// Notification observer for engine status updates.
+    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
+    /// Safe: @MainActor @Observable class; observer only removed in deinit.
     nonisolated(unsafe) private var statusObserver: Any?
 
     private static let visibilityKey = "quartz.inspectorVisible"

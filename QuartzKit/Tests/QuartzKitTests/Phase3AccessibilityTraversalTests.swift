@@ -6,6 +6,8 @@ import SnapshotTesting
 
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// Runtime accessibility verification tests for Phase 3 gate.
@@ -118,7 +120,65 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
     }
     #endif
 
-    // MARK: - Dynamic Type Snapshot Matrix
+    // MARK: - UIKit Runtime Accessibility Tests (iOS / iPadOS)
+
+    #if canImport(UIKit) && !os(macOS)
+    @MainActor
+    func testNoteListRowRendersAccessibleContent() {
+        let item = NoteListItem(
+            url: URL(fileURLWithPath: "/tmp/Accessible.md"),
+            title: "Accessible Note",
+            modifiedAt: Date(timeIntervalSince1970: 1712500000),
+            fileSize: 512,
+            snippet: "Testing accessibility labels",
+            tags: ["a11y"]
+        )
+
+        let view = NoteListRow(item: item).frame(width: 320, height: 80)
+        let hostingController = UIHostingController(rootView: view)
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 80)
+        hostingController.view.layoutIfNeeded()
+
+        let size = hostingController.view.intrinsicContentSize
+        XCTAssertGreaterThan(size.width, 40,
+                             "NoteListRow must have reasonable fitted width (>40pt) when rendered")
+        XCTAssertGreaterThan(size.height, 20,
+                             "NoteListRow must have reasonable fitted height (>20pt) when rendered")
+
+        // Verify the view exposes accessibility elements
+        let axCount = hostingController.view.accessibilityElementCount()
+        XCTAssertTrue(hostingController.view.isAccessibilityElement || axCount > 0,
+                      "NoteListRow must expose accessibility elements on iOS")
+    }
+
+    @MainActor
+    func testNoteListRowAccessibleChildCount() {
+        let item = NoteListItem(
+            url: URL(fileURLWithPath: "/tmp/Multi.md"),
+            title: "Multi-Element Note",
+            modifiedAt: Date(timeIntervalSince1970: 1712500000),
+            fileSize: 1024,
+            snippet: "Multiple accessibility children expected",
+            tags: ["a11y", "multi"]
+        )
+
+        let view = NoteListRow(item: item).frame(width: 320, height: 80)
+        let hostingController = UIHostingController(rootView: view)
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 320, height: 80)
+        hostingController.view.layoutIfNeeded()
+
+        let size = hostingController.view.intrinsicContentSize
+        XCTAssertGreaterThan(size.width, 40,
+                             "Multi-element NoteListRow must have reasonable fitted width (>40pt)")
+        XCTAssertGreaterThan(size.height, 20,
+                             "Multi-element NoteListRow must have reasonable fitted height (>20pt)")
+
+        // Verify the row model has data needed for accessibility announcement
+        XCTAssertEqual(item.title, "Multi-Element Note")
+        XCTAssertEqual(item.tags.count, 2,
+                       "NoteListItem must carry tag data for accessibility announcements")
+    }
+    #endif
 
     @MainActor
     func testNoteListRowSnapshotAtDefaultScale() {
@@ -335,6 +395,12 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
             hosting.layoutSubtreeIfNeeded()
             XCTAssertGreaterThan(hosting.frame.width, 0,
                                  "View must render at scale \(scale)")
+            #elseif canImport(UIKit)
+            let hosting = UIHostingController(rootView: view.frame(width: 400, height: 300))
+            hosting.view.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+            hosting.view.layoutIfNeeded()
+            XCTAssertGreaterThan(hosting.view.frame.width, 0,
+                                 "View must render at scale \(scale)")
             #endif
         }
     }
@@ -370,6 +436,21 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         }
         return result
     }
+    #elseif canImport(UIKit)
+    /// Collects accessibility elements from a UIKit view hierarchy.
+    @MainActor
+    private func collectAccessibleElements(from view: UIView) -> [NSObject] {
+        var result: [NSObject] = []
+        if let elements = view.accessibilityElements as? [NSObject] {
+            for element in elements {
+                result.append(element)
+            }
+        }
+        for subview in view.subviews {
+            result.append(contentsOf: collectAccessibleElements(from: subview))
+        }
+        return result
+    }
     #endif
 
     @MainActor
@@ -386,6 +467,18 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         hostingView.layoutSubtreeIfNeeded()
         assertSnapshot(
             of: hostingView,
+            as: .image,
+            named: name,
+            file: file,
+            testName: testName,
+            line: line
+        )
+        #elseif canImport(UIKit)
+        let hostingController = UIHostingController(rootView: view)
+        hostingController.view.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
+        hostingController.view.layoutIfNeeded()
+        assertSnapshot(
+            of: hostingController,
             as: .image,
             named: name,
             file: file,

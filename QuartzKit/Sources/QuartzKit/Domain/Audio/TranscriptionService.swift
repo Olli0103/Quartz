@@ -179,17 +179,8 @@ public actor TranscriptionService {
         let markdownURL = audioURL.deletingPathExtension().appendingPathExtension("md")
         let markdown = formatAsMarkdown(result, audioFileName: audioURL.lastPathComponent)
 
-        var coordinatorError: NSError?
-        var writeError: Error?
-        let coordinator = NSFileCoordinator()
-        coordinator.coordinate(writingItemAt: markdownURL, options: .forReplacing, error: &coordinatorError) { actualURL in
-            do {
-                try markdown.write(to: actualURL, atomically: true, encoding: .utf8)
-            } catch {
-                writeError = error
-            }
-        }
-        if let error = coordinatorError ?? writeError { throw error }
+        let data = Data(markdown.utf8)
+        try CoordinatedFileWriter.shared.write(data, to: markdownURL)
 
         return result
     }

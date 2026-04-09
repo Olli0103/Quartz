@@ -126,7 +126,8 @@ public final class MultiWindowFileCoordinator: @unchecked Sendable {
     /// Files currently being edited, mapped to their window IDs.
     private var fileToWindows: [URL: Set<String>] = [:]
 
-    /// Observer tokens for cleanup.
+    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
+    /// Safe: by deinit, no other code holds a reference to self.
     nonisolated(unsafe) private var observerTokens: [Any] = []
 
     private let logger = Logger(subsystem: "com.quartz", category: "MultiWindowCoordinator")

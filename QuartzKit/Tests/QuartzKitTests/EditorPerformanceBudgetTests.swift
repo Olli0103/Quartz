@@ -212,6 +212,55 @@ struct EditorPerformanceBudgetTests {
         // and the `await` resolves, the parse ran on the actor's executor.
     }
 
+    @Test("Highlight span attribute application within 16ms frame budget")
+    func applyHighlightSpansBudget() async {
+        let doc = generate20KDoc()
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(doc)
+        #expect(!spans.isEmpty, "Need spans for attribute application test")
+
+        // Simulate attribute application on an NSAttributedString (the critical render path)
+        let attrString = NSMutableAttributedString(string: doc)
+
+        var times: [TimeInterval] = []
+        for _ in 0..<5 {
+            let start = CFAbsoluteTimeGetCurrent()
+
+            // Mirror the applyHighlightSpans() hot path: iterate spans, set attributes
+            attrString.beginEditing()
+            for span in spans {
+                guard span.range.location + span.range.length <= attrString.length else { continue }
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .font: span.font,
+                ]
+                if let color = span.color {
+                    attrs[.foregroundColor] = color
+                }
+                attrString.setAttributes(attrs, range: span.range)
+                if let bg = span.backgroundColor {
+                    attrString.addAttribute(.backgroundColor, value: bg, range: span.range)
+                }
+                if span.strikethrough {
+                    attrString.addAttribute(.strikethroughStyle,
+                                            value: 1,
+                                            range: span.range)
+                }
+            }
+            attrString.endEditing()
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            times.append(elapsed)
+        }
+
+        let sorted = times.sorted()
+        let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
+
+        // CI budget: 16ms (one frame). This proves attribute application
+        // doesn't blow the frame budget even on a 20K document.
+        #expect(p95 < 0.016,
+            "Highlight span application P95 should be < 16ms, got \(String(format: "%.1f", p95 * 1000))ms")
+    }
+
     /// Returns current resident memory in MB.
     private static func currentResidentMemoryMB() -> Double {
         var info = mach_task_basic_info()

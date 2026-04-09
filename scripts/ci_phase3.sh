@@ -362,7 +362,8 @@ cat > reports/phase3_report.json <<REPORT_EOF
     "E2ECreateNoteTests",
     "E2ESearchFlowTests",
     "E2EAppearanceFlowTests",
-    "TextKit2GateTests"
+    "TextKit2GateTests",
+    "EditorPerformanceBudgetTests"
   ],
   "platforms_detected": "$PLATFORMS_DETECTED",
   "platforms_compilation_verified": "$BUILD_GATE_PASS platform(s)",

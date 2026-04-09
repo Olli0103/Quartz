@@ -8,6 +8,8 @@ private let briefingCacheDuration: TimeInterval = 4 * 60 * 60 // 4 hours
 public actor DashboardBriefingService {
     private let providerRegistry: AIProviderRegistry
 
+    /// nonisolated(unsafe) for process-wide static cache accessed from actor.
+    /// Safe: only mutated from within actor-isolated methods (serial access guaranteed).
     nonisolated(unsafe) private static var sharedCachedBriefing: String?
     nonisolated(unsafe) private static var sharedCachedAt: Date?
     nonisolated(unsafe) private static var sharedCachedVaultKey: String?

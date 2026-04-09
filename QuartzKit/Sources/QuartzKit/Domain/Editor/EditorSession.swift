@@ -107,6 +107,8 @@ public final class EditorSession {
 
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
+    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
+    /// Safe: @MainActor @Observable class; tasks only cancelled in deinit.
     nonisolated(unsafe) private var autosaveTask: Task<Void, Never>?
     nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
     nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
@@ -125,7 +127,7 @@ public final class EditorSession {
     /// Inspector store — drives the right panel UI. Shared across note switches.
     public let inspectorStore: InspectorStore
 
-    /// Task for the debounced analysis pass.
+    /// nonisolated(unsafe) for deinit access — cancelled in deinit only.
     nonisolated(unsafe) private var analysisTask: Task<Void, Never>?
 
     /// Delay before running analysis (longer than highlighting since ToC doesn't need keystroke-level updates).
@@ -146,11 +148,11 @@ public final class EditorSession {
     /// Graph edge store for resolving semantic links in the inspector.
     public var graphEdgeStore: GraphEdgeStore?
 
-    /// Observer for semantic link update notifications.
+    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
     nonisolated(unsafe) private var semanticLinkObserver: Any?
-    /// Observer for AI concept update notifications.
+    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
     nonisolated(unsafe) private var conceptObserver: Any?
-    /// Observer for AI scan progress notifications.
+    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
     nonisolated(unsafe) private var scanProgressObserver: Any?
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
