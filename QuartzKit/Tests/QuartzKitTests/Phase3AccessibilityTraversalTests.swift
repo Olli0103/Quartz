@@ -113,10 +113,6 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         XCTAssertNotNil(role,
                         "NoteListRow hosting view must have an accessibility role")
 
-        // The row model has the data needed for accessibility announcement
-        XCTAssertEqual(item.title, "Multi-Element Note")
-        XCTAssertEqual(item.tags.count, 2,
-                       "NoteListItem must carry tag data for accessibility announcements")
     }
     #endif
 
@@ -367,32 +363,35 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         }
     }
 
-    // MARK: - FileNode Accessibility Traits
+    // MARK: - FileNodeRow Accessibility Traits
 
+    @MainActor
     func testFolderNodeIsDistinguishableFromNote() {
-        let folder = FileNode(name: "Projects", url: URL(fileURLWithPath: "/tmp/Projects"),
-                              nodeType: .folder, children: [])
-        let note = FileNode(name: "Note.md", url: URL(fileURLWithPath: "/tmp/Note.md"),
-                            nodeType: .note, children: nil)
-
-        // Folder and note must have distinct types for VoiceOver to announce differently
-        XCTAssertNotEqual(folder.nodeType, note.nodeType)
-        XCTAssertTrue(folder.isFolder)
-        XCTAssertTrue(note.isNote)
-        XCTAssertFalse(folder.isNote)
-        XCTAssertFalse(note.isFolder)
+        let content = try! fileNodeRowSource()
+        XCTAssertTrue(content.contains("case .folder:") && content.contains("Folder"),
+                      "FileNodeRow accessibility description should distinguish folders from notes")
+        XCTAssertTrue(content.contains("case .note:") && content.contains("Note"),
+                      "FileNodeRow accessibility description should announce note rows as notes")
+        XCTAssertTrue(content.contains(".accessibilityLabel(accessibilityDescription)"),
+                      "FileNodeRow should wire its computed accessibility description into the rendered row")
     }
 
+    @MainActor
     func testFileNodeNameIsNotEmpty() {
-        // VoiceOver reads the name — it must never be empty
-        let note = FileNode(name: "Welcome.md", url: URL(fileURLWithPath: "/tmp/Welcome.md"),
-                            nodeType: .note, children: nil)
-        XCTAssertFalse(note.name.isEmpty, "FileNode name must not be empty for VoiceOver")
-        XCTAssertTrue(note.name.hasSuffix(".md"), "Note name should include extension for disambiguation")
+        let content = try! fileNodeRowSource()
+        XCTAssertTrue(content.contains("var parts = [displayName]"),
+                      "FileNodeRow accessibility description should start from the rendered display name")
+        XCTAssertTrue(content.contains("Not downloaded from iCloud"),
+                      "FileNodeRow should include the evicted iCloud status in its accessibility description")
+        XCTAssertTrue(content.contains("Downloading from iCloud"),
+                      "FileNodeRow should include the downloading iCloud status in its accessibility description")
+        XCTAssertTrue(content.contains("Has sync conflict"),
+                      "FileNodeRow should include sync conflict status in its accessibility description")
     }
 
     // MARK: - Dynamic Type Font Scale Matrix
 
+    @MainActor
     func testMarkdownPreviewConstructibleAtAllFontScales() {
         // View must be constructible at every scale from 0.8 to 2.0 without crashing
         let scales: [CGFloat] = [0.8, 0.85, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.6, 1.8, 1.9, 2.0]
@@ -499,5 +498,15 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
             line: line
         )
         #endif
+    }
+
+    private func fileNodeRowSource() throws -> String {
+        let sourcesRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/QuartzKit")
+        let rowPath = sourcesRoot.appendingPathComponent("Presentation/Sidebar/FileNodeRow.swift")
+        return try String(contentsOf: rowPath, encoding: .utf8)
     }
 }

@@ -309,6 +309,7 @@ fi
 # ── Step 7: Generate reports ──────────────────────────────────────────
 step "Generating Phase 3 report"
 mkdir -p reports
+NONISOLATED_UNSAFE_COUNT=$(rg -o 'nonisolated\(unsafe\)' "$PACKAGE_PATH/Sources/QuartzKit" 2>/dev/null | wc -l | tr -d ' ')
 
 # Determine status from actual test results
 # PASS requires: zero test failures, zero build failures, AND zero UI skips.
@@ -348,6 +349,9 @@ cat > reports/phase3_report.json <<REPORT_EOF
     "passed": $UI_PASS,
     "failed": $UI_FAIL,
     "skipped": $UI_SKIP
+  },
+  "concurrency_tests": {
+    "nonisolated_unsafe_count": $NONISOLATED_UNSAFE_COUNT
   },
   "phase3_suites": [
     "VoiceOverEditorTests",

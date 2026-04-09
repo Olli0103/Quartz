@@ -69,14 +69,22 @@ final class TextKit2GateTests: XCTestCase {
     // MARK: - Editing Transaction Works (TextKit 2 API)
 
     @MainActor
-    func testPerformEditingTransactionDoesNotCrash() {
+    func testPerformEditingTransactionUpdatesBackedString() {
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, _) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
-        // performMarkdownEdit wraps performEditingTransaction — must not crash
-        contentManager.performMarkdownEdit {
-            // Empty transaction — verifies the TextKit 2 transaction model is functional
+        let initial = NSMutableAttributedString(string: "Hello",
+                                                attributes: [.font: PlatformFont.systemFont(ofSize: 14)])
+        contentManager.performEditingTransaction {
+            contentManager.textStorage?.setAttributedString(initial)
         }
+
+        contentManager.performMarkdownEdit {
+            contentManager.textStorage?.mutableString.append(" world")
+        }
+
+        XCTAssertEqual(contentManager.attributedString?.string, "Hello world",
+                       "performMarkdownEdit should commit content mutations through the TextKit 2 backing store")
     }
 
     // MARK: - NSTextView Uses TextKit 2 (macOS)
@@ -115,7 +123,7 @@ final class TextKit2GateTests: XCTestCase {
     // MARK: - Apply Attributes via TextKit 2 Transaction
 
     @MainActor
-    func testApplyAttributesDoesNotCrashOrCorrupt() {
+    func testApplyAttributesUpdatesOnlyTargetRange() {
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, _) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
@@ -132,11 +140,20 @@ final class TextKit2GateTests: XCTestCase {
             to: NSRange(location: 0, length: 5)
         )
 
-        // Verify content is intact after the transaction
-        XCTAssertNotNil(contentManager.attributedString,
-                        "attributedString must not be nil after applyAttributes")
-        XCTAssertGreaterThan(contentManager.attributedString?.length ?? 0, 0,
-                             "Content must not be empty after attribute application")
+        guard let attributedString = contentManager.attributedString else {
+            return XCTFail("attributedString must not be nil after applyAttributes")
+        }
+
+        XCTAssertEqual(attributedString.string, "Hello TextKit 2",
+                       "Attribute application must not corrupt the underlying string")
+
+        let helloFont = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont
+        let trailingFont = attributedString.attribute(.font, at: 6, effectiveRange: nil) as? PlatformFont
+
+        XCTAssertEqual(helloFont?.fontDescriptor.symbolicTraits.contains(.bold), true,
+                       "Target range should receive the requested bold font")
+        XCTAssertEqual(trailingFont?.fontDescriptor.symbolicTraits.contains(.bold), false,
+                       "Attributes should not bleed outside the edited range")
     }
 
     // MARK: - Paragraph Bounding Range
@@ -151,6 +168,21 @@ final class TextKit2GateTests: XCTestCase {
         if let range {
             XCTAssertEqual(range.location, 9, "Paragraph should start at index 9 (start of 'Line two')")
             XCTAssertEqual(range.length, 9, "Paragraph 'Line two\\n' should be 9 characters")
+        }
+    }
+
+    @MainActor
+    func testBoundingRangeForParagraphsSpanningMultipleLines() {
+        let contentManager = MarkdownTextKit2Stack.makeContentManager()
+        contentManager.attributedString = NSAttributedString(string: "First line\nSecond line\nThird line")
+
+        let range = contentManager.boundingRangeForParagraphs(intersecting: NSRange(location: 3, length: 15))
+        XCTAssertNotNil(range, "Should return a combined paragraph range when an edit spans multiple lines")
+        if let range {
+            XCTAssertEqual(range.location, 0,
+                           "Combined range should start at the beginning of the first touched paragraph")
+            XCTAssertEqual(range.length, 23,
+                           "Combined range should include the first two paragraphs and trailing newline")
         }
     }
 }
