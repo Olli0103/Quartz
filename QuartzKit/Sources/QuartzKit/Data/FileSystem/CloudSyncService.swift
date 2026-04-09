@@ -164,11 +164,13 @@ public actor CloudSyncService {
 
     /// Keeps the local version, marks all conflict versions as resolved.
     /// **Transactional**: coordination + resolve happen in a single coordinator block.
-    public nonisolated func resolveKeepingLocal(at url: URL) throws {
+    /// - Parameter filePresenter: The presenter for this file. Passing it prevents
+    ///   self-coordination deadlock (Apple TN3151).
+    public nonisolated func resolveKeepingLocal(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var resolveError: Error?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
             let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
             for v in conflicts { v.isResolved = true }
@@ -186,7 +188,7 @@ public actor CloudSyncService {
 
     /// Replaces local content with the iCloud version, then marks all conflicts resolved.
     /// **Transactional**: write + resolve in a single coordinator block.
-    public nonisolated func resolveKeepingCloud(at url: URL) throws {
+    public nonisolated func resolveKeepingCloud(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
         let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
         guard let cloudVersion = conflicts.first else {
             throw CloudSyncError.conflictResolutionFailed
@@ -195,7 +197,7 @@ public actor CloudSyncService {
         var coordinatorError: NSError?
         var resolveError: Error?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
             do {
                 try cloudVersion.replaceItem(at: actualURL, options: [])
@@ -257,14 +259,15 @@ public actor CloudSyncService {
 
     /// Writes merged content, then marks all conflicts resolved.
     /// **Transactional**: write + resolve in a single coordinator block.
-    public func resolveWritingMerged(at url: URL, mergedUTF8: String) async throws {
+    public func resolveWritingMerged(at url: URL, mergedUTF8: String, filePresenter: NSFilePresenter? = nil) async throws {
         let data = Data(mergedUTF8.utf8)
+        nonisolated(unsafe) let presenter = filePresenter
 
         try await Task.detached(priority: .userInitiated) {
             var coordinatorError: NSError?
             var resolveError: Error?
 
-            let coordinator = NSFileCoordinator()
+            let coordinator = NSFileCoordinator(filePresenter: presenter)
             coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
                 do {
                     try data.write(to: actualURL, options: .atomic)
@@ -303,11 +306,11 @@ public actor CloudSyncService {
         try await resolveWritingMerged(at: url, mergedUTF8: mergedUTF8)
     }
 
-    public nonisolated func resolveConflictKeepingVersion(at url: URL, version: NSFileVersion?) throws {
+    public nonisolated func resolveConflictKeepingVersion(at url: URL, version: NSFileVersion?, filePresenter: NSFilePresenter? = nil) throws {
         var coordinatorError: NSError?
         var resolveError: Error?
 
-        let coordinator = NSFileCoordinator()
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(writingItemAt: url, options: .forMerging, error: &coordinatorError) { actualURL in
             let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: actualURL) ?? []
             for v in conflicts {
