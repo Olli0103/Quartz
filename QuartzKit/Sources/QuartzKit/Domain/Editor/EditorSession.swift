@@ -1035,6 +1035,7 @@ public final class EditorSession {
     public var highlighterLineSpacing: CGFloat = 1.5
     /// Syntax visibility mode. Set by the representable from AppearanceManager.
     public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    /// nonisolated(unsafe) for deinit access — task cancelled in deinit only.
     nonisolated(unsafe) private var highlightTask: Task<Void, Never>?
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
@@ -1626,6 +1627,7 @@ public final class EditorSession {
 
     // MARK: - Inline AI
 
+    /// nonisolated(unsafe) for deinit access — task cancelled in deinit only.
     nonisolated(unsafe) private var inlineAITask: Task<Void, Never>?
 
     /// State for the inline AI operation — observed by the UI for loading/error display.

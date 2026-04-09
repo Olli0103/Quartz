@@ -2,6 +2,7 @@ import Foundation
 
 /// Extracts markdown headings (# ## ###) for outline/table of contents.
 public struct HeadingExtractor: Sendable {
+    /// nonisolated(unsafe) for static Regex — compiled once, immutable, thread-safe.
     nonisolated(unsafe) private static let headingPattern = /^(#{1,6})\s+(.+)$/
 
     public init() {}

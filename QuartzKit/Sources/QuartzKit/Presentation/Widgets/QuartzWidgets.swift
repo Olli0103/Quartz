@@ -21,6 +21,7 @@ public struct LatestNoteEntry: TimelineEntry, Sendable {
         self.noteURL = noteURL
     }
 
+    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
     nonisolated(unsafe) public static let placeholder = LatestNoteEntry(
         date: .now,
         noteTitle: String(localized: "My Note", bundle: .module),
@@ -334,6 +335,7 @@ public struct PinnedNotesEntry: TimelineEntry, Sendable {
         self.notes = notes
     }
 
+    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
     nonisolated(unsafe) public static let placeholder = PinnedNotesEntry(
         date: .now,
         notes: [
@@ -420,6 +422,7 @@ public struct RecentNotesEntry: TimelineEntry, Sendable {
         self.notes = notes
     }
 
+    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
     nonisolated(unsafe) public static let placeholder = RecentNotesEntry(
         date: .now,
         notes: [
@@ -640,6 +643,7 @@ public struct WritingStreakEntry: TimelineEntry, Sendable {
         self.todayWordCount = todayWordCount
     }
 
+    /// nonisolated(unsafe) for WidgetKit static placeholder — immutable after initialization, thread-safe.
     nonisolated(unsafe) public static let placeholder = WritingStreakEntry(
         date: .now,
         streakDays: 7,
