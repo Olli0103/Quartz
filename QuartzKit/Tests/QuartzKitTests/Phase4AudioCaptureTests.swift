@@ -1,7 +1,6 @@
 import Testing
 import Foundation
 import XCTest
-import NaturalLanguage
 @testable import QuartzKit
 
 // MARK: - Phase 4: Granola-Style Audio Capture + On-Device Intelligence
@@ -604,181 +603,50 @@ final class AudioPerformanceTests: XCTestCase {
 }
 
 // ============================================================================
-// MARK: - Mock/Stub Types for Testing
+// MARK: - Test Helper Types
 // ============================================================================
 
-/// Orchestrator for the full meeting capture pipeline.
-/// Manages state machine: idle → preparing → recording → transcribing → diarizing → generating → complete
-public actor MeetingCaptureOrchestrator {
-
-    public enum CaptureState: Equatable, Sendable {
-        case idle
-        case preparing
-        case recording
-        case paused
-        case transcribing
-        case diarizing
-        case generating
-        case complete
-        case failed(String)
-
-        public static func == (lhs: CaptureState, rhs: CaptureState) -> Bool {
-            switch (lhs, rhs) {
-            case (.idle, .idle), (.preparing, .preparing), (.recording, .recording),
-                 (.paused, .paused), (.transcribing, .transcribing), (.diarizing, .diarizing),
-                 (.generating, .generating), (.complete, .complete):
-                return true
-            case (.failed(let l), .failed(let r)):
-                return l == r
-            default:
-                return false
-            }
-        }
-    }
-
-    public struct CaptureConfiguration: Sendable {
-        public let vaultURL: URL
-        public let template: MeetingMinutesTemplate
-        public let detectLanguage: Bool
-        public let enableDiarization: Bool
-
-        public init(vaultURL: URL, template: MeetingMinutesTemplate, detectLanguage: Bool, enableDiarization: Bool) {
-            self.vaultURL = vaultURL
-            self.template = template
-            self.detectLanguage = detectLanguage
-            self.enableDiarization = enableDiarization
-        }
-    }
-
-    private var state: CaptureState = .idle
-
-    public init() {}
-
-    public var currentState: CaptureState {
-        state
-    }
-
-    public func canTransition(to newState: CaptureState) -> Bool {
-        switch (state, newState) {
-        case (.idle, .preparing): return true
-        case (.preparing, .recording): return true
-        case (.recording, .paused): return true
-        case (.paused, .recording): return true
-        case (.recording, .transcribing): return true
-        case (.transcribing, .diarizing): return true
-        case (.diarizing, .generating): return true
-        case (.generating, .complete): return true
-        case (_, .failed): return true
-        case (_, .idle): return true // Reset
-        default: return false
-        }
-    }
-
-    public func cancel() {
-        state = .idle
-    }
-
-    public func combineTranscriptionWithDiarization(
-        transcription: TranscriptionService.TranscriptionResult,
-        diarization: SpeakerDiarizationService.DiarizationResult
-    ) -> String {
-        var result = ""
-
-        for segment in diarization.segments {
-            let matchingText = transcription.segments
-                .filter { $0.timestamp >= segment.startTime && $0.timestamp < segment.endTime }
-                .map(\.text)
-                .joined(separator: " ")
-
-            if !matchingText.isEmpty {
-                let min = Int(segment.startTime) / 60
-                let sec = Int(segment.startTime) % 60
-                result += "**\(segment.speakerLabel)** [\(String(format: "%02d:%02d", min, sec))]: \(matchingText)\n\n"
-            }
-        }
-
-        return result
-    }
-}
-
-/// Language detection service using NLLanguageRecognizer.
-public actor LanguageDetector {
-
-    public struct DetectionResult: Sendable {
-        public let languageCode: String
-        public let confidence: Double
-
-        public init(languageCode: String, confidence: Double) {
-            self.languageCode = languageCode
-            self.confidence = confidence
-        }
-    }
-
-    public init() {}
-
-    public var supportedLanguages: [String] {
-        // Common languages supported by NLLanguageRecognizer
-        ["en", "de", "es", "fr", "ja", "zh", "it", "pt", "ru", "ko", "ar", "nl"]
-    }
-
-    public func detectLanguage(from text: String) -> DetectionResult {
-        guard !text.isEmpty else {
-            return DetectionResult(languageCode: "und", confidence: 0)
-        }
-
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(text)
-
-        if let language = recognizer.dominantLanguage {
-            let hypotheses = recognizer.languageHypotheses(withMaximum: 1)
-            let confidence = hypotheses[language] ?? 0.5
-            return DetectionResult(languageCode: language.rawValue, confidence: confidence)
-        }
-
-        return DetectionResult(languageCode: "und", confidence: 0)
-    }
-}
-
 /// ViewModel for recorder UI that supports compact mode.
+/// Test-only helper for RecorderCompactUI tests.
 @MainActor
-public class RecorderViewModel: ObservableObject {
-    @Published public private(set) var isRecording = false
-    @Published public private(set) var isPaused = false
-    @Published public private(set) var duration: TimeInterval = 0
-    @Published public private(set) var levelHistory: [Float] = []
-    @Published public private(set) var isCompactMode = false
+class RecorderViewModel: ObservableObject {
+    @Published private(set) var isRecording = false
+    @Published private(set) var isPaused = false
+    @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var levelHistory: [Float] = []
+    @Published private(set) var isCompactMode = false
 
-    public init() {}
+    init() {}
 
-    public func simulateRecordingStart() {
+    func simulateRecordingStart() {
         isRecording = true
         isPaused = false
         duration = 0
         levelHistory = []
     }
 
-    public func setCompactMode(_ compact: Bool) {
+    func setCompactMode(_ compact: Bool) {
         isCompactMode = compact
     }
 
-    public func pause() {
+    func pause() {
         guard isRecording else { return }
         isPaused = true
         isRecording = false
     }
 
-    public func resume() {
+    func resume() {
         guard isPaused else { return }
         isPaused = false
         isRecording = true
     }
 
-    public func stop() {
+    func stop() {
         isRecording = false
         isPaused = false
     }
 
-    public func simulateLevelUpdate(_ level: Float) {
+    func simulateLevelUpdate(_ level: Float) {
         levelHistory.append(level)
     }
 }
