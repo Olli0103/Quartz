@@ -70,7 +70,7 @@ fi
 
 # ── Step 2: Phase 4 specific tests ──────────────────────────────────
 step "Running Phase 4 audio & scan tests"
-P4_FILTER="Phase4AudioMemoryBudget|Phase4AudioInterruption|Phase4HardwareCapability|Phase4E2EFlow|Phase4LiveCapsuleAccessibility|Phase4ScanAccessibility|AudioPipelineIntegration|DiarizationMapping|LanguageDetection|RecorderCompactUI"
+P4_FILTER="Phase4AudioMemoryBudget|Phase4AudioInterruption|Phase4HardwareCapability|Phase4E2EFlow|Phase4LiveCapsuleAccessibility|Phase4ScanAccessibility|Phase4StreamingTranscription|AudioPipelineIntegration|DiarizationMapping|LanguageDetection|RecorderCompactUI"
 P4_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --filter "$P4_FILTER" 2>&1 || true)
 P4_PASS=$(echo "$P4_OUTPUT" | grep -c "passed" || true)
 P4_FAIL=$(echo "$P4_OUTPUT" | grep -cE "failed after|Test Case.*failed" || true)
@@ -125,6 +125,8 @@ P4_SOURCES=(
     "Domain/Audio/AudioChunkRingBuffer.swift"
     "Domain/Audio/AVAudioEngineCaptureService.swift"
     "Domain/Audio/HardwareCapability.swift"
+    "Domain/Audio/LanguageDetector.swift"
+    "Domain/Audio/MeetingCaptureOrchestrator.swift"
     "Domain/Audio/StreamingTranscriptionService.swift"
     "Domain/Audio/TranscriptPersistenceService.swift"
     "Domain/Audio/MeetingMinutesService.swift"
