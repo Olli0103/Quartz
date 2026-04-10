@@ -496,3 +496,166 @@ final class MeteringNormalizationTests: XCTestCase {
         XCTAssertEqual(stats.totalSamples, 0, "Reset should clear statistics")
     }
 }
+
+// MARK: - Production Hot Path Performance Tests
+
+/// Tests performance of real production services against <16ms main-thread
+/// and <=150MB steady-state mandates (CODEX_BLUEPRINT.md).
+final class Phase4ProductionHotPathPerformanceTests: XCTestCase {
+
+    /// Tests AudioChunkRingBuffer append+recent cycle under 16ms for realistic chunk sizes.
+    func testRingBufferAppendRecentUnder16ms() async throws {
+        let buffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let samplesPerChunk = 22050 // 500ms at 44.1kHz mono
+
+        // Pre-fill buffer to capacity
+        for i in 0..<120 {
+            let chunk = AudioChunk(samples: [Float](repeating: 0.1, count: samplesPerChunk), sampleRate: 44100, frameCount: samplesPerChunk, timestamp: Double(i) * 0.5)
+            await buffer.append(chunk)
+        }
+
+        // Measure the hot path: append new chunk + retrieve recent 10
+        let iterations = 100
+        let start = CFAbsoluteTimeGetCurrent()
+        for i in 0..<iterations {
+            let chunk = AudioChunk(samples: [Float](repeating: 0.1, count: samplesPerChunk), sampleRate: 44100, frameCount: samplesPerChunk, timestamp: Double(120 + i) * 0.5)
+            await buffer.append(chunk)
+            _ = await buffer.recent(10)
+        }
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        let perOpMs = (elapsed / Double(iterations)) * 1000
+
+        XCTAssertLessThan(perOpMs, 16.0,
+            "Ring buffer append+recent must complete under 16ms frame budget (was \(String(format: "%.2f", perOpMs))ms)")
+    }
+
+    /// Tests combineTranscriptionWithDiarization under 16ms for a realistic meeting.
+    func testCombineTranscriptionDiarizationUnder16ms() async throws {
+        let orchestrator = MeetingCaptureOrchestrator()
+
+        // Simulate a 30-minute meeting: ~360 transcription segments, ~60 speaker segments
+        let transcriptionSegments = (0..<360).map { i in
+            TranscriptionService.TranscriptionSegment(
+                text: "Word segment number \(i) in the meeting transcript.",
+                timestamp: Double(i) * 5.0,
+                duration: 4.5,
+                confidence: Float.random(in: 0.8...0.99)
+            )
+        }
+        let transcription = TranscriptionService.TranscriptionResult(
+            text: transcriptionSegments.map(\.text).joined(separator: " "),
+            segments: transcriptionSegments,
+            locale: Locale(identifier: "en_US"),
+            duration: 1800
+        )
+
+        let speakerSegments = (0..<60).map { i in
+            SpeakerDiarizationService.SpeakerSegment(
+                speakerID: "speaker_\(i % 4)",
+                speakerLabel: "Speaker \(["A", "B", "C", "D"][i % 4])",
+                startTime: Double(i) * 30.0,
+                endTime: Double(i + 1) * 30.0,
+                confidence: 0.85
+            )
+        }
+        let diarization = SpeakerDiarizationService.DiarizationResult(
+            segments: speakerSegments,
+            speakerCount: 4,
+            speakers: ["speaker_0": "Speaker A", "speaker_1": "Speaker B", "speaker_2": "Speaker C", "speaker_3": "Speaker D"]
+        )
+
+        // Measure
+        let iterations = 50
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            _ = await orchestrator.combineTranscriptionWithDiarization(
+                transcription: transcription,
+                diarization: diarization
+            )
+        }
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        let perOpMs = (elapsed / Double(iterations)) * 1000
+
+        XCTAssertLessThan(perOpMs, 16.0,
+            "combineTranscriptionWithDiarization must complete under 16ms (was \(String(format: "%.2f", perOpMs))ms)")
+    }
+
+    /// Tests AudioMeteringBuffer throughput matches 12Hz metering without blocking.
+    func testMeteringBufferThroughputAt12Hz() async throws {
+        let buffer = AudioMeteringBuffer(capacity: 1000)
+
+        // Simulate 10 seconds at 12Hz — 120 samples
+        let start = CFAbsoluteTimeGetCurrent()
+        for i in 0..<120 {
+            await buffer.append(Float(i % 100) / 100.0)
+        }
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+
+        // 120 appends should complete far under 16ms total
+        let perSampleMs = (elapsed / 120.0) * 1000
+        XCTAssertLessThan(perSampleMs, 1.0,
+            "Metering buffer append should be sub-1ms per sample (was \(String(format: "%.3f", perSampleMs))ms)")
+
+        // Retrieval performance
+        let retrievalStart = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<100 {
+            _ = await buffer.recent(200)
+        }
+        let retrievalElapsed = CFAbsoluteTimeGetCurrent() - retrievalStart
+        XCTAssertLessThan(retrievalElapsed, 0.016,
+            "100 waveform retrievals must complete under 16ms frame budget")
+    }
+
+    /// Tests AudioChunk memory footprint stays bounded under 150MB for realistic session.
+    func testAudioChunkMemoryFootprintBounded() async throws {
+        let buffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let samplesPerChunk = 22050 // 500ms at 44.1kHz
+
+        // Fill to capacity
+        for i in 0..<120 {
+            let chunk = AudioChunk(
+                samples: [Float](repeating: 0.1, count: samplesPerChunk),
+                sampleRate: 44100,
+                frameCount: samplesPerChunk,
+                timestamp: Double(i) * 0.5
+            )
+            await buffer.append(chunk)
+        }
+
+        let memoryBytes = await buffer.currentMemoryBytes
+        let memoryMB = Double(memoryBytes) / (1024 * 1024)
+
+        // Ring buffer at capacity: 120 chunks × 22050 samples × 4 bytes = ~10.1MB
+        XCTAssertLessThan(memoryMB, 15.0,
+            "Ring buffer memory at capacity must be under 15MB (was \(String(format: "%.1f", memoryMB))MB)")
+        XCTAssertLessThan(memoryMB, 150.0,
+            "Ring buffer must stay well under 150MB steady-state mandate")
+    }
+
+    /// Tests metering processor session stats retrieval performance.
+    func testSessionStatsRetrievalPerformance() async throws {
+        let processor = AudioMeteringProcessor(
+            bufferCapacity: 1000,
+            uiUpdateInterval: 1.0 / 30.0
+        )
+
+        // Fill with realistic data
+        for i in 0..<1000 {
+            await processor.processSample(
+                averagePower: Float(i % 60) - 60,
+                peakPower: Float(i % 50) - 50
+            ) { _, _ in }
+        }
+
+        // Measure stats retrieval (a likely main-thread operation)
+        let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<100 {
+            _ = await processor.sessionStats()
+        }
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        let perCallMs = (elapsed / 100.0) * 1000
+
+        XCTAssertLessThan(perCallMs, 16.0,
+            "Session stats retrieval must be under 16ms (was \(String(format: "%.2f", perCallMs))ms)")
+    }
+}

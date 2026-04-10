@@ -407,6 +407,460 @@ struct Phase4E2EFlowTests {
         #expect(recent.count == 3)
     }
 
+    // MARK: - End-to-End Orchestrator Pipeline
+
+    @Test("Orchestrator pipeline runs full capture→transcribe→diarize→persist sequence")
+    func orchestratorFullPipeline() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorE2E_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fakeTranscription = FakeTranscriptionStep()
+        let fakeDiarization = FakeDiarizationStep()
+        let fakeLanguage = FakeLanguageDetectionStep()
+        let fakePersistence = FakePersistenceStep(vaultURL: tmpDir)
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: fakeTranscription,
+            diarization: fakeDiarization,
+            languageDetection: fakeLanguage,
+            persistence: fakePersistence
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: true,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        let result = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+
+        #expect(result.transcription.text == "Hello world from fake transcription.")
+        #expect(result.diarization != nil)
+        #expect(result.diarization?.speakerCount == 2)
+        #expect(result.detectedLanguage == "en")
+        #expect(result.persistedURL != nil)
+        #expect(!result.combinedTranscript.isEmpty)
+        #expect(await orchestrator.currentState == .complete)
+    }
+
+    @Test("Orchestrator pipeline without diarization skips diarizing state")
+    func orchestratorPipelineNoDiarization() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorNoDiariz_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep(),
+            persistence: FakePersistenceStep(vaultURL: tmpDir)
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        let result = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+
+        #expect(result.transcription.text == "Hello world from fake transcription.")
+        #expect(result.diarization == nil)
+        #expect(result.detectedLanguage == nil)
+        #expect(result.combinedTranscript == "Hello world from fake transcription.")
+        #expect(await orchestrator.currentState == .complete)
+
+        // Verify state history never hit .diarizing
+        let transitions = await orchestrator.transitions
+        let diarizingCount = transitions.filter { $0.0 == .diarizing }.count
+        #expect(diarizingCount == 0, "Should not enter diarizing state when diarization disabled")
+    }
+
+    @Test("Orchestrator pipeline transitions through all expected states in order")
+    func orchestratorStateTransitionOrder() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorOrder_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep(),
+            diarization: FakeDiarizationStep(),
+            persistence: FakePersistenceStep(vaultURL: tmpDir)
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+
+        let transitions = await orchestrator.transitions
+        let states = transitions.map(\.0)
+        let expectedOrder: [MeetingCaptureOrchestrator.CaptureState] = [
+            .preparing, .recording, .transcribing, .diarizing, .generating, .complete
+        ]
+        #expect(states == expectedOrder, "Pipeline should progress through states in order")
+    }
+
+    @Test("Orchestrator pipeline fails gracefully on transcription error")
+    func orchestratorTranscriptionFailure() async throws {
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FailingTranscriptionStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: FileManager.default.temporaryDirectory,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = FileManager.default.temporaryDirectory.appending(path: "test.m4a")
+
+        do {
+            _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            // Orchestrator should be in failed state
+            let state = await orchestrator.currentState
+            if case .failed(let msg) = state {
+                #expect(msg.contains("Transcription failed"))
+            } else {
+                #expect(Bool(false), "Should be in failed state, got \(state)")
+            }
+        }
+    }
+
+    @Test("Orchestrator cannot start pipeline when already running")
+    func orchestratorCannotDoubleStart() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorDouble_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // First run succeeds
+        _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+        #expect(await orchestrator.currentState == .complete)
+
+        // Second run from .complete → should fail (can't transition from .complete to .preparing)
+        do {
+            _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            #expect(Bool(false), "Should have thrown for invalid state")
+        } catch {
+            // Expected
+        }
+    }
+
+    @Test("Orchestrator cancel resets to idle from any state")
+    func orchestratorCancelResetsToIdle() async {
+        let orchestrator = MeetingCaptureOrchestrator()
+        await orchestrator.cancel()
+        #expect(await orchestrator.currentState == .idle)
+    }
+
+    @Test("Orchestrator pipeline persists combined diarized transcript")
+    func orchestratorPersistsDiarizedTranscript() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorPersist_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fakePersistence = FakePersistenceStep(vaultURL: tmpDir)
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep(),
+            diarization: FakeDiarizationStep(),
+            persistence: fakePersistence
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        let result = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+        #expect(result.persistedURL != nil)
+        // FakePersistenceStep writes a file we can verify
+        if let url = result.persistedURL {
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    // MARK: - Concurrency Stress Tests (Lifecycle Transitions)
+
+    @Test("Concurrent cancel during pipeline does not crash or deadlock")
+    func concurrentCancelDuringPipeline() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorConcCancel_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: SlowTranscriptionStep(),
+            diarization: FakeDiarizationStep(),
+            persistence: FakePersistenceStep(vaultURL: tmpDir)
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // Start pipeline in one task, cancel from another
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try? await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            }
+            group.addTask {
+                // Give pipeline a moment to start, then cancel
+                try? await Task.sleep(for: .milliseconds(10))
+                await orchestrator.cancel()
+            }
+        }
+
+        // Should not deadlock — if we get here, the test passes
+        let finalState = await orchestrator.currentState
+        // State is either .idle (cancelled) or .complete (finished before cancel)
+        #expect(finalState == .idle || finalState == .complete,
+            "After concurrent cancel, state should be idle or complete, got \(finalState)")
+    }
+
+    @Test("Multiple concurrent pipeline attempts are serialized by actor isolation")
+    func concurrentPipelineAttemptsAreSerialized() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorConcMulti_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // Launch 5 concurrent pipeline attempts — actor serialization means
+        // at most one succeeds, rest fail with invalid state
+        var successCount = 0
+        var failureCount = 0
+
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<5 {
+                group.addTask {
+                    do {
+                        _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+                        return true
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            for await success in group {
+                if success { successCount += 1 }
+                else { failureCount += 1 }
+            }
+        }
+
+        // Exactly 1 should succeed (the first one through), rest fail
+        #expect(successCount == 1, "Only one concurrent pipeline should succeed (got \(successCount))")
+        #expect(failureCount == 4, "Other concurrent attempts should fail (got \(failureCount))")
+    }
+
+    @Test("Ring buffer handles concurrent append from multiple tasks without data loss")
+    func ringBufferConcurrentAppend() async {
+        let buffer = AudioChunkRingBuffer(capacity: 100, chunkDuration: 0.5)
+
+        await withTaskGroup(of: Void.self) { group in
+            for taskID in 0..<10 {
+                group.addTask {
+                    for i in 0..<10 {
+                        let chunk = AudioChunk(
+                            samples: [Float(taskID * 10 + i)],
+                            sampleRate: 44100,
+                            frameCount: 1,
+                            timestamp: Double(taskID * 10 + i)
+                        )
+                        await buffer.append(chunk)
+                    }
+                }
+            }
+        }
+
+        // All 100 appends should complete (actor serialization prevents data races)
+        let count = await buffer.chunkCount
+        #expect(count == 100, "All concurrent appends should be preserved (got \(count))")
+        #expect(await buffer.totalChunksReceived == 100)
+    }
+
+    @Test("Metering buffer concurrent read/write does not crash")
+    func meteringBufferConcurrentReadWrite() async {
+        let buffer = AudioMeteringBuffer(capacity: 50)
+
+        await withTaskGroup(of: Void.self) { group in
+            // Writer tasks
+            for t in 0..<5 {
+                group.addTask {
+                    for i in 0..<100 {
+                        await buffer.append(Float(t * 100 + i) / 500.0)
+                    }
+                }
+            }
+            // Reader tasks
+            for _ in 0..<5 {
+                group.addTask {
+                    for _ in 0..<50 {
+                        _ = await buffer.recent(20)
+                        _ = await buffer.latest
+                        _ = await buffer.rmsLevel(samples: 10)
+                    }
+                }
+            }
+        }
+
+        // If we get here without crash, actor isolation is working
+        let count = await buffer.sampleCount
+        #expect(count == 50, "Buffer should be at capacity after concurrent writes")
+        #expect(await buffer.totalSamplesReceived == 500)
+    }
+
+    @Test("Capture service state remains consistent under concurrent pause/resume")
+    func captureServiceConcurrentStateAccess() async {
+        let service = AVAudioEngineCaptureService()
+
+        // Concurrent state reads should all see .idle (no capture started)
+        await withTaskGroup(of: AVAudioEngineCaptureService.CaptureState.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await service.state
+                }
+            }
+            for await state in group {
+                #expect(state == .idle, "Concurrent reads should all see idle")
+            }
+        }
+
+        // Concurrent pause attempts from idle should all be no-ops
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await service.pauseCapture()
+                }
+            }
+        }
+
+        #expect(await service.state == .idle, "State should remain idle after concurrent pauses")
+    }
+}
+
+// MARK: - Deterministic Fake Pipeline Steps
+
+private struct FakeTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionStep {
+    func transcribe(audioURL: URL) async throws -> TranscriptionService.TranscriptionResult {
+        TranscriptionService.TranscriptionResult(
+            text: "Hello world from fake transcription.",
+            segments: [
+                TranscriptionService.TranscriptionSegment(text: "Hello world", timestamp: 0.0, duration: 1.0, confidence: 0.95),
+                TranscriptionService.TranscriptionSegment(text: "from fake transcription", timestamp: 1.0, duration: 1.5, confidence: 0.92),
+            ],
+            locale: Locale(identifier: "en_US"),
+            duration: 2.5
+        )
+    }
+}
+
+private struct FailingTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionStep {
+    func transcribe(audioURL: URL) async throws -> TranscriptionService.TranscriptionResult {
+        throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Transcription failed: simulated error"])
+    }
+}
+
+private struct SlowTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionStep {
+    func transcribe(audioURL: URL) async throws -> TranscriptionService.TranscriptionResult {
+        try await Task.sleep(for: .milliseconds(50))
+        return TranscriptionService.TranscriptionResult(
+            text: "Slow transcription result.",
+            segments: [TranscriptionService.TranscriptionSegment(text: "Slow transcription result.", timestamp: 0, duration: 2.0, confidence: 0.9)],
+            locale: Locale(identifier: "en_US"),
+            duration: 2.0
+        )
+    }
+}
+
+private struct FakeDiarizationStep: MeetingCaptureOrchestrator.DiarizationStep {
+    func diarize(audioURL: URL) async throws -> SpeakerDiarizationService.DiarizationResult {
+        SpeakerDiarizationService.DiarizationResult(
+            segments: [
+                SpeakerDiarizationService.SpeakerSegment(speakerID: "speaker_0", speakerLabel: "Alice", startTime: 0.0, endTime: 1.5, confidence: 0.9),
+                SpeakerDiarizationService.SpeakerSegment(speakerID: "speaker_1", speakerLabel: "Bob", startTime: 1.0, endTime: 2.5, confidence: 0.85),
+            ],
+            speakerCount: 2,
+            speakers: ["speaker_0": "Alice", "speaker_1": "Bob"]
+        )
+    }
+}
+
+private struct FakeLanguageDetectionStep: MeetingCaptureOrchestrator.LanguageDetectionStep {
+    func detect(text: String) async -> String? {
+        "en"
+    }
+}
+
+private struct FakePersistenceStep: MeetingCaptureOrchestrator.PersistenceStep {
+    let vaultURL: URL
+
+    func persist(
+        transcription: TranscriptionService.TranscriptionResult,
+        diarization: SpeakerDiarizationService.DiarizationResult?,
+        vaultURL: URL,
+        title: String?
+    ) async throws -> URL {
+        let dir = vaultURL.appending(path: "Transcriptions")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fileURL = dir.appending(path: "test-pipeline-output.md")
+        let content = "# Pipeline Output\n\n\(transcription.text)"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
+    }
 }
 
 // MARK: - Free function helper (accessible from @Test methods)

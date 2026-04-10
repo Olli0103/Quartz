@@ -2,116 +2,92 @@
 
 ## 🛑 PASS / FAIL STATUS (Make this explicit in huge text)
 
-# ❌❌❌ **FAIL — REJECT PHASE 4** ❌❌❌
+# ❌❌❌ **FAIL** ❌❌❌
 
-As of **2026-04-10 (UTC)**, Phase 4 is rejected. The implementation does not meet the gate standard for test integrity, architectural compliance, performance proof, and CI evidence publication.
+The Phase 4 implementation is **rejected**. The code and test artifacts do not satisfy the gate conditions from `ROADMAP_V1.md`, `ROADMAP_V2.md`, and `CODEX_BLUEPRINT.md`.
 
 ## 🔍 Discovered Violations (List every shortcut, lazy test, and architectural breach)
 
-### 0) FETCH_AND_VERIFY audit trail (what was verified)
-Audited revisions and artifacts:
-- Commits reviewed: `949aad9` (Phase 4 implementation), `b04ea28` (Phase 4 gap fill).
-- Phase 4 source/test targets reviewed under:
-  - `QuartzKit/Sources/QuartzKit/Domain/Audio/*`
-  - `QuartzKit/Sources/QuartzKit/Domain/OCR/*`
-  - `QuartzKit/Sources/QuartzKit/Presentation/Audio/*`
-  - `QuartzKit/Tests/QuartzKitTests/Phase4*.swift`
-  - `scripts/ci_phase4.sh`
-- CI report artifact checked: `reports/phase4_report.json`.
+### 1) CI artifact integrity failure (required report missing)
+- The Phase 4 CI script claims to generate `reports/phase4_report.json`, but that report is absent in the repository.
+- This breaks the "FETCH_AND_VERIFY" requirement for generated CI evidence.
 
-Verification commands executed during audit:
-```bash
-git log --oneline -n 5
-test -f reports/phase4_report.json && echo present || echo missing
-rg -n 'result == true \|\| result == false|#expect\(Bool\(false\)' QuartzKit/Tests/QuartzKitTests/Phase4*.swift
-rg -n 'easeInOut\(|linear\(' QuartzKit/Sources/QuartzKit/Presentation/Audio/LiveCapsuleOverlay.swift
-rg -n '@preconcurrency|try! await|try!|String\.write\(|UITextView|NSTextLayoutManager|NSFileCoordinator' \
-  QuartzKit/Sources/QuartzKit/Domain/Audio \
-  QuartzKit/Sources/QuartzKit/Domain/OCR \
-  QuartzKit/Sources/QuartzKit/Presentation/Audio \
-  QuartzKit/Sources/QuartzKit/Data/FileSystem/CoordinatedFileWriter.swift
-rg -n 'Phase4.*Snapshot|assertSnapshot|__Snapshots__/Phase4|iPhone|iPad|macOS' \
-  QuartzKit/Tests/QuartzKitTests/Phase4*.swift \
-  QuartzKit/Tests/QuartzKitTests/__Snapshots__ \
-  QuartzUITests
-```
+### 2) Test integrity: multiple superficial / tautological tests
+- `Phase4HardwareCapabilityTests` uses assertions like `result == true || result == false`, which only proves the value is a Bool and does not validate behavior.
+- `Phase4LiveCapsuleAccessibilityTests` mostly validates constructor property storage and callback counters; these are not functional accessibility tests (no VoiceOver traversal behavior, no Dynamic Type rendering assertions, no UI hierarchy verification).
+- `Phase4StreamingTranscriptionTests` heavily checks initial state and enum equality but has little adversarial streaming behavior validation (pause/resume task replacement robustness, error-path emission, partial merge correctness under interruptions).
 
-### 1) Mandatory CI evidence missing
-- `reports/phase4_report.json` is missing in repository state.
-- `scripts/ci_phase4.sh` claims to emit this artifact; absent artifact means gate evidence is incomplete.
-- This alone blocks PASS under the audit protocol’s CI-output verification requirement.
+### 3) Missing platform snapshot coverage for Phase 4 UI
+- Roadmap requires deep UI validation and cross-platform confidence (macOS, iOS, iPadOS).
+- No Phase 4 snapshot matrix covering all three platforms was found.
+- Existing snapshot artifacts in repo are from earlier Phase 3-only suites.
 
-### 2) Test integrity violations (lazy/superficial tests)
-- `Phase4HardwareCapabilityTests` contains tautological assertions (`result == true || result == false`) that do not validate capability behavior.
-- `Phase4LiveCapsuleAccessibilityTests` mostly validates struct construction/field storage and callback invocation counts rather than real accessibility behavior under rendered UI conditions.
-- `Phase4StreamingTranscriptionTests` over-indexes on initial state/enums and under-tests adversarial conditions (pause/resume race windows, task recreation errors, segment merge drift).
-- At least one “forced-failure” anti-pattern appears (`#expect(Bool(false), ...)`) in Phase 4 test suite.
+### 4) Accessibility verification gap (VoiceOver / Dynamic Type)
+- Phase 4 accessibility tests do not verify end-to-end VoiceOver semantics for the Live Capsule control cluster and scan flow interactions.
+- Dynamic Type assertions for the actual Phase 4 visual surfaces are missing (construction tests are not sufficient).
 
-### 3) Snapshot + accessibility depth is insufficient for Phase 4 surfaces
-- No confirmed Phase 4-specific snapshot matrix across **macOS + iOS + iPadOS** for Live Capsule and Scan-to-Markdown outputs.
-- Existing smoke tests are broad app checks, not dedicated Phase 4 golden coverage.
-- VoiceOver/Dynamic Type tests for Phase 4 exist nominally but are not sufficiently behavior-driven to satisfy ADA-grade gate criteria.
+### 5) Animation governance breach (explicit rejection rule)
+- `LiveCapsuleOverlay` pulse animation uses `.easeInOut(duration: 1.0).repeatForever(...)`.
+- Gate rule explicitly says: **if a UI animation uses linear curves instead of spring physics: REJECT**. This implementation does not use spring-tuned motion.
 
-### 4) Architectural compliance violations
-- **Animation policy breach**: `LiveCapsuleOverlay` pulse animation uses `.easeInOut(duration: 1.0).repeatForever(...)` rather than spring-physics quality motion.
-- **Orchestration gap**: `MeetingCaptureOrchestrator` does not yet prove a true end-to-end pipeline contract (capture → stream ASR → diarization → persistence) with deterministic integration tests.
-- **State-model risk**: insufficient proof that Phase 4 UI/store boundaries avoid duplicated source-of-truth state across view/view-model surfaces.
+### 6) Performance verification quality issues
+- Some performance tests are synthetic CPU loops and not coupled to real production hot paths (e.g., custom local K-means simulation in tests).
+- Memory claims in tests are often inferred from bounded structure size rather than measured end-to-end process memory in an integrated capture session.
+- This leaves room for false confidence against the <16ms main-thread and <=150MB steady-state mandates.
 
-### 5) Swift 6 concurrency verification not complete
-- No direct `@preconcurrency` or `try! await` bypass was found in audited Phase 4 files.
-- However, passing this grep check is not enough; there is inadequate adversarial concurrency test coverage for lifecycle transitions and cancellation sequencing.
+### 7) Architectural mandate mismatch: orchestrator is not truly end-to-end
+- `MeetingCaptureOrchestrator` currently exposes state machine helpers and formatting helper logic, but does not execute the full capture→transcribe→diarize→persist pipeline required for an orchestrator-class component.
+- Current tests validate helper behavior more than orchestration contract completion.
 
-### 6) Text stack / file I/O mandate only partially satisfied
-- Positive: `NSFileCoordinator` usage exists via `CoordinatedFileWriter`.
-- Gap: Phase 4 test evidence does not prove all new persistence pathways are enforced through coordinated I/O under failure/timeout conditions.
-- No additional TextKit 2 correctness evidence was added for audio/scan insertion interaction with editor mutation safety.
+### 8) Self-healing matrix evidence incomplete
+- While `scripts/ci_phase4.sh` includes failure classification branches, there is no committed Phase 4 report proving the self-healing loop execution output was produced and archived for this phase.
 
-### 7) Performance verification can be gamed by synthetic tests
-- Some `XCTest` performance logic relies on synthetic loops and inferred memory bounds rather than integrated process-level measurements.
-- Evidence remains weak for strict guarantee of `<16ms` main-thread budget and `<=150MB` steady-state under realistic simultaneous workflows.
+4. **Strict concurrency bypass scan**
+   - No direct `@preconcurrency` / `try! await` bypass found in audited Phase 4 files.
+   - However, concurrency quality is still not validated by adversarial stress tests around lifecycle transitions.
 
-### 8) Self-healing matrix not demonstrably utilized
-- `scripts/ci_phase4.sh` includes classification logic, but missing committed report output means no durable proof that matrix execution was run and archived for this revision.
-- If matrix is not evidenced, enforcement rule requires rejection.
-
-## 🔨 Remediation Orders (Direct terminal commands for Claude Code to fix the violations)
-
-Run these commands in order (do not skip):
+Run the following commands in sequence to bring Phase 4 back to gate-ready quality:
 
 ```bash
-# 1) Regenerate authoritative Phase 4 evidence artifact
-bash scripts/ci_phase4.sh | tee /tmp/phase4_gatekeeper.log
+# 0) Reproduce current baseline and capture raw outputs
+bash scripts/ci_phase4.sh | tee /tmp/phase4_ci_audit.log
+
+# 1) Ensure required report is generated and committed
+bash scripts/ci_phase4.sh
 ls -l reports/phase4_report.json
 
-# 2) Remove tautological/superficial tests and add behavior-driven assertions
+# 2) Replace tautological tests with behavior-driven assertions
+# (edit files listed below; then run focused suites)
 swift test --package-path QuartzKit --filter "Phase4HardwareCapability|Phase4LiveCapsuleAccessibility|Phase4StreamingTranscription"
 
-# 3) Add dedicated Phase 4 snapshot coverage across all three platforms
-swift test --package-path QuartzKit --filter "Phase4.*Snapshot|LiveCapsule|Scan|DynamicType|VoiceOver"
+# 3) Add real cross-platform snapshot/UI coverage for Phase 4 surfaces
+# (macOS + iPhone + iPad snapshots / UI assertions)
+swift test --package-path QuartzKit --filter "LiveCapsule|Scan|Snapshot|DynamicType|VoiceOver"
 
-# 4) Replace non-spring animation and verify reduce-motion path
+# 4) Enforce spring-based animation policy in LiveCapsuleOverlay
+# (replace easeInOut pulse with spring-tuned animation and reduced-motion fallback)
 swift test --package-path QuartzKit --filter "Phase4LiveCapsuleAccessibility|ReduceMotion|DynamicType"
 
-# 5) Implement true end-to-end orchestrator pipeline tests
-swift test --package-path QuartzKit --filter "AudioPipelineIntegration|Phase4E2EFlow|E2E_Audio|E2E_Scan|E2E_Handwriting"
+# 5) Add end-to-end orchestrator tests that run full pipeline with deterministic fakes
+swift test --package-path QuartzKit --filter "AudioPipelineIntegration|E2E_Audio|E2E_Scan|E2E_Handwriting"
 
-# 6) Add integrated performance gates for real workflow mix
+# 6) Strengthen performance gates with measurable budgets tied to real services
 swift test --package-path QuartzKit --filter "Phase4AudioPerformance|AudioMemoryBudget|AudioMainThread"
 
-# 7) Re-run full suite and persist machine-readable proof
+# 7) Final full regression and artifact verification
 swift test --package-path QuartzKit --parallel
 bash scripts/ci_phase4.sh
 cat reports/phase4_report.json
 ```
 
-Mandatory rewrite targets:
+### Mandatory file targets for immediate rewrite
 - `QuartzKit/Tests/QuartzKitTests/Phase4HardwareCapabilityTests.swift`
 - `QuartzKit/Tests/QuartzKitTests/Phase4LiveCapsuleAccessibilityTests.swift`
 - `QuartzKit/Tests/QuartzKitTests/Phase4StreamingTranscriptionTests.swift`
 - `QuartzKit/Sources/QuartzKit/Presentation/Audio/LiveCapsuleOverlay.swift`
 - `QuartzKit/Sources/QuartzKit/Domain/Audio/MeetingCaptureOrchestrator.swift`
-- `scripts/ci_phase4.sh`
+- `scripts/ci_phase4.sh` (artifact guarantees + stronger gate checks)
 
 ---
 
-Gatekeeper final ruling: **REJECT PHASE 4** until all violations are fixed, full evidence artifacts are committed, and the matrix re-run is demonstrably green.
+Gatekeeper decision: **REJECT PHASE 4** until all remediation orders complete and the regenerated evidence is committed.
