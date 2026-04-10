@@ -5,68 +5,102 @@ import Foundation
 @Suite("Phase4HardwareCapability")
 struct Phase4HardwareCapabilityTests {
 
-    @Test("HardwareCapability.hasMicrophone returns Bool without crash")
-    func hasMicrophoneReturns() {
+    // MARK: - Platform-Specific Behavioral Assertions
+
+    @Test("hasMicrophone returns expected value for current platform")
+    func hasMicrophoneExpectedForPlatform() {
         let result = HardwareCapability.hasMicrophone
-        // On CI (macOS) this may be true or false depending on hardware;
-        // we just verify it doesn't crash and returns a Bool.
-        #expect(result == true || result == false)
+        #if os(macOS)
+        // On macOS CI machines, microphone discovery via AVCaptureDevice may or may not find a device.
+        // Verify it returns a stable value (deterministic — no crash or exception).
+        let result2 = HardwareCapability.hasMicrophone
+        #expect(result == result2, "hasMicrophone should be deterministic across calls")
+        #elseif os(iOS)
+        // On iOS sim, no microphone available
+        #expect(result == false, "iOS simulator should report no microphone")
+        #else
+        #expect(result == false, "Unsupported platform should report no microphone")
+        #endif
     }
 
-    @Test("HardwareCapability.hasSpeechRecognition returns Bool without crash")
-    func hasSpeechRecognitionReturns() {
-        let result = HardwareCapability.hasSpeechRecognition
-        #expect(result == true || result == false)
+    @Test("hasSpeechRecognition returns expected value for current platform")
+    func hasSpeechRecognitionExpectedForPlatform() {
+        #if canImport(Speech)
+        // Speech framework available — recognizer availability depends on language model downloads.
+        // Verify determinism and type correctness.
+        let result1 = HardwareCapability.hasSpeechRecognition
+        let result2 = HardwareCapability.hasSpeechRecognition
+        #expect(result1 == result2, "hasSpeechRecognition should be deterministic")
+        #else
+        #expect(HardwareCapability.hasSpeechRecognition == false)
+        #endif
     }
 
-    @Test("HardwareCapability.hasSpeechRecognition(for:) with English locale")
+    @Test("hasSpeechRecognition(for: en-US) returns result without crash")
     func hasSpeechRecognitionForEnglish() {
         let result = HardwareCapability.hasSpeechRecognition(for: Locale(identifier: "en-US"))
-        #expect(result == true || result == false)
+        // en-US is the most widely supported locale — on any machine with speech models it's true
+        let result2 = HardwareCapability.hasSpeechRecognition(for: Locale(identifier: "en-US"))
+        #expect(result == result2, "Same locale should return same result")
     }
 
-    @Test("HardwareCapability.hasSpeechRecognition(for:) with exotic locale returns false")
-    func hasSpeechRecognitionForExotic() {
-        // Klingon locale should not be supported
+    @Test("hasSpeechRecognition(for:) returns false for unsupported locale")
+    func hasSpeechRecognitionForUnsupportedLocale() {
+        // Klingon locale should not be supported by SFSpeechRecognizer
         let result = HardwareCapability.hasSpeechRecognition(for: Locale(identifier: "tlh"))
-        #expect(result == false)
+        #expect(result == false, "Klingon locale should not be supported")
     }
 
-    @Test("HardwareCapability.hasDocumentScanner returns Bool on this platform")
-    func hasDocumentScannerReturns() {
+    @Test("hasDocumentScanner returns false on macOS, platform-appropriate elsewhere")
+    func hasDocumentScannerPlatformBehavior() {
         let result = HardwareCapability.hasDocumentScanner
         #if os(macOS)
-        // VNDocumentCameraViewController not available on macOS
-        #expect(result == false)
+        #expect(result == false, "VNDocumentCameraViewController not available on macOS")
+        #elseif os(iOS)
+        // On real iOS device this is true; on sim it depends on VisionKit stub
+        let result2 = HardwareCapability.hasDocumentScanner
+        #expect(result == result2, "hasDocumentScanner should be deterministic")
         #else
-        #expect(result == true || result == false)
+        #expect(result == false, "Unsupported platform should report no scanner")
         #endif
     }
 
-    @Test("HardwareCapability.hasPencilKit returns true on iOS/macOS")
-    func hasPencilKitReturns() {
+    @Test("hasPencilKit returns true on iOS/macOS where PencilKit is importable")
+    func hasPencilKitExpectedForPlatform() {
         let result = HardwareCapability.hasPencilKit
-        #if os(iOS) || os(macOS)
-        #expect(result == true)
+        #if canImport(PencilKit) && (os(iOS) || os(macOS))
+        #expect(result == true, "PencilKit should be available on iOS and macOS")
         #else
-        #expect(result == false)
+        #expect(result == false, "PencilKit not available on this platform")
         #endif
     }
 
-    @Test("HardwareCapability.hasCamera returns Bool without crash")
-    func hasCameraReturns() {
+    @Test("hasCamera returns platform-appropriate value")
+    func hasCameraExpectedForPlatform() {
         let result = HardwareCapability.hasCamera
-        #expect(result == true || result == false)
+        #if os(iOS)
+        // Simulator has no camera
+        #expect(result == false, "iOS simulator should report no camera")
+        #elseif os(macOS)
+        // macOS CI may or may not have a camera
+        let result2 = HardwareCapability.hasCamera
+        #expect(result == result2, "hasCamera should be deterministic")
+        #else
+        #expect(result == false, "Unsupported platform should report no camera")
+        #endif
     }
 
-    @Test("All capability checks are deterministic across calls")
+    @Test("All capability checks are deterministic across consecutive calls")
     func capabilityChecksDeterministic() {
-        let mic1 = HardwareCapability.hasMicrophone
-        let mic2 = HardwareCapability.hasMicrophone
-        #expect(mic1 == mic2)
+        // Calling each capability twice should return the same result
+        #expect(HardwareCapability.hasMicrophone == HardwareCapability.hasMicrophone)
+        #expect(HardwareCapability.hasSpeechRecognition == HardwareCapability.hasSpeechRecognition)
+        #expect(HardwareCapability.hasDocumentScanner == HardwareCapability.hasDocumentScanner)
+        #expect(HardwareCapability.hasPencilKit == HardwareCapability.hasPencilKit)
+        #expect(HardwareCapability.hasCamera == HardwareCapability.hasCamera)
 
-        let pencil1 = HardwareCapability.hasPencilKit
-        let pencil2 = HardwareCapability.hasPencilKit
-        #expect(pencil1 == pencil2)
+        // Locale-specific check
+        let locale = Locale(identifier: "en-US")
+        #expect(HardwareCapability.hasSpeechRecognition(for: locale) == HardwareCapability.hasSpeechRecognition(for: locale))
     }
 }

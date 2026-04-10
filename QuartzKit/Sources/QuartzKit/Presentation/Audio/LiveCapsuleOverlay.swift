@@ -165,7 +165,9 @@ private struct PulseModifier: ViewModifier {
         content
             .opacity(isActive && isPulsing ? 0.3 : 1.0)
             .animation(
-                isActive ? .easeInOut(duration: 1.0).repeatForever(autoreverses: true) : .default,
+                isActive
+                    ? .spring(duration: 1.0, bounce: 0.0).repeatForever(autoreverses: true)
+                    : .default,
                 value: isPulsing
             )
             .onChange(of: isActive) { _, newValue in
