@@ -790,6 +790,169 @@ struct Phase4E2EFlowTests {
 
         #expect(await service.state == .idle, "State should remain idle after concurrent pauses")
     }
+
+    // MARK: - Adversarial Pipeline Lifecycle Tests
+
+    @Test("Cancel at each pipeline stage resets to idle")
+    func cancelAtEachPipelineStageResetsToIdle() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorCancelStage_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Use slow step so we can cancel during transcription
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: SlowTranscriptionStep(),
+            diarization: FakeDiarizationStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // Start pipeline and cancel during transcription
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try? await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(5))
+                await orchestrator.cancel()
+            }
+        }
+
+        let state = await orchestrator.currentState
+        #expect(state == .idle, "Cancel during pipeline should reset to idle (got \(state))")
+    }
+
+    @Test("Error cascade: failed pipeline allows restart from idle")
+    func errorCascadeAllowsRestart() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorErrorCascade_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        // First run: fails at transcription
+        let failOrchestrator = MeetingCaptureOrchestrator(
+            transcription: FailingTranscriptionStep()
+        )
+
+        do {
+            _ = try await failOrchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            // Expected — transcription failed
+        }
+
+        let failedState = await failOrchestrator.currentState
+        // State should be .failed(...)
+        if case .failed = failedState {
+            // Good — now reset and retry
+        } else {
+            #expect(Bool(false), "State should be .failed after transcription error (got \(failedState))")
+        }
+
+        // Reset to idle
+        await failOrchestrator.cancel()
+        #expect(await failOrchestrator.currentState == .idle, "Cancel should reset to idle")
+    }
+
+    @Test("Concurrent cancel + stop streaming from different tasks")
+    func concurrentCancelAndStop() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorConcCancelStop_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: SlowTranscriptionStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        await withTaskGroup(of: Void.self) { group in
+            // Pipeline task
+            group.addTask {
+                _ = try? await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            }
+            // Multiple cancel tasks
+            for _ in 0..<5 {
+                group.addTask {
+                    try? await Task.sleep(for: .milliseconds(2))
+                    await orchestrator.cancel()
+                }
+            }
+        }
+
+        // Should not deadlock
+        let state = await orchestrator.currentState
+        #expect(state == .idle || state == .complete,
+                "After concurrent cancel+pipeline, should be idle or complete (got \(state))")
+    }
+
+    @Test("Pipeline restart after failure succeeds")
+    func pipelineRestartAfterFailure() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorRestart_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        // Orchestrator with failing step
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FailingTranscriptionStep()
+        )
+
+        // Run 1: fails
+        do {
+            _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+        } catch {
+            // Expected
+        }
+
+        // Reset
+        await orchestrator.cancel()
+        #expect(await orchestrator.currentState == .idle)
+
+        // We can't reconfigure the orchestrator's step (it's let),
+        // but we can create a new one with working step to prove the pattern
+        let successOrchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep()
+        )
+
+        let result = try await successOrchestrator.runPipeline(audioURL: audioURL, configuration: config)
+        #expect(!result.transcription.text.isEmpty, "Restart after failure should succeed")
+        #expect(await successOrchestrator.currentState == .complete)
+    }
 }
 
 // MARK: - Deterministic Fake Pipeline Steps

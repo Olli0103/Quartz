@@ -1,492 +1,535 @@
-import XCTest
+import Testing
+import Foundation
 @testable import QuartzKit
 
-// MARK: - Phase 4: TextKit 2 Top-Tier Editor (Bear-grade)
-// Tests for markdown elision, table editing, inline media, and large document rendering.
+// MARK: - Phase 4: Production Editor Integration Tests
+// Behavioral tests exercising MarkdownASTHighlighter.parseIncremental(),
+// ASTDirtyRegionTracker, and MutationTransaction undo policies
+// through actual production APIs — not hand-constructed constants.
 
-// MARK: - Markdown Elision Cursor Tests
+// MARK: - Suite 1: AST Incremental Parse Integration
 
-final class Phase4MarkdownElisionCursorTests: XCTestCase {
+@Suite("Phase4ASTIncrementalParseIntegration")
+struct Phase4ASTIncrementalParseIntegrationTests {
 
-    /// Tests that heading syntax (##) is visible when cursor is on that line.
-    @MainActor
-    func testHeadingSyntaxVisibleWhenCursorOnLine() async throws {
-        // Document: "## My Heading"
-        // Cursor at position 5 (on the heading line)
-        // Expected: ## should be visible
-
-        let content = "## My Heading\n\nSome body text."
-        let cursorPosition = 5  // Within "## My Heading"
-
-        // Test that the heading markers are included in visible range
-        // This test documents expected behavior for markdown elision
-        let headingRange = NSRange(location: 0, length: 2)  // "##"
-
-        // When cursor is on the heading line, syntax should be visible
-        let shouldShowSyntax = isRangeInCursorLine(headingRange, cursorPosition: cursorPosition, content: content)
-        XCTAssertTrue(shouldShowSyntax, "Heading ## should be visible when cursor is on that line")
+    private func makeHighlighter() -> MarkdownASTHighlighter {
+        MarkdownASTHighlighter(baseFontSize: 14)
     }
 
-    /// Tests that heading syntax is hidden when cursor is elsewhere.
-    @MainActor
-    func testHeadingSyntaxHiddenWhenCursorElsewhere() async throws {
-        let content = "## My Heading\n\nSome body text."
-        let cursorPosition = 20  // In "Some body text"
-
-        let headingRange = NSRange(location: 0, length: 2)
-        let shouldShowSyntax = isRangeInCursorLine(headingRange, cursorPosition: cursorPosition, content: content)
-
-        // When cursor is NOT on the heading line, syntax should be elided (hidden)
-        XCTAssertFalse(shouldShowSyntax, "Heading ## should be hidden when cursor is elsewhere")
+    @Test("Full parse of bold markdown produces bold trait in spans")
+    func fullParseBoldProducesBoldTrait() async {
+        let h = makeHighlighter()
+        let md = "Hello **bold** world"
+        let spans = await h.parse(md)
+        let boldSpans = spans.filter { $0.traits.bold }
+        #expect(!boldSpans.isEmpty, "Should produce at least one bold span for **bold**")
     }
 
-    /// Tests that bold markers are visible when cursor is within bold text.
-    @MainActor
-    func testBoldMarkersVisibleWhenCursorInside() async throws {
-        let content = "Some **bold text** here."
-        let cursorPosition = 10  // Inside "bold text"
-
-        // Bold markers are at positions 5-6 ("**") and 15-16 ("**")
-        let openMarkerRange = NSRange(location: 5, length: 2)
-        let closeMarkerRange = NSRange(location: 15, length: 2)
-
-        let shouldShowOpen = isRangeNearCursor(openMarkerRange, cursorPosition: cursorPosition, threshold: 15)
-        let shouldShowClose = isRangeNearCursor(closeMarkerRange, cursorPosition: cursorPosition, threshold: 15)
-
-        XCTAssertTrue(shouldShowOpen, "Opening ** should be visible when cursor is within bold span")
-        XCTAssertTrue(shouldShowClose, "Closing ** should be visible when cursor is within bold span")
+    @Test("Full parse of italic markdown produces italic trait in spans")
+    func fullParseItalicProducesItalicTrait() async {
+        let h = makeHighlighter()
+        let md = "Hello *italic* world"
+        let spans = await h.parse(md)
+        let italicSpans = spans.filter { $0.traits.italic }
+        #expect(!italicSpans.isEmpty, "Should produce at least one italic span for *italic*")
     }
 
-    /// Tests that italic markers follow the same rules.
-    @MainActor
-    func testItalicMarkersVisibleWhenCursorInside() async throws {
-        let content = "Some *italic text* here."
-        let cursorPosition = 10  // Inside "italic text"
+    @Test("Incremental parse after insertion preserves unchanged spans before edit")
+    func incrementalPreservesSpansBeforeEdit() async {
+        let h = makeHighlighter()
+        // Initial parse: "**bold** and plain"
+        let original = "**bold** and plain"
+        let fullSpans = await h.parse(original)
 
-        let openMarkerRange = NSRange(location: 5, length: 1)
-        let closeMarkerRange = NSRange(location: 17, length: 1)
+        // Append " text" at end → "**bold** and plain text"
+        let modified = "**bold** and plain text"
+        let editRange = NSRange(location: 18, length: 5) // " text" inserted at position 18
+        let incrementalSpans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 0)
 
-        let shouldShowOpen = isRangeNearCursor(openMarkerRange, cursorPosition: cursorPosition, threshold: 15)
-        let shouldShowClose = isRangeNearCursor(closeMarkerRange, cursorPosition: cursorPosition, threshold: 15)
+        // Bold span at start should still exist
+        let boldSpans = incrementalSpans.filter { $0.traits.bold }
+        #expect(!boldSpans.isEmpty, "Bold span should be preserved after appending text at end")
 
-        XCTAssertTrue(shouldShowOpen, "Opening * should be visible when cursor is within italic span")
-        XCTAssertTrue(shouldShowClose, "Closing * should be visible when cursor is within italic span")
+        // Verify at least some spans from before the edit survived
+        let spansBeforeEdit = incrementalSpans.filter { $0.range.location + $0.range.length <= 8 }
+        let originalBeforeEdit = fullSpans.filter { $0.range.location + $0.range.length <= 8 }
+        #expect(spansBeforeEdit.count >= originalBeforeEdit.count,
+                "Spans before edit region should be preserved")
     }
 
-    /// Tests that code block fence is visible when cursor is inside.
-    @MainActor
-    func testCodeBlockFenceVisibleWhenCursorInside() async throws {
-        let content = "```swift\nlet x = 1\n```"
-        let cursorPosition = 12  // Inside "let x = 1"
+    @Test("Incremental parse: adding bold markers produces bold spans")
+    func incrementalAddBoldMarkers() async {
+        let h = makeHighlighter()
+        let original = "Hello world"
+        _ = await h.parse(original)
 
-        let openFenceRange = NSRange(location: 0, length: 8)  // "```swift"
-        let closeFenceRange = NSRange(location: 19, length: 3)  // "```"
+        // Change "Hello world" → "Hello **world**"
+        // In pre-edit: replaced "world" (location:6, length:5) with "**world**" (length:9)
+        let modified = "Hello **world**"
+        let editRange = NSRange(location: 6, length: 9)
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 5)
 
-        // Code blocks typically show fences when cursor is anywhere inside
-        let inCodeBlock = cursorPosition > 8 && cursorPosition < 19
-        XCTAssertTrue(inCodeBlock, "Cursor should be recognized as inside code block")
+        let boldSpans = spans.filter { $0.traits.bold }
+        #expect(!boldSpans.isEmpty, "Adding ** markers should produce bold spans")
     }
 
-    /// Tests that inline code backticks are visible when cursor is inside.
-    @MainActor
-    func testInlineCodeBackticksVisibleWhenCursorInside() async throws {
-        let content = "Use the `print()` function."
-        let cursorPosition = 12  // Inside "print()"
+    @Test("Incremental parse: code fence triggers full reparse")
+    func codeFenceTriggersFullReparse() async {
+        let h = makeHighlighter()
+        let original = "Hello world\n\nSome text"
+        let fullSpans = await h.parse(original)
 
-        let openBacktick = NSRange(location: 8, length: 1)
-        let closeBacktick = NSRange(location: 16, length: 1)
+        // Insert code fence: "Hello world\n\n```swift\ncode\n```\n\nSome text"
+        let modified = "Hello world\n\n```swift\ncode\n```\n\nSome text"
+        let insertedText = "```swift\ncode\n```\n\n"
+        let editRange = NSRange(location: 13, length: insertedText.count)
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 0)
 
-        let shouldShowOpen = isRangeNearCursor(openBacktick, cursorPosition: cursorPosition, threshold: 10)
-        let shouldShowClose = isRangeNearCursor(closeBacktick, cursorPosition: cursorPosition, threshold: 10)
-
-        XCTAssertTrue(shouldShowOpen && shouldShowClose, "Backticks should be visible when cursor is inside inline code")
+        // Code fence boundary detected → falls back to full parse, still returns valid spans
+        #expect(!spans.isEmpty, "Code fence edit should still return valid spans (via full reparse)")
     }
 
-    /// Tests that link syntax is visible when cursor is on the link.
-    @MainActor
-    func testLinkSyntaxVisibleWhenCursorOnLink() async throws {
-        let content = "Check [this link](https://example.com) for more."
-        let cursorPosition = 10  // On "this link"
+    @Test("Incremental parse: delete heading prefix removes heading span")
+    func deleteHeadingPrefixRemovesHeadingSpan() async {
+        let h = makeHighlighter()
+        let original = "# Heading\n\nBody text"
+        _ = await h.parse(original)
 
-        // Link syntax: [ ] ( )
-        let linkStart = 6  // "["
-        let linkEnd = 38  // ")"
+        // Delete "# " → "Heading\n\nBody text"
+        let modified = "Heading\n\nBody text"
+        let editRange = NSRange(location: 0, length: 0) // After deletion, nothing at location 0
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 2)
 
-        let cursorOnLink = cursorPosition >= linkStart && cursorPosition <= linkEnd
-        XCTAssertTrue(cursorOnLink, "Cursor should be recognized as on link")
+        // The heading should no longer produce a bold heading span at position 0
+        let firstLineHasBoldHeading = spans.contains { span in
+            span.range.location == 0 && span.traits.bold
+        }
+        // After removing "# " prefix, the text "Heading" is plain — no bold
+        #expect(!firstLineHasBoldHeading, "Removing heading prefix should remove heading bold style")
     }
 
-    // MARK: - Helper Functions
+    @Test("Incremental parse: insert at document start shifts all subsequent spans")
+    func insertAtDocStartShiftsSpans() async {
+        let h = makeHighlighter()
+        let original = "**bold** text"
+        let fullSpans = await h.parse(original)
+        let originalBoldLoc = fullSpans.first { $0.traits.bold }?.range.location ?? -1
 
-    private func isRangeInCursorLine(_ range: NSRange, cursorPosition: Int, content: String) -> Bool {
-        let lines = content.components(separatedBy: "\n")
-        var offset = 0
-        for line in lines {
-            let lineEnd = offset + line.count
-            if cursorPosition >= offset && cursorPosition <= lineEnd {
-                // Cursor is on this line
-                return range.location >= offset && range.location + range.length <= lineEnd + 1
+        // Insert "Prefix " at start → "Prefix **bold** text"
+        let modified = "Prefix **bold** text"
+        let editRange = NSRange(location: 0, length: 7) // "Prefix " inserted
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 0)
+
+        let newBoldSpan = spans.first(where: { $0.traits.bold })
+        #expect(newBoldSpan != nil, "Bold span should still exist after prefix insertion")
+        if let newBold = newBoldSpan, originalBoldLoc >= 0 {
+            #expect(newBold.range.location > originalBoldLoc,
+                    "Bold span should be shifted right after prefix insertion")
+        }
+    }
+
+    @Test("Empty document incremental parse does not crash")
+    func emptyDocIncrementalParse() async {
+        let h = makeHighlighter()
+        _ = await h.parse("x") // seed cache with non-empty
+        let spans = await h.parseIncremental("", editRange: NSRange(location: 0, length: 0), preEditLength: 1)
+        // Falls back to full parse on empty doc — should return empty spans, not crash
+        #expect(spans.isEmpty, "Empty document should produce no spans")
+    }
+
+    @Test("Multi-paragraph edit triggers dirty region expansion")
+    func multiParagraphEditExpandsDirtyRegion() async {
+        let h = makeHighlighter()
+        let original = "# Heading\n\nParagraph one.\n\nParagraph two."
+        _ = await h.parse(original)
+
+        // Replace "Paragraph one.\n\nParagraph two." with "New content."
+        let modified = "# Heading\n\nNew content."
+        let editRange = NSRange(location: 12, length: 12) // "New content."
+        let preEditLen = "Paragraph one.\n\nParagraph two.".count
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: preEditLen)
+
+        // Should return valid spans — heading should still be present
+        let headingSpans = spans.filter { $0.traits.bold }
+        #expect(!headingSpans.isEmpty, "Heading span should survive multi-paragraph edit below it")
+    }
+}
+
+// MARK: - Suite 2: ASTDirtyRegionTracker Behavioral
+
+@Suite("Phase4ASTDirtyRegionTrackerBehavioral")
+struct Phase4ASTDirtyRegionTrackerBehavioralTests {
+
+    @Test("Edit mid-paragraph: dirty range covers full paragraph")
+    func editMidParagraphCoversFullParagraph() {
+        let text = "First paragraph.\n\nSecond paragraph here.\n\nThird paragraph."
+        // Edit in "Second" — location ~19, length 1
+        let editRange = NSRange(location: 22, length: 1)
+        let dirty = ASTDirtyRegionTracker.dirtyRange(in: text, editRange: editRange)
+
+        #expect(dirty != nil)
+        if let dirty {
+            // Should cover at least the full "Second paragraph here.\n" line
+            let secondParagraphStart = 18 // after "First paragraph.\n\n"
+            let secondParagraphEnd = 40   // "Second paragraph here.\n"
+            #expect(dirty.location <= secondParagraphStart, "Dirty range should start at or before second paragraph")
+            #expect(dirty.location + dirty.length >= secondParagraphEnd, "Dirty range should extend to end of second paragraph")
+        }
+    }
+
+    @Test("Edit at paragraph boundary: expanded range covers ±1 paragraph")
+    func editAtParagraphBoundaryExpandsContext() {
+        let text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+        // Edit at the newline between first and second paragraphs
+        let editRange = NSRange(location: 17, length: 0)
+        let expanded = ASTDirtyRegionTracker.expandedDirtyRange(in: text, editRange: editRange)
+
+        #expect(expanded != nil)
+        if let expanded {
+            // Expanded should include first paragraph and second paragraph
+            #expect(expanded.location == 0, "Expanded range should reach back to document start")
+            #expect(expanded.location + expanded.length > 18, "Expanded range should extend into second paragraph")
+        }
+    }
+
+    @Test("Code fence in dirty region detected correctly")
+    func codeFenceInDirtyRegionDetected() {
+        let text = "Some text\n\n```swift\nlet x = 1\n```\n\nMore text"
+        // Dirty range covering the code fence
+        let codeFenceRange = NSRange(location: 11, length: 22) // "```swift\nlet x = 1\n```"
+        let hasFence = ASTDirtyRegionTracker.containsCodeFenceBoundary(in: text, range: codeFenceRange)
+        #expect(hasFence, "Should detect ``` as code fence boundary")
+    }
+
+    @Test("Code fence with tildes detected")
+    func tildeFenceDetected() {
+        let text = "Before\n\n~~~python\nprint('hi')\n~~~\n\nAfter"
+        let range = NSRange(location: 8, length: 25)
+        let hasFence = ASTDirtyRegionTracker.containsCodeFenceBoundary(in: text, range: range)
+        #expect(hasFence, "Should detect ~~~ as code fence boundary")
+    }
+
+    @Test("Edit in list item: dirty range covers list item paragraph")
+    func editInListItemCoversListParagraph() {
+        let text = "# Heading\n\n- Item one\n- Item two\n- Item three\n\nFooter"
+        // Edit inside "Item two" at approximate location 24
+        let editRange = NSRange(location: 24, length: 1)
+        let dirty = ASTDirtyRegionTracker.dirtyRange(in: text, editRange: editRange)
+
+        #expect(dirty != nil)
+        if let dirty {
+            // Should cover at least the "- Item two\n" line
+            let nsText = text as NSString
+            let dirtySubstring = nsText.substring(with: dirty)
+            #expect(dirtySubstring.contains("Item two"), "Dirty range should cover the edited list item")
+        }
+    }
+
+    @Test("Edit spanning multiple paragraphs: merged dirty range")
+    func editSpanningMultipleParagraphs() {
+        let text = "Para one.\n\nPara two.\n\nPara three."
+        // Edit spanning from para one into para two
+        let editRange = NSRange(location: 5, length: 20)
+        let dirty = ASTDirtyRegionTracker.dirtyRange(in: text, editRange: editRange)
+
+        #expect(dirty != nil)
+        if let dirty {
+            #expect(dirty.location == 0, "Should start at beginning of first paragraph")
+            #expect(dirty.length > 20, "Should cover both affected paragraphs")
+        }
+    }
+
+    @Test("Pre-edit coordinates convert correctly to post-edit dirty range")
+    func preEditCoordinatesConvertCorrectly() {
+        // "Hello world" → "Hello beautiful world" (insert "beautiful " at position 6)
+        let postEditText = "Hello beautiful world"
+        let preEditRange = NSRange(location: 6, length: 0) // insertion point
+        let replacementLength = 10 // "beautiful "
+
+        let dirty = ASTDirtyRegionTracker.dirtyRange(
+            in: postEditText,
+            preEditRange: preEditRange,
+            replacementLength: replacementLength
+        )
+
+        #expect(dirty != nil)
+        if let dirty {
+            // Should cover the region where "beautiful " was inserted
+            #expect(dirty.location <= 6, "Dirty range should include insertion point")
+            #expect(dirty.location + dirty.length >= 16, "Dirty range should cover inserted text")
+        }
+    }
+}
+
+// MARK: - Suite 3: MutationTransaction Undo Policy Behavioral
+
+@Suite("Phase4MutationTransactionUndoPolicy")
+struct Phase4MutationTransactionUndoPolicyTests {
+
+    @Test("userTyping groups with previous for native coalescing")
+    func userTypingGroupsWithPrevious() {
+        let tx = MutationTransaction(
+            origin: .userTyping,
+            editedRange: NSRange(location: 0, length: 1),
+            replacementLength: 1
+        )
+        #expect(tx.registersUndo, "userTyping should register undo")
+        #expect(tx.groupsWithPrevious, "userTyping should group with previous for character coalescing")
+        #expect(!tx.needsExplicitUndoGroup, "userTyping uses native grouping, not explicit")
+        #expect(!tx.clearsUndoStack, "userTyping should not clear undo stack")
+    }
+
+    @Test("formatting creates explicit undo group")
+    func formattingCreatesExplicitGroup() {
+        let tx = MutationTransaction(
+            origin: .formatting,
+            editedRange: NSRange(location: 5, length: 4),
+            replacementLength: 8
+        )
+        #expect(tx.registersUndo, "formatting should register undo")
+        #expect(tx.needsExplicitUndoGroup, "formatting should use explicit undo group")
+        #expect(!tx.groupsWithPrevious, "formatting should not group with previous")
+    }
+
+    @Test("syncMerge clears undo stack and does not register")
+    func syncMergeClearsStack() {
+        let tx = MutationTransaction(
+            origin: .syncMerge,
+            editedRange: NSRange(location: 0, length: 100),
+            replacementLength: 120
+        )
+        #expect(!tx.registersUndo, "syncMerge should NOT register undo")
+        #expect(tx.clearsUndoStack, "syncMerge should clear undo stack")
+        #expect(!tx.needsExplicitUndoGroup, "syncMerge should not need explicit group")
+    }
+
+    @Test("writingTools does not register undo")
+    func writingToolsNoUndo() {
+        let tx = MutationTransaction(
+            origin: .writingTools,
+            editedRange: NSRange(location: 0, length: 10),
+            replacementLength: 15
+        )
+        #expect(!tx.registersUndo, "writingTools should NOT register undo (system-managed)")
+        #expect(!tx.clearsUndoStack, "writingTools should not clear stack")
+        #expect(!tx.needsExplicitUndoGroup, "writingTools should not use explicit group")
+    }
+
+    @Test("listContinuation creates explicit group, does not coalesce")
+    func listContinuationExplicitGroupNoCoalesce() {
+        let tx = MutationTransaction(
+            origin: .listContinuation,
+            editedRange: NSRange(location: 20, length: 0),
+            replacementLength: 5
+        )
+        #expect(tx.registersUndo, "listContinuation should register undo")
+        #expect(tx.needsExplicitUndoGroup, "listContinuation should use explicit undo group")
+        #expect(!tx.groupsWithPrevious, "listContinuation should NOT group with previous")
+    }
+
+    @Test("All 9 MutationOrigin cases have correct undo policy tuple")
+    func allOriginsHaveCorrectPolicyTuple() {
+        // Expected policy matrix: (registersUndo, clearsUndoStack, groupsWithPrevious, needsExplicitUndoGroup)
+        let expectations: [(MutationOrigin, Bool, Bool, Bool, Bool)] = [
+            (.userTyping,       true,  false, true,  false),
+            (.listContinuation, true,  false, false, true),
+            (.formatting,       true,  false, false, true),
+            (.aiInsert,         true,  false, false, true),
+            (.syncMerge,        false, true,  false, false),
+            (.pasteOrDrop,      true,  false, false, true),
+            (.writingTools,     false, false, false, false),
+            (.taskToggle,       true,  false, false, true),
+            (.tableNavigation,  true,  false, false, true),
+        ]
+
+        for (origin, regUndo, clearsStack, groupsPrev, needsExplicit) in expectations {
+            let tx = MutationTransaction(
+                origin: origin,
+                editedRange: NSRange(location: 0, length: 1),
+                replacementLength: 1
+            )
+            #expect(tx.registersUndo == regUndo,
+                    "\(origin.rawValue): registersUndo should be \(regUndo)")
+            #expect(tx.clearsUndoStack == clearsStack,
+                    "\(origin.rawValue): clearsUndoStack should be \(clearsStack)")
+            #expect(tx.groupsWithPrevious == groupsPrev,
+                    "\(origin.rawValue): groupsWithPrevious should be \(groupsPrev)")
+            #expect(tx.needsExplicitUndoGroup == needsExplicit,
+                    "\(origin.rawValue): needsExplicitUndoGroup should be \(needsExplicit)")
+        }
+    }
+
+    @Test("Highlight policy: userTyping prefers incremental, formatting prefers full")
+    func highlightPolicyCorrect() {
+        let typing = MutationTransaction(origin: .userTyping, editedRange: NSRange(location: 0, length: 1), replacementLength: 1)
+        let formatting = MutationTransaction(origin: .formatting, editedRange: NSRange(location: 0, length: 1), replacementLength: 1)
+        let sync = MutationTransaction(origin: .syncMerge, editedRange: NSRange(location: 0, length: 1), replacementLength: 1)
+
+        #expect(typing.prefersIncrementalHighlight, "userTyping should prefer incremental highlight")
+        #expect(!formatting.prefersIncrementalHighlight, "formatting should NOT prefer incremental highlight")
+        #expect(!sync.prefersIncrementalHighlight, "syncMerge should NOT prefer incremental highlight")
+    }
+
+    @Test("All CaseIterable origins are covered")
+    func allOriginsAreCaseIterable() {
+        let allOrigins = MutationOrigin.allCases
+        #expect(allOrigins.count == 9, "Should have exactly 9 MutationOrigin cases")
+
+        // Verify each case can create a valid transaction
+        for origin in allOrigins {
+            let tx = MutationTransaction(origin: origin, editedRange: NSRange(location: 0, length: 0), replacementLength: 0)
+            #expect(tx.origin == origin)
+        }
+    }
+}
+
+// MARK: - Suite 4: Editor Cursor & Selection Stability
+
+@Suite("Phase4EditorCursorSelectionStability")
+struct Phase4EditorCursorSelectionStabilityTests {
+
+    @Test("Highlighter does not lose cached spans after repeated parses")
+    func highlighterCacheStability() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let md = "# Title\n\n**Bold** and *italic*"
+
+        let spans1 = await h.parse(md)
+        let spans2 = await h.parse(md)
+
+        // Same input should produce same span count
+        #expect(spans1.count == spans2.count,
+                "Repeated parses of identical content should produce same span count")
+    }
+
+    @Test("Incremental parse with zero-length edit range does not crash")
+    func incrementalZeroLengthEdit() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let md = "Hello **bold** world"
+        _ = await h.parse(md)
+
+        // Zero-length edit (cursor position, no actual change)
+        let spans = await h.parseIncremental(md, editRange: NSRange(location: 5, length: 0), preEditLength: 0)
+        #expect(spans.count > 0, "Zero-length edit should still return valid spans")
+    }
+
+    @Test("Large document (1000 lines) full parse completes")
+    func largeDocFullParseCompletes() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        var lines: [String] = []
+        for i in 0..<1000 {
+            if i % 10 == 0 {
+                lines.append("## Section \(i)")
+            } else if i % 5 == 0 {
+                lines.append("- List item **bold** and *italic*")
+            } else {
+                lines.append("Regular paragraph text with some content line \(i).")
             }
-            offset = lineEnd + 1  // +1 for newline
+            lines.append("")
         }
-        return false
-    }
+        let md = lines.joined(separator: "\n")
 
-    private func isRangeNearCursor(_ range: NSRange, cursorPosition: Int, threshold: Int) -> Bool {
-        let rangeStart = range.location
-        let rangeEnd = range.location + range.length
-        return abs(cursorPosition - rangeStart) <= threshold || abs(cursorPosition - rangeEnd) <= threshold
+        let spans = await h.parse(md)
+        #expect(!spans.isEmpty, "Large document should produce spans")
+
+        // Should have bold and italic spans from the list items
+        let boldSpans = spans.filter { $0.traits.bold }
+        let italicSpans = spans.filter { $0.traits.italic }
+        #expect(!boldSpans.isEmpty, "Should detect bold in large document")
+        #expect(!italicSpans.isEmpty, "Should detect italic in large document")
     }
 }
 
-// MARK: - Table Editing Keyboard Tests
+// MARK: - Suite 5: TextKit 2 Integration Paths
 
-final class Phase4TableEditingKeyboardTests: XCTestCase {
+@Suite("Phase4TextKit2IntegrationPaths")
+struct Phase4TextKit2IntegrationPathsTests {
 
-    /// Tests that Tab key moves to next cell in a table.
-    @MainActor
-    func testTabMovesToNextCell() async throws {
-        let table = """
-        | Header 1 | Header 2 |
-        |----------|----------|
-        | Cell 1   | Cell 2   |
-        """
+    @Test("Full parse then no-op incremental parse preserves span count")
+    func fullThenNoOpIncrementalPreservesSpans() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let md = "**bold** and *italic* text"
 
-        // Cursor in "Cell 1", Tab should move to "Cell 2"
-        let cursorInCell1 = 51  // Approximate position in "Cell 1"
-        let cell2Start = 62  // Approximate position of "Cell 2"
+        let fullSpans = await h.parse(md)
+        // No-op edit: same text, zero-length edit at position 10
+        let incrementalSpans = await h.parseIncremental(md, editRange: NSRange(location: 10, length: 0), preEditLength: 0)
 
-        // Verify table structure
-        XCTAssertTrue(table.contains("| Header 1 |"), "Table should have headers")
-        XCTAssertTrue(table.contains("| Cell 1   |"), "Table should have cells")
+        // Both should have bold and italic spans
+        let fullBold = fullSpans.filter { $0.traits.bold }
+        let incBold = incrementalSpans.filter { $0.traits.bold }
+        let fullItalic = fullSpans.filter { $0.traits.italic }
+        let incItalic = incrementalSpans.filter { $0.traits.italic }
 
-        // Document expected behavior
-        // Tab from Cell 1 should land in Cell 2
-        let expectedNextCell = cell2Start
-        XCTAssertGreaterThan(expectedNextCell, cursorInCell1, "Next cell should be after current cell")
+        #expect(fullBold.count == incBold.count,
+                "Bold span count should match between full and incremental for no-op edit")
+        #expect(fullItalic.count == incItalic.count,
+                "Italic span count should match between full and incremental for no-op edit")
     }
 
-    /// Tests that Shift+Tab moves to previous cell.
-    @MainActor
-    func testShiftTabMovesToPreviousCell() async throws {
-        let table = """
-        | Header 1 | Header 2 |
-        |----------|----------|
-        | Cell 1   | Cell 2   |
-        """
+    @Test("Incremental parse length delta correct after insertion")
+    func incrementalLengthDeltaCorrectAfterInsertion() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let original = "Hello world"  // length 11
+        _ = await h.parse(original)
 
-        // Cursor in "Cell 2", Shift+Tab should move to "Cell 1"
-        let cursorInCell2 = 62
-        let cell1Start = 51
+        // Insert " beautiful" after "Hello" → "Hello beautiful world"
+        let modified = "Hello beautiful world"  // length 21
+        let editRange = NSRange(location: 5, length: 10) // " beautiful" is 10 chars
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 0)
 
-        XCTAssertLessThan(cell1Start, cursorInCell2, "Previous cell should be before current cell")
-    }
-
-    /// Tests that Enter creates a new row at end of table.
-    @MainActor
-    func testEnterCreatesNewRowAtEnd() async throws {
-        let table = """
-        | Header 1 | Header 2 |
-        |----------|----------|
-        | Cell 1   | Cell 2   |
-        """
-
-        // Cursor at end of last row, Enter should create new row
-        let newRow = "| |  |"  // Template for new row
-
-        // Verify table parsing
-        let rows = table.components(separatedBy: "\n")
-        XCTAssertEqual(rows.count, 3, "Table should have 3 rows (header, divider, body)")
-    }
-
-    /// Tests that column alignment is preserved when editing.
-    @MainActor
-    func testColumnAlignmentPreserved() async throws {
-        let table = """
-        | Left | Center | Right |
-        |:-----|:------:|------:|
-        | a    |   b    |     c |
-        """
-
-        // Verify alignment markers
-        XCTAssertTrue(table.contains(":-----"), "Should have left-aligned column")
-        XCTAssertTrue(table.contains(":------:"), "Should have center-aligned column")
-        XCTAssertTrue(table.contains("------:"), "Should have right-aligned column")
-    }
-
-    /// Tests table cell navigation wraps to next/previous row.
-    @MainActor
-    func testCellNavigationWrapsRows() async throws {
-        let table = """
-        | A | B |
-        |---|---|
-        | 1 | 2 |
-        | 3 | 4 |
-        """
-
-        // Tab from cell "2" should wrap to cell "3" (next row, first column)
-        // This is Bear-like behavior
-
-        let rows = table.components(separatedBy: "\n")
-        XCTAssertEqual(rows.count, 4, "Table should have 4 rows")
-    }
-
-    /// Tests that row/column insertion preserves existing content.
-    @MainActor
-    func testRowInsertionPreservesContent() async throws {
-        let originalTable = """
-        | A | B |
-        |---|---|
-        | 1 | 2 |
-        """
-
-        // After inserting row, original content should remain
-        let expectedCells = ["A", "B", "1", "2"]
-        for cell in expectedCells {
-            XCTAssertTrue(originalTable.contains(cell), "Cell '\(cell)' should exist")
-        }
-    }
-}
-
-// MARK: - Inline Media Layout Tests
-
-final class Phase4InlineMediaLayoutTests: XCTestCase {
-
-    /// Tests that ScaledTextAttachment scales images properly.
-    @MainActor
-    func testImageScalingWithinContainerWidth() async throws {
-        let attachment = ScaledTextAttachment()
-
-        // Create a test image (100x100)
-        #if canImport(UIKit)
-        let testImage = UIImage(systemName: "photo")!
-        #elseif canImport(AppKit)
-        let testImage = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!
-        #endif
-
-        attachment.image = testImage
-
-        // Attachment exists and has image
-        XCTAssertNotNil(attachment.image, "Attachment should have image set")
-    }
-
-    /// Tests that image aspect ratio is maintained during scaling.
-    @MainActor
-    func testImageAspectRatioMaintained() async throws {
-        // Original: 200x100 (2:1 aspect ratio)
-        // Container: 100px wide
-        // Expected: 100x50 (maintains 2:1)
-
-        let originalWidth: CGFloat = 200
-        let originalHeight: CGFloat = 100
-        let containerWidth: CGFloat = 100
-
-        let aspectRatio = originalWidth / originalHeight  // 2.0
-
-        let scaledWidth = min(originalWidth, containerWidth)
-        let scaledHeight = scaledWidth / aspectRatio
-
-        XCTAssertEqual(scaledWidth, 100, "Width should be container width")
-        XCTAssertEqual(scaledHeight, 50, "Height should maintain aspect ratio")
-    }
-
-    /// Tests lazy image loading doesn't block main thread.
-    @MainActor
-    func testLazyImageLoadingIsNonBlocking() async throws {
-        let startTime = CFAbsoluteTimeGetCurrent()
-
-        // Create multiple attachments (simulating large document)
-        var attachments: [ScaledTextAttachment] = []
-        for _ in 0..<10 {
-            let attachment = ScaledTextAttachment()
-            attachments.append(attachment)
-        }
-
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-
-        // Should complete almost instantly
-        XCTAssertLessThan(elapsed, 0.1, "Creating attachments should be fast")
-        XCTAssertEqual(attachments.count, 10)
-    }
-
-    /// Tests that U+FFFC placeholder is used for attachments.
-    @MainActor
-    func testAttachmentUsesObjectReplacementCharacter() async throws {
-        // TextKit uses U+FFFC (Object Replacement Character) for attachments
-        let objectReplacementChar = "\u{FFFC}"
-
-        // Verify the character is correct
-        XCTAssertEqual(objectReplacementChar.unicodeScalars.first?.value, 0xFFFC)
-    }
-
-    /// Tests image bounds calculation.
-    @MainActor
-    func testImageBoundsCalculation() async throws {
-        // Test the scaling logic
-        let imageWidth: CGFloat = 400
-        let imageHeight: CGFloat = 300
-        let containerWidth: CGFloat = 200
-        let padding: CGFloat = 16
-
-        let maxWidth = containerWidth - padding * 2  // 168
-        let scale = maxWidth / imageWidth  // 0.42
-        let scaledWidth = imageWidth * scale  // 168
-        let scaledHeight = imageHeight * scale  // 126
-
-        XCTAssertLessThanOrEqual(scaledWidth, maxWidth, "Scaled width should fit in container")
-        XCTAssertEqual(scaledWidth / scaledHeight, imageWidth / imageHeight, accuracy: 0.01, "Aspect ratio preserved")
-    }
-}
-
-// MARK: - Large Document Rendering Performance Tests
-
-final class Phase4LargeDocRenderingPerfTests: XCTestCase {
-
-    /// Tests rendering performance with 10k words.
-    func testLargeDocumentRenderingPerformance() throws {
-        // Generate 10k words
-        let words = Array(repeating: "word", count: 10_000)
-        let content = words.joined(separator: " ")
-
-        XCTAssertEqual(words.count, 10_000, "Should have 10k words")
-
-        measure {
-            // Parse content (simulate highlighting pass)
-            let _ = content.components(separatedBy: " ")
+        // All span ranges should be within the new document length
+        for span in spans {
+            #expect(span.range.location >= 0, "Span location should be non-negative")
+            #expect(span.range.location + span.range.length <= modified.count,
+                    "Span should not extend beyond document: \(span.range) > \(modified.count)")
         }
     }
 
-    /// Tests that large documents don't cause memory spikes.
-    @MainActor
-    func testLargeDocumentMemoryFootprint() async throws {
-        // Generate document with 50 image references
-        var content = "# Large Document\n\n"
-        for i in 0..<50 {
-            content += "![Image \(i)](image\(i).png)\n\n"
-            content += String(repeating: "Lorem ipsum dolor sit amet. ", count: 200)
-            content += "\n\n"
+    @Test("Incremental parse length delta correct after deletion")
+    func incrementalLengthDeltaCorrectAfterDeletion() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let original = "Hello beautiful **bold** world"  // has bold
+        _ = await h.parse(original)
+
+        // Delete "beautiful " → "Hello **bold** world"
+        let modified = "Hello **bold** world"
+        let editRange = NSRange(location: 6, length: 0) // deletion: nothing at the edit point
+        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 10) // "beautiful " = 10
+
+        // Bold should still exist
+        let boldSpans = spans.filter { $0.traits.bold }
+        #expect(!boldSpans.isEmpty, "Bold span should survive deletion of unrelated text")
+
+        // All span ranges should be within the new document length
+        for span in spans {
+            #expect(span.range.location + span.range.length <= modified.count,
+                    "Span should not extend beyond shortened document")
         }
-
-        // Content should be created without issue
-        XCTAssertGreaterThan(content.count, 100_000, "Document should be large")
     }
 
-    /// Tests incremental update performance.
-    @MainActor
-    func testIncrementalUpdatePerformance() async throws {
-        // Start with large document
-        let baseContent = String(repeating: "Lorem ipsum. ", count: 1000)
+    @Test("Concurrent incremental parses on same highlighter are serialized by actor")
+    func concurrentIncrementalParsesSerializedByActor() async {
+        let h = MarkdownASTHighlighter(baseFontSize: 14)
+        let md = "# Title\n\n**Bold** paragraph"
+        _ = await h.parse(md)
 
-        let startTime = CFAbsoluteTimeGetCurrent()
-
-        // Simulate incremental edit (append character)
-        let _ = baseContent + "x"
-
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-
-        // Incremental updates should be very fast
-        XCTAssertLessThan(elapsed, 0.001, "Incremental update should be sub-millisecond")
-    }
-
-    /// Tests that syntax highlighting scales linearly.
-    func testSyntaxHighlightingScalesLinearly() {
-        // Time for 1k words vs 10k words should be roughly 10x, not exponential
-
-        let small = String(repeating: "word ", count: 1_000)
-        let large = String(repeating: "word ", count: 10_000)
-
-        var smallTime: TimeInterval = 0
-        var largeTime: TimeInterval = 0
-
-        // Measure small
-        let start1 = CFAbsoluteTimeGetCurrent()
-        _ = small.split(separator: " ")
-        smallTime = CFAbsoluteTimeGetCurrent() - start1
-
-        // Measure large
-        let start2 = CFAbsoluteTimeGetCurrent()
-        _ = large.split(separator: " ")
-        largeTime = CFAbsoluteTimeGetCurrent() - start2
-
-        // Large should be within 20x of small (allowing for overhead)
-        // Linear would be 10x, we allow some slack
-        let ratio = largeTime / max(smallTime, 0.0001)
-        XCTAssertLessThan(ratio, 50, "Processing should scale roughly linearly")
-    }
-
-    /// Tests concurrent highlighting doesn't cause crashes.
-    @MainActor
-    func testConcurrentHighlightingStability() async throws {
-        let content = String(repeating: "**bold** and *italic* text. ", count: 100)
-
-        // Simulate concurrent highlighting requests
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<10 {
+        // Fire 10 concurrent incremental parses — actor serializes them
+        await withTaskGroup(of: [HighlightSpan].self) { group in
+            for i in 0..<10 {
                 group.addTask {
-                    // Simulate parsing
-                    let _ = content.components(separatedBy: " ")
+                    let edit = "# Title\n\n**Bold** paragraph \(i)"
+                    return await h.parseIncremental(
+                        edit,
+                        editRange: NSRange(location: edit.count - 1, length: 1),
+                        preEditLength: 0
+                    )
+                }
+            }
+            for await spans in group {
+                // Each result should be valid (non-negative ranges)
+                for span in spans {
+                    #expect(span.range.location >= 0, "Concurrent parse produced invalid span location")
                 }
             }
         }
-
-        // If we get here without crash, test passes
-        XCTAssertTrue(true, "Concurrent highlighting should be stable")
-    }
-}
-
-// MARK: - AST Incremental Update Tests
-
-final class Phase4ASTIncrementalUpdateTests: XCTestCase {
-
-    /// Tests that single character insertion invalidates minimal range.
-    @MainActor
-    func testSingleCharInsertionInvalidatesMinimalRange() async throws {
-        let original = "Hello world"
-        let modified = "Hello world!"
-
-        // Only the last character changed
-        let changeRange = NSRange(location: 11, length: 1)
-
-        XCTAssertEqual(changeRange.length, 1, "Change should be minimal")
-    }
-
-    /// Tests that line-scoped changes don't invalidate entire document.
-    @MainActor
-    func testLineScopedChangesAreLocal() async throws {
-        let lines = [
-            "# Heading",
-            "",
-            "Paragraph one.",
-            "",
-            "Paragraph two."
-        ]
-        let document = lines.joined(separator: "\n")
-
-        // Edit in paragraph one should not affect paragraph two
-        let paragraphOneStart = 11  // After "# Heading\n\n"
-        let paragraphTwoStart = 27  // After "Paragraph one.\n\n"
-
-        XCTAssertGreaterThan(paragraphTwoStart, paragraphOneStart, "Paragraphs should be separate")
-    }
-
-    /// Tests block-level change detection.
-    @MainActor
-    func testBlockLevelChangeDetection() async throws {
-        // Changing a heading should invalidate that heading block only
-
-        let content = """
-        # Heading One
-
-        Some text.
-
-        # Heading Two
-
-        More text.
-        """
-
-        let lines = content.components(separatedBy: "\n")
-        let headingLines = lines.enumerated().filter { $0.element.hasPrefix("#") }
-
-        XCTAssertEqual(headingLines.count, 2, "Should detect two heading blocks")
     }
 }

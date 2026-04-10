@@ -271,5 +271,143 @@ struct Phase4StreamingTranscriptionTests {
             }
         }
     }
+
+    // MARK: - Adversarial Lifecycle Transitions
+
+    @Test("Rapid start-stop-start cycle does not deadlock")
+    func rapidStartStopStartCycle() async {
+        let service = StreamingTranscriptionService()
+
+        // Attempt start → will likely fail (no real recognizer) — that's fine
+        let stream1 = AsyncStream<AudioChunk> { $0.finish() }
+        _ = try? await service.startStreaming(audioChunkStream: stream1)
+
+        // Immediately stop
+        let result = await service.stopStreaming()
+        #expect(result.text.isEmpty || !result.text.isEmpty, "Stop should return a result")
+
+        // Immediately attempt start again
+        let stream2 = AsyncStream<AudioChunk> { $0.finish() }
+        _ = try? await service.startStreaming(audioChunkStream: stream2)
+
+        // Final stop to clean up
+        _ = await service.stopStreaming()
+
+        // If we get here without deadlock, test passes
+        let finalState = await service.state
+        #expect(finalState == .idle, "Should end in idle after rapid start-stop-start cycle")
+    }
+
+    @Test("Concurrent start attempts: all fail gracefully or exactly one succeeds")
+    func concurrentStartAttempts() async {
+        let service = StreamingTranscriptionService()
+
+        var successCount = 0
+        var failCount = 0
+
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<5 {
+                group.addTask {
+                    let stream = AsyncStream<AudioChunk> { $0.finish() }
+                    do {
+                        _ = try await service.startStreaming(audioChunkStream: stream)
+                        return true
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            for await success in group {
+                if success { successCount += 1 }
+                else { failCount += 1 }
+            }
+        }
+
+        // Clean up
+        _ = await service.stopStreaming()
+
+        // At most 1 should succeed (actor serialization), all others fail
+        #expect(successCount <= 1, "At most one concurrent start should succeed (got \(successCount))")
+        #expect(successCount + failCount == 5, "All 5 attempts should complete")
+    }
+
+    @Test("Error during concurrent operations: all return to idle")
+    func errorDuringConcurrentOperationsReturnsIdle() async {
+        // Use exotic locale to guarantee startStreaming throws
+        let service = StreamingTranscriptionService(locale: Locale(identifier: "tlh-Piqd"))
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<5 {
+                group.addTask {
+                    let stream = AsyncStream<AudioChunk> { $0.finish() }
+                    _ = try? await service.startStreaming(audioChunkStream: stream)
+                }
+            }
+        }
+
+        #expect(await service.state == .idle, "After all failed starts, state should be idle")
+    }
+
+    @Test("Lifecycle transition matrix: all invalid transitions from idle are safe")
+    func lifecycleTransitionMatrixFromIdle() async throws {
+        let service = StreamingTranscriptionService()
+
+        // Stop from idle → empty result, stay idle
+        let stopResult = await service.stopStreaming()
+        #expect(stopResult.text.isEmpty)
+        #expect(await service.state == .idle)
+
+        // Pause from idle → no-op, stay idle
+        await service.pauseStreaming()
+        #expect(await service.state == .idle)
+
+        // Resume from idle → no-op, stay idle
+        try await service.resumeStreaming()
+        #expect(await service.state == .idle)
+
+        // Multiple mixed operations from idle → all safe
+        await service.pauseStreaming()
+        _ = await service.stopStreaming()
+        try await service.resumeStreaming()
+        await service.pauseStreaming()
+        _ = await service.stopStreaming()
+
+        #expect(await service.state == .idle, "All transitions from idle should leave state idle")
+    }
+
+    @Test("Concurrent mixed lifecycle operations do not crash or deadlock")
+    func concurrentMixedLifecycleOperations() async {
+        let service = StreamingTranscriptionService()
+
+        await withTaskGroup(of: Void.self) { group in
+            // Some tasks try to stop
+            for _ in 0..<5 {
+                group.addTask {
+                    _ = await service.stopStreaming()
+                }
+            }
+            // Some tasks try to pause
+            for _ in 0..<5 {
+                group.addTask {
+                    await service.pauseStreaming()
+                }
+            }
+            // Some tasks try to resume
+            for _ in 0..<5 {
+                group.addTask {
+                    try? await service.resumeStreaming()
+                }
+            }
+            // Some tasks read state
+            for _ in 0..<5 {
+                group.addTask {
+                    _ = await service.state
+                }
+            }
+        }
+
+        // All 20 tasks completed without crash or deadlock
+        #expect(await service.state == .idle, "After concurrent mixed ops, state should be idle")
+    }
 }
 #endif

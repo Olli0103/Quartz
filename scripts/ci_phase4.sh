@@ -107,7 +107,7 @@ fi
 
 # ── Step 2: Phase 4 specific tests ──────────────────────────────────
 step "Running Phase 4 audio & scan tests"
-P4_FILTER="Phase4AudioMemoryBudget|Phase4AudioInterruption|Phase4HardwareCapability|Phase4E2EFlow|Phase4LiveCapsuleAccessibility|Phase4ScanAccessibility|Phase4StreamingTranscription|AudioPipelineIntegration|DiarizationMapping|LanguageDetection|RecorderCompactUI|Phase4ProductionHotPath"
+P4_FILTER="Phase4AudioMemoryBudget|Phase4AudioInterruption|Phase4HardwareCapability|Phase4E2EFlow|Phase4LiveCapsuleAccessibility|Phase4ScanAccessibility|Phase4StreamingTranscription|AudioPipelineIntegration|DiarizationMapping|LanguageDetection|RecorderCompactUI|Phase4ProductionHotPath|Phase4ProcessRSS|Phase4P95Latency|Phase4IntegratedWorkload|Phase4Editor|Phase4SnapshotMatrix"
 P4_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --filter "$P4_FILTER" 2>&1 || true)
 P4_PASS=$(echo "$P4_OUTPUT" | grep -c "passed" || true)
 P4_FAIL=$(echo "$P4_OUTPUT" | grep -cE "failed after|Test Case.*failed" || true)
@@ -212,6 +212,58 @@ if [ "$TAUTOLOGICAL" -gt 0 ]; then
 fi
 pass "No tautological assertions found"
 
+# ── Step 8b: Editor test quality gate ────────────────────────────────
+step "Verifying Phase4EditorTests use production APIs (not hand-constructed constants)"
+EDITOR_TEST="$PACKAGE_PATH/Tests/QuartzKitTests/Phase4EditorTests.swift"
+if [ -f "$EDITOR_TEST" ]; then
+    # Must reference at least one production API
+    HAS_HIGHLIGHTER=$(grep -c "MarkdownASTHighlighter\|parseIncremental\|ASTDirtyRegionTracker\|MutationTransaction\|MutationOrigin" "$EDITOR_TEST" || true)
+    if [ "$HAS_HIGHLIGHTER" -lt 3 ]; then
+        fail "Phase4EditorTests must reference production APIs (MarkdownASTHighlighter, ASTDirtyRegionTracker, MutationTransaction) — found only $HAS_HIGHLIGHTER references"
+    fi
+    # Must not contain the old superficial patterns
+    OLD_PATTERNS=$(grep -c "isRangeInCursorLine\|isRangeNearCursor\|let expectedCells" "$EDITOR_TEST" || true)
+    if [ "$OLD_PATTERNS" -gt 0 ]; then
+        fail "Phase4EditorTests still contains superficial helper patterns ($OLD_PATTERNS found)"
+    fi
+    pass "Phase4EditorTests reference production APIs ($HAS_HIGHLIGHTER references)"
+else
+    fail "Phase4EditorTests.swift not found"
+fi
+
+# ── Step 8c: P95/RSS performance gate ────────────────────────────────
+step "Verifying P95 and RSS performance tests exist"
+PERF_FILE="$PACKAGE_PATH/Tests/QuartzKitTests/Phase4AudioPerformanceTests.swift"
+if [ -f "$PERF_FILE" ]; then
+    P95_COUNT=$(grep -c "P95\|p95\|percentile\|latencies.sort" "$PERF_FILE" || true)
+    RSS_COUNT=$(grep -c "mach_task_basic_info\|resident_size\|currentResidentMemoryMB" "$PERF_FILE" || true)
+    if [ "$P95_COUNT" -lt 2 ]; then
+        fail "Phase4AudioPerformanceTests must contain P95 enforcement tests (found $P95_COUNT references)"
+    fi
+    if [ "$RSS_COUNT" -lt 2 ]; then
+        fail "Phase4AudioPerformanceTests must contain RSS measurement tests (found $RSS_COUNT references)"
+    fi
+    pass "P95 ($P95_COUNT refs) and RSS ($RSS_COUNT refs) performance tests present"
+else
+    fail "Phase4AudioPerformanceTests.swift not found"
+fi
+
+# ── Step 8d: Adversarial concurrency gate ────────────────────────────
+step "Verifying adversarial lifecycle concurrency tests exist"
+STREAMING_TEST="$PACKAGE_PATH/Tests/QuartzKitTests/Phase4StreamingTranscriptionTests.swift"
+E2E_TEST="$PACKAGE_PATH/Tests/QuartzKitTests/Phase4E2EFlowTests.swift"
+ADVERSARIAL_COUNT=0
+if [ -f "$STREAMING_TEST" ]; then
+    ADVERSARIAL_COUNT=$((ADVERSARIAL_COUNT + $(grep -c "Adversarial\|rapidStartStop\|concurrentStart\|lifecycleTransitionMatrix\|concurrentMixed" "$STREAMING_TEST" || true)))
+fi
+if [ -f "$E2E_TEST" ]; then
+    ADVERSARIAL_COUNT=$((ADVERSARIAL_COUNT + $(grep -c "cancelAtEach\|errorCascade\|concurrentCancel\|pipelineRestart" "$E2E_TEST" || true)))
+fi
+if [ "$ADVERSARIAL_COUNT" -lt 4 ]; then
+    fail "Adversarial lifecycle tests insufficient (found $ADVERSARIAL_COUNT markers, need >= 4)"
+fi
+pass "Adversarial lifecycle tests present ($ADVERSARIAL_COUNT markers)"
+
 # ── Step 9: Generate reports ──────────────────────────────────────────
 step "Generating Phase 4 report"
 mkdir -p reports
@@ -219,14 +271,18 @@ mkdir -p reports
 # Count XCTest methods too (for Phase4AudioPerformanceTests)
 XCTEST_COUNT=$(grep -r "func test" "$PACKAGE_PATH/Tests/QuartzKitTests/Phase4AudioPerformanceTests.swift" 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
+# Capture commit hash for provenance
+COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
 cat > "$REPORT_PATH" <<REPORT_EOF
 {
   "phase": 4,
   "status": "pass",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "commit": "$COMMIT_HASH",
   "tests": {
     "total": $TOTAL_TESTS,
-    "phase4_specific": $P4_COUNT,
+    "phase4_swift_testing": $P4_COUNT,
     "phase4_xctest_perf": $XCTEST_COUNT,
     "full_suite_failed": $FULL_FAIL,
     "full_suite_passed": $FULL_PASS
@@ -242,7 +298,12 @@ cat > "$REPORT_PATH" <<REPORT_EOF
     "Phase4ScanAccessibilityTests",
     "Phase4SidebarDashboardTests",
     "Phase4AudioPerformanceTests",
-    "Phase4ProductionHotPathPerformanceTests"
+    "Phase4ProductionHotPathPerformanceTests",
+    "Phase4ProcessRSSMemoryBudgetTests",
+    "Phase4P95LatencyEnforcementTests",
+    "Phase4IntegratedWorkloadTests",
+    "Phase4EditorTests (5 behavioral suites)",
+    "Phase4SnapshotMatrixTests"
   ],
   "linear_issues_covered": [
     "OLL-34: AVAudioEngine capture graph",
@@ -265,7 +326,10 @@ cat > "$REPORT_PATH" <<REPORT_EOF
   "gate_checks": {
     "animation_compliance": "PASS — PulseModifier uses .spring(), no .easeInOut or .linear",
     "tautological_assertions": "PASS — zero instances of (result == true || result == false)",
-    "artifact_integrity": "PASS — $REPORT_PATH generated and verified",
+    "editor_test_quality": "PASS — Phase4EditorTests reference production APIs ($HAS_HIGHLIGHTER references)",
+    "p95_rss_performance": "PASS — P95 enforcement + mach_task_basic_info RSS measurement present",
+    "adversarial_concurrency": "PASS — adversarial lifecycle tests present ($ADVERSARIAL_COUNT markers)",
+    "artifact_integrity": "PASS — $REPORT_PATH generated and verified at commit $COMMIT_HASH",
     "self_healing_evidence": "PASS — heal log at $HEAL_LOG"
   },
   "ci_script": "scripts/ci_phase4.sh",
@@ -295,6 +359,7 @@ pass "Report artifact verified: valid JSON, status=pass"
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}Phase 4 CI completed — PASS${RESET}"
+echo "  Commit: $COMMIT_HASH"
 echo "  Total @Test annotations: $TOTAL_TESTS"
 echo "  Phase 4 @Test count: $P4_COUNT"
 echo "  Phase 4 XCTest perf tests: $XCTEST_COUNT"
@@ -302,4 +367,7 @@ echo "  Full suite failures: $FULL_FAIL"
 echo "  Report: $REPORT_PATH"
 echo "  Animation gate: spring physics verified"
 echo "  Tautological gate: zero violations"
+echo "  Editor quality gate: production API tests verified"
+echo "  Performance gate: P95 + RSS tests verified"
+echo "  Concurrency gate: adversarial lifecycle tests verified"
 exit 0

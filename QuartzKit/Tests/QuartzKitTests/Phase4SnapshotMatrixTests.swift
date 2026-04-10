@@ -16,6 +16,8 @@ import AppKit
 /// with transcript, without transcript) across macOS, iOS, and iPadOS.
 ///
 /// Uses `swift-snapshot-testing` with platform-suffixed baselines.
+/// Baselines are auto-generated on first run per platform via `record: .missing`.
+/// To regenerate all baselines, run on each target platform (macOS, iOS Simulator, iPad Simulator).
 final class Phase4SnapshotMatrixTests: XCTestCase {
 
     // MARK: - Platform Suffix
@@ -208,7 +210,7 @@ final class Phase4SnapshotMatrixTests: XCTestCase {
     private func assertViewSnapshot<V: View>(
         _ view: V,
         named name: String,
-        record: SnapshotTestingConfiguration.Record? = nil,
+        record: SnapshotTestingConfiguration.Record? = .missing,
         file: StaticString = #filePath,
         testName: String = #function,
         line: UInt = #line

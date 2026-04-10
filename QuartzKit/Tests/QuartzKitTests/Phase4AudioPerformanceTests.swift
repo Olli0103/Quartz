@@ -659,3 +659,277 @@ final class Phase4ProductionHotPathPerformanceTests: XCTestCase {
             "Session stats retrieval must be under 16ms (was \(String(format: "%.2f", perCallMs))ms)")
     }
 }
+
+// MARK: - Process RSS Memory Budget Tests
+
+/// Tests process-level resident set size (RSS) under realistic audio workloads.
+/// Uses `mach_task_basic_info` via `task_info()` for direct process memory measurement.
+final class Phase4ProcessRSSMemoryBudgetTests: XCTestCase {
+
+    private static func currentResidentMemoryMB() -> Double? {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        return Double(info.resident_size) / (1024.0 * 1024.0)
+    }
+
+    /// Tests RSS delta after creating full audio pipeline objects stays under 50MB.
+    func testBaselineRSSDeltaUnder50MB() async throws {
+        let baselineRSS = Self.currentResidentMemoryMB()
+        XCTAssertNotNil(baselineRSS, "Should be able to read process RSS")
+
+        // Create full audio pipeline objects
+        let ringBuffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let meteringBuffer = AudioMeteringBuffer(capacity: 1000)
+        let processor = AudioMeteringProcessor(bufferCapacity: 1000, uiUpdateInterval: 1.0 / 30.0)
+        let orchestrator = MeetingCaptureOrchestrator()
+
+        // Use objects to prevent compiler optimization
+        for i in 0..<100 {
+            let chunk = AudioChunk(
+                samples: [Float](repeating: 0.1, count: 22050),
+                sampleRate: 44100, frameCount: 22050, timestamp: Double(i) * 0.5
+            )
+            await ringBuffer.append(chunk)
+            await meteringBuffer.append(Float(i) / 100.0)
+            await processor.processSample(averagePower: -30, peakPower: -20) { _, _ in }
+        }
+        _ = await orchestrator.currentState
+
+        let afterRSS = Self.currentResidentMemoryMB()
+        XCTAssertNotNil(afterRSS, "Should be able to read process RSS after pipeline creation")
+
+        if let baseline = baselineRSS, let after = afterRSS {
+            let delta = after - baseline
+            XCTAssertLessThan(delta, 50.0,
+                "RSS delta after pipeline creation should be under 50MB (was \(String(format: "%.1f", delta))MB)")
+        }
+    }
+
+    /// Tests RSS stays under 150MB during simulated 60-minute session.
+    func testLongSessionRSSUnder150MB() async throws {
+        let baselineRSS = Self.currentResidentMemoryMB()
+
+        let ringBuffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let meteringBuffer = AudioMeteringBuffer(capacity: 1000)
+
+        // Simulate 60-minute session: ring buffer cycles through 7200 chunks (120 capacity)
+        // Metering at 12Hz = 43200 samples (1000 capacity)
+        let chunkSamples = [Float](repeating: 0.1, count: 22050)
+        for i in 0..<7200 {
+            let chunk = AudioChunk(
+                samples: chunkSamples,
+                sampleRate: 44100, frameCount: 22050, timestamp: Double(i) * 0.5
+            )
+            await ringBuffer.append(chunk)
+
+            // Metering at 6x rate (12Hz vs 2Hz chunk rate)
+            for j in 0..<6 {
+                await meteringBuffer.append(Float((i * 6 + j) % 100) / 100.0)
+            }
+        }
+
+        let afterRSS = Self.currentResidentMemoryMB()
+
+        if let baseline = baselineRSS, let after = afterRSS {
+            let delta = after - baseline
+            XCTAssertLessThan(delta, 150.0,
+                "RSS during 60-min session must stay under 150MB mandate (was \(String(format: "%.1f", delta))MB)")
+        }
+
+        // Verify buffers are at capacity (bounded)
+        let chunkCount = await ringBuffer.chunkCount
+        XCTAssertEqual(chunkCount, 120, "Ring buffer should be at capacity")
+        let meterCount = await meteringBuffer.sampleCount
+        XCTAssertEqual(meterCount, 1000, "Metering buffer should be at capacity")
+    }
+
+    /// Tests RSS returns near baseline after cleanup.
+    func testRSSRecoveryAfterCleanup() async throws {
+        let baselineRSS = Self.currentResidentMemoryMB()
+
+        // Create and populate pipeline in an inner scope
+        do {
+            let buffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+            for i in 0..<500 {
+                let chunk = AudioChunk(
+                    samples: [Float](repeating: 0.1, count: 22050),
+                    sampleRate: 44100, frameCount: 22050, timestamp: Double(i) * 0.5
+                )
+                await buffer.append(chunk)
+            }
+            let count = await buffer.chunkCount
+            XCTAssertEqual(count, 120, "Buffer should be at capacity")
+        }
+        // buffer is now out of scope — ARC should release
+
+        let afterCleanupRSS = Self.currentResidentMemoryMB()
+
+        if let baseline = baselineRSS, let afterCleanup = afterCleanupRSS {
+            let delta = afterCleanup - baseline
+            // After cleanup, RSS should be within 20MB of baseline
+            // (memory may not be immediately returned to OS, but should not grow unboundedly)
+            XCTAssertLessThan(delta, 20.0,
+                "RSS after cleanup should return near baseline (delta was \(String(format: "%.1f", delta))MB)")
+        }
+    }
+}
+
+// MARK: - P95 Enforcement Tests
+
+/// Tests P95 latency of audio hot paths under 100-iteration runs.
+final class Phase4P95LatencyEnforcementTests: XCTestCase {
+
+    /// Tests ring buffer append P95 latency < 1ms.
+    func testRingBufferAppendP95Under1ms() async throws {
+        let buffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let samples = [Float](repeating: 0.1, count: 22050)
+
+        var latencies: [Double] = []
+
+        for i in 0..<100 {
+            let start = CFAbsoluteTimeGetCurrent()
+            let chunk = AudioChunk(samples: samples, sampleRate: 44100, frameCount: 22050, timestamp: Double(i) * 0.5)
+            await buffer.append(chunk)
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000 // ms
+            latencies.append(elapsed)
+        }
+
+        latencies.sort()
+        let p95 = latencies[94] // 95th percentile
+        XCTAssertLessThan(p95, 1.0,
+            "Ring buffer append P95 must be under 1ms (was \(String(format: "%.3f", p95))ms)")
+    }
+
+    /// Tests combineTranscriptionWithDiarization P95 latency < 16ms.
+    func testCombineTranscriptionDiarizationP95Under16ms() async throws {
+        let orchestrator = MeetingCaptureOrchestrator()
+
+        let segments = (0..<360).map { i in
+            TranscriptionService.TranscriptionSegment(
+                text: "Word \(i)", timestamp: Double(i) * 5.0, duration: 4.5, confidence: 0.9
+            )
+        }
+        let transcription = TranscriptionService.TranscriptionResult(
+            text: segments.map(\.text).joined(separator: " "),
+            segments: segments, locale: Locale(identifier: "en_US"), duration: 1800
+        )
+        let speakerSegs = (0..<60).map { i in
+            SpeakerDiarizationService.SpeakerSegment(
+                speakerID: "s\(i % 4)", speakerLabel: "Speaker \(i % 4)",
+                startTime: Double(i) * 30, endTime: Double(i + 1) * 30, confidence: 0.85
+            )
+        }
+        let diarization = SpeakerDiarizationService.DiarizationResult(
+            segments: speakerSegs, speakerCount: 4, speakers: [:]
+        )
+
+        var latencies: [Double] = []
+        for _ in 0..<100 {
+            let start = CFAbsoluteTimeGetCurrent()
+            _ = await orchestrator.combineTranscriptionWithDiarization(
+                transcription: transcription, diarization: diarization
+            )
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            latencies.append(elapsed)
+        }
+
+        latencies.sort()
+        let p95 = latencies[94]
+        XCTAssertLessThan(p95, 16.0,
+            "combineTranscriptionWithDiarization P95 must be under 16ms (was \(String(format: "%.2f", p95))ms)")
+    }
+
+    /// Tests metering normalization P95 latency < 1ms.
+    @MainActor
+    func testMeteringNormalizationP95Under1ms() async throws {
+        let processor = AudioMeteringProcessor(uiUpdateInterval: 0)
+
+        var latencies: [Double] = []
+        for i in 0..<100 {
+            let start = CFAbsoluteTimeGetCurrent()
+            await processor.processSample(
+                averagePower: Float(i % 60) - 60,
+                peakPower: Float(i % 50) - 50
+            ) { _, _ in }
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            latencies.append(elapsed)
+        }
+
+        latencies.sort()
+        let p95 = latencies[94]
+        XCTAssertLessThan(p95, 1.0,
+            "Metering normalization P95 must be under 1ms (was \(String(format: "%.3f", p95))ms)")
+    }
+}
+
+// MARK: - Integrated Workload Performance Test
+
+/// Tests concurrent capture+UI simulation performance.
+final class Phase4IntegratedWorkloadTests: XCTestCase {
+
+    /// Tests ring buffer + metering + transcription combine running concurrently.
+    func testConcurrentCaptureUIWorkload() async throws {
+        let ringBuffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+        let meteringBuffer = AudioMeteringBuffer(capacity: 1000)
+        let orchestrator = MeetingCaptureOrchestrator()
+
+        let segments = (0..<60).map { i in
+            TranscriptionService.TranscriptionSegment(
+                text: "Word \(i)", timestamp: Double(i) * 5.0, duration: 4.5, confidence: 0.9
+            )
+        }
+        let transcription = TranscriptionService.TranscriptionResult(
+            text: segments.map(\.text).joined(separator: " "),
+            segments: segments, locale: Locale(identifier: "en_US"), duration: 300
+        )
+        let speakerSegs = (0..<10).map { i in
+            SpeakerDiarizationService.SpeakerSegment(
+                speakerID: "s\(i % 2)", speakerLabel: "Speaker \(i % 2)",
+                startTime: Double(i) * 30, endTime: Double(i + 1) * 30, confidence: 0.85
+            )
+        }
+        let diarization = SpeakerDiarizationService.DiarizationResult(
+            segments: speakerSegs, speakerCount: 2, speakers: [:]
+        )
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let chunkSamples = [Float](repeating: 0.1, count: 22050)
+
+        await withTaskGroup(of: Void.self) { group in
+            // Ring buffer writer (simulating audio capture at 2Hz)
+            group.addTask {
+                for i in 0..<100 {
+                    let chunk = AudioChunk(samples: chunkSamples, sampleRate: 44100, frameCount: 22050, timestamp: Double(i) * 0.5)
+                    await ringBuffer.append(chunk)
+                }
+            }
+
+            // Metering writer (simulating 12Hz updates)
+            group.addTask {
+                for i in 0..<600 {
+                    await meteringBuffer.append(Float(i % 100) / 100.0)
+                }
+            }
+
+            // Transcription combine (simulating periodic UI update)
+            group.addTask {
+                for _ in 0..<20 {
+                    _ = await orchestrator.combineTranscriptionWithDiarization(
+                        transcription: transcription, diarization: diarization
+                    )
+                }
+            }
+        }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+
+        XCTAssertLessThan(elapsed, 2.0,
+            "Integrated workload (100 chunks + 600 metering + 20 combines) must complete under 2s (was \(String(format: "%.2f", elapsed))s)")
+    }
+}
