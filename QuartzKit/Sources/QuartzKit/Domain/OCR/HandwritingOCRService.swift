@@ -44,10 +44,12 @@ public actor HandwritingOCRService {
     public struct TextObservation: Sendable {
         public let text: String
         public let confidence: Float
+        public let boundingBox: CGRect
 
-        public init(text: String, confidence: Float) {
+        public init(text: String, confidence: Float, boundingBox: CGRect = .zero) {
             self.text = text
             self.confidence = confidence
+            self.boundingBox = boundingBox
         }
     }
 
@@ -116,7 +118,8 @@ public actor HandwritingOCRService {
                     guard let topCandidate = observation.topCandidates(1).first else { return nil }
                     return TextObservation(
                         text: topCandidate.string,
-                        confidence: topCandidate.confidence
+                        confidence: topCandidate.confidence,
+                        boundingBox: observation.boundingBox
                     )
                 }
 

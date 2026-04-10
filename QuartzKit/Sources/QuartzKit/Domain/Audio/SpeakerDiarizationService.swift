@@ -85,8 +85,11 @@ public actor SpeakerDiarizationService {
             throw DiarizationError.insufficientAudio
         }
 
-        // 2. Cluster features to identify speakers
-        let clusterAssignments = clusterFeatures(features)
+        // 2. Cluster features to identify speakers (returns distances for confidence)
+        let (clusterAssignments, clusterDistances) = clusterFeatures(features)
+
+        // Compute max distance for confidence normalization
+        let maxDistance = clusterDistances.max() ?? 1.0
 
         // 3. Create segments
         let speakerCount = Set(clusterAssignments).count
@@ -95,34 +98,44 @@ public actor SpeakerDiarizationService {
         var segments: [SpeakerSegment] = []
         var currentSpeaker = clusterAssignments[0]
         var segmentStart: TimeInterval = 0
+        var segmentDistances: [Float] = [clusterDistances[0]]
 
         for (i, cluster) in clusterAssignments.enumerated() {
             let time = Double(i) * windowSize
 
             if cluster != currentSpeaker {
-                // Finalize segment
+                // Compute confidence: closer to centroid = higher confidence
+                let avgDist = segmentDistances.reduce(0, +) / Float(segmentDistances.count)
+                let confidence = maxDistance > 0 ? max(0.1, 1.0 - (avgDist / maxDistance)) : 0.5
+
                 let speakerID = "speaker_\(currentSpeaker)"
                 segments.append(SpeakerSegment(
                     speakerID: speakerID,
                     speakerLabel: speakers[speakerID] ?? "Speaker \(currentSpeaker + 1)",
                     startTime: segmentStart,
                     endTime: time,
-                    confidence: 0.8
+                    confidence: confidence
                 ))
                 segmentStart = time
                 currentSpeaker = cluster
+                segmentDistances = []
+            }
+            if i < clusterDistances.count {
+                segmentDistances.append(clusterDistances[i])
             }
         }
 
         // Last segment
         let lastTime = Double(clusterAssignments.count) * windowSize
+        let avgDist = segmentDistances.isEmpty ? 0 : segmentDistances.reduce(0, +) / Float(segmentDistances.count)
+        let lastConfidence = maxDistance > 0 ? max(0.1, 1.0 - (avgDist / maxDistance)) : 0.5
         let speakerID = "speaker_\(currentSpeaker)"
         segments.append(SpeakerSegment(
             speakerID: speakerID,
             speakerLabel: speakers[speakerID] ?? "Speaker \(currentSpeaker + 1)",
             startTime: segmentStart,
             endTime: lastTime,
-            confidence: 0.8
+            confidence: lastConfidence
         ))
 
         // Merge segments that are too short
@@ -162,6 +175,7 @@ public actor SpeakerDiarizationService {
     // MARK: - Private
 
     /// Extracts audio features (energy, zero-crossing rate, spectral centroid) per window.
+    /// Uses chunked reading to avoid loading the entire file into memory.
     private func extractAudioFeatures(from url: URL) async throws -> [[Float]] {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
@@ -170,20 +184,25 @@ public actor SpeakerDiarizationService {
 
         let windowFrames = AVAudioFrameCount(windowSize * Double(sampleRate))
 
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames) else {
+        // Chunked reading: one window at a time to bound memory
+        guard let windowBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: windowFrames) else {
             throw DiarizationError.analysisFailed("Could not create audio buffer.")
-        }
-        try file.read(into: buffer)
-
-        guard let channelData = buffer.floatChannelData?[0] else {
-            throw DiarizationError.analysisFailed("Could not read audio data.")
         }
 
         var features: [[Float]] = []
-        var offset: AVAudioFrameCount = 0
+        var framesRead: AVAudioFrameCount = 0
 
-        while offset + windowFrames <= totalFrames {
-            let window = Array(UnsafeBufferPointer(start: channelData + Int(offset), count: Int(windowFrames)))
+        while framesRead + windowFrames <= totalFrames {
+            file.framePosition = AVAudioFramePosition(framesRead)
+            windowBuffer.frameLength = 0
+            try file.read(into: windowBuffer, frameCount: windowFrames)
+
+            guard let channelData = windowBuffer.floatChannelData?[0] else {
+                throw DiarizationError.analysisFailed("Could not read audio data.")
+            }
+
+            let count = Int(windowBuffer.frameLength)
+            let window = Array(UnsafeBufferPointer(start: channelData, count: count))
 
             // Feature 1: RMS Energy
             var rms: Float = 0
@@ -204,21 +223,24 @@ public actor SpeakerDiarizationService {
             let centroid = abs(mean) * sampleRate
 
             features.append([rms, zcr, centroid])
-            offset += windowFrames
+            framesRead += windowFrames
         }
 
         return features
     }
 
     /// K-Means clustering of audio features.
-    private func clusterFeatures(_ features: [[Float]], maxSpeakers: Int = 4) -> [Int] {
-        guard !features.isEmpty else { return [] }
+    /// Returns (assignments, distances) where distances[i] is the distance
+    /// from feature[i] to its assigned centroid (used for confidence).
+    private func clusterFeatures(_ features: [[Float]], maxSpeakers: Int = 4) -> (assignments: [Int], distances: [Float]) {
+        guard !features.isEmpty else { return ([], []) }
 
         let k = min(maxSpeakers, estimateSpeakerCount(features))
 
         // Initialization: First k distinct features as centroids
         var centroids: [[Float]] = Array(features.prefix(k))
         var assignments = [Int](repeating: 0, count: features.count)
+        var distances = [Float](repeating: 0, count: features.count)
 
         // K-Means iterations with early stopping on convergence
         let epsilon: Float = 1e-4
@@ -233,6 +255,7 @@ public actor SpeakerDiarizationService {
                         assignments[i] = j
                     }
                 }
+                distances[i] = minDist
             }
 
             // Update centroids and check convergence
@@ -264,7 +287,7 @@ public actor SpeakerDiarizationService {
             if maxDelta < epsilon { break }
         }
 
-        return assignments
+        return (assignments, distances)
     }
 
     /// Estimates the number of speakers based on feature variance.

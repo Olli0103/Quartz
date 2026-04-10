@@ -37,6 +37,9 @@ public final class AudioRecordingService: NSObject {
     /// URL of the last recording.
     public private(set) var lastRecordingURL: URL?
 
+    /// Callback for interruption events (phone call, Siri, route change).
+    public var onInterruption: ((AVAudioEngineCaptureService.InterruptionEvent) -> Void)?
+
     public enum RecordingError: LocalizedError, Sendable {
         case permissionDenied
         case sessionSetupFailed(String)

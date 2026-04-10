@@ -276,6 +276,43 @@ public actor MeetingMinutesService {
         return minutes
     }
 
+    /// Summarizes an existing transcription using the specified template.
+    ///
+    /// Enables applying templates to existing transcripts, not just fresh recordings.
+    public func summarizeTranscript(
+        _ transcription: TranscriptionService.TranscriptionResult,
+        template: MeetingMinutesTemplate = .standard,
+        customPrompt: String? = nil
+    ) async throws -> String {
+        let provider = await providerRegistry.selectedProvider
+        let modelID = await providerRegistry.selectedModelID
+
+        guard let provider else {
+            throw MeetingMinutesError.noProviderConfigured
+        }
+
+        let systemPrompt: String
+        switch template {
+        case .custom:
+            systemPrompt = customPrompt ?? MeetingMinutesTemplate.standard.systemPrompt
+        default:
+            systemPrompt = template.systemPrompt
+        }
+
+        let messages: [AIMessage] = [
+            AIMessage(role: .system, content: systemPrompt),
+            AIMessage(role: .user, content: "Here is the transcript:\n\n\(transcription.text)")
+        ]
+
+        let response = try await provider.chat(
+            messages: messages,
+            model: modelID,
+            temperature: 0.3
+        )
+
+        return response.content
+    }
+
     /// Saves meeting minutes as a Markdown note.
     public func saveAsNote(
         _ minutes: MeetingMinutes,
