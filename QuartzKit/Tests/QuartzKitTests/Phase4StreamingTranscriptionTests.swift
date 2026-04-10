@@ -211,5 +211,65 @@ struct Phase4StreamingTranscriptionTests {
         #expect(result2.text.isEmpty)
         #expect(await service.state == .idle)
     }
+
+    // MARK: - Adversarial Lifecycle Transitions
+
+    @Test("Rapid pause-stop sequence from idle does not crash")
+    func rapidPauseStopFromIdle() async {
+        let service = StreamingTranscriptionService()
+        await service.pauseStreaming()
+        let result = await service.stopStreaming()
+        #expect(result.text.isEmpty)
+        #expect(await service.state == .idle)
+    }
+
+    @Test("Concurrent stop calls from multiple tasks are serialized safely")
+    func concurrentStopsAreSafe() async {
+        let service = StreamingTranscriptionService()
+
+        await withTaskGroup(of: TranscriptionService.TranscriptionResult.self) { group in
+            for _ in 0..<10 {
+                group.addTask {
+                    await service.stopStreaming()
+                }
+            }
+            for await result in group {
+                #expect(result.text.isEmpty)
+            }
+        }
+
+        #expect(await service.state == .idle, "State should be idle after concurrent stops")
+    }
+
+    @Test("Concurrent pause calls from multiple tasks do not crash")
+    func concurrentPausesAreSafe() async {
+        let service = StreamingTranscriptionService()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<10 {
+                group.addTask {
+                    await service.pauseStreaming()
+                }
+            }
+        }
+
+        #expect(await service.state == .idle, "State should remain idle after concurrent pauses")
+    }
+
+    @Test("State reads under concurrent access are consistent")
+    func concurrentStateReads() async {
+        let service = StreamingTranscriptionService()
+
+        await withTaskGroup(of: StreamingTranscriptionService.StreamingState.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await service.state
+                }
+            }
+            for await state in group {
+                #expect(state == .idle, "All concurrent reads should see idle")
+            }
+        }
+    }
 }
 #endif

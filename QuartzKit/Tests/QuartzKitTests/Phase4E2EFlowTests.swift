@@ -615,6 +615,181 @@ struct Phase4E2EFlowTests {
             #expect(FileManager.default.fileExists(atPath: url.path))
         }
     }
+
+    // MARK: - Concurrency Stress Tests (Lifecycle Transitions)
+
+    @Test("Concurrent cancel during pipeline does not crash or deadlock")
+    func concurrentCancelDuringPipeline() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorConcCancel_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: SlowTranscriptionStep(),
+            diarization: FakeDiarizationStep(),
+            persistence: FakePersistenceStep(vaultURL: tmpDir)
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: true
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // Start pipeline in one task, cancel from another
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try? await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+            }
+            group.addTask {
+                // Give pipeline a moment to start, then cancel
+                try? await Task.sleep(for: .milliseconds(10))
+                await orchestrator.cancel()
+            }
+        }
+
+        // Should not deadlock — if we get here, the test passes
+        let finalState = await orchestrator.currentState
+        // State is either .idle (cancelled) or .complete (finished before cancel)
+        #expect(finalState == .idle || finalState == .complete,
+            "After concurrent cancel, state should be idle or complete, got \(finalState)")
+    }
+
+    @Test("Multiple concurrent pipeline attempts are serialized by actor isolation")
+    func concurrentPipelineAttemptsAreSerialized() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "OrchestratorConcMulti_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let orchestrator = MeetingCaptureOrchestrator(
+            transcription: FakeTranscriptionStep()
+        )
+
+        let config = MeetingCaptureOrchestrator.CaptureConfiguration(
+            vaultURL: tmpDir,
+            template: .standard,
+            detectLanguage: false,
+            enableDiarization: false
+        )
+
+        let audioURL = tmpDir.appending(path: "test.m4a")
+        try Data("fake audio".utf8).write(to: audioURL)
+
+        // Launch 5 concurrent pipeline attempts — actor serialization means
+        // at most one succeeds, rest fail with invalid state
+        var successCount = 0
+        var failureCount = 0
+
+        await withTaskGroup(of: Bool.self) { group in
+            for _ in 0..<5 {
+                group.addTask {
+                    do {
+                        _ = try await orchestrator.runPipeline(audioURL: audioURL, configuration: config)
+                        return true
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            for await success in group {
+                if success { successCount += 1 }
+                else { failureCount += 1 }
+            }
+        }
+
+        // Exactly 1 should succeed (the first one through), rest fail
+        #expect(successCount == 1, "Only one concurrent pipeline should succeed (got \(successCount))")
+        #expect(failureCount == 4, "Other concurrent attempts should fail (got \(failureCount))")
+    }
+
+    @Test("Ring buffer handles concurrent append from multiple tasks without data loss")
+    func ringBufferConcurrentAppend() async {
+        let buffer = AudioChunkRingBuffer(capacity: 100, chunkDuration: 0.5)
+
+        await withTaskGroup(of: Void.self) { group in
+            for taskID in 0..<10 {
+                group.addTask {
+                    for i in 0..<10 {
+                        let chunk = AudioChunk(
+                            samples: [Float(taskID * 10 + i)],
+                            sampleRate: 44100,
+                            frameCount: 1,
+                            timestamp: Double(taskID * 10 + i)
+                        )
+                        await buffer.append(chunk)
+                    }
+                }
+            }
+        }
+
+        // All 100 appends should complete (actor serialization prevents data races)
+        let count = await buffer.chunkCount
+        #expect(count == 100, "All concurrent appends should be preserved (got \(count))")
+        #expect(await buffer.totalChunksReceived == 100)
+    }
+
+    @Test("Metering buffer concurrent read/write does not crash")
+    func meteringBufferConcurrentReadWrite() async {
+        let buffer = AudioMeteringBuffer(capacity: 50)
+
+        await withTaskGroup(of: Void.self) { group in
+            // Writer tasks
+            for t in 0..<5 {
+                group.addTask {
+                    for i in 0..<100 {
+                        await buffer.append(Float(t * 100 + i) / 500.0)
+                    }
+                }
+            }
+            // Reader tasks
+            for _ in 0..<5 {
+                group.addTask {
+                    for _ in 0..<50 {
+                        _ = await buffer.recent(20)
+                        _ = await buffer.latest
+                        _ = await buffer.rmsLevel(samples: 10)
+                    }
+                }
+            }
+        }
+
+        // If we get here without crash, actor isolation is working
+        let count = await buffer.sampleCount
+        #expect(count == 50, "Buffer should be at capacity after concurrent writes")
+        #expect(await buffer.totalSamplesReceived == 500)
+    }
+
+    @Test("Capture service state remains consistent under concurrent pause/resume")
+    func captureServiceConcurrentStateAccess() async {
+        let service = AVAudioEngineCaptureService()
+
+        // Concurrent state reads should all see .idle (no capture started)
+        await withTaskGroup(of: AVAudioEngineCaptureService.CaptureState.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await service.state
+                }
+            }
+            for await state in group {
+                #expect(state == .idle, "Concurrent reads should all see idle")
+            }
+        }
+
+        // Concurrent pause attempts from idle should all be no-ops
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<20 {
+                group.addTask {
+                    await service.pauseCapture()
+                }
+            }
+        }
+
+        #expect(await service.state == .idle, "State should remain idle after concurrent pauses")
+    }
 }
 
 // MARK: - Deterministic Fake Pipeline Steps
@@ -636,6 +811,18 @@ private struct FakeTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionSt
 private struct FailingTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionStep {
     func transcribe(audioURL: URL) async throws -> TranscriptionService.TranscriptionResult {
         throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Transcription failed: simulated error"])
+    }
+}
+
+private struct SlowTranscriptionStep: MeetingCaptureOrchestrator.TranscriptionStep {
+    func transcribe(audioURL: URL) async throws -> TranscriptionService.TranscriptionResult {
+        try await Task.sleep(for: .milliseconds(50))
+        return TranscriptionService.TranscriptionResult(
+            text: "Slow transcription result.",
+            segments: [TranscriptionService.TranscriptionSegment(text: "Slow transcription result.", timestamp: 0, duration: 2.0, confidence: 0.9)],
+            locale: Locale(identifier: "en_US"),
+            duration: 2.0
+        )
     }
 }
 
