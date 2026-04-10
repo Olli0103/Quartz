@@ -1,12 +1,12 @@
 # Gatekeeper Audit: Phase 4 — Audio Intelligence & Scan-to-Markdown
 
-## 🛑 PASS / FAIL STATUS
+## 🛑 PASS / FAIL STATUS (Make this explicit in huge text)
 
 # ❌❌❌ **FAIL** ❌❌❌
 
 The Phase 4 implementation is **rejected**. The code and test artifacts do not satisfy the gate conditions from `ROADMAP_V1.md`, `ROADMAP_V2.md`, and `CODEX_BLUEPRINT.md`.
 
-## 🔍 Discovered Violations
+## 🔍 Discovered Violations (List every shortcut, lazy test, and architectural breach)
 
 ### 1) CI artifact integrity failure (required report missing)
 - The Phase 4 CI script claims to generate `reports/phase4_report.json`, but that report is absent in the repository.
@@ -42,7 +42,9 @@ The Phase 4 implementation is **rejected**. The code and test artifacts do not s
 ### 8) Self-healing matrix evidence incomplete
 - While `scripts/ci_phase4.sh` includes failure classification branches, there is no committed Phase 4 report proving the self-healing loop execution output was produced and archived for this phase.
 
-## 🔨 Remediation Orders
+4. **Strict concurrency bypass scan**
+   - No direct `@preconcurrency` / `try! await` bypass found in audited Phase 4 files.
+   - However, concurrency quality is still not validated by adversarial stress tests around lifecycle transitions.
 
 Run the following commands in sequence to bring Phase 4 back to gate-ready quality:
 
