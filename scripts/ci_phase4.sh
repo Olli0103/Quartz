@@ -13,8 +13,8 @@ MACOS_UI_LOG="reports/ui_matrix_macos.log"
 IPHONE_UI_LOG="reports/ui_matrix_ios.log"
 IPAD_UI_LOG="reports/ui_matrix_ipados.log"
 MACOS_RESULT_BUNDLE="/tmp/QuartzPhase4-macOS.xcresult"
-IPHONE_RESULT_BUNDLE=""
-IPAD_RESULT_BUNDLE=""
+IPHONE_RESULT_BUNDLE="/tmp/QuartzPhase4-iPhone.xcresult"
+IPAD_RESULT_BUNDLE="/tmp/QuartzPhase4-iPad.xcresult"
 COVERAGE_REPORT="reports/phase4_coverage.txt"
 
 RED='\033[0;31m'
@@ -296,25 +296,52 @@ has_swiftpm_helper_crash() {
     printf '%s\n' "$output" | grep -q "swiftpm-testing-helper.*unexpected signal code 10"
 }
 
+has_successful_swift_test_completion() {
+    local output="$1"
+    printf '%s\n' "$output" | grep -qE "Test run with [0-9]+ tests? in [0-9]+ suites? passed after"
+}
+
+run_swift_test_capture() {
+    local __result_var="$1"
+    shift
+
+    local captured_output capture_status
+    captured_output=$("$@" 2>&1)
+    capture_status=$?
+
+    printf -v "$__result_var" '%s' "$captured_output"
+    return "$capture_status"
+}
+
 run_swift_test_scope() {
     local label="$1"
     local filter="$2"
     local log_path="$3"
-    local output fail_count pass_count
+    local output fail_count pass_count helper_crashed=0 status=0
 
     step "$label"
     if [ -n "$filter" ]; then
-        output=$(swift test --package-path "$PACKAGE_PATH" --filter "$filter" 2>&1 || true)
+        set +e
+        run_swift_test_capture output swift test --package-path "$PACKAGE_PATH" --filter "$filter"
+        status=$?
+        set -e
     else
-        output=$(swift test --package-path "$PACKAGE_PATH" --parallel 2>&1 || true)
-        if has_swiftpm_helper_crash "$output"; then
+        set +e
+        run_swift_test_capture output swift test --package-path "$PACKAGE_PATH" --parallel
+        status=$?
+        set -e
+        if [ "$status" -ne 0 ] && has_swiftpm_helper_crash "$output"; then
+            helper_crashed=1
             echo "  Detected SwiftPM helper crash under parallel execution; retrying serially..."
-            output=$(swift test --package-path "$PACKAGE_PATH" --no-parallel 2>&1 || true)
+            set +e
+            run_swift_test_capture output swift test --package-path "$PACKAGE_PATH" --no-parallel
+            status=$?
+            set -e
         fi
     fi
     printf '%s\n' "$output" > "$log_path"
     pass_count=$(printf '%s\n' "$output" | grep -c "passed" || true)
-    fail_count=$(printf '%s\n' "$output" | grep -cE "failed after|Test Case .* failed|error:" || true)
+    fail_count=$(printf '%s\n' "$output" | grep -cE "failed after|Test Case .* failed" || true)
     echo "  pass markers: $pass_count"
     echo "  failure markers: $fail_count"
 
@@ -326,16 +353,24 @@ run_swift_test_scope() {
         FULL_SWIFTPM_FAIL=$fail_count
     fi
 
-    if has_swiftpm_helper_crash "$output"; then
-        classify_failures "$output"
-        run_self_healing
-        fail "$label failed due to SwiftPM helper crash"
-    fi
-
     if [ "$fail_count" -gt 0 ]; then
         classify_failures "$output"
         run_self_healing
         fail "$label failed"
+    fi
+
+    if [ "$status" -ne 0 ] && has_swiftpm_helper_crash "$output"; then
+        if has_successful_swift_test_completion "$output"; then
+            echo "  Ignoring helper crash marker after successful Swift Testing completion."
+        else
+            classify_failures "$output"
+            run_self_healing
+            fail "$label failed due to SwiftPM helper crash"
+        fi
+    elif [ "$status" -ne 0 ]; then
+        classify_failures "$output"
+        run_self_healing
+        fail "$label failed (swift test exit: $status)"
     fi
 
     pass "$label passed"
@@ -409,6 +444,7 @@ else
         xcodebuild test -scheme Quartz \
             -parallel-testing-enabled NO \
             -destination "platform=iOS Simulator,id=$IPHONE_SIM_ID" \
+            -resultBundlePath "$IPHONE_RESULT_BUNDLE" \
             -only-testing:QuartzUITests/WelcomeScreenTests \
             -only-testing:QuartzUITests/OnboardingFlowTests \
             -only-testing:QuartzUITests/AccessibilityUITests \
@@ -437,6 +473,7 @@ else
         xcodebuild test -scheme Quartz \
             -parallel-testing-enabled NO \
             -destination "platform=iOS Simulator,id=$IPAD_SIM_ID" \
+            -resultBundlePath "$IPAD_RESULT_BUNDLE" \
             -only-testing:QuartzUITests/iPadSmokeUITests; then
         IPAD_TEST_STATUS="pass"
         UI_PASS=$((UI_PASS + 1))

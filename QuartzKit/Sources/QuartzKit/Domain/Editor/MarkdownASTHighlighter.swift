@@ -693,6 +693,7 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is Markdown.Table {
+                let tableRange = expandedTableRange(in: source, around: nsRange)
                 // Rich table rendering: monospaced font, zebra stripes, dynamic kerning
                 // for perfect column alignment without mutating the markdown source.
                 let monoFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
@@ -731,7 +732,7 @@ public actor MarkdownASTHighlighter {
                 tableParagraph.firstLineHeadIndent = 0
 
                 // --- Phase 1: Parse all lines into cells, compute max column widths ---
-                let tableText = (source as NSString).substring(with: nsRange)
+                let tableText = (source as NSString).substring(with: tableRange)
                 let tableLines = tableText.components(separatedBy: .newlines)
 
                 var parsedRows: [[String]] = []
@@ -759,7 +760,7 @@ public actor MarkdownASTHighlighter {
                 }
 
                 // --- Phase 2: Emit spans with dynamic kerning ---
-                var lineOffset = nsRange.location
+                var lineOffset = tableRange.location
                 var bodyRowIndex = 0
 
                 for (lineIdx, line) in tableLines.enumerated() {
@@ -769,7 +770,7 @@ public actor MarkdownASTHighlighter {
                         continue
                     }
 
-                    let hasTrailingNewline = (lineOffset + lineLength) < (nsRange.location + nsRange.length)
+                    let hasTrailingNewline = (lineOffset + lineLength) < (tableRange.location + tableRange.length)
                     let spanLength = hasTrailingNewline ? lineLength + 1 : lineLength
                     let lineRange = NSRange(location: lineOffset, length: spanLength)
 
@@ -962,6 +963,36 @@ public actor MarkdownASTHighlighter {
         let prefixLength = lineText.distance(from: lineText.startIndex, to: hashEnd) + 1
         guard prefixLength > 0 else { return nil }
         return NSRange(location: lineRange.location, length: prefixLength)
+    }
+
+    private static func expandedTableRange(in source: String, around range: NSRange) -> NSRange {
+        let nsSource = source as NSString
+        let length = nsSource.length
+        guard length > 0 else { return range }
+
+        let safeLocation = min(max(range.location, 0), max(length - 1, 0))
+        let seedLine = nsSource.lineRange(for: NSRange(location: safeLocation, length: 0))
+        let seedText = nsSource.substring(with: seedLine)
+        guard MarkdownTableNavigation.isTableRow(seedText) else { return range }
+
+        var startLine = seedLine
+        while startLine.location > 0 {
+            let previousLine = nsSource.lineRange(for: NSRange(location: startLine.location - 1, length: 0))
+            let previousText = nsSource.substring(with: previousLine)
+            guard MarkdownTableNavigation.isTableRow(previousText) else { break }
+            startLine = previousLine
+        }
+
+        var endLine = seedLine
+        while endLine.location + endLine.length < length {
+            let nextLine = nsSource.lineRange(for: NSRange(location: endLine.location + endLine.length, length: 0))
+            let nextText = nsSource.substring(with: nextLine)
+            guard MarkdownTableNavigation.isTableRow(nextText) else { break }
+            endLine = nextLine
+        }
+
+        let end = endLine.location + endLine.length
+        return NSRange(location: startLine.location, length: end - startLine.location)
     }
 
     // MARK: - Wiki-Link Highlighting

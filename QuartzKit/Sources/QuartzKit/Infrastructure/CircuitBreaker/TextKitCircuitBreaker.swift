@@ -28,6 +28,11 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         let longLineLength: Int?
     }
 
+    private enum TimedParseOutcome<Value: Sendable>: Sendable {
+        case value(Value?)
+        case timeout
+    }
+
     // MARK: - Singleton
 
     public static let shared = TextKitCircuitBreaker()
@@ -310,6 +315,13 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         }
     }
 
+    private func timeoutMilliseconds(_ duration: Duration) -> Int {
+        let components = duration.components
+        let secondsMilliseconds = Double(components.seconds) * 1000
+        let attosecondsMilliseconds = Double(components.attoseconds) / 1_000_000_000_000_000.0
+        return max(0, Int((secondsMilliseconds + attosecondsMilliseconds).rounded()))
+    }
+
     /// Checks if a Unicode scalar is a zero-width character.
     private func isZeroWidth(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
@@ -339,38 +351,45 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         os_signpost(.begin, log: signpostLog, name: "TextKit.parse", signpostID: signpostID)
 
         let startTime = DispatchTime.now()
+        let timeoutMs = timeoutMilliseconds(timeout)
 
         do {
-            let result = try await withThrowingTaskGroup(of: T?.self) { group in
+            let result = try await withThrowingTaskGroup(of: TimedParseOutcome<T>.self) { group in
                 // Main parsing task
                 group.addTask {
-                    await operation()
+                    .value(await operation())
                 }
 
                 // Timeout task
                 group.addTask {
                     try await Task.sleep(for: timeout)
-                    return nil
+                    return .timeout
                 }
 
                 // Return first to complete
-                if let result = try await group.next() {
-                    group.cancelAll()
+                guard let outcome = try await group.next() else {
+                    os_signpost(.end, log: signpostLog, name: "TextKit.parse", signpostID: signpostID, "cancelled")
+                    return T?.none
+                }
 
+                group.cancelAll()
+
+                switch outcome {
+                case .value(let result):
                     let durationMs = Double(DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds) / 1_000_000
 
                     os_signpost(.end, log: signpostLog, name: "TextKit.parse", signpostID: signpostID, "duration=%{public}.2fms", durationMs)
 
-                    // Record success
                     if result != nil {
                         recordSuccess()
                     }
 
                     return result
+                case .timeout:
+                    os_signpost(.end, log: signpostLog, name: "TextKit.parse", signpostID: signpostID, "timeout")
+                    recordFailure(reason: "Parse timeout exceeded \(timeoutMs)ms")
+                    return nil
                 }
-
-                os_signpost(.end, log: signpostLog, name: "TextKit.parse", signpostID: signpostID, "timeout")
-                return nil
             }
 
             return result
@@ -378,8 +397,7 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         } catch {
             os_signpost(.end, log: signpostLog, name: "TextKit.parse", signpostID: signpostID, "error")
 
-            // Timeout occurred — trip circuit
-            recordFailure(reason: "Parse timeout exceeded \(timeout.components.seconds * 1000)ms")
+            recordFailure(reason: "Parse timeout exceeded \(timeoutMs)ms")
             return nil
         }
     }
