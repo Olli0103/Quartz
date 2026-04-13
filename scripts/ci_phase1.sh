@@ -21,6 +21,20 @@ has_swiftpm_helper_crash() {
     echo "$output" | grep -q "swiftpm-testing-helper.*unexpected signal code 10"
 }
 
+run_swift_test_capture() {
+    local __result_var="$1"
+    shift
+
+    local output status
+    set +e
+    output=$("$@" 2>&1)
+    status=$?
+    set -e
+
+    printf -v "$__result_var" '%s' "$output"
+    return "$status"
+}
+
 # ── Self-Healing: Failure Classification ─────────────────────────────
 classify_failures() {
     local output="$1"
@@ -83,21 +97,30 @@ fi
 
 # ── Step 3: Run test suite ───────────────────────────────────────────
 step "Running QuartzKit tests (parallel)"
-TEST_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --parallel 2>&1 || true)
-if has_swiftpm_helper_crash "$TEST_OUTPUT"; then
+TEST_OUTPUT=""
+TEST_STATUS=0
+if ! run_swift_test_capture TEST_OUTPUT swift test --package-path "$PACKAGE_PATH" --parallel; then
+    TEST_STATUS=$?
+fi
+
+if [ "$TEST_STATUS" -ne 0 ] && has_swiftpm_helper_crash "$TEST_OUTPUT"; then
     echo "  Detected SwiftPM helper crash under parallel execution; retrying serially..."
-    TEST_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --no-parallel 2>&1 || true)
+    TEST_STATUS=0
+    if ! run_swift_test_capture TEST_OUTPUT swift test --package-path "$PACKAGE_PATH" --no-parallel; then
+        TEST_STATUS=$?
+    fi
 fi
 PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "passed" || true)
 FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -c "failed after" || true)
 echo "  Suites passed: $PASS_COUNT"
 echo "  Tests failed: $FAIL_COUNT"
-if has_swiftpm_helper_crash "$TEST_OUTPUT"; then
+
+if [ "$TEST_STATUS" -ne 0 ] && has_swiftpm_helper_crash "$TEST_OUTPUT"; then
     fail "SwiftPM helper crashed during QuartzKit test execution"
 fi
-if [ "$FAIL_COUNT" -gt 0 ]; then
+if [ "$TEST_STATUS" -ne 0 ] || [ "$FAIL_COUNT" -gt 0 ]; then
     classify_failures "$TEST_OUTPUT"
-    fail "Test failures: $FAIL_COUNT (zero tolerance)"
+    fail "Test failures: $FAIL_COUNT (swift test exit: $TEST_STATUS)"
 fi
 pass "Tests completed (zero failures)"
 

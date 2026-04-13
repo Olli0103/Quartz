@@ -256,6 +256,25 @@ struct ASTDirtyRegionTrackerExpandedTests {
         #expect(result != nil)
         #expect(result!.location == 0) // Includes "AAA"
     }
+
+    @Test("Expanded range includes full markdown table block")
+    func expandedIncludesFullTableBlock() {
+        let text = "Intro\n| A | B |\n|---|---|\n| 1 | 3 |\nOutro"
+        let nsText = text as NSString
+        let editRange = nsText.range(of: "3")
+
+        let result = ASTDirtyRegionTracker.expandedDirtyRange(
+            in: text,
+            editRange: editRange
+        )
+
+        #expect(result != nil)
+
+        let headerRange = nsText.range(of: "| A | B |")
+        let bodyRange = nsText.range(of: "| 1 | 3 |")
+        #expect(result!.location == headerRange.location)
+        #expect(result!.location + result!.length >= bodyRange.location + bodyRange.length)
+    }
 }
 
 // MARK: - Code Fence Boundary Detection Tests

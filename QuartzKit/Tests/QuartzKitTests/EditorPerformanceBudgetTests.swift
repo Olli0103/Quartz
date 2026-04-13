@@ -56,7 +56,17 @@ struct EditorPerformanceBudgetTests {
 
         let highlighter = MarkdownASTHighlighter()
 
-        // Run 5 iterations, track all times
+        // Separate cold-start initialization from steady-state parsing.
+        // The first parse pays one-time markdown/font/bootstrap costs that do not
+        // recur while the editor session is active, so we bound it independently.
+        let coldStart = CFAbsoluteTimeGetCurrent()
+        let coldSpans = await highlighter.parse(doc)
+        let coldElapsed = CFAbsoluteTimeGetCurrent() - coldStart
+        #expect(!coldSpans.isEmpty, "Cold parse should produce highlight spans")
+        #expect(coldElapsed < 0.120,
+            "Cold full parse should stay < 120ms under shared-runner load, got \(String(format: "%.1f", coldElapsed * 1000))ms")
+
+        // Run 5 warm iterations and track steady-state times.
         var times: [TimeInterval] = []
         for _ in 0..<5 {
             let start = CFAbsoluteTimeGetCurrent()
@@ -69,10 +79,10 @@ struct EditorPerformanceBudgetTests {
         let sorted = times.sorted()
         let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
 
-        // CI budget: 50ms (generous). Production target: 12ms.
-        // If this fails, incremental parsing may be broken or a regression was introduced.
+        // CI budget: 50ms (generous) for warm parses. Production target: 12ms.
+        // If this fails, the steady-state parsing path regressed.
         #expect(p95 < 0.050,
-            "Full parse P95 should be < 50ms, got \(String(format: "%.1f", p95 * 1000))ms. Times: \(times.map { String(format: "%.1f", $0 * 1000) })ms")
+            "Warm full parse P95 should be < 50ms, got \(String(format: "%.1f", p95 * 1000))ms. Warm times: \(times.map { String(format: "%.1f", $0 * 1000) })ms")
     }
 
     @Test("Incremental parse after single-char insert within budget")

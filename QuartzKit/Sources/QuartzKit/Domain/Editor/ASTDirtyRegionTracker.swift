@@ -82,7 +82,9 @@ public enum ASTDirtyRegionTracker: Sendable {
         guard let base = dirtyRange(in: text, editRange: editRange) else {
             return nil
         }
-        return expandByOneParagraph(base, in: text as NSString)
+        let nsText = text as NSString
+        let expanded = expandByOneParagraph(base, in: nsText)
+        return expandMarkdownStructures(in: nsText, covering: expanded)
     }
 
     /// Expanded variant that accepts pre-edit coordinates.
@@ -98,7 +100,9 @@ public enum ASTDirtyRegionTracker: Sendable {
         ) else {
             return nil
         }
-        return expandByOneParagraph(base, in: text as NSString)
+        let nsText = text as NSString
+        let expanded = expandByOneParagraph(base, in: nsText)
+        return expandMarkdownStructures(in: nsText, covering: expanded)
     }
 
     // MARK: - Code Fence Detection
@@ -188,5 +192,85 @@ public enum ASTDirtyRegionTracker: Sendable {
         }
 
         return NSRange(location: start, length: end - start)
+    }
+
+    /// Expands a dirty range to cover any intersecting markdown table block.
+    /// Table edits are line-structural: reparsing only the edited row can drop
+    /// the header/divider spans and break incremental table styling parity.
+    private static func expandMarkdownStructures(
+        in nsString: NSString,
+        covering range: NSRange
+    ) -> NSRange {
+        var expanded = range
+
+        for lineRange in intersectingLineRanges(in: nsString, covering: range) {
+            let line = nsString.substring(with: lineRange)
+            guard MarkdownTableNavigation.isTableRow(line) else { continue }
+
+            let tableBlock = tableBlockRange(in: nsString, containing: lineRange)
+            let start = min(expanded.location, tableBlock.location)
+            let end = max(expanded.location + expanded.length, tableBlock.location + tableBlock.length)
+            expanded = NSRange(location: start, length: end - start)
+        }
+
+        return expanded
+    }
+
+    private static func intersectingLineRanges(
+        in nsString: NSString,
+        covering range: NSRange
+    ) -> [NSRange] {
+        let length = nsString.length
+        guard length > 0 else { return [] }
+
+        let startLocation = min(max(range.location, 0), max(length - 1, 0))
+        let endLocation: Int
+        if range.length > 0 {
+            endLocation = min(range.location + range.length - 1, max(length - 1, 0))
+        } else {
+            endLocation = startLocation
+        }
+
+        let endLine = nsString.lineRange(for: NSRange(location: endLocation, length: 0))
+        var cursor = nsString.lineRange(for: NSRange(location: startLocation, length: 0)).location
+        var lines: [NSRange] = []
+
+        while cursor < endLine.location + endLine.length {
+            let lineRange = nsString.lineRange(for: NSRange(location: cursor, length: 0))
+            lines.append(lineRange)
+
+            let nextCursor = lineRange.location + lineRange.length
+            guard nextCursor > cursor else { break }
+            cursor = nextCursor
+        }
+
+        return lines
+    }
+
+    private static func tableBlockRange(
+        in nsString: NSString,
+        containing lineRange: NSRange
+    ) -> NSRange {
+        let length = nsString.length
+        guard length > 0 else { return lineRange }
+
+        var startLine = lineRange
+        while startLine.location > 0 {
+            let previousLine = nsString.lineRange(for: NSRange(location: startLine.location - 1, length: 0))
+            let previousText = nsString.substring(with: previousLine)
+            guard MarkdownTableNavigation.isTableRow(previousText) else { break }
+            startLine = previousLine
+        }
+
+        var endLine = lineRange
+        while endLine.location + endLine.length < length {
+            let nextLine = nsString.lineRange(for: NSRange(location: endLine.location + endLine.length, length: 0))
+            let nextText = nsString.substring(with: nextLine)
+            guard MarkdownTableNavigation.isTableRow(nextText) else { break }
+            endLine = nextLine
+        }
+
+        let end = endLine.location + endLine.length
+        return NSRange(location: startLine.location, length: end - startLine.location)
     }
 }

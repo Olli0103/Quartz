@@ -30,34 +30,88 @@ public extension NSAttributedString.Key {
 }
 
 /// Converts swift-markdown `SourceRange` (line:column) to `NSRange`.
-/// Column is UTF-8 bytes from line start; we convert to character offset.
-private func sourceRangeToNSRange(_ range: SourceRange, in source: String) -> NSRange? {
-    let lines = source.components(separatedBy: .newlines)
-    guard !lines.isEmpty else { return nil }
+/// Column is UTF-8 bytes from line start; this resolver pre-indexes line starts
+/// once per parse to avoid re-splitting the full document for every AST node.
+private struct SourceRangeResolver {
+    private struct IndexedLine {
+        let content: String
+        let utf16Start: Int
+    }
 
-    func locationToOffset(_ loc: SourceLocation) -> Int? {
-        let lineIdx = loc.line - 1
-        guard lineIdx >= 0, lineIdx < lines.count else { return nil }
-        var offset = 0
-        for i in 0..<lineIdx {
-            offset += lines[i].count + 1 // +1 for newline
+    private let totalUTF16Length: Int
+    private let lines: [IndexedLine]
+
+    init(source: String) {
+        totalUTF16Length = source.utf16.count
+
+        var indexedLines: [IndexedLine] = []
+        var lineStart = source.startIndex
+        var cursor = source.startIndex
+        var utf16Start = 0
+
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            guard character == "\n" || character == "\r" else {
+                cursor = source.index(after: cursor)
+                continue
+            }
+
+            indexedLines.append(IndexedLine(
+                content: String(source[lineStart..<cursor]),
+                utf16Start: utf16Start
+            ))
+
+            let next = source.index(after: cursor)
+            if character == "\r",
+               next < source.endIndex,
+               source[next] == "\n" {
+                utf16Start += 2
+                cursor = source.index(after: next)
+            } else {
+                utf16Start += 1
+                cursor = next
+            }
+            lineStart = cursor
         }
-        let lineContent = lines[lineIdx]
-        let colBytes = loc.column - 1
-        if colBytes <= 0 { return offset }
-        let utf8 = lineContent.utf8
-        guard colBytes <= utf8.count else { return offset + lineContent.count }
-        let byteIndex = utf8.index(utf8.startIndex, offsetBy: colBytes)
-        guard let charIndex = byteIndex.samePosition(in: lineContent) else { return offset }
-        return offset + lineContent.distance(from: lineContent.startIndex, to: charIndex)
+
+        indexedLines.append(IndexedLine(
+            content: String(source[lineStart..<source.endIndex]),
+            utf16Start: utf16Start
+        ))
+        lines = indexedLines
     }
 
-    guard let start = locationToOffset(range.lowerBound),
-          let end = locationToOffset(range.upperBound),
-          start <= end, end <= (source as NSString).length else {
-        return nil
+    func nsRange(for range: SourceRange) -> NSRange? {
+        guard let start = utf16Offset(for: range.lowerBound),
+              let end = utf16Offset(for: range.upperBound),
+              start <= end,
+              end <= totalUTF16Length else {
+            return nil
+        }
+        return NSRange(location: start, length: end - start)
     }
-    return NSRange(location: start, length: end - start)
+
+    private func utf16Offset(for location: SourceLocation) -> Int? {
+        let lineIndex = location.line - 1
+        guard lineIndex >= 0, lineIndex < lines.count else { return nil }
+
+        let indexedLine = lines[lineIndex]
+        let columnBytes = max(location.column - 1, 0)
+        guard columnBytes > 0 else { return indexedLine.utf16Start }
+
+        let utf8View = indexedLine.content.utf8
+        let clampedBytes = min(columnBytes, utf8View.count)
+        let byteIndex = utf8View.index(utf8View.startIndex, offsetBy: clampedBytes)
+        guard let stringIndex = byteIndex.samePosition(in: indexedLine.content) else {
+            return indexedLine.utf16Start + indexedLine.content.utf16.count
+        }
+
+        let utf16Distance = indexedLine.content.utf16.distance(
+            from: indexedLine.content.startIndex,
+            to: stringIndex
+        )
+        return indexedLine.utf16Start + utf16Distance
+    }
 }
 
 /// Attribute application record for a range.
@@ -158,6 +212,17 @@ public actor MarkdownASTHighlighter {
 
     /// Size of each chunk for incremental parsing.
     private static let chunkSize = 25_000
+
+    private static let wikiLinkRegex = try! NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#)
+    private static let fencedCodeRegex = try! NSRegularExpression(pattern: "```[\\s\\S]*?```")
+    private static let inlineCodeRegex = try! NSRegularExpression(pattern: "`[^`]+`")
+    private static let displayLatexRegex = try! NSRegularExpression(
+        pattern: #"\$\$(.+?)\$\$"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let inlineLatexRegex = try! NSRegularExpression(
+        pattern: #"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)"#
+    )
 
     public init(baseFontSize: CGFloat = 14) {
         self.baseFontSize = baseFontSize
@@ -343,11 +408,13 @@ public actor MarkdownASTHighlighter {
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
-        collectSpans(from: doc, in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
+        let resolver = SourceRangeResolver(source: markdown)
+        let codeRanges = codeBlockNSRanges(in: markdown)
+        collectSpans(from: doc, in: markdown, resolver: resolver, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         // Post-AST pass: highlight [[wiki-links]] which swift-markdown treats as plain text
-        appendWikiLinkSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+        appendWikiLinkSpans(in: markdown, codeRanges: codeRanges, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         // Post-AST pass: highlight $..$ (inline) and $$...$$ (display) LaTeX
-        appendLatexSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+        appendLatexSpans(in: markdown, codeRanges: codeRanges, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
     }
 
@@ -364,6 +431,7 @@ public actor MarkdownASTHighlighter {
         // For very large documents, we parse the FULL AST (swift-markdown is fast)
         // but process the resulting tree in chunks with yield points.
         let doc = Document(parsing: markdown)
+        let resolver = SourceRangeResolver(source: markdown)
 
         var spans: [HighlightSpan] = []
         var processedNodes = 0
@@ -375,6 +443,7 @@ public actor MarkdownASTHighlighter {
             collectSpans(
                 from: child,
                 in: markdown,
+                resolver: resolver,
                 baseFontSize: baseFontSize,
                 fontFamily: fontFamily,
                 vaultRootURL: vaultRootURL,
@@ -430,7 +499,13 @@ public actor MarkdownASTHighlighter {
 
         // LaTeX pass (non-chunked — regex is fast enough for large docs)
         guard !Task.isCancelled else { return spans }
-        appendLatexSpans(in: markdown, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
+        appendLatexSpans(
+            in: markdown,
+            codeRanges: codeBlockNSRanges(in: markdown),
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            into: &spans
+        )
 
         return spans
     }
@@ -459,8 +534,7 @@ public actor MarkdownASTHighlighter {
         bracketColor = NSColor.tertiaryLabelColor
         #endif
 
-        guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#) else { return }
-        let matches = regex.matches(in: chunk, range: NSRange(location: 0, length: nsChunk.length))
+        let matches = Self.wikiLinkRegex.matches(in: chunk, range: NSRange(location: 0, length: nsChunk.length))
 
         for match in matches {
             let localRange = match.range
@@ -514,8 +588,8 @@ public actor MarkdownASTHighlighter {
         }
     }
 
-    private static func collectSpans(from markup: any Markup, in source: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
-        if let range = markup.range, let nsRange = sourceRangeToNSRange(range, in: source), nsRange.length > 0 {
+    private static func collectSpans(from markup: any Markup, in source: String, resolver: SourceRangeResolver, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
+        if let range = markup.range, let nsRange = resolver.nsRange(for: range), nsRange.length > 0 {
             if let heading = markup as? Heading {
                 let scale: CGFloat = switch heading.level {
                 case 1: 1.7
@@ -526,11 +600,7 @@ public actor MarkdownASTHighlighter {
                 }
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
-                let headingText = (source as NSString).substring(with: nsRange)
-                if let prefixEnd = headingText.firstIndex(of: " "),
-                   headingText.hasPrefix("#") {
-                    let prefixLength = headingText.distance(from: headingText.startIndex, to: prefixEnd) + 1
-                    let prefixRange = NSRange(location: nsRange.location, length: prefixLength)
+                if let prefixRange = headingPrefixRange(in: source, contentRange: nsRange) {
                     let mutedColor: PlatformColor
                     #if canImport(UIKit)
                     mutedColor = UIColor.tertiaryLabel
@@ -872,8 +942,26 @@ public actor MarkdownASTHighlighter {
             }
         }
         for child in markup.children {
-            collectSpans(from: child, in: source, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
+            collectSpans(from: child, in: source, resolver: resolver, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
         }
+    }
+
+    private static func headingPrefixRange(in source: String, contentRange: NSRange) -> NSRange? {
+        let nsSource = source as NSString
+        let lineRange = nsSource.lineRange(for: contentRange)
+        let lineText = nsSource.substring(with: lineRange)
+
+        let contentPrefix = lineText.prefix { $0 == " " || $0 == "\t" }
+        let syntaxStart = contentPrefix.endIndex
+        let hashCount = lineText[syntaxStart...].prefix { $0 == "#" }.count
+        guard hashCount > 0 else { return nil }
+
+        let hashEnd = lineText.index(syntaxStart, offsetBy: hashCount)
+        guard hashEnd < lineText.endIndex, lineText[hashEnd] == " " else { return nil }
+
+        let prefixLength = lineText.distance(from: lineText.startIndex, to: hashEnd) + 1
+        guard prefixLength > 0 else { return nil }
+        return NSRange(location: lineRange.location, length: prefixLength)
     }
 
     // MARK: - Wiki-Link Highlighting
@@ -884,15 +972,13 @@ public actor MarkdownASTHighlighter {
     /// Skips wiki-links inside fenced code blocks and inline code to match `WikiLinkExtractor`.
     private static func appendWikiLinkSpans(
         in source: String,
+        codeRanges: [NSRange],
         baseFontSize: CGFloat,
         fontFamily: AppearanceManager.EditorFontFamily,
         into spans: inout [HighlightSpan]
     ) {
         let nsSource = source as NSString
         guard nsSource.length > 0 else { return }
-
-        // Build a set of code ranges to skip
-        let codeRanges = codeBlockNSRanges(in: source)
         let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
 
         let accentColor: PlatformColor
@@ -905,8 +991,7 @@ public actor MarkdownASTHighlighter {
         bracketColor = NSColor.tertiaryLabelColor
         #endif
 
-        guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#) else { return }
-        let matches = regex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        let matches = Self.wikiLinkRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
 
         for match in matches {
             let fullNSRange = match.range
@@ -969,16 +1054,12 @@ public actor MarkdownASTHighlighter {
         let nsSource = source as NSString
 
         // Fenced code blocks
-        if let fencedRegex = try? NSRegularExpression(pattern: "```[\\s\\S]*?```") {
-            let fencedMatches = fencedRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-            ranges.append(contentsOf: fencedMatches.map(\.range))
-        }
+        let fencedMatches = Self.fencedCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        ranges.append(contentsOf: fencedMatches.map(\.range))
 
         // Inline code
-        if let inlineRegex = try? NSRegularExpression(pattern: "`[^`]+`") {
-            let inlineMatches = inlineRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-            ranges.append(contentsOf: inlineMatches.map(\.range))
-        }
+        let inlineMatches = Self.inlineCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        ranges.append(contentsOf: inlineMatches.map(\.range))
 
         return ranges
     }
@@ -990,14 +1071,13 @@ public actor MarkdownASTHighlighter {
     /// Skips LaTeX inside fenced code blocks and inline code.
     private static func appendLatexSpans(
         in source: String,
+        codeRanges: [NSRange],
         baseFontSize: CGFloat,
         fontFamily: AppearanceManager.EditorFontFamily,
         into spans: inout [HighlightSpan]
     ) {
         let nsSource = source as NSString
         guard nsSource.length > 0 else { return }
-
-        let codeRanges = codeBlockNSRanges(in: source)
         let codeFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
         let noTraits = FontTraits(bold: false, italic: false)
 
@@ -1015,102 +1095,98 @@ public actor MarkdownASTHighlighter {
         #endif
 
         // Display math: $$...$$  (must be checked before inline $...$)
-        if let displayRegex = try? NSRegularExpression(pattern: #"\$\$(.+?)\$\$"#, options: [.dotMatchesLineSeparators]) {
-            let matches = displayRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-            for match in matches {
-                let fullRange = match.range
-                guard match.numberOfRanges >= 2 else { continue }
-                let contentRange = match.range(at: 1)
+        let displayMatches = Self.displayLatexRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        for match in displayMatches {
+            let fullRange = match.range
+            guard match.numberOfRanges >= 2 else { continue }
+            let contentRange = match.range(at: 1)
 
-                let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
-                guard !isInCode else { continue }
-                guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
+            let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
+            guard !isInCode else { continue }
+            guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
 
-                // Opening $$ delimiter
+            // Opening $$ delimiter
+            spans.append(HighlightSpan(
+                range: NSRange(location: fullRange.location, length: 2),
+                font: codeFont,
+                color: delimiterColor,
+                traits: noTraits,
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+
+            // LaTeX content
+            if contentRange.length > 0 {
                 spans.append(HighlightSpan(
-                    range: NSRange(location: fullRange.location, length: 2),
+                    range: contentRange,
                     font: codeFont,
-                    color: delimiterColor,
+                    color: latexColor,
                     traits: noTraits,
-                    backgroundColor: nil,
-                    strikethrough: false,
-                    isOverlay: true
-                ))
-
-                // LaTeX content
-                if contentRange.length > 0 {
-                    spans.append(HighlightSpan(
-                        range: contentRange,
-                        font: codeFont,
-                        color: latexColor,
-                        traits: noTraits,
-                        backgroundColor: latexBg,
-                        strikethrough: false
-                    ))
-                }
-
-                // Closing $$ delimiter
-                let closingStart = fullRange.location + fullRange.length - 2
-                spans.append(HighlightSpan(
-                    range: NSRange(location: closingStart, length: 2),
-                    font: codeFont,
-                    color: delimiterColor,
-                    traits: noTraits,
-                    backgroundColor: nil,
-                    strikethrough: false,
-                    isOverlay: true
+                    backgroundColor: latexBg,
+                    strikethrough: false
                 ))
             }
+
+            // Closing $$ delimiter
+            let closingStart = fullRange.location + fullRange.length - 2
+            spans.append(HighlightSpan(
+                range: NSRange(location: closingStart, length: 2),
+                font: codeFont,
+                color: delimiterColor,
+                traits: noTraits,
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
         }
 
         // Inline math: $...$  (single dollar, not preceded/followed by another $)
-        if let inlineRegex = try? NSRegularExpression(pattern: #"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)"#) {
-            let matches = inlineRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-            for match in matches {
-                let fullRange = match.range
-                guard match.numberOfRanges >= 2 else { continue }
-                let contentRange = match.range(at: 1)
+        let inlineMatches = Self.inlineLatexRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        for match in inlineMatches {
+            let fullRange = match.range
+            guard match.numberOfRanges >= 2 else { continue }
+            let contentRange = match.range(at: 1)
 
-                let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
-                guard !isInCode else { continue }
-                // Also skip if this overlaps with a display math range ($$)
-                guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
+            let isInCode = codeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
+            guard !isInCode else { continue }
+            // Also skip if this overlaps with a display math range ($$)
+            guard fullRange.location >= 0, fullRange.location + fullRange.length <= nsSource.length else { continue }
 
-                // Opening $ delimiter
+            // Opening $ delimiter
+            spans.append(HighlightSpan(
+                range: NSRange(location: fullRange.location, length: 1),
+                font: codeFont,
+                color: delimiterColor,
+                traits: noTraits,
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
+
+            // LaTeX content
+            if contentRange.length > 0 {
                 spans.append(HighlightSpan(
-                    range: NSRange(location: fullRange.location, length: 1),
+                    range: contentRange,
                     font: codeFont,
-                    color: delimiterColor,
+                    color: latexColor,
                     traits: noTraits,
-                    backgroundColor: nil,
-                    strikethrough: false,
-                    isOverlay: true
-                ))
-
-                // LaTeX content
-                if contentRange.length > 0 {
-                    spans.append(HighlightSpan(
-                        range: contentRange,
-                        font: codeFont,
-                        color: latexColor,
-                        traits: noTraits,
-                        backgroundColor: latexBg,
-                        strikethrough: false
-                    ))
-                }
-
-                // Closing $ delimiter
-                let closingStart = fullRange.location + fullRange.length - 1
-                spans.append(HighlightSpan(
-                    range: NSRange(location: closingStart, length: 1),
-                    font: codeFont,
-                    color: delimiterColor,
-                    traits: noTraits,
-                    backgroundColor: nil,
-                    strikethrough: false,
-                    isOverlay: true
+                    backgroundColor: latexBg,
+                    strikethrough: false
                 ))
             }
+
+            // Closing $ delimiter
+            let closingStart = fullRange.location + fullRange.length - 1
+            spans.append(HighlightSpan(
+                range: NSRange(location: closingStart, length: 1),
+                font: codeFont,
+                color: delimiterColor,
+                traits: noTraits,
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true
+            ))
         }
     }
 
