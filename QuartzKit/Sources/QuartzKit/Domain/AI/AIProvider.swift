@@ -245,9 +245,8 @@ public final class OpenAIProvider: AIProvider, Sendable {
 
 /// Shared URLSession with robust timeouts for AI requests.
 /// LLM responses can take 30-60+ seconds for complex queries.
-/// nonisolated(unsafe) required for global stored property in Swift 6.
-/// URLSession is thread-safe; the property is never mutated after initialization.
-nonisolated(unsafe) private let aiURLSession: URLSession = {
+/// Shared URLSession is immutable after initialization and `URLSession` is `Sendable`.
+private let aiURLSession: URLSession = {
     let config = URLSessionConfiguration.default
     config.timeoutIntervalForRequest = 60    // Time to receive first byte
     config.timeoutIntervalForResource = 300  // Total time for entire response (5 min for long streaming)

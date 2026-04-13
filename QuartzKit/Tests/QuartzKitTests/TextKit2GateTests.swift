@@ -20,7 +20,7 @@ final class TextKit2GateTests: XCTestCase {
     @MainActor
     func testContentManagerIsMarkdownSubclass() {
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
-        XCTAssertTrue(contentManager is MarkdownTextContentManager,
+        XCTAssertTrue(type(of: contentManager) == MarkdownTextContentManager.self,
                       "Factory must return MarkdownTextContentManager, not bare NSTextContentStorage")
     }
 
@@ -33,8 +33,7 @@ final class TextKit2GateTests: XCTestCase {
 
         XCTAssertNotNil(layoutManager,
                         "wireTextKit2 must produce a non-nil NSTextLayoutManager")
-        XCTAssertTrue(type(of: layoutManager) == NSTextLayoutManager.self
-                      || layoutManager is NSTextLayoutManager,
+        XCTAssertTrue(type(of: layoutManager) == NSTextLayoutManager.self,
                       "Layout manager must be NSTextLayoutManager (TextKit 2)")
     }
 
@@ -150,9 +149,9 @@ final class TextKit2GateTests: XCTestCase {
         let helloFont = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont
         let trailingFont = attributedString.attribute(.font, at: 6, effectiveRange: nil) as? PlatformFont
 
-        XCTAssertEqual(helloFont?.fontDescriptor.symbolicTraits.contains(.bold), true,
-                       "Target range should receive the requested bold font")
-        XCTAssertEqual(trailingFont?.fontDescriptor.symbolicTraits.contains(.bold), false,
+        XCTAssertTrue(fontHasBoldTrait(helloFont),
+                      "Target range should receive the requested bold font")
+        XCTAssertFalse(fontHasBoldTrait(trailingFont),
                        "Attributes should not bleed outside the edited range")
     }
 
@@ -194,5 +193,16 @@ private typealias PlatformFont = NSFont
 #elseif canImport(UIKit)
 private typealias PlatformFont = UIFont
 #endif
+
+private func fontHasBoldTrait(_ font: PlatformFont?) -> Bool {
+    guard let font else { return false }
+    #if canImport(AppKit)
+    return font.fontDescriptor.symbolicTraits.contains(.bold)
+    #elseif canImport(UIKit)
+    return font.fontDescriptor.symbolicTraits.contains(.traitBold)
+    #else
+    return false
+    #endif
+}
 
 #endif

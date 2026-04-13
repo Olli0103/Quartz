@@ -43,11 +43,36 @@ public struct OnboardingView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var brandingFontSize: CGFloat = 42
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let onComplete: @Sendable (VaultConfig) -> Void
 
     public init(onComplete: @escaping @Sendable (VaultConfig) -> Void) {
         self.onComplete = onComplete
+    }
+
+    private var usesAccessibilityLayout: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
+
+    private var outerSpacerMinLength: CGFloat {
+        usesAccessibilityLayout ? 24 : 40
+    }
+
+    private var welcomeSpacerMinLength: CGFloat {
+        usesAccessibilityLayout ? 24 : 60
+    }
+
+    private var welcomeBottomSpacerMinLength: CGFloat {
+        usesAccessibilityLayout ? 24 : 48
+    }
+
+    private var sectionSpacerMinLength: CGFloat {
+        usesAccessibilityLayout ? 20 : 32
+    }
+
+    private var templateSectionSpacerMinLength: CGFloat {
+        usesAccessibilityLayout ? 20 : 24
     }
 
     public var body: some View {
@@ -57,7 +82,7 @@ public struct OnboardingView: View {
 
             ScrollView {
                 VStack {
-                    Spacer(minLength: 40)
+                    Spacer(minLength: outerSpacerMinLength)
 
                     Group {
                         switch currentStep {
@@ -78,7 +103,7 @@ public struct OnboardingView: View {
                         )
                     )
 
-                    Spacer(minLength: 40)
+                    Spacer(minLength: outerSpacerMinLength)
                 }
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
@@ -93,18 +118,19 @@ public struct OnboardingView: View {
 
     private var welcomeStep: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 60)
+            Spacer(minLength: welcomeSpacerMinLength)
 
-            VStack(spacing: 28) {
+            VStack(spacing: usesAccessibilityLayout ? 20 : 28) {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: heroIconSize, weight: .thin))
                     .foregroundStyle(QuartzColors.accentGradient)
                     .symbolEffect(.breathe, options: .repeating, isActive: !reduceMotion)
                     .slideUp()
 
-                VStack(spacing: 12) {
+                VStack(spacing: usesAccessibilityLayout ? 8 : 12) {
                     Text(verbatim: "Quartz")
                         .font(.system(size: brandingFontSize, weight: .bold, design: .rounded))
+                        .accessibilityIdentifier("onboarding-brandmark")
                         .slideUp(delay: 0.1)
 
                     Text(String(localized: "Your notes. Your files. Your way.", bundle: .module))
@@ -117,25 +143,27 @@ public struct OnboardingView: View {
                     .font(.body)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, usesAccessibilityLayout ? 20 : 32)
                     .slideUp(delay: 0.2)
             }
 
-            Spacer(minLength: 60)
+            Spacer(minLength: welcomeSpacerMinLength)
 
             VStack(spacing: 14) {
                 QuartzButton(String(localized: "Get Started", bundle: .module), icon: "arrow.right") {
                     currentStep = .chooseStorageMode
                 }
+                .accessibilityIdentifier("onboarding-get-started")
+                .accessibilityHint(String(localized: "Continues to storage setup", bundle: .module))
 
                 Text(String(localized: "No account needed", bundle: .module))
                     .font(.caption)
                     .foregroundStyle(.quaternary)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, usesAccessibilityLayout ? 20 : 32)
             .slideUp(delay: 0.3)
 
-            Spacer(minLength: 48)
+            Spacer(minLength: welcomeBottomSpacerMinLength)
         }
     }
 
@@ -159,12 +187,12 @@ public struct OnboardingView: View {
                     .foregroundStyle(.secondary)
                     .slideUp(delay: 0.1)
             }
-            .padding(.top, 32)
+            .padding(.top, usesAccessibilityLayout ? 20 : 32)
             .padding(.horizontal, 24)
 
-            Spacer(minLength: 32)
+            Spacer(minLength: sectionSpacerMinLength)
 
-            VStack(spacing: 12) {
+            VStack(spacing: usesAccessibilityLayout ? 10 : 12) {
                 // Option A: Quartz iCloud
                 storageCard(
                     mode: .quartzICloud,
@@ -199,7 +227,7 @@ public struct OnboardingView: View {
             }
             .padding(.horizontal, 24)
 
-            Spacer(minLength: 32)
+            Spacer(minLength: sectionSpacerMinLength)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -214,16 +242,18 @@ public struct OnboardingView: View {
                 QuartzButton(String(localized: "Continue", bundle: .module), icon: "arrow.right") {
                     continueFromStorage()
                 }
+                .accessibilityIdentifier("onboarding-continue")
 
                 Button(String(localized: "Back", bundle: .module)) {
                     QuartzFeedback.selection()
                     currentStep = .welcome
                 }
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("onboarding-back")
             }
             .padding(.horizontal, 32)
 
-            Spacer(minLength: 48)
+            Spacer(minLength: usesAccessibilityLayout ? 28 : 48)
         }
         #if !os(macOS)
         .fileImporter(
@@ -253,6 +283,10 @@ public struct OnboardingView: View {
         disabled: Bool
     ) -> some View {
         let isSelected = selectedStorageMode == mode && !disabled
+        let accessibilityIdentifier = switch mode {
+        case .quartzICloud: "onboarding-storage-icloud"
+        case .customFolder: "onboarding-storage-folder"
+        }
 
         return Button {
             guard !disabled else { return }
@@ -328,6 +362,7 @@ public struct OnboardingView: View {
                 ? String(localized: "Selected", bundle: .module)
                 : String(localized: "Double tap to select", bundle: .module))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier(accessibilityIdentifier)
         .disabled(disabled)
     }
 
@@ -351,9 +386,9 @@ public struct OnboardingView: View {
                     .multilineTextAlignment(.center)
                     .slideUp(delay: 0.1)
             }
-            .padding(.top, 32)
+            .padding(.top, usesAccessibilityLayout ? 20 : 32)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: templateSectionSpacerMinLength)
 
             VStack(spacing: 10) {
                 templateCard(
@@ -385,7 +420,7 @@ public struct OnboardingView: View {
             }
             .padding(.horizontal, 24)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: templateSectionSpacerMinLength)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -410,7 +445,7 @@ public struct OnboardingView: View {
             }
             .padding(.horizontal, 32)
 
-            Spacer(minLength: 48)
+            Spacer(minLength: usesAccessibilityLayout ? 28 : 48)
         }
     }
 

@@ -5,6 +5,7 @@ import Foundation
 // MARK: - Dynamic Type Scaling Tests
 
 @Suite("DynamicTypeScaling")
+@MainActor
 struct DynamicTypeScalingTests {
 
     @Test("AppearanceManager font size range is 12-24")

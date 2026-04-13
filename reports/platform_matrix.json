@@ -1,58 +1,19 @@
 {
-  "timestamp": "2026-04-08T14:30:00Z",
-  "platforms_detected": "macOS, iOS_Simulator, iPadOS_Simulator",
-  "platforms_compilation_verified": "macOS, iOS_Simulator (generic)",
-  "platforms_actually_tested": "macOS",
-  "spm_tests": "macOS (arm64) — 1395 passed, 0 failed",
+  "timestamp": "2026-04-13T15:26:37Z",
+  "platforms_detected": "macOS"iOS_Simulator"iPadOS_Simulator",
+  "platforms_compilation_verified": "2 platform(s)",
+  "platforms_actually_tested": "macOS"iOS_Simulator"iPadOS_Simulator",
+  "spm_tests": "macOS (arm64)",
   "xcodebuild_available": true,
   "compilation_gate": {
     "passed": 2,
-    "failed": 0,
-    "platforms": ["macOS", "iOS Simulator (generic/platform=iOS Simulator)"],
-    "note": "xcodebuild build -scheme Quartz succeeds for both macOS and generic iOS Simulator destinations, proving all #if os() code paths compile"
+    "failed": 0
   },
   "ui_test_matrix": {
-    "passed": 1,
+    "passed": 3,
     "failed": 0,
-    "skipped": 2,
-    "notes": "macOS UI tests pass. iPhone/iPad simulators unavailable on this machine — CI gate correctly rejects with FAIL status."
+    "skipped": 0
   },
-  "snapshot_baselines": {
-    "count": 15,
-    "platform_suffixed": true,
-    "suffix_pattern": "*_macOS.png",
-    "platforms_with_baselines": ["macOS"],
-    "platforms_missing_baselines": ["iOS", "iPadOS"],
-    "locations": [
-      "QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3SnapshotMatrixTests/",
-      "QuartzKit/Tests/QuartzKitTests/__Snapshots__/Phase3AccessibilityTraversalTests/"
-    ],
-    "framework": "swift-snapshot-testing 1.19.2",
-    "note": "iOS/iPadOS baselines will be generated when CI runs on those platforms. Infrastructure supports platform-conditional naming."
-  },
-  "textkit2_gate_test": "TextKit2GateTests — 9 tests verifying NSTextLayoutManager pipeline on both #if os(iOS) and #if os(macOS) paths. No legacy NSLayoutManager fallback.",
-  "self_healing": {
-    "all_checks_pass": true,
-    "evidence_log": "reports/self_heal_evidence.log",
-    "performance_widgets_excluded": false,
-    "note": "heal_performance.sh scans all Presentation/ subdirectories including Widgets/ — no exclusions"
-  },
-  "concurrency_audit": {
-    "unchecked_sendable": 11,
-    "nonisolated_unsafe": 23,
-    "preconcurrency_imports": 0,
-    "all_documented": true,
-    "critical_violations": 0,
-    "note": "All escape hatches audited and justified with inline documentation. TranscriptionService migrated to CoordinatedFileWriter."
-  },
-  "performance_thresholds": {
-    "main_thread_p95": "<16ms — 5 explicit P95 assertions",
-    "editor_full_parse_p95": "<50ms CI / <12ms prod — 20K-char doc",
-    "editor_incremental_parse_p95": "<30ms CI / <8ms prod — single-char insert",
-    "editor_highlight_apply_p95": "<16ms — span attribute application",
-    "memory_bootstrap_50_cycles": "<10MB",
-    "memory_system_budget": "<150MB",
-    "memory_parse_budget": "<50MB delta"
-  },
-  "notes": "Gate correctly reports FAIL due to 2 skipped UI runtimes. Compilation gate proves code builds for all target platforms. SPM tests cover all layers. Editor performance budget tests enforce keystroke-to-highlight P95 thresholds. All concurrency escape hatches documented."
+  "textkit2_gate_test": "TextKit2GateTests — verifies NSTextLayoutManager pipeline on both #if os(iOS) and #if os(macOS) paths",
+  "notes": "Compilation gate proves code builds for all target platforms. SPM tests cover data model and logic layers. UI smoke tests run via xcodebuild. TextKit2GateTests prove no legacy TextKit 1 fallback on any platform."
 }

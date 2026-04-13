@@ -2,6 +2,12 @@ import Testing
 import Foundation
 @testable import QuartzKit
 
+#if canImport(AppKit)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
+
 // MARK: - Phase 4: Production Editor Integration Tests
 // Behavioral tests exercising MarkdownASTHighlighter.parseIncremental(),
 // ASTDirtyRegionTracker, and MutationTransaction undo policies
@@ -444,92 +450,69 @@ struct Phase4EditorCursorSelectionStabilityTests {
 @Suite("Phase4TextKit2IntegrationPaths")
 struct Phase4TextKit2IntegrationPathsTests {
 
-    @Test("Full parse then no-op incremental parse preserves span count")
-    func fullThenNoOpIncrementalPreservesSpans() async {
-        let h = MarkdownASTHighlighter(baseFontSize: 14)
-        let md = "**bold** and *italic* text"
+    @Test("TextKit2 stack wires content manager to NSTextLayoutManager")
+    @MainActor
+    func textKit2StackWiresLayoutManager() {
+        let contentManager = MarkdownTextKit2Stack.makeContentManager()
+        let (layoutManager, container) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
-        let fullSpans = await h.parse(md)
-        // No-op edit: same text, zero-length edit at position 10
-        let incrementalSpans = await h.parseIncremental(md, editRange: NSRange(location: 10, length: 0), preEditLength: 0)
-
-        // Both should have bold and italic spans
-        let fullBold = fullSpans.filter { $0.traits.bold }
-        let incBold = incrementalSpans.filter { $0.traits.bold }
-        let fullItalic = fullSpans.filter { $0.traits.italic }
-        let incItalic = incrementalSpans.filter { $0.traits.italic }
-
-        #expect(fullBold.count == incBold.count,
-                "Bold span count should match between full and incremental for no-op edit")
-        #expect(fullItalic.count == incItalic.count,
-                "Italic span count should match between full and incremental for no-op edit")
+        #expect(contentManager.textLayoutManagers.contains { $0 === layoutManager })
+        #expect(layoutManager.textContainer === container)
     }
 
-    @Test("Incremental parse length delta correct after insertion")
-    func incrementalLengthDeltaCorrectAfterInsertion() async {
-        let h = MarkdownASTHighlighter(baseFontSize: 14)
-        let original = "Hello world"  // length 11
-        _ = await h.parse(original)
+    @Test("MarkdownTextContentManager mutates backing storage through TextKit2 transactions")
+    @MainActor
+    func contentManagerEditingTransactionMutatesBackingStore() {
+        let contentManager = MarkdownTextKit2Stack.makeContentManager()
+        _ = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
-        // Insert " beautiful" after "Hello" → "Hello beautiful world"
-        let modified = "Hello beautiful world"  // length 21
-        let editRange = NSRange(location: 5, length: 10) // " beautiful" is 10 chars
-        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 0)
-
-        // All span ranges should be within the new document length
-        for span in spans {
-            #expect(span.range.location >= 0, "Span location should be non-negative")
-            #expect(span.range.location + span.range.length <= modified.count,
-                    "Span should not extend beyond document: \(span.range) > \(modified.count)")
+        contentManager.performEditingTransaction {
+            contentManager.textStorage?.setAttributedString(
+                NSMutableAttributedString(
+                    string: "Hello\nWorld",
+                    attributes: [.font: PlatformFont.systemFont(ofSize: 14)]
+                )
+            )
         }
+
+        contentManager.performMarkdownEdit {
+            contentManager.textStorage?.mutableString.append("\nTextKit 2")
+        }
+
+        let paragraphRange = contentManager.boundingRangeForParagraph(containing: 7)
+        #expect(contentManager.attributedString?.string == "Hello\nWorld\nTextKit 2")
+        #expect(paragraphRange == NSRange(location: 6, length: 6))
     }
 
-    @Test("Incremental parse length delta correct after deletion")
-    func incrementalLengthDeltaCorrectAfterDeletion() async {
-        let h = MarkdownASTHighlighter(baseFontSize: 14)
-        let original = "Hello beautiful **bold** world"  // has bold
-        _ = await h.parse(original)
+    @Test("Paragraph union tracks multi-paragraph edits for incremental invalidation")
+    @MainActor
+    func paragraphUnionTracksMultiParagraphEdits() {
+        let contentManager = MarkdownTextKit2Stack.makeContentManager()
+        contentManager.attributedString = NSAttributedString(string: "One\nTwo\nThree\nFour")
 
-        // Delete "beautiful " → "Hello **bold** world"
-        let modified = "Hello **bold** world"
-        let editRange = NSRange(location: 6, length: 0) // deletion: nothing at the edit point
-        let spans = await h.parseIncremental(modified, editRange: editRange, preEditLength: 10) // "beautiful " = 10
-
-        // Bold should still exist
-        let boldSpans = spans.filter { $0.traits.bold }
-        #expect(!boldSpans.isEmpty, "Bold span should survive deletion of unrelated text")
-
-        // All span ranges should be within the new document length
-        for span in spans {
-            #expect(span.range.location + span.range.length <= modified.count,
-                    "Span should not extend beyond shortened document")
-        }
+        let affectedRange = contentManager.boundingRangeForParagraphs(intersecting: NSRange(location: 2, length: 8))
+        #expect(affectedRange == NSRange(location: 0, length: 14))
     }
 
-    @Test("Concurrent incremental parses on same highlighter are serialized by actor")
-    func concurrentIncrementalParsesSerializedByActor() async {
-        let h = MarkdownASTHighlighter(baseFontSize: 14)
-        let md = "# Title\n\n**Bold** paragraph"
-        _ = await h.parse(md)
+    @Test("Representable source wires MarkdownTextKit2Stack on both platforms")
+    func representableSourceUsesTextKit2Factory() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/QuartzKit/Presentation/Editor/MarkdownEditorRepresentable.swift")
+        let content = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        // Fire 10 concurrent incremental parses — actor serializes them
-        await withTaskGroup(of: [HighlightSpan].self) { group in
-            for i in 0..<10 {
-                group.addTask {
-                    let edit = "# Title\n\n**Bold** paragraph \(i)"
-                    return await h.parseIncremental(
-                        edit,
-                        editRange: NSRange(location: edit.count - 1, length: 1),
-                        preEditLength: 0
-                    )
-                }
-            }
-            for await spans in group {
-                // Each result should be valid (non-negative ranges)
-                for span in spans {
-                    #expect(span.range.location >= 0, "Concurrent parse produced invalid span location")
-                }
-            }
-        }
+        let makeCount = content.components(separatedBy: "MarkdownTextKit2Stack.makeContentManager()").count - 1
+        let wireCount = content.components(separatedBy: "MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)").count - 1
+
+        #expect(makeCount == 2, "Both the iOS and macOS representables must construct the shared TextKit2 stack")
+        #expect(wireCount == 2, "Both the iOS and macOS representables must wire the shared TextKit2 stack")
     }
 }
+
+#if canImport(AppKit)
+private typealias PlatformFont = NSFont
+#elseif canImport(UIKit)
+private typealias PlatformFont = UIFont
+#endif

@@ -1,19 +1,20 @@
 {
   "phase": 2,
   "status": "pass",
-  "timestamp": "2026-04-07T12:00:00Z",
+  "timestamp": "2026-04-13T15:20:31Z",
   "tests": {
-    "total": 1400,
-    "phase2_specific": 350,
+    "total": 1539,
+    "phase2_specific": 22,
     "full_suite_failed": 0,
-    "full_suite_passed": 1400
+    "full_suite_passed": 0
   },
   "phase2_suites": [
-    "Phase2FileSystemTests",
-    "Phase2FileWatcher",
-    "Phase2CloudSyncService",
-    "Phase2AIExecutionPolicyTests",
-    "Phase2ContentViewModelTests",
-    "ShareExtensionCaptureTests"
+    "VaultRestorationTests",
+    "SecurityScopedURLTests",
+    "SearchIndexPersistenceTests",
+    "GraphEdgePersistenceTests",
+    "ConflictStateMachineTests",
+    "VersionHistoryServiceTests",
+    "IndexRebuildTests"
   ]
 }

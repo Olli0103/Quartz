@@ -3,6 +3,7 @@ import QuartzKit
 
 @main
 struct QuartzApp: App {
+    private static let fixtureVaultPathKey = "quartz.uitest.fixtureVaultPath"
     @State private var appState = AppState()
     @State private var appearanceManager = AppearanceManager()
     @State private var focusModeManager = FocusModeManager()
@@ -15,6 +16,7 @@ struct QuartzApp: App {
     /// Auto-create and open a fixture vault instead of showing the vault picker.
     private static var shouldMockVault: Bool {
         CommandLine.arguments.contains("--mock-vault")
+            && !CommandLine.arguments.contains("--force-onboarding")
     }
 
     /// Disable animations for deterministic UI testing.
@@ -41,6 +43,7 @@ struct QuartzApp: App {
         defaults.removeObject(forKey: "quartz.hasCompletedOnboarding")
         defaults.removeObject(forKey: "quartz.lastVault.bookmark")
         defaults.removeObject(forKey: "quartz.lastVault.name")
+        defaults.removeObject(forKey: fixtureVaultPathKey)
         defaults.removeObject(forKey: "quartz.appLockEnabled")
         defaults.removeObject(forKey: "quartz.lockTimeoutMinutes")
         defaults.synchronize()
@@ -80,6 +83,7 @@ struct QuartzApp: App {
             )
             #endif
             defaults.set(bookmarkData, forKey: "quartz.lastVault.bookmark")
+            defaults.set(vault.rootURL.path(percentEncoded: false), forKey: fixtureVaultPathKey)
             defaults.synchronize()
         } catch {
             print("UITest: Failed to create fixture vault: \(error)")

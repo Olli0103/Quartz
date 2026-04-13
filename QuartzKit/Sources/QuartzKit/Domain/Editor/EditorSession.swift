@@ -107,11 +107,10 @@ public final class EditorSession {
 
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
-    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
-    /// Safe: @MainActor @Observable class; tasks only cancelled in deinit.
-    nonisolated(unsafe) private var autosaveTask: Task<Void, Never>?
-    nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
-    nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
+    /// Stored for deinit cleanup of long-lived editor work items.
+    private var autosaveTask: Task<Void, Never>?
+    private var fileWatchTask: Task<Void, Never>?
+    private var wordCountTask: Task<Void, Never>?
 
     // MARK: - NSFilePresenter Integration
 
@@ -127,8 +126,8 @@ public final class EditorSession {
     /// Inspector store — drives the right panel UI. Shared across note switches.
     public let inspectorStore: InspectorStore
 
-    /// nonisolated(unsafe) for deinit access — cancelled in deinit only.
-    nonisolated(unsafe) private var analysisTask: Task<Void, Never>?
+    /// Stored for deinit cleanup of background analysis.
+    private var analysisTask: Task<Void, Never>?
 
     /// Delay before running analysis (longer than highlighting since ToC doesn't need keystroke-level updates).
     private let analysisDelay: Duration = .milliseconds(300)
@@ -148,12 +147,10 @@ public final class EditorSession {
     /// Graph edge store for resolving semantic links in the inspector.
     public var graphEdgeStore: GraphEdgeStore?
 
-    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
-    nonisolated(unsafe) private var semanticLinkObserver: Any?
-    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
-    nonisolated(unsafe) private var conceptObserver: Any?
-    /// nonisolated(unsafe) for deinit access — observers removed in deinit only.
-    nonisolated(unsafe) private var scanProgressObserver: Any?
+    /// Stored notification tokens removed during teardown.
+    private var semanticLinkObserver: Any?
+    private var conceptObserver: Any?
+    private var scanProgressObserver: Any?
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
         self.vaultProvider = vaultProvider
@@ -165,23 +162,23 @@ public final class EditorSession {
     }
 
     deinit {
-        // Cancel all pending tasks
-        autosaveTask?.cancel()
-        highlightTask?.cancel()
-        fileWatchTask?.cancel()
-        wordCountTask?.cancel()
-        analysisTask?.cancel()
-        inlineAITask?.cancel()
+        MainActor.assumeIsolated {
+            autosaveTask?.cancel()
+            highlightTask?.cancel()
+            fileWatchTask?.cancel()
+            wordCountTask?.cancel()
+            analysisTask?.cancel()
+            inlineAITask?.cancel()
 
-        // Remove notification observers
-        if let observer = semanticLinkObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = conceptObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = scanProgressObserver {
-            NotificationCenter.default.removeObserver(observer)
+            if let observer = semanticLinkObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = conceptObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = scanProgressObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 
@@ -192,11 +189,10 @@ public final class EditorSession {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self,
-                  let updatedURL = notification.object as? URL,
-                  updatedURL == self.note?.fileURL else { return }
+            guard let updatedURL = notification.object as? URL else { return }
             Task { @MainActor [weak self] in
-                await self?.refreshSemanticLinks()
+                guard let self, updatedURL == self.note?.fileURL else { return }
+                await self.refreshSemanticLinks()
             }
         }
     }
@@ -208,11 +204,10 @@ public final class EditorSession {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self,
-                  let updatedURL = notification.object as? URL,
-                  updatedURL == self.note?.fileURL else { return }
+            guard let updatedURL = notification.object as? URL else { return }
             Task { @MainActor [weak self] in
-                await self?.refreshConcepts()
+                guard let self, updatedURL == self.note?.fileURL else { return }
+                await self.refreshConcepts()
             }
         }
     }
@@ -224,15 +219,16 @@ public final class EditorSession {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            if let info = notification.userInfo,
-               let current = info["current"] as? Int,
-               let total = info["total"] as? Int,
-               let note = info["note"] as? String {
-                self.inspectorStore.aiScanProgress = (current: current, total: total, note: note)
-            } else {
-                // Scan completed
-                self.inspectorStore.aiScanProgress = nil
+            let current = notification.userInfo?["current"] as? Int
+            let total = notification.userInfo?["total"] as? Int
+            let note = notification.userInfo?["note"] as? String
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let current, let total, let note {
+                    self.inspectorStore.aiScanProgress = (current: current, total: total, note: note)
+                } else {
+                    self.inspectorStore.aiScanProgress = nil
+                }
             }
         }
     }
@@ -1035,8 +1031,8 @@ public final class EditorSession {
     public var highlighterLineSpacing: CGFloat = 1.5
     /// Syntax visibility mode. Set by the representable from AppearanceManager.
     public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
-    /// nonisolated(unsafe) for deinit access — task cancelled in deinit only.
-    nonisolated(unsafe) private var highlightTask: Task<Void, Never>?
+    /// Stored for deinit cleanup of debounced highlight work.
+    private var highlightTask: Task<Void, Never>?
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     /// Uses incremental parsing when the current transaction supports it.
@@ -1087,7 +1083,7 @@ public final class EditorSession {
         #endif
 
         highlightTask?.cancel()
-        highlightTask = Task(priority: .userInteractive) { [weak self] in
+        highlightTask = Task(priority: .high) { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
             let spans = await highlighter.parse(text)
@@ -1261,7 +1257,7 @@ public final class EditorSession {
             if let color = span.color {
                 let adjusted = adjustedOverlayColor(color)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
-                if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted as? NSColor) {
+                if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
             }
@@ -1510,7 +1506,7 @@ public final class EditorSession {
             let stream = await watcher.startWatching()
             for await event in stream {
                 guard !Task.isCancelled else { break }
-                await self?.handleFileChange(event)
+                self?.handleFileChange(event)
             }
         }
     }
@@ -1627,8 +1623,8 @@ public final class EditorSession {
 
     // MARK: - Inline AI
 
-    /// nonisolated(unsafe) for deinit access — task cancelled in deinit only.
-    nonisolated(unsafe) private var inlineAITask: Task<Void, Never>?
+    /// Stored for deinit cleanup of inline AI work.
+    private var inlineAITask: Task<Void, Never>?
 
     /// State for the inline AI operation — observed by the UI for loading/error display.
     public private(set) var isInlineAIProcessing: Bool = false

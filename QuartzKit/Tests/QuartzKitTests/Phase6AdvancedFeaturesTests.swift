@@ -63,8 +63,10 @@ final class Phase6MarkdownTableRoundTripTests: XCTestCase {
         """
 
         let lines = table.components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 5, "Table should preserve all markdown lines")
         XCTAssertTrue(table.contains("`*`"), "Backticks should be preserved")
         XCTAssertTrue(table.contains("**bold**"), "Bold markers should be preserved")
+        XCTAssertTrue(lines[3].contains("\\|"), "Escaped pipes should survive round-trip content")
     }
 
     /// Tests that empty cells are handled correctly.
@@ -138,7 +140,7 @@ final class Phase6MarkdownTableRoundTripTests: XCTestCase {
 
         // Add column C
         var newLines: [String] = []
-        for (index, line) in lines.enumerated() {
+        for (index, _) in lines.enumerated() {
             if index == 0 {
                 newLines.append("| A | B | C |")
             } else if index == 1 {
@@ -177,7 +179,7 @@ final class Phase6TableDragResizeUITests: XCTestCase {
     @MainActor
     func testMinimumColumnWidthConstraint() async throws {
         let minWidth: CGFloat = 40
-        var columnWidth: CGFloat = 100
+        let columnWidth: CGFloat = 100
 
         // Simulate drag that would make column too narrow
         let dragDelta: CGFloat = -80  // Would result in 20pt
@@ -538,6 +540,8 @@ final class Phase6ExportFidelitySnapshotTests: XCTestCase {
         let expectedAltAttr = "alt=\"Alt text\""
 
         // Verify components would be present
+        XCTAssertTrue(markdown.contains("![Alt text]"), "Markdown source should preserve alt text")
+        XCTAssertTrue(markdown.contains("(image.png)"), "Markdown source should preserve image path")
         XCTAssertFalse(expectedImgTag.isEmpty)
         XCTAssertFalse(expectedSrcAttr.isEmpty)
         XCTAssertFalse(expectedAltAttr.isEmpty)
@@ -555,6 +559,7 @@ final class Phase6ExportFidelitySnapshotTests: XCTestCase {
         // For HTML export, verify table structure
         let expectedElements = ["<table>", "<thead>", "<tbody>", "<tr>", "<th>", "<td>"]
 
+        XCTAssertEqual(markdownTable.components(separatedBy: "\n").count, 3, "Source table should preserve header, divider, and body row")
         for element in expectedElements {
             XCTAssertFalse(element.isEmpty, "Expected element: \(element)")
         }

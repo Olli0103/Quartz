@@ -12,6 +12,10 @@ import SwiftUI
 
 @Suite("ReduceMotionAnimation")
 struct ReduceMotionAnimationTests {
+    private func resetFocusDefaults() {
+        UserDefaults.standard.removeObject(forKey: "quartz.editor.focusModeActive")
+        UserDefaults.standard.removeObject(forKey: "quartz.editor.typewriterModeActive")
+    }
 
     @Test("QuartzAnimation has 20+ preset animations covering all interaction types")
     func animationPresetsExist() {
@@ -54,6 +58,9 @@ struct ReduceMotionAnimationTests {
 
     @Test("FocusModeManager toggle cycle works for Reduce Motion alternatives")
     @MainActor func focusModeToggle() {
+        resetFocusDefaults()
+        defer { resetFocusDefaults() }
+
         let manager = FocusModeManager()
         #expect(manager.isFocusModeActive == false)
 
@@ -66,6 +73,9 @@ struct ReduceMotionAnimationTests {
 
     @Test("FocusModeManager typewriter mode toggles independently")
     @MainActor func typewriterModeToggle() {
+        resetFocusDefaults()
+        defer { resetFocusDefaults() }
+
         let manager = FocusModeManager()
         #expect(manager.isTypewriterModeActive == false)
 

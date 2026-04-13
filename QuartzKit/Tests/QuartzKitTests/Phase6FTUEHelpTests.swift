@@ -414,8 +414,9 @@ struct iOSHelpModalTests {
 
         let results = await helpIndex.search(query: "sync")
 
-        // Should find sync-related help
-        // Search completes without error; results may be empty in test env (no indexed content)
+        #expect(!results.isEmpty, "Sync query should find at least one help entry")
+        #expect(results.contains(where: { $0.commandRoute == "help://sync" }),
+                "Search should surface the sync help route")
     }
 }
 #endif

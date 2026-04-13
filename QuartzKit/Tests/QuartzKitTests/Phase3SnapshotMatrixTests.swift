@@ -24,6 +24,12 @@ import AppKit
 /// Each test renders the view in a fixed frame to ensure deterministic output.
 final class Phase3SnapshotMatrixTests: XCTestCase {
 
+    override func invokeTest() {
+        withSnapshotTesting(record: snapshotRecordMode) {
+            super.invokeTest()
+        }
+    }
+
     // MARK: - Platform Suffix
 
     private var platformSuffix: String {
@@ -36,6 +42,16 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
         #else
         return "unknown"
         #endif
+    }
+
+    private var snapshotRecordMode: SnapshotTestingConfiguration.Record {
+        if ProcessInfo.processInfo.environment["QUARTZ_RECORD_PHASE3_SNAPSHOTS"] == "1" {
+            return .all
+        }
+        if UserDefaults.standard.bool(forKey: "QUARTZ_RECORD_PHASE3_SNAPSHOTS") {
+            return .all
+        }
+        return .never
     }
 
     // MARK: - MarkdownPreviewView (Zero Dependencies)
@@ -136,9 +152,12 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
             fontScale: 1.0
         )
         .frame(width: 400, height: 200)
-        .preferredColorScheme(.dark)
 
-        assertViewSnapshot(view, named: "MarkdownPreview_DarkMode_\(platformSuffix)")
+        assertViewSnapshot(
+            view,
+            named: "MarkdownPreview_DarkMode_\(platformSuffix)",
+            colorScheme: .dark
+        )
     }
 
     @MainActor
@@ -154,9 +173,9 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
 
         assertViewSnapshot(
             NoteListRow(item: item)
-                .frame(width: 320, height: 80)
-                .preferredColorScheme(.dark),
-            named: "NoteListRow_DarkMode_\(platformSuffix)"
+                .frame(width: 320, height: 80),
+            named: "NoteListRow_DarkMode_\(platformSuffix)",
+            colorScheme: .dark
         )
     }
 
@@ -191,33 +210,36 @@ final class Phase3SnapshotMatrixTests: XCTestCase {
     private func assertViewSnapshot<V: View>(
         _ view: V,
         named name: String,
-        record: SnapshotTestingConfiguration.Record? = nil,
+        colorScheme: ColorScheme = .light,
         file: StaticString = #filePath,
         testName: String = #function,
         line: UInt = #line
     ) {
+        let configuredView = view.preferredColorScheme(colorScheme)
         #if canImport(UIKit)
-        let controller = UIHostingController(rootView: view)
+        let controller = UIHostingController(rootView: configuredView)
+        controller.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         controller.view.frame = UIScreen.main.bounds
         controller.view.layoutIfNeeded()
         assertSnapshot(
             of: controller,
             as: .image,
             named: name,
-            record: record,
             file: file,
             testName: testName,
             line: line
         )
         #elseif canImport(AppKit)
-        let hostingView = NSHostingView(rootView: view)
+        let hostingView = NSHostingView(rootView: configuredView)
+        hostingView.appearance = NSAppearance(
+            named: colorScheme == .dark ? .darkAqua : .aqua
+        )
         hostingView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         hostingView.layoutSubtreeIfNeeded()
         assertSnapshot(
             of: hostingView,
             as: .image,
             named: name,
-            record: record,
             file: file,
             testName: testName,
             line: line

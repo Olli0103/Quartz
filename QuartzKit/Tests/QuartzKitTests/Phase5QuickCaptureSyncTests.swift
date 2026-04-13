@@ -3,6 +3,18 @@ import Foundation
 import XCTest
 @testable import QuartzKit
 
+private actor NotificationReceipt {
+    private var didReceive = false
+
+    func markReceived() {
+        didReceive = true
+    }
+
+    func received() -> Bool {
+        didReceive
+    }
+}
+
 // MARK: - Phase 5: Quick Capture, Sync Reliability, Conflict Safety
 // TDD Red Phase: These tests define the required behavior for quick capture and sync improvements.
 
@@ -130,26 +142,29 @@ struct QuickCaptureFlowTests {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        var notificationReceived = false
+        let receipt = NotificationReceipt()
         let observer = NotificationCenter.default.addObserver(
             forName: .quartzQuickCaptureCompleted,
             object: nil,
             queue: .main
         ) { _ in
-            notificationReceived = true
+            Task {
+                await receipt.markReceived()
+            }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        _ = try await useCase.capture(
+        let result = try await useCase.capture(
             content: "Test",
             title: "Notification Test",
             vaultRoot: tempDir
         )
 
-        // Give notification time to propagate
         try await Task.sleep(for: .milliseconds(50))
 
-        #expect(notificationReceived)
+        let savedContent = try String(contentsOf: result.url, encoding: .utf8)
+        #expect(savedContent == "Test")
+        #expect(await receipt.received())
     }
 }
 
@@ -599,6 +614,7 @@ final class Phase5SyncPerformanceTests: XCTestCase {
 
 /// Use case for quick note capture across platforms.
 public actor QuickCaptureUseCase {
+    private let filenameFormatter: DateFormatter
 
     public struct CaptureResult: Sendable {
         public let url: URL
@@ -610,7 +626,11 @@ public actor QuickCaptureUseCase {
         }
     }
 
-    public init() {}
+    public init() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH-mm"
+        self.filenameFormatter = formatter
+    }
 
     public func capture(
         content: String,
@@ -628,9 +648,7 @@ public actor QuickCaptureUseCase {
                 .replacingOccurrences(of: "\\", with: "-")
             filename = "\(sanitized).md"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd HH-mm"
-            let timestamp = formatter.string(from: Date())
+            let timestamp = filenameFormatter.string(from: Date())
             filename = "Quick Note \(timestamp).md"
         }
 
@@ -641,13 +659,11 @@ public actor QuickCaptureUseCase {
         try data.write(to: url, options: .atomic)
 
         // Post notification
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .quartzQuickCaptureCompleted,
-                object: nil,
-                userInfo: ["url": url]
-            )
-        }
+        NotificationCenter.default.post(
+            name: .quartzQuickCaptureCompleted,
+            object: nil,
+            userInfo: ["url": url]
+        )
 
         return CaptureResult(url: url, needsEnrichment: deferEnrichment)
     }

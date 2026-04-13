@@ -20,25 +20,34 @@ final class AudioMainThreadBudgetTests: XCTestCase {
         // Process 100 samples rapidly (simulating 12Hz for ~8 seconds)
         for i in 0..<100 {
             let level = Float(i % 50) / 50.0 - 0.8 // Simulate varying dB levels
-            await processor.processSample(
+            let update = await processor.processSample(
                 averagePower: level * 60 - 60,
                 peakPower: level * 60 - 50
-            ) { _, _ in
+            )
+            if update != nil {
                 updateCount += 1
             }
         }
 
         // With 0.1s throttle, we should have far fewer than 100 updates
         // (depends on execution speed, but should be significantly throttled)
+        XCTAssertGreaterThan(updateCount, 0, "Throttling should still allow some UI updates through")
         XCTAssertLessThan(updateCount, 50, "UI updates should be throttled")
     }
 
     /// Tests that a simple recording session can start.
     @MainActor
     func testAudioRecordingServiceExists() async throws {
-        // Verify the service type exists
-        // Actual recording requires microphone permission
-        XCTAssertTrue(true, "AudioRecordingService exists")
+        let service = AudioRecordingService()
+
+        XCTAssertEqual(service.state, .idle, "Recording service should start idle")
+        XCTAssertFalse(service.isRecording, "Idle service must not report recording")
+        XCTAssertFalse(service.isPaused, "Idle service must not report paused")
+        XCTAssertEqual(service.duration, 0, accuracy: 0.001, "Fresh service should have zero duration")
+        XCTAssertEqual(service.currentLevel, 0, accuracy: 0.001, "Fresh service should have zero current level")
+        XCTAssertEqual(service.peakLevel, 0, accuracy: 0.001, "Fresh service should have zero peak level")
+        XCTAssertTrue(service.levelHistory.isEmpty, "Fresh service should not expose stale waveform history")
+        XCTAssertNil(service.lastRecordingURL, "Fresh service should not point at an old recording")
     }
 }
 
@@ -139,24 +148,83 @@ final class DiarizationQualityFixtureTests: XCTestCase {
     /// Documents diarization implementation status.
     @MainActor
     func testDiarizationStatusDocumentation() async throws {
-        // CURRENT STATUS (per CODEX.md):
-        // - Heuristic K-means on handcrafted features
-        // - Useful baseline, not production-grade
-        //
-        // This is acceptable for MVP but should be documented
-        // in user-facing materials.
+        let service = SpeakerDiarizationService()
+        let diarization = SpeakerDiarizationService.DiarizationResult(
+            segments: [
+                .init(
+                    speakerID: "speaker_0",
+                    speakerLabel: "Speaker A",
+                    startTime: 0,
+                    endTime: 10,
+                    confidence: 0.93
+                )
+            ],
+            speakerCount: 1,
+            speakers: ["speaker_0": "Speaker A"]
+        )
+        let transcription = TranscriptionService.TranscriptionResult(
+            text: "Opening remarks",
+            segments: [
+                .init(text: "Opening remarks", timestamp: 1, duration: 2, confidence: 0.95)
+            ],
+            locale: Locale(identifier: "en_US"),
+            duration: 10
+        )
 
-        XCTAssertTrue(true, "Diarization status documented")
+        let combined = await service.combineWithTranscription(
+            diarization: diarization,
+            transcription: transcription
+        )
+
+        XCTAssertTrue(combined.contains("**Speaker A** [00:00]:"), "Combined transcript should label the speaker")
+        XCTAssertTrue(combined.contains("Opening remarks"), "Combined transcript should carry transcription text")
     }
 
     /// Tests that speaker segments align with transcription.
     @MainActor
     func testSpeakerSegmentAlignment() async throws {
-        // EXPECTED:
-        // Speaker segments should align with transcription timestamps
-        // - Segment boundaries within 500ms of actual speaker change
-        // - No orphan transcription text without speaker assignment
+        let service = SpeakerDiarizationService()
+        let diarization = SpeakerDiarizationService.DiarizationResult(
+            segments: [
+                .init(
+                    speakerID: "speaker_0",
+                    speakerLabel: "Speaker A",
+                    startTime: 0,
+                    endTime: 5,
+                    confidence: 0.91
+                ),
+                .init(
+                    speakerID: "speaker_1",
+                    speakerLabel: "Speaker B",
+                    startTime: 5,
+                    endTime: 10,
+                    confidence: 0.89
+                )
+            ],
+            speakerCount: 2,
+            speakers: [
+                "speaker_0": "Speaker A",
+                "speaker_1": "Speaker B"
+            ]
+        )
+        let transcription = TranscriptionService.TranscriptionResult(
+            text: "Intro response trailing",
+            segments: [
+                .init(text: "Intro", timestamp: 1, duration: 1, confidence: 0.95),
+                .init(text: "response", timestamp: 6, duration: 1, confidence: 0.94),
+                .init(text: "trailing", timestamp: 12, duration: 1, confidence: 0.80)
+            ],
+            locale: Locale(identifier: "en_US"),
+            duration: 12
+        )
 
-        XCTAssertTrue(true, "Speaker segment alignment documented")
+        let combined = await service.combineWithTranscription(
+            diarization: diarization,
+            transcription: transcription
+        )
+
+        XCTAssertTrue(combined.contains("**Speaker A** [00:00]: Intro"), "First speaker block should capture only in-range text")
+        XCTAssertTrue(combined.contains("**Speaker B** [00:05]: response"), "Second speaker block should capture its own text")
+        XCTAssertFalse(combined.contains("trailing"), "Out-of-range transcription text should not be orphaned into a speaker block")
     }
 }

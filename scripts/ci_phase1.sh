@@ -16,6 +16,11 @@ pass() { echo -e "${GREEN}${BOLD}✓ $1${RESET}"; }
 fail() { echo -e "${RED}${BOLD}✗ $1${RESET}"; exit 1; }
 step() { echo -e "\n${BOLD}→ $1${RESET}"; }
 
+has_swiftpm_helper_crash() {
+    local output="$1"
+    echo "$output" | grep -q "swiftpm-testing-helper.*unexpected signal code 10"
+}
+
 # ── Self-Healing: Failure Classification ─────────────────────────────
 classify_failures() {
     local output="$1"
@@ -63,14 +68,14 @@ else
 fi
 
 echo "  Building for iOS Simulator..."
-if xcodebuild build -scheme Quartz -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1; then
+if xcodebuild build -scheme Quartz -destination 'generic/platform=iOS Simulator' -quiet 2>&1; then
     pass "iOS Simulator build succeeded"
 else
     fail "iOS Simulator build failed"
 fi
 
 echo "  Building for iPad Simulator..."
-if xcodebuild build -scheme Quartz -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' -quiet 2>&1; then
+if xcodebuild build -scheme Quartz -destination 'generic/platform=iOS Simulator' -quiet 2>&1; then
     pass "iPad Simulator build succeeded"
 else
     fail "iPad Simulator build failed"
@@ -79,10 +84,17 @@ fi
 # ── Step 3: Run test suite ───────────────────────────────────────────
 step "Running QuartzKit tests (parallel)"
 TEST_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --parallel 2>&1 || true)
+if has_swiftpm_helper_crash "$TEST_OUTPUT"; then
+    echo "  Detected SwiftPM helper crash under parallel execution; retrying serially..."
+    TEST_OUTPUT=$(swift test --package-path "$PACKAGE_PATH" --no-parallel 2>&1 || true)
+fi
 PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "passed" || true)
 FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -c "failed after" || true)
 echo "  Suites passed: $PASS_COUNT"
 echo "  Tests failed: $FAIL_COUNT"
+if has_swiftpm_helper_crash "$TEST_OUTPUT"; then
+    fail "SwiftPM helper crashed during QuartzKit test execution"
+fi
 if [ "$FAIL_COUNT" -gt 0 ]; then
     classify_failures "$TEST_OUTPUT"
     fail "Test failures: $FAIL_COUNT (zero tolerance)"

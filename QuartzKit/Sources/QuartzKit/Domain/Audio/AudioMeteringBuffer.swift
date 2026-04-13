@@ -161,8 +161,6 @@ public actor AudioMeteringProcessor {
 
     private let buffer: AudioMeteringBuffer
     private var lastUIUpdate: Date = .distantPast
-    private var pendingUIUpdate: ((Float, Float) -> Void)?
-
     // MARK: - Init
 
     /// Creates a new metering processor.
@@ -185,12 +183,11 @@ public actor AudioMeteringProcessor {
     /// - Parameters:
     ///   - averagePower: Average power in dB (typically -160 to 0).
     ///   - peakPower: Peak power in dB.
-    ///   - onUIUpdate: Callback for UI updates (throttled, called on MainActor).
+    /// - Returns: Normalized levels when the throttling window allows a UI update.
     public func processSample(
         averagePower: Float,
-        peakPower: Float,
-        onUIUpdate: @escaping @MainActor @Sendable (Float, Float) -> Void
-    ) async {
+        peakPower: Float
+    ) async -> (average: Float, peak: Float)? {
         // Normalize to 0-1 range
         let normalizedAvg = normalizeLevel(averagePower)
         let normalizedPeak = normalizeLevel(peakPower)
@@ -202,12 +199,10 @@ public actor AudioMeteringProcessor {
         let now = Date()
         if now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval {
             lastUIUpdate = now
-
-            // Dispatch to main actor for UI update
-            await MainActor.run {
-                onUIUpdate(normalizedAvg, normalizedPeak)
-            }
+            return (normalizedAvg, normalizedPeak)
         }
+
+        return nil
     }
 
     /// Returns recent samples for waveform visualization.

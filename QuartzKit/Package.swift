@@ -38,7 +38,10 @@ let package = Package(
                 "QuartzKit",
                 .product(name: "SnapshotTesting", package: "swift-snapshot-testing"),
             ],
-            path: "Tests/QuartzKitTests"
+            path: "Tests/QuartzKitTests",
+            exclude: [
+                "__Snapshots__",
+            ]
         ),
     ]
 )

@@ -336,6 +336,7 @@ struct ContentView: View {
             }
         }
         .task {
+            let defaults = UserDefaults.standard
             if viewModel == nil {
                 viewModel = ContentViewModel(appState: appState)
             }
@@ -346,7 +347,18 @@ struct ContentView: View {
                 deepLinkCoordinator = DeepLinkCoordinator(appState: appState)
             }
             if appState.currentVault == nil {
-                if !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) {
+                if CommandLine.arguments.contains("--mock-vault"),
+                   let fixtureVaultPath = defaults.string(forKey: "quartz.uitest.fixtureVaultPath") {
+                    let fixtureURL = URL(fileURLWithPath: fixtureVaultPath, isDirectory: true)
+                    let fixtureName = defaults.string(forKey: "quartz.lastVault.name") ?? fixtureURL.lastPathComponent
+                    let fixtureVault = VaultConfig(name: fixtureName, rootURL: fixtureURL)
+                    vaultCoordinator?.openVault(
+                        fixtureVault,
+                        viewModel: viewModel,
+                        noteListStore: noteListStore,
+                        workspaceStore: workspaceStore
+                    ) { restoreSelectedNoteIfNeeded() }
+                } else if !defaults.bool(forKey: Self.onboardingCompletedKey) {
                     coordinator.activeSheet = .onboarding
                 } else {
                     vaultCoordinator?.restoreLastVault(

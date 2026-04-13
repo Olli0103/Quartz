@@ -45,11 +45,6 @@ struct QuickNoteViewTests {
         #expect(mixedItem.markdownContent.contains("Note"))
         #expect(mixedItem.markdownContent.contains("x.com"))
 
-        // CaptureMode variants
-        switch CaptureMode.inbox {
-        case .inbox: break
-        default: Issue.record("Expected .inbox")
-        }
         switch CaptureMode.newNote(title: "T") {
         case .newNote(let t): #expect(t == "T")
         default: Issue.record("Expected .newNote")

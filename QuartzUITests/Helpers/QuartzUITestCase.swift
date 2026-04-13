@@ -9,6 +9,12 @@ import XCTest
 ///
 /// Each `@MainActor` test method must call `launchApp()` at the start.
 class QuartzUITestCase: XCTestCase {
+    private let defaultLaunchArguments = [
+        "--uitesting",
+        "--reset-state",
+        "--mock-vault",
+        "--disable-animations"
+    ]
 
     /// Set by `launchApp()` — available to all test methods.
     var app: XCUIApplication!
@@ -18,6 +24,7 @@ class QuartzUITestCase: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        terminateCurrentAppIfNeeded()
         app = nil
     }
 
@@ -27,14 +34,28 @@ class QuartzUITestCase: XCTestCase {
     /// Call this at the start of each `@MainActor` test method.
     @MainActor
     func launchApp() {
+        launchApp(arguments: defaultLaunchArguments)
+    }
+
+    /// Creates and launches the app with explicit launch arguments.
+    @MainActor
+    func launchApp(arguments: [String]) {
+        terminateCurrentAppIfNeeded()
         app = XCUIApplication()
-        app.launchArguments += [
-            "--uitesting",
-            "--reset-state",
-            "--mock-vault",
-            "--disable-animations"
-        ]
+        app.launchArguments += arguments
         app.launch()
+    }
+
+    @discardableResult
+    private func terminateCurrentAppIfNeeded() -> Bool {
+        let existingApp = app ?? XCUIApplication()
+        guard existingApp.state != .notRunning else {
+            return false
+        }
+
+        existingApp.terminate()
+        _ = existingApp.wait(for: .notRunning, timeout: 5)
+        return true
     }
 
     // MARK: - Helpers
@@ -76,6 +97,21 @@ class QuartzUITestCase: XCTestCase {
     }
 
     // MARK: - Accessibility Helpers
+
+    @MainActor
+    func element(matchingIdentifier identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor
+    func waitForEditorSurface(timeout: TimeInterval) -> Bool {
+        let identifiedEditor = element(matchingIdentifier: "editor-text-view")
+        if identifiedEditor.waitForExistence(timeout: timeout) {
+            return true
+        }
+
+        return app.textViews.firstMatch.waitForExistence(timeout: min(timeout, 5))
+    }
 
     /// Asserts that the element has a non-empty accessibility label.
     /// Use this to enforce that UI controls are properly labeled for VoiceOver.

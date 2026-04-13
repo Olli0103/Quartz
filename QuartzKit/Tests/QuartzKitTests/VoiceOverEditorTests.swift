@@ -5,6 +5,7 @@ import Foundation
 // MARK: - VoiceOver Editor Accessibility Tests
 
 @Suite("VoiceOverEditor")
+@MainActor
 struct VoiceOverEditorTests {
 
     @Test("EditorSession exposes accessible state: wordCount, isDirty, cursor position")

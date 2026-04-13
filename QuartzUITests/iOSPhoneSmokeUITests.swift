@@ -23,10 +23,8 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
     func testLaunchToMainView() throws {
         launchApp()
 
-        // With --mock-vault, app must skip vault picker and show the sidebar
-        let sidebar = app.otherElements["sidebar-file-tree"]
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
-                      "iPhone must launch to sidebar file tree with mock vault")
+        XCTAssertTrue(waitForCompactPhoneNoteList(timeout: 15),
+                      "iPhone must launch to the compact note list with mock vault")
 
         takeScreenshot(named: "iPhone_Launch")
     }
@@ -46,9 +44,7 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
 
         welcomeCell.tap()
 
-        // Editor must appear
-        let editor = app.otherElements["editor-text-view"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 10),
+        XCTAssertTrue(waitForEditorSurface(timeout: 10),
                       "Editor must appear after tapping note on iPhone")
 
         takeScreenshot(named: "iPhone_NoteOpen")
@@ -60,18 +56,14 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
     func testAccessibilityLabelsExist() throws {
         launchApp()
 
-        // Sidebar must be present and accessible
-        let sidebar = app.otherElements["sidebar-file-tree"]
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
-                      "Sidebar file tree must exist on iPhone")
-        XCTAssertTrue(sidebar.isEnabled, "Sidebar file tree must be accessible")
+        XCTAssertTrue(waitForCompactPhoneNoteList(timeout: 15),
+                      "Compact note list must exist on iPhone")
 
-        // FAB must exist, be hittable, and have an accessibility label
-        let fab = app.buttons.matching(identifier: "sidebar-new-note-fab").firstMatch
-        XCTAssertTrue(fab.waitForExistence(timeout: 5),
-                      "New note FAB must exist on iPhone")
-        XCTAssertTrue(fab.isHittable, "New note FAB must be hittable")
-        assertAccessibilityLabelNonEmpty(fab, context: "iPhone new-note FAB")
+        let newNoteButton = compactNewNoteButton()
+        XCTAssertTrue(newNoteButton.waitForExistence(timeout: 5),
+                      "New note action must exist on iPhone")
+        XCTAssertTrue(newNoteButton.isHittable, "New note action must be hittable")
+        assertAccessibilityLabelNonEmpty(newNoteButton, context: "iPhone new-note action")
 
         takeScreenshot(named: "iPhone_Accessibility")
     }
@@ -80,28 +72,22 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
 
     @MainActor
     func testAccessibilityXLLayout() throws {
-        // Launch with accessibility extra-large text
-        app = XCUIApplication()
-        app.launchArguments += [
+        launchApp(arguments: [
             "--uitesting",
             "--reset-state",
             "--mock-vault",
             "--disable-animations",
             "-UIPreferredContentSizeCategoryName",
             "UICTContentSizeCategoryAccessibilityExtraLarge"
-        ]
-        app.launch()
+        ])
 
-        // Sidebar must still be present and usable at XL text size
-        let sidebar = app.otherElements["sidebar-file-tree"]
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 15),
-                      "Sidebar must remain visible at Accessibility XL text size")
+        XCTAssertTrue(waitForCompactPhoneNoteList(timeout: 15),
+                      "Compact note list must remain visible at Accessibility XL text size")
 
-        // FAB must still be hittable (not pushed offscreen by large text)
-        let fab = app.buttons.matching(identifier: "sidebar-new-note-fab").firstMatch
-        if fab.waitForExistence(timeout: 5) {
-            XCTAssertTrue(fab.isHittable,
-                          "New note FAB must be hittable at Accessibility XL text size")
+        let newNoteButton = compactNewNoteButton()
+        if newNoteButton.waitForExistence(timeout: 5) {
+            XCTAssertTrue(newNoteButton.isHittable,
+                          "New note action must be hittable at Accessibility XL text size")
         }
 
         assertScreenshotNonEmpty(named: "iPhone_AccessibilityXL")
@@ -120,5 +106,27 @@ final class iOSPhoneSmokeUITests: QuartzUITestCase {
             _ = app.textViews.firstMatch.waitForExistence(timeout: 5)
             assertScreenshotNonEmpty(named: "iPhone_Editor")
         }
+    }
+}
+
+private extension iOSPhoneSmokeUITests {
+    @MainActor
+    func waitForCompactPhoneNoteList(timeout: TimeInterval) -> Bool {
+        let identifiedNoteList = element(matchingIdentifier: "note-list-view")
+        if identifiedNoteList.waitForExistence(timeout: min(timeout, 2)) {
+            return true
+        }
+
+        return app.staticTexts["Welcome"].waitForExistence(timeout: timeout)
+    }
+
+    @MainActor
+    func compactNewNoteButton() -> XCUIElement {
+        let identifiedButton = element(matchingIdentifier: "note-list-new-note")
+        if identifiedButton.exists {
+            return identifiedButton
+        }
+
+        return app.buttons["New Note"]
     }
 }

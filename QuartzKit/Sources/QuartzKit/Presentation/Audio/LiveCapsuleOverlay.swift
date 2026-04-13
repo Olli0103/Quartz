@@ -57,7 +57,7 @@ public struct LiveCapsuleOverlay: View {
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityValue(formattedDuration)
     }

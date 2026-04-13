@@ -66,7 +66,6 @@ public actor AVAudioEngineCaptureService {
 
     private let ringBuffer: AudioChunkRingBuffer
     private var engine: AVAudioEngine?
-    private var tapFileWriter: AVAudioFile?
     private var interruptionObserver: NSObjectProtocol?
     private var routeChangeObserver: NSObjectProtocol?
 
@@ -134,17 +133,15 @@ public actor AVAudioEngineCaptureService {
                 AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
                 AVEncoderBitRateKey: 128_000,
             ]
-            tapFileWriter = try AVAudioFile(forWriting: outputURL, settings: settings)
+            let tapFileWriter = try AVAudioFile(forWriting: outputURL, settings: settings)
 
             // Install tap for PCM chunk capture
             let bufferSize = AVAudioFrameCount(chunkDuration * inputFormat.sampleRate)
-            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, when in
+            inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self, tapFileWriter] buffer, when in
                 guard let self else { return }
 
                 // Write to file
-                if let writer = self.tapFileWriter {
-                    try? writer.write(from: buffer)
-                }
+                try? tapFileWriter.write(from: buffer)
 
                 // Extract samples for chunk
                 guard let channelData = buffer.floatChannelData?[0] else { return }
@@ -209,8 +206,6 @@ public actor AVAudioEngineCaptureService {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-        tapFileWriter = nil
-
         removeInterruptionHandling()
         chunkContinuation?.finish()
         meteringContinuation?.finish()
@@ -251,7 +246,11 @@ public actor AVAudioEngineCaptureService {
             queue: .main
         ) { [weak self] notification in
             guard let self else { return }
-            Task { await self.handleInterruption(notification) }
+            let userInfo = notification.userInfo
+            let typeValue = userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsValue = userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            guard let typeValue else { return }
+            Task { await self.handleInterruption(typeValue: typeValue, optionsValue: optionsValue) }
         }
 
         routeChangeObserver = NotificationCenter.default.addObserver(
@@ -260,7 +259,9 @@ public actor AVAudioEngineCaptureService {
             queue: .main
         ) { [weak self] notification in
             guard let self else { return }
-            Task { await self.handleRouteChange(notification) }
+            let userInfo = notification.userInfo
+            guard let reasonValue = userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt else { return }
+            Task { await self.handleRouteChange(reasonValue: reasonValue) }
         }
         #endif
     }
@@ -274,19 +275,16 @@ public actor AVAudioEngineCaptureService {
         }
     }
 
-    private func handleInterruption(_ notification: Notification) {
+    private func handleInterruption(typeValue: UInt, optionsValue: UInt) {
         #if os(iOS)
-        guard let userInfo = notification.userInfo,
-              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+        guard let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
         switch type {
         case .began:
             pauseCapture()
             interruptionContinuation?.yield(.began)
         case .ended:
-            let options = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
             if shouldResume {
                 try? resumeCapture()
                 interruptionContinuation?.yield(.endedWithResume)
@@ -299,11 +297,9 @@ public actor AVAudioEngineCaptureService {
         #endif
     }
 
-    private func handleRouteChange(_ notification: Notification) {
+    private func handleRouteChange(reasonValue: UInt) {
         #if os(iOS)
-        guard let userInfo = notification.userInfo,
-              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+        guard let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
 
         switch reason {
         case .oldDeviceUnavailable:

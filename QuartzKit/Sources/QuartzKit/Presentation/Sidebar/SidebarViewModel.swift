@@ -143,12 +143,9 @@ public final class SidebarViewModel {
         invalidateFilterCache()
     }
 
-    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
-    /// Safe: @MainActor @Observable class; observer only removed in deinit.
-    nonisolated(unsafe) private var favoritesObserver: Any?
-    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
-    /// Safe: @MainActor @Observable class; observer only removed in deinit.
-    nonisolated(unsafe) private var renameObserver: Any?
+    /// Stored notification tokens removed during teardown.
+    private var favoritesObserver: Any?
+    private var renameObserver: Any?
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -174,11 +171,13 @@ public final class SidebarViewModel {
     }
 
     deinit {
-        if let observer = favoritesObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = renameObserver {
-            NotificationCenter.default.removeObserver(observer)
+        MainActor.assumeIsolated {
+            if let observer = favoritesObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = renameObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 

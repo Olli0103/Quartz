@@ -58,7 +58,7 @@ public actor StreamingTranscriptionService {
     // MARK: - Configuration
 
     private let locale: Locale
-    private let recognizer: SFSpeechRecognizer?
+    private let backend: Backend
 
     // MARK: - Internal
 
@@ -67,12 +67,32 @@ public actor StreamingTranscriptionService {
     private var partialContinuation: AsyncStream<PartialTranscript>.Continuation?
     private var consumeTask: Task<Void, Never>?
     private var sessionTimeOffset: TimeInterval = 0
+    private var resumedPrefixText: String = ""
+    private var resumedPrefixSegments: [TranscriptionService.TranscriptionSegment] = []
+
+    internal enum Backend {
+        case system(SFSpeechRecognizer?)
+        case simulated(SimulatedBackend)
+    }
+
+    internal struct SimulatedBackend: Sendable {
+        let recognizerAvailable: Bool
+
+        internal init(recognizerAvailable: Bool = true) {
+            self.recognizerAvailable = recognizerAvailable
+        }
+    }
 
     // MARK: - Init
 
     public init(locale: Locale = .current) {
         self.locale = locale
-        self.recognizer = SFSpeechRecognizer(locale: locale)
+        self.backend = .system(SFSpeechRecognizer(locale: locale))
+    }
+
+    internal init(locale: Locale = .current, testBackend: SimulatedBackend) {
+        self.locale = locale
+        self.backend = .simulated(testBackend)
     }
 
     // MARK: - Public API
@@ -82,26 +102,32 @@ public actor StreamingTranscriptionService {
         audioChunkStream: AsyncStream<AudioChunk>
     ) throws -> AsyncStream<PartialTranscript> {
         guard state == .idle else { throw StreamingError.recognizerUnavailable }
-        guard let recognizer, recognizer.isAvailable else {
+        guard isRecognizerAvailable else {
             throw StreamingError.recognizerUnavailable
         }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
-        self.request = request
 
         state = .streaming
         accumulatedText = ""
         accumulatedSegments = []
         processedDuration = 0
         sessionTimeOffset = 0
+        resumedPrefixText = ""
+        resumedPrefixSegments = []
 
         let stream = AsyncStream<PartialTranscript> { continuation in
             self.partialContinuation = continuation
         }
 
-        startRecognitionTask(request: request)
+        switch backend {
+        case .system:
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            request.requiresOnDeviceRecognition = true
+            self.request = request
+            startRecognitionTask(request: request)
+        case .simulated:
+            request = nil
+        }
 
         // Consume audio chunks and feed to recognizer
         consumeTask = Task { [weak self] in
@@ -117,28 +143,31 @@ public actor StreamingTranscriptionService {
     /// Pauses streaming (cancels recognition task, preserves accumulated text).
     public func pauseStreaming() {
         guard state == .streaming else { return }
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        request?.endAudio()
-        request = nil
+        tearDownRecognitionSession()
         state = .paused
     }
 
     /// Resumes streaming after pause.
     public func resumeStreaming() throws {
         guard state == .paused else { return }
-        guard let recognizer, recognizer.isAvailable else {
+        guard isRecognizerAvailable else {
             throw StreamingError.recognizerUnavailable
         }
 
         sessionTimeOffset = processedDuration
+        resumedPrefixText = accumulatedText
+        resumedPrefixSegments = accumulatedSegments
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true
-        self.request = request
-
-        startRecognitionTask(request: request)
+        switch backend {
+        case .system:
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            request.requiresOnDeviceRecognition = true
+            self.request = request
+            startRecognitionTask(request: request)
+        case .simulated:
+            break
+        }
         state = .streaming
     }
 
@@ -146,14 +175,13 @@ public actor StreamingTranscriptionService {
     public func stopStreaming() -> TranscriptionService.TranscriptionResult {
         state = .finishing
 
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        request?.endAudio()
-        request = nil
+        tearDownRecognitionSession()
         consumeTask?.cancel()
         consumeTask = nil
         partialContinuation?.finish()
         partialContinuation = nil
+        resumedPrefixText = ""
+        resumedPrefixSegments = []
 
         let result = TranscriptionService.TranscriptionResult(
             text: accumulatedText,
@@ -162,11 +190,38 @@ public actor StreamingTranscriptionService {
             duration: processedDuration
         )
 
+        accumulatedText = ""
+        accumulatedSegments = []
+        processedDuration = 0
+        sessionTimeOffset = 0
+        resumedPrefixText = ""
+        resumedPrefixSegments = []
         state = .idle
         return result
     }
 
     // MARK: - Private
+
+    private var recognizer: SFSpeechRecognizer? {
+        guard case .system(let recognizer) = backend else { return nil }
+        return recognizer
+    }
+
+    private var isRecognizerAvailable: Bool {
+        switch backend {
+        case .system(let recognizer):
+            return recognizer?.isAvailable ?? false
+        case .simulated(let backend):
+            return backend.recognizerAvailable
+        }
+    }
+
+    private func tearDownRecognitionSession() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        request?.endAudio()
+        request = nil
+    }
 
     private func startRecognitionTask(request: SFSpeechAudioBufferRecognitionRequest) {
         guard let recognizer else { return }
@@ -202,10 +257,7 @@ public actor StreamingTranscriptionService {
     }
 
     private func handleExtractedResult(sessionText: String, isFinal: Bool, segments: [TranscriptionService.TranscriptionSegment]) {
-        accumulatedText = sessionText
-
-        // Offset segments by session time offset
-        accumulatedSegments = segments.map { seg in
+        let currentSessionSegments = segments.map { seg in
             TranscriptionService.TranscriptionSegment(
                 text: seg.text,
                 timestamp: seg.timestamp + sessionTimeOffset,
@@ -213,6 +265,9 @@ public actor StreamingTranscriptionService {
                 confidence: seg.confidence
             )
         }
+
+        accumulatedSegments = resumedPrefixSegments + currentSessionSegments
+        accumulatedText = combineSessionText(prefix: resumedPrefixText, currentSessionText: sessionText)
 
         if let lastSeg = segments.last {
             processedDuration = sessionTimeOffset + lastSeg.timestamp + lastSeg.duration
@@ -227,6 +282,15 @@ public actor StreamingTranscriptionService {
         partialContinuation?.yield(partial)
     }
 
+    private func combineSessionText(prefix: String, currentSessionText: String) -> String {
+        let trimmedPrefix = prefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCurrent = currentSessionText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmedPrefix.isEmpty { return trimmedCurrent }
+        if trimmedCurrent.isEmpty { return trimmedPrefix }
+        return "\(trimmedPrefix) \(trimmedCurrent)"
+    }
+
     private func handleRecognitionError(domain: String, code: Int, description: String) {
         // Recognition cancelled is expected during pause/stop
         if domain == "kAFAssistantErrorDomain" && code == 216 { return }
@@ -234,24 +298,41 @@ public actor StreamingTranscriptionService {
     }
 
     private func processChunk(_ chunk: AudioChunk) {
-        guard state == .streaming, let request else { return }
+        guard state == .streaming else { return }
 
-        // Convert AudioChunk back to AVAudioPCMBuffer
-        let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: Double(chunk.sampleRate),
-            channels: 1,
-            interleaved: false
-        )!
+        switch backend {
+        case .system:
+            guard let request else { return }
 
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(chunk.frameCount)) else { return }
-        buffer.frameLength = AVAudioFrameCount(chunk.frameCount)
+            // Convert AudioChunk back to AVAudioPCMBuffer
+            let format = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: Double(chunk.sampleRate),
+                channels: 1,
+                interleaved: false
+            )!
 
-        chunk.samples.withUnsafeBufferPointer { ptr in
-            buffer.floatChannelData?[0].update(from: ptr.baseAddress!, count: chunk.frameCount)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(chunk.frameCount)) else { return }
+            buffer.frameLength = AVAudioFrameCount(chunk.frameCount)
+
+            chunk.samples.withUnsafeBufferPointer { ptr in
+                buffer.floatChannelData?[0].update(from: ptr.baseAddress!, count: chunk.frameCount)
+            }
+
+            request.append(buffer)
+        case .simulated:
+            processedDuration = max(processedDuration, sessionTimeOffset + chunk.timestamp + chunk.duration)
         }
+    }
 
-        request.append(buffer)
+    internal func injectTestTranscript(
+        sessionText: String,
+        isFinal: Bool = false,
+        segments: [TranscriptionService.TranscriptionSegment]
+    ) {
+        guard case .simulated = backend else { return }
+        guard state == .streaming || state == .paused else { return }
+        handleExtractedResult(sessionText: sessionText, isFinal: isFinal, segments: segments)
     }
 }
 #endif

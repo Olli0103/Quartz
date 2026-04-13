@@ -122,16 +122,14 @@ final class macOSSmokeUITests: QuartzUITestCase {
     @MainActor
     func testAccessibilityXLLayout() throws {
         // Launch with accessibility extra-large text to verify layout doesn't break
-        app = XCUIApplication()
-        app.launchArguments += [
+        launchApp(arguments: [
             "--uitesting",
             "--reset-state",
             "--mock-vault",
             "--disable-animations",
             "-UIPreferredContentSizeCategoryName",
             "UICTContentSizeCategoryAccessibilityExtraLarge"
-        ]
-        app.launch()
+        ])
 
         // Sidebar must still be present at XL text size
         let sidebar = app.outlines.firstMatch

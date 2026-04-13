@@ -29,10 +29,11 @@ final class Phase4AudioMainThreadBudgetTests: XCTestCase {
         // Process 200 samples rapidly (simulating high-frequency input)
         for i in 0..<200 {
             let level = Float(i % 60) - 60.0
-            await processor.processSample(
+            let update = await processor.processSample(
                 averagePower: level,
                 peakPower: level + 5
-            ) { _, _ in
+            )
+            if update != nil {
                 updateTimestamps.append(Date())
             }
             // Small delay to allow throttle to work
@@ -60,13 +61,12 @@ final class Phase4AudioMainThreadBudgetTests: XCTestCase {
         let processor = AudioMeteringProcessor()
 
         // Process sample - calculations happen in actor context
-        await processor.processSample(
+        let update = await processor.processSample(
             averagePower: -30,
             peakPower: -20
-        ) { avg, peak in
-            // UI update callback is on MainActor
-            XCTAssertTrue(Thread.isMainThread, "UI callback should be on main thread")
-        }
+        )
+        XCTAssertTrue(Thread.isMainThread, "UI observation should remain on the main thread")
+        XCTAssertNotNil(update, "Zero-throttle processor should emit an update immediately")
 
         // Get samples - also actor-isolated
         let samples = await processor.recentSamples(10)
@@ -104,10 +104,10 @@ final class Phase4AudioMainThreadBudgetTests: XCTestCase {
 
         // Simulate 1 second of metering at 12Hz
         for _ in 0..<12 {
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: -40,
                 peakPower: -30
-            ) { _, _ in }
+            )
 
             // Do some "main thread work" between samples
             mainThreadWorkCount += 1
@@ -149,10 +149,11 @@ final class RecordingWhileEditingLatencyTests: XCTestCase {
             typingLatencies.append(typingEnd - typingStart)
 
             // Process metering sample
-            await processor.processSample(
+            let update = await processor.processSample(
                 averagePower: Float.random(in: -60...(-20)),
                 peakPower: Float.random(in: -50...(-10))
-            ) { _, _ in
+            )
+            if update != nil {
                 meteringUpdates += 1
             }
 
@@ -176,29 +177,21 @@ final class RecordingWhileEditingLatencyTests: XCTestCase {
             "Metering updates should not exceed sample count")
     }
 
-    /// Tests that UI update callback doesn't block caller.
+    /// Tests that metering processing returns promptly to the caller.
     @MainActor
-    func testUICallbackDoesNotBlockCaller() async throws {
+    func testMeteringProcessingDoesNotBlockCaller() async throws {
         let processor = AudioMeteringProcessor(uiUpdateInterval: 0)
-
-        var callbackExecuted = false
 
         let start = CFAbsoluteTimeGetCurrent()
 
-        await processor.processSample(
+        let update = await processor.processSample(
             averagePower: -30,
             peakPower: -20
-        ) { _, _ in
-            // Simulate slow UI update
-            Thread.sleep(forTimeInterval: 0.01) // 10ms
-            callbackExecuted = true
-        }
+        )
 
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
-        XCTAssertTrue(callbackExecuted, "Callback should have executed")
-        // The call should complete (callback is synchronous on MainActor)
-        // but total time should be bounded
+        XCTAssertNotNil(update, "Zero-throttle processor should emit an update immediately")
         XCTAssertLessThan(elapsed, 0.1, "Total processing should be bounded")
     }
 
@@ -213,10 +206,10 @@ final class RecordingWhileEditingLatencyTests: XCTestCase {
         for _ in 0..<120 {
             let frameStart = CFAbsoluteTimeGetCurrent()
 
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: -35,
                 peakPower: -25
-            ) { _, _ in }
+            )
 
             let frameEnd = CFAbsoluteTimeGetCurrent()
             frameTimes.append(frameEnd - frameStart)
@@ -272,10 +265,10 @@ final class Phase4LongSessionMemoryStabilityTests: XCTestCase {
         let totalSamples = 10 * 60 * 12
 
         for i in 0..<totalSamples {
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: Float(i % 60) - 60,
                 peakPower: Float(i % 50) - 50
-            ) { _, _ in }
+            )
         }
 
         // Get stats to verify bounded operation
@@ -340,15 +333,14 @@ final class AudioStateMachineTests: XCTestCase {
     /// Tests valid state transitions.
     @MainActor
     func testValidStateTransitions() async throws {
-        // RecordingState: idle -> recording -> paused -> recording -> idle
-
-        // Test the enum exists and has expected cases
+        let service = AudioRecordingService()
         let states: [AudioRecordingService.RecordingState] = [.idle, .recording, .paused]
         XCTAssertEqual(states.count, 3, "Should have 3 recording states")
-
-        // Verify state machine behavior via service existence
-        // (Actual recording requires microphone permission)
-        XCTAssertTrue(true, "State machine exists")
+        XCTAssertNotEqual(states[0], states[1], "Idle and recording must remain distinct")
+        XCTAssertNotEqual(states[1], states[2], "Recording and paused must remain distinct")
+        XCTAssertEqual(service.state, .idle, "Recording service should initialize in idle state")
+        XCTAssertFalse(service.isRecording, "Idle service must not report active recording")
+        XCTAssertFalse(service.isPaused, "Idle service must not report paused recording")
     }
 
     /// Tests that recording errors are explicit.
@@ -442,30 +434,27 @@ final class MeteringNormalizationTests: XCTestCase {
         var receivedLevel: Float = -1
 
         // Test silence (-60 dB or lower)
-        await processor.processSample(
+        let silenceUpdate = await processor.processSample(
             averagePower: -80,
             peakPower: -70
-        ) { avg, _ in
-            receivedLevel = avg
-        }
+        )
+        receivedLevel = silenceUpdate?.average ?? receivedLevel
         XCTAssertEqual(receivedLevel, 0, accuracy: 0.01, "Silence should normalize to 0")
 
         // Test loud signal (0 dB)
-        await processor.processSample(
+        let maxUpdate = await processor.processSample(
             averagePower: 0,
             peakPower: 0
-        ) { avg, _ in
-            receivedLevel = avg
-        }
+        )
+        receivedLevel = maxUpdate?.average ?? receivedLevel
         XCTAssertEqual(receivedLevel, 1, accuracy: 0.01, "Max level should normalize to 1")
 
         // Test mid-level (-30 dB)
-        await processor.processSample(
+        let midUpdate = await processor.processSample(
             averagePower: -30,
             peakPower: -25
-        ) { avg, _ in
-            receivedLevel = avg
-        }
+        )
+        receivedLevel = midUpdate?.average ?? receivedLevel
         XCTAssertEqual(receivedLevel, 0.5, accuracy: 0.01, "-30dB should normalize to 0.5")
     }
 
@@ -475,10 +464,10 @@ final class MeteringNormalizationTests: XCTestCase {
 
         // Add some samples
         for _ in 0..<10 {
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: -30,
                 peakPower: -20
-            ) { _, _ in }
+            )
         }
 
         // Verify samples exist
@@ -502,6 +491,52 @@ final class MeteringNormalizationTests: XCTestCase {
 /// Tests performance of real production services against <16ms main-thread
 /// and <=150MB steady-state mandates (CODEX_BLUEPRINT.md).
 final class Phase4ProductionHotPathPerformanceTests: XCTestCase {
+
+    func testRingBufferAppendRecentMetrics() {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()], options: options) {
+            let expectation = self.expectation(description: "Ring buffer hot path")
+
+            Task {
+                let buffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+                let chunk = AudioChunk(
+                    samples: [Float](repeating: 0.1, count: 22050),
+                    sampleRate: 44100,
+                    frameCount: 22050,
+                    timestamp: 0
+                )
+
+                for i in 0..<120 {
+                    await buffer.append(
+                        AudioChunk(
+                            samples: chunk.samples,
+                            sampleRate: chunk.sampleRate,
+                            frameCount: chunk.frameCount,
+                            timestamp: Double(i) * 0.5
+                        )
+                    )
+                }
+
+                for i in 0..<50 {
+                    await buffer.append(
+                        AudioChunk(
+                            samples: chunk.samples,
+                            sampleRate: chunk.sampleRate,
+                            frameCount: chunk.frameCount,
+                            timestamp: Double(120 + i) * 0.5
+                        )
+                    )
+                    _ = await buffer.recent(10)
+                }
+
+                expectation.fulfill()
+            }
+
+            wait(for: [expectation], timeout: 5.0)
+        }
+    }
 
     /// Tests AudioChunkRingBuffer append+recent cycle under 16ms for realistic chunk sizes.
     func testRingBufferAppendRecentUnder16ms() async throws {
@@ -641,10 +676,10 @@ final class Phase4ProductionHotPathPerformanceTests: XCTestCase {
 
         // Fill with realistic data
         for i in 0..<1000 {
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: Float(i % 60) - 60,
                 peakPower: Float(i % 50) - 50
-            ) { _, _ in }
+            )
         }
 
         // Measure stats retrieval (a likely main-thread operation)
@@ -697,7 +732,7 @@ final class Phase4ProcessRSSMemoryBudgetTests: XCTestCase {
             )
             await ringBuffer.append(chunk)
             await meteringBuffer.append(Float(i) / 100.0)
-            await processor.processSample(averagePower: -30, peakPower: -20) { _, _ in }
+            _ = await processor.processSample(averagePower: -30, peakPower: -20)
         }
         _ = await orchestrator.currentState
 
@@ -708,6 +743,40 @@ final class Phase4ProcessRSSMemoryBudgetTests: XCTestCase {
             let delta = after - baseline
             XCTAssertLessThan(delta, 50.0,
                 "RSS delta after pipeline creation should be under 50MB (was \(String(format: "%.1f", delta))MB)")
+        }
+    }
+
+    func testAudioPipelineMemoryMetrics() {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+
+        measure(metrics: [XCTMemoryMetric(), XCTClockMetric()], options: options) {
+            let expectation = self.expectation(description: "Audio pipeline memory")
+
+            Task {
+                let ringBuffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+                let meteringBuffer = AudioMeteringBuffer(capacity: 1000)
+                let chunkSamples = [Float](repeating: 0.1, count: 22050)
+
+                for i in 0..<120 {
+                    await ringBuffer.append(
+                        AudioChunk(
+                            samples: chunkSamples,
+                            sampleRate: 44100,
+                            frameCount: 22050,
+                            timestamp: Double(i) * 0.5
+                        )
+                    )
+                }
+
+                for i in 0..<1000 {
+                    await meteringBuffer.append(Float(i % 100) / 100.0)
+                }
+
+                expectation.fulfill()
+            }
+
+            wait(for: [expectation], timeout: 5.0)
         }
     }
 
@@ -853,10 +922,10 @@ final class Phase4P95LatencyEnforcementTests: XCTestCase {
         var latencies: [Double] = []
         for i in 0..<100 {
             let start = CFAbsoluteTimeGetCurrent()
-            await processor.processSample(
+            _ = await processor.processSample(
                 averagePower: Float(i % 60) - 60,
                 peakPower: Float(i % 50) - 50
-            ) { _, _ in }
+            )
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
             latencies.append(elapsed)
         }
@@ -931,5 +1000,90 @@ final class Phase4IntegratedWorkloadTests: XCTestCase {
 
         XCTAssertLessThan(elapsed, 2.0,
             "Integrated workload (100 chunks + 600 metering + 20 combines) must complete under 2s (was \(String(format: "%.2f", elapsed))s)")
+    }
+
+    func testConcurrentCaptureUIWorkloadMetrics() {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric(), XCTMemoryMetric()], options: options) {
+            let expectation = self.expectation(description: "Integrated workload metrics")
+
+            Task {
+                let ringBuffer = AudioChunkRingBuffer(capacity: 120, chunkDuration: 0.5)
+                let meteringBuffer = AudioMeteringBuffer(capacity: 1000)
+                let orchestrator = MeetingCaptureOrchestrator()
+                let chunkSamples = [Float](repeating: 0.1, count: 22050)
+
+                let segments = (0..<24).map { i in
+                    TranscriptionService.TranscriptionSegment(
+                        text: "Word \(i)",
+                        timestamp: Double(i) * 5.0,
+                        duration: 4.5,
+                        confidence: 0.9
+                    )
+                }
+                let transcription = TranscriptionService.TranscriptionResult(
+                    text: segments.map(\.text).joined(separator: " "),
+                    segments: segments,
+                    locale: Locale(identifier: "en_US"),
+                    duration: 120
+                )
+                let diarization = SpeakerDiarizationService.DiarizationResult(
+                    segments: [
+                        .init(
+                            speakerID: "speaker_0",
+                            speakerLabel: "Speaker 0",
+                            startTime: 0,
+                            endTime: 60,
+                            confidence: 0.9
+                        ),
+                        .init(
+                            speakerID: "speaker_1",
+                            speakerLabel: "Speaker 1",
+                            startTime: 60,
+                            endTime: 120,
+                            confidence: 0.9
+                        )
+                    ],
+                    speakerCount: 2,
+                    speakers: [:]
+                )
+
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        for i in 0..<60 {
+                            await ringBuffer.append(
+                                AudioChunk(
+                                    samples: chunkSamples,
+                                    sampleRate: 44100,
+                                    frameCount: 22050,
+                                    timestamp: Double(i) * 0.5
+                                )
+                            )
+                        }
+                    }
+
+                    group.addTask {
+                        for i in 0..<360 {
+                            await meteringBuffer.append(Float(i % 100) / 100.0)
+                        }
+                    }
+
+                    group.addTask {
+                        for _ in 0..<10 {
+                            _ = await orchestrator.combineTranscriptionWithDiarization(
+                                transcription: transcription,
+                                diarization: diarization
+                            )
+                        }
+                    }
+                }
+
+                expectation.fulfill()
+            }
+
+            wait(for: [expectation], timeout: 10.0)
+        }
     }
 }

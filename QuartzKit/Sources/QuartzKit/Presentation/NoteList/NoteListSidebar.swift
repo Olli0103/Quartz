@@ -75,6 +75,7 @@ public struct NoteListSidebar: View {
                 }
                 .tint(.primary)
                 .accessibilityLabel(String(localized: "New Note", bundle: .module))
+                .accessibilityIdentifier("note-list-new-note")
 
                 sortMenu
             }
@@ -104,6 +105,7 @@ public struct NoteListSidebar: View {
         }
         .listStyle(.plain)
         .animation(QuartzAnimation.content, value: store.sections.map(\.id))
+        .accessibilityIdentifier("note-list-view")
     }
 
     @ViewBuilder
@@ -182,6 +184,7 @@ public struct NoteListSidebar: View {
             }
         }
         .listStyle(.plain)
+        .accessibilityIdentifier("note-list-view")
     }
 
     // MARK: - Empty State
@@ -193,6 +196,7 @@ public struct NoteListSidebar: View {
             subtitle: emptySubtitle
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("note-list-view")
     }
 
     private var emptyIcon: String {

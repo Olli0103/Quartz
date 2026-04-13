@@ -153,6 +153,7 @@ public final class AudioRecordingService: NSObject {
         lastRecordingURL = fileURL
 
         // Reset the metering processor for new session
+        let meteringProcessor = self.meteringProcessor
         Task {
             await meteringProcessor.reset()
         }
@@ -258,20 +259,23 @@ public final class AudioRecordingService: NSObject {
         let peakPower = recorder?.peakPower(forChannel: 0) ?? -160
 
         // Process sample in background, receive throttled UI updates
-        Task {
-            await meteringProcessor.processSample(
+        let meteringProcessor = self.meteringProcessor
+        let waveformSampleCount = self.waveformSampleCount
+
+        Task { [avgPower, peakPower, meteringProcessor, waveformSampleCount] in
+            let throttledLevels = await meteringProcessor.processSample(
                 averagePower: avgPower,
                 peakPower: peakPower
-            ) { [weak self] normalizedAvg, normalizedPeak in
-                // This closure runs on MainActor at throttled rate (30Hz)
-                self?.currentLevel = normalizedAvg
-                self?.peakLevel = normalizedPeak
-            }
+            )
+            let samples = await meteringProcessor.recentSamples(waveformSampleCount)
 
-            // Update waveform from ring buffer (also throttled via actor)
-            let samples = await meteringProcessor.recentSamples(self.waveformSampleCount)
             await MainActor.run { [weak self] in
-                self?.levelHistory = samples
+                guard let self else { return }
+                if let throttledLevels {
+                    currentLevel = throttledLevels.average
+                    peakLevel = throttledLevels.peak
+                }
+                levelHistory = samples
             }
         }
     }

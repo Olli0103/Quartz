@@ -124,11 +124,8 @@ final class TypedEventOrderingTests: XCTestCase {
     /// Tests that notification names still exist for legacy compatibility.
     @MainActor
     func testNotificationNamesExist() async throws {
-        // Verify core notification names are defined
-        let _ = Notification.Name.quartzNoteSaved
-        let _ = Notification.Name.quartzReindexRequested
-        // These should compile if notifications are properly defined
-        XCTAssertTrue(true, "Notification names exist for legacy compatibility")
+        XCTAssertEqual(Notification.Name.quartzNoteSaved.rawValue, "quartzNoteSaved")
+        XCTAssertEqual(Notification.Name.quartzReindexRequested.rawValue, "quartzReindexRequested")
     }
 }
 
@@ -141,68 +138,58 @@ final class AIExecutionPolicyEnforcementTests: XCTestCase {
     /// Tests that AIExecutionPolicy exists.
     @MainActor
     func testAIExecutionPolicyExists() async throws {
-        // The policy type should exist
-        // This verifies the infrastructure is in place
-        // Note: AIExecutionPolicy may be instantiated per-service rather than singleton
-        XCTAssertTrue(true, "AIExecutionPolicy type exists")
+        let policy = AIExecutionPolicy(primaryProvider: nil, fallbackMode: .localNLP)
+        let providerHealth = await policy.providerHealth
+        let executionPath = await policy.lastExecutionPath
+
+        XCTAssertEqual(providerHealth, .healthy)
+        XCTAssertEqual(executionPath, .remote)
     }
 
     /// Tests circuit breaker concept.
     @MainActor
     func testCircuitBreakerConcept() async throws {
-        // AIExecutionPolicy implements circuit breaker:
-        // - Track failures per provider
-        // - Open circuit after threshold failures
-        // - Attempt recovery after timeout
-        // - Provide fallback behavior
+        let policy = AIExecutionPolicy(primaryProvider: nil, fallbackMode: .localNLP)
+        await policy.setOfflineMode(true)
+        let concepts = await policy.extractConcepts(from: "Quartz links people, projects, and SwiftUI editor architecture.")
+        let executionPath = await policy.lastExecutionPath
 
-        // Verify concept is implemented
-        XCTAssertTrue(true, "Circuit breaker concept implemented in AIExecutionPolicy")
+        XCTAssertEqual(executionPath, .onDeviceDirect)
+        XCTAssertFalse(concepts.isEmpty, "Offline mode should fall back to local NLP extraction")
     }
 
     /// Tests that policy enforcement is now in place.
     @MainActor
     func testPolicyEnforcementImplemented() async throws {
-        // FIXED (per CODEX.md F9):
-        //
-        // KnowledgeExtractionService now accepts AIExecutionPolicy and routes
-        // concept extraction through it when provided:
-        // - Circuit breaker protects against provider failures
-        // - Consistent fallback to local NLP
-        // - Health state tracking across all AI operations
-        //
-        // SemanticLinkService uses on-device VectorEmbeddingService (NLEmbedding)
-        // which doesn't need policy protection — it's purely local.
-
-        XCTAssertTrue(true, "Policy enforcement implemented for remote AI operations")
+        let content = try knowledgeExtractionSource()
+        XCTAssertTrue(content.contains("if let policy = executionPolicy"),
+                      "KnowledgeExtractionService must gate remote extraction through AIExecutionPolicy")
+        XCTAssertTrue(content.contains("policy.extractConcepts"),
+                      "KnowledgeExtractionService must delegate concept extraction to AIExecutionPolicy")
     }
 
     /// Tests that fallback behavior is consistent.
     @MainActor
     func testFallbackBehaviorConsistency() async throws {
-        // IMPLEMENTED:
-        // When AI provider is unavailable, services using AIExecutionPolicy:
-        // 1. Check circuit breaker state
-        // 2. Attempt recovery if interval passed
-        // 3. Fall back to local NLP if remote fails
-        // 4. Record success/failure for circuit breaker
-        // 5. Log consistently via os.Logger
+        let policy = AIExecutionPolicy(primaryProvider: nil, fallbackMode: .onDeviceEmbeddings)
+        let topics = await policy.findSimilarContent(to: "Second brain note links and graph edges")
+        let executionPath = await policy.lastExecutionPath
 
-        XCTAssertTrue(true, "Fallback behavior consistent via AIExecutionPolicy")
+        XCTAssertEqual(executionPath, .onDeviceFallback)
+        XCTAssertNotNil(topics, "Missing remote provider should fall back to on-device similarity search")
     }
 
     /// Tests KnowledgeExtractionService policy integration.
     @MainActor
     func testKnowledgeExtractionServicePolicyIntegration() async throws {
-        // KnowledgeExtractionService init accepts optional AIExecutionPolicy
-        // When policy is provided:
-        // - extractConcepts() uses policy.extractConcepts() with custom systemPrompt
-        // - Circuit breaker and health state are respected
-        // - Fallback to local NLP is automatic
-        //
-        // Legacy path preserved for backward compatibility when policy is nil
+        let vaultURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vaultURL,
+            executionPolicy: AIExecutionPolicy(primaryProvider: nil, fallbackMode: .localNLP)
+        )
 
-        XCTAssertTrue(true, "KnowledgeExtractionService routes through AIExecutionPolicy")
+        XCTAssertNotNil(service)
     }
 }
 
@@ -226,5 +213,16 @@ final class InspectorConsistencyUnderConcurrentUpdatesTests: XCTestCase {
         // InspectorStore exists and can be instantiated
         // Actual update methods depend on implementation
         XCTAssertNotNil(store, "InspectorStore can be instantiated")
+    }
+}
+
+private extension AIExecutionPolicyEnforcementTests {
+    func knowledgeExtractionSource() throws -> String {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "Sources/QuartzKit/Domain/AI/KnowledgeExtractionService.swift")
+        return try String(contentsOf: sourceURL, encoding: .utf8)
     }
 }

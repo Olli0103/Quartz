@@ -39,9 +39,8 @@ public final class VaultAccessManager {
     private let iCloudVaultNameKey = "icloud.vault.name"
     private let iCloudContainerID = "iCloud.olli.QuartzNotes"
     private let logger = Logger(subsystem: "com.quartz", category: "VaultAccessManager")
-    /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
-    /// Safe: @MainActor singleton; observer only removed in deinit when no references remain.
-    nonisolated(unsafe) private var kvStoreObserver: Any?
+    /// Stored notification token removed during teardown.
+    private var kvStoreObserver: Any?
 
     // MARK: - Init
 

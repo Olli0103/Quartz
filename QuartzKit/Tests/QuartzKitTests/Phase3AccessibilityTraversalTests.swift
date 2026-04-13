@@ -19,6 +19,12 @@ import UIKit
 /// No `Bool(true)` tautologies — every assertion exercises runtime behavior.
 final class Phase3AccessibilityTraversalTests: XCTestCase {
 
+    override func invokeTest() {
+        withSnapshotTesting(record: snapshotRecordMode) {
+            super.invokeTest()
+        }
+    }
+
     // MARK: - Platform Suffix
 
     private var platformSuffix: String {
@@ -31,6 +37,16 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
         #else
         return "unknown"
         #endif
+    }
+
+    private var snapshotRecordMode: SnapshotTestingConfiguration.Record {
+        if ProcessInfo.processInfo.environment["QUARTZ_RECORD_PHASE3_SNAPSHOTS"] == "1" {
+            return .all
+        }
+        if UserDefaults.standard.bool(forKey: "QUARTZ_RECORD_PHASE3_SNAPSHOTS") {
+            return .all
+        }
+        return .never
     }
 
     // MARK: - NoteListRow Accessibility Tree
@@ -469,12 +485,17 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
     private func assertViewSnapshot<V: View>(
         _ view: V,
         named name: String,
+        colorScheme: ColorScheme = .light,
         file: StaticString = #filePath,
         testName: String = #function,
         line: UInt = #line
     ) {
+        let configuredView = view.preferredColorScheme(colorScheme)
         #if canImport(AppKit)
-        let hostingView = NSHostingView(rootView: view)
+        let hostingView = NSHostingView(rootView: configuredView)
+        hostingView.appearance = NSAppearance(
+            named: colorScheme == .dark ? .darkAqua : .aqua
+        )
         hostingView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         hostingView.layoutSubtreeIfNeeded()
         assertSnapshot(
@@ -486,7 +507,8 @@ final class Phase3AccessibilityTraversalTests: XCTestCase {
             line: line
         )
         #elseif canImport(UIKit)
-        let hostingController = UIHostingController(rootView: view)
+        let hostingController = UIHostingController(rootView: configuredView)
+        hostingController.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         hostingController.view.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
         hostingController.view.layoutIfNeeded()
         assertSnapshot(

@@ -23,6 +23,10 @@ import os
 /// 4. **Rejected**: Input too dangerous, show error state
 @MainActor
 public final class TextKitCircuitBreaker: @unchecked Sendable {
+    private struct ScanResult {
+        let poisonPill: PoisonPillType?
+        let longLineLength: Int?
+    }
 
     // MARK: - Singleton
 
@@ -69,6 +73,10 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
 
     private let logger = Logger(subsystem: "com.quartz", category: "TextKitCircuitBreaker")
     private let signpostLog = OSLog(subsystem: "com.quartz", category: .pointsOfInterest)
+    private static let regexBombPatterns: [NSRegularExpression] = [
+        try! NSRegularExpression(pattern: #"\([\w\+\*]+\)\+"#),
+        try! NSRegularExpression(pattern: #"(\|.+){10,}"#)
+    ]
 
     // MARK: - Init
 
@@ -108,24 +116,25 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         let signpostID = OSSignpostID(log: signpostLog)
         os_signpost(.begin, log: signpostLog, name: "TextKit.validate", signpostID: signpostID)
         defer { os_signpost(.end, log: signpostLog, name: "TextKit.validate", signpostID: signpostID) }
+        let utf8Count = text.utf8.count
 
         // Check document size
-        if text.count > Self.maxDocumentSize {
-            logger.warning("Document exceeds max size: \(text.count) > \(Self.maxDocumentSize)")
-            return .degraded(reason: .documentTooLarge(size: text.count))
+        if utf8Count > Self.maxDocumentSize {
+            logger.warning("Document exceeds max size: \(utf8Count) > \(Self.maxDocumentSize)")
+            return .degraded(reason: .documentTooLarge(size: utf8Count))
         }
 
+        let scanResult = scanText(text, utf8Count: utf8Count)
+
         // Check for poison pill patterns
-        if let poisonPill = detectPoisonPill(in: text) {
+        if let poisonPill = scanResult.poisonPill {
             recordFailure(reason: "Poison pill detected: \(poisonPill)")
             return .rejected(reason: poisonPill)
         }
 
-        // Check line lengths
-        let lines = text.components(separatedBy: .newlines)
-        if let longLine = lines.first(where: { $0.count > Self.maxLineLength }) {
-            logger.warning("Line too long: \(longLine.count) characters")
-            return .degraded(reason: .lineTooLong(length: longLine.count))
+        if let longLineLength = scanResult.longLineLength {
+            logger.warning("Line too long: \(longLineLength) characters")
+            return .degraded(reason: .lineTooLong(length: longLineLength))
         }
 
         // If circuit is tripped, enforce degraded mode
@@ -141,57 +150,164 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         }
     }
 
-    /// Detects known "poison pill" patterns that could crash or freeze the parser.
-    private func detectPoisonPill(in text: String) -> PoisonPillType? {
-        // 1. Check for zero-width character runs
+    /// Scans the text once for poison pills and pathological line lengths.
+    private func scanText(_ text: String, utf8Count: Int) -> ScanResult {
+        if let asciiResult = scanASCIIText(text, utf8Count: utf8Count) {
+            return asciiResult
+        }
+
+        return scanUnicodeText(text, utf8Count: utf8Count)
+    }
+
+    /// Fast path for typical editor content, which is overwhelmingly ASCII.
+    private func scanASCIIText(_ text: String, utf8Count: Int) -> ScanResult? {
+        var currentLineLength = 0
+        var longestLineLength: Int?
+        let shouldEvaluateBase64 = utf8Count > 100_000
+        var base64LikeByteCount = 0
+
+        for byte in text.utf8 {
+            guard byte < 0x80 else {
+                return nil
+            }
+
+            switch byte {
+            case 0x0A, 0x0D:
+                if currentLineLength > Self.maxLineLength {
+                    longestLineLength = max(longestLineLength ?? 0, currentLineLength)
+                }
+                currentLineLength = 0
+            default:
+                currentLineLength += 1
+            }
+
+            if shouldEvaluateBase64, isASCIIBase64Byte(byte) {
+                base64LikeByteCount += 1
+            }
+        }
+
+        if currentLineLength > Self.maxLineLength {
+            longestLineLength = max(longestLineLength ?? 0, currentLineLength)
+        }
+
+        if shouldEvaluateBase64, utf8Count > 0 {
+            let base64Ratio = Double(base64LikeByteCount) / Double(utf8Count)
+            if base64Ratio > 0.95 {
+                return ScanResult(
+                    poisonPill: .base64Blob(size: utf8Count),
+                    longLineLength: longestLineLength
+                )
+            }
+        }
+
+        if utf8Count < 500 && text.contains("(") && text.contains("+") {
+            for regex in Self.regexBombPatterns {
+                if regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                    return ScanResult(
+                        poisonPill: .suspiciousPattern,
+                        longLineLength: longestLineLength
+                    )
+                }
+            }
+        }
+
+        return ScanResult(poisonPill: nil, longLineLength: longestLineLength)
+    }
+
+    private func scanUnicodeText(_ text: String, utf8Count: Int) -> ScanResult {
         var zeroWidthRun = 0
+        var controlChars = 0
+        var currentLineLength = 0
+        var longestLineLength: Int?
+        let shouldEvaluateBase64 = utf8Count > 100_000
+        var totalScalarCount = 0
+        var base64LikeScalarCount = 0
+
         for scalar in text.unicodeScalars {
+            totalScalarCount += 1
+
+            if scalar == "\n" || scalar == "\r" {
+                if currentLineLength > Self.maxLineLength {
+                    longestLineLength = max(longestLineLength ?? 0, currentLineLength)
+                }
+                currentLineLength = 0
+            } else {
+                currentLineLength += 1
+            }
+
             if isZeroWidth(scalar) {
                 zeroWidthRun += 1
                 if zeroWidthRun >= Self.maxZeroWidthRun {
-                    return .zeroWidthFlood(count: zeroWidthRun)
+                    return ScanResult(
+                        poisonPill: .zeroWidthFlood(count: zeroWidthRun),
+                        longLineLength: nil
+                    )
                 }
             } else {
                 zeroWidthRun = 0
             }
-        }
 
-        // 2. Check for base64-encoded large blobs (potential image injection)
-        // Pattern: continuous alphanumeric with +/= for >100KB
-        if text.count > 100_000 {
-            let base64Chars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
-            let nonBase64 = text.unicodeScalars.filter { !base64Chars.contains($0) }
-            let base64Ratio = 1.0 - (Double(nonBase64.count) / Double(text.unicodeScalars.count))
-            if base64Ratio > 0.95 {
-                return .base64Blob(size: text.count)
+            if scalar.properties.isDefaultIgnorableCodePoint {
+                controlChars += 1
+                if controlChars > 1000 {
+                    return ScanResult(
+                        poisonPill: .controlCharFlood(count: controlChars),
+                        longLineLength: nil
+                    )
+                }
+            }
+
+            if shouldEvaluateBase64, isBase64Scalar(scalar) {
+                base64LikeScalarCount += 1
             }
         }
 
-        // 3. Check for regex bomb patterns (exponential backtracking)
-        // Common patterns: (a+)+, (a|a)+, (a*)*
-        let regexBombPatterns = [
-            #"\([\w\+\*]+\)\+"#,  // Nested quantifiers
-            #"(\|.+){10,}"#,      // Many alternations
-        ]
-        for pattern in regexBombPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern),
-               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
-                // Don't reject based on content — but if this IS the document being parsed
-                // and it looks like a regex, be cautious
-                if text.count < 500 && text.contains("(") && text.contains("+") {
-                    // This might be a regex pattern itself, not markdown
-                    return .suspiciousPattern
+        if currentLineLength > Self.maxLineLength {
+            longestLineLength = max(longestLineLength ?? 0, currentLineLength)
+        }
+
+        // Check for base64-encoded large blobs (potential image injection).
+        if shouldEvaluateBase64, totalScalarCount > 0 {
+            let base64Ratio = Double(base64LikeScalarCount) / Double(totalScalarCount)
+            if base64Ratio > 0.95 {
+                return ScanResult(
+                    poisonPill: .base64Blob(size: utf8Count),
+                    longLineLength: longestLineLength
+                )
+            }
+        }
+
+        // Check for regex bomb patterns (exponential backtracking).
+        if utf8Count < 500 && text.contains("(") && text.contains("+") {
+            for regex in Self.regexBombPatterns {
+                if regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                    return ScanResult(
+                        poisonPill: .suspiciousPattern,
+                        longLineLength: longestLineLength
+                    )
                 }
             }
         }
 
-        // 4. Check for control character floods
-        let controlChars = text.unicodeScalars.filter { $0.properties.isDefaultIgnorableCodePoint }
-        if controlChars.count > 1000 {
-            return .controlCharFlood(count: controlChars.count)
-        }
+        return ScanResult(poisonPill: nil, longLineLength: longestLineLength)
+    }
 
-        return nil
+    private func isASCIIBase64Byte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case 43, 47, 61, 48...57, 65...90, 97...122:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isBase64Scalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 43, 47, 61, 48...57, 65...90, 97...122:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Checks if a Unicode scalar is a zero-width character.

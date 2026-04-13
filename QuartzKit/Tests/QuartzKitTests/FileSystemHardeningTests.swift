@@ -70,7 +70,7 @@ struct FileSystemVaultProviderTests {
         let note = try await provider.createNote(named: "Test Note", in: vault)
 
         #expect(note.frontmatter.title == "Test Note")
-        #expect(note.frontmatter.createdAt != nil)
+        #expect(note.frontmatter.createdAt.timeIntervalSince1970 > 0)
         #expect(FileManager.default.fileExists(atPath: note.fileURL.path(percentEncoded: false)))
     }
 

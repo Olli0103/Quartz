@@ -1,87 +1,46 @@
 {
   "phase": 4,
-  "status": "pass",
-  "timestamp": "2026-04-10T15:55:00Z",
-  "commit": "pending",
-  "tests": {
-    "total_swift_testing": 1582,
-    "total_xctest": 637,
-    "phase4_swift_testing": 206,
-    "phase4_xctest": 41,
-    "phase4_total": 247,
-    "full_suite_failed": 0
+  "status": "fail",
+  "timestamp": "2026-04-13T15:27:27Z",
+  "commit": "0454baa",
+  "failure_reason": "Running full QuartzKit SwiftPM suite failed",
+  "regression_gate": {
+    "phase3": "pass",
+    "log": "reports/phase4_phase3_gate.log"
   },
-  "phase4_suites": {
-    "swift_testing": [
-      "Phase4AudioMemoryBudgetTests (12 @Test)",
-      "Phase4AudioInterruptionTests (14 @Test)",
-      "Phase4HardwareCapabilityTests (8 @Test)",
-      "Phase4StreamingTranscriptionTests (26 @Test — includes 6 adversarial lifecycle)",
-      "Phase4AudioCaptureTests (21 @Test)",
-      "Phase4E2EFlowTests (47 @Test — includes 4 adversarial pipeline + 5 concurrency stress)",
-      "Phase4LiveCapsuleAccessibilityTests (23 @Test — includes 8 interaction semantics)",
-      "Phase4ScanAccessibilityTests (10 @Test)",
-      "Phase4SidebarDashboardTests (13 @Test)",
-      "Phase4ASTIncrementalParseIntegrationTests (8 @Test — production MarkdownASTHighlighter)",
-      "Phase4ASTDirtyRegionTrackerBehavioralTests (7 @Test — production ASTDirtyRegionTracker)",
-      "Phase4MutationTransactionUndoPolicyTests (8 @Test — all 9 MutationOrigin cases)",
-      "Phase4EditorCursorSelectionStabilityTests (3 @Test — highlighter cache + large doc)",
-      "Phase4TextKit2IntegrationPathsTests (4 @Test — incremental parse merge + concurrency)"
-    ],
-    "xctest": [
-      "Phase4AudioMainThreadBudgetTests (4 tests)",
-      "RecordingWhileEditingLatencyTests (3 tests)",
-      "Phase4LongSessionMemoryStabilityTests (4 tests)",
-      "AudioStateMachineTests (2 tests)",
-      "WaveformVisualizationTests (3 tests)",
-      "MeteringNormalizationTests (2 tests)",
-      "Phase4ProductionHotPathPerformanceTests (6 tests)",
-      "Phase4ProcessRSSMemoryBudgetTests (3 tests — mach_task_basic_info RSS)",
-      "Phase4P95LatencyEnforcementTests (3 tests — P95 percentile enforcement)",
-      "Phase4IntegratedWorkloadTests (1 test — concurrent capture+UI workload)",
-      "Phase4SnapshotMatrixTests (12 tests — cross-platform with record:.missing)"
+  "swiftpm": {
+    "phase4_failures": 0,
+    "phase4_pass_markers": 214,
+    "phase4_log": "reports/phase4_swiftpm_phase4.log",
+    "full_suite_failures": 31,
+    "full_suite_pass_markers": 1517,
+    "full_suite_log": "reports/phase4_swiftpm_full.log"
+  },
+  "xcodebuild": {
+    "macOS": "fail",
+    "iPhone": "not_run",
+    "iPad": "not_run",
+    "coverage": "missing",
+    "coverage_report": "reports/phase4_coverage.txt",
+    "result_bundles": {
+      "macOS": "/tmp/QuartzPhase4-macOS.xcresult",
+      "iPhone": "",
+      "iPad": ""
+    }
+  },
+  "ui_matrix": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "logs": [
+      "reports/ui_matrix_macos.log",
+      "reports/ui_matrix_ios.log",
+      "reports/ui_matrix_ipados.log"
     ]
   },
-  "audit_violation_remediation": {
-    "v1_ci_evidence": "REMEDIATED — CI script includes commit hash, offline resilience, report regeneration",
-    "v2_stale_report": "REMEDIATED — report regenerated with accurate counts (247 Phase4 tests, 1582+637 total)",
-    "v3_superficial_editor_tests": "REMEDIATED — Phase4EditorTests rewritten with 31 behavioral tests against MarkdownASTHighlighter.parseIncremental(), ASTDirtyRegionTracker, MutationTransaction",
-    "v4_snapshot_proof": "REMEDIATED — Phase4SnapshotMatrixTests uses record:.missing for auto-baseline generation per platform",
-    "v5_accessibility_interaction": "REMEDIATED — 8 new interaction semantics tests: rotor order, actionable controls, state transition announcements, Dynamic Type clipping, focus retention, VoiceOver hints, reduce transparency",
-    "v6_editor_rigor": "REMEDIATED — undo coalescing policy verified for all 9 MutationOrigin cases, AST range-diff tested via parseIncremental with bold/italic/heading/code fence mutations",
-    "v7_performance_p95_rss": "REMEDIATED — 3 RSS tests via mach_task_basic_info (baseline <50MB, session <150MB, cleanup <20MB), 3 P95 tests (ring buffer <1ms, combine <16ms, metering <1ms), 1 integrated workload test",
-    "v8_adversarial_concurrency": "REMEDIATED — 6 streaming adversarial tests (rapid start-stop, concurrent starts, error cascade, lifecycle matrix, mixed concurrent ops) + 4 pipeline adversarial tests (cancel at stage, error cascade restart, concurrent cancel+stop, pipeline restart after failure)"
-  },
-  "linear_issues_covered": [
-    "OLL-34: AVAudioEngine capture graph",
-    "OLL-35: Streaming ASR with SFSpeechRecognizer",
-    "OLL-36: Speaker diarization (K-Means + Accelerate)",
-    "OLL-37: Meeting minutes templates",
-    "OLL-38: Transcript persistence as markdown",
-    "OLL-39: Live capsule overlay UI",
-    "OLL-40: Handwriting OCR service",
-    "OLL-41: OCR-to-Markdown mapping engine",
-    "OLL-42: VisionKit document scanning",
-    "OLL-43: Audio recording service",
-    "OLL-44: Language detection",
-    "OLL-45: Meeting capture orchestrator (end-to-end pipeline)",
-    "OLL-61: Hardware capability gating",
-    "OLL-62: Audio interruption handling",
-    "OLL-63: Capture service state machine",
-    "OLL-64: Ring buffer memory budget"
-  ],
-  "gate_checks": {
-    "animation_compliance": "PASS — PulseModifier uses .spring(duration:bounce:), no .easeInOut or .linear",
-    "tautological_assertions": "PASS — zero instances of (result == true || result == false)",
-    "editor_test_quality": "PASS — Phase4EditorTests reference MarkdownASTHighlighter, ASTDirtyRegionTracker, MutationTransaction (31 behavioral tests)",
-    "p95_rss_performance": "PASS — mach_task_basic_info RSS + P95 percentile enforcement present",
-    "adversarial_concurrency": "PASS — 10 adversarial lifecycle tests across streaming + pipeline",
-    "self_healing_matrix": "PASS — 8 failure categories in ci_phase4.sh"
-  },
-  "ci_script": "scripts/ci_phase4.sh",
   "self_healing": {
-    "categories": ["AUDIO", "TRANSCRIPTION", "OCR", "PERSISTENCE", "ACCESSIBILITY", "HARDWARE", "PERFORMANCE", "GENERAL"],
-    "regression_gate": "Phase 3 CI passes before Phase 4 tests run",
-    "heal_log": "reports/phase4_heal_log.txt"
+    "ran": true,
+    "log": "reports/phase4_heal_log.txt",
+    "artifacts": "snapshots.json"
   }
 }
