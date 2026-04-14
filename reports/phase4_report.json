@@ -1,9 +1,9 @@
 {
   "phase": 4,
-  "status": "fail",
-  "timestamp": "2026-04-13T15:27:27Z",
-  "commit": "0454baa",
-  "failure_reason": "Running full QuartzKit SwiftPM suite failed",
+  "status": "pass",
+  "timestamp": "2026-04-14T12:08:39Z",
+  "commit": "ee2c7b5",
+  "failure_reason": "",
   "regression_gate": {
     "phase3": "pass",
     "log": "reports/phase4_phase3_gate.log"
@@ -12,24 +12,26 @@
     "phase4_failures": 0,
     "phase4_pass_markers": 214,
     "phase4_log": "reports/phase4_swiftpm_phase4.log",
-    "full_suite_failures": 31,
-    "full_suite_pass_markers": 1517,
+    "full_suite_failures": 0,
+    "full_suite_pass_markers": 2555,
     "full_suite_log": "reports/phase4_swiftpm_full.log"
   },
   "xcodebuild": {
-    "macOS": "fail",
-    "iPhone": "not_run",
-    "iPad": "not_run",
-    "coverage": "missing",
+    "macOS": "pass",
+    "iPhone": "pass",
+    "iPad": "pass",
+    "coverage": "present",
     "coverage_report": "reports/phase4_coverage.txt",
+    "coverage_log": "reports/phase4_coverage_macos.log",
     "result_bundles": {
       "macOS": "/tmp/QuartzPhase4-macOS.xcresult",
-      "iPhone": "",
-      "iPad": ""
+      "macOSCoverage": "/tmp/QuartzPhase4-macOS-coverage.xcresult",
+      "iPhone": "/tmp/QuartzPhase4-iPhone.xcresult",
+      "iPad": "/tmp/QuartzPhase4-iPad.xcresult"
     }
   },
   "ui_matrix": {
-    "passed": 0,
+    "passed": 3,
     "failed": 0,
     "skipped": 0,
     "logs": [
@@ -39,8 +41,8 @@
     ]
   },
   "self_healing": {
-    "ran": true,
+    "ran": false,
     "log": "reports/phase4_heal_log.txt",
-    "artifacts": "snapshots.json"
+    "artifacts": ""
   }
 }

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # scripts/ci_phase4.sh — Phase 4 CI: Audio Intelligence & Scan-to-Markdown
+# Local iteration slices:
+#   bash scripts/test_quartzkit_phase4_focus.sh
+#   bash scripts/test_quartzkit_full_suite.sh
+#   bash scripts/test_ui_macos_smoke.sh
+#   bash scripts/test_ui_iphone_matrix.sh
+#   bash scripts/test_ui_ipad_matrix.sh
+#   bash scripts/test_macos_coverage.sh
 set -euo pipefail
 
 PACKAGE_PATH="QuartzKit"
@@ -13,9 +20,11 @@ MACOS_UI_LOG="reports/ui_matrix_macos.log"
 IPHONE_UI_LOG="reports/ui_matrix_ios.log"
 IPAD_UI_LOG="reports/ui_matrix_ipados.log"
 MACOS_RESULT_BUNDLE="/tmp/QuartzPhase4-macOS.xcresult"
+MACOS_COVERAGE_RESULT_BUNDLE="/tmp/QuartzPhase4-macOS-coverage.xcresult"
 IPHONE_RESULT_BUNDLE="/tmp/QuartzPhase4-iPhone.xcresult"
 IPAD_RESULT_BUNDLE="/tmp/QuartzPhase4-iPad.xcresult"
 COVERAGE_REPORT="reports/phase4_coverage.txt"
+MACOS_COVERAGE_LOG="reports/phase4_coverage_macos.log"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -42,7 +51,8 @@ HEAL_ARTIFACTS=""
 
 mkdir -p reports "$SELF_HEAL_DIR"
 rm -f /tmp/quartz_heal_categories.txt "$HEAL_LOG" "$REPORT_PATH" "$COVERAGE_REPORT"
-rm -rf "$MACOS_RESULT_BUNDLE" "$IPHONE_RESULT_BUNDLE" "$IPAD_RESULT_BUNDLE"
+rm -f "$MACOS_COVERAGE_LOG"
+rm -rf "$MACOS_RESULT_BUNDLE" "$MACOS_COVERAGE_RESULT_BUNDLE" "$IPHONE_RESULT_BUNDLE" "$IPAD_RESULT_BUNDLE"
 
 pass() { echo -e "${GREEN}${BOLD}✓ $1${RESET}"; }
 step() { echo -e "\n${BOLD}→ $1${RESET}"; }
@@ -88,8 +98,10 @@ write_report() {
     "iPad": "$IPAD_TEST_STATUS",
     "coverage": "$COVERAGE_STATUS",
     "coverage_report": "$COVERAGE_REPORT",
+    "coverage_log": "$MACOS_COVERAGE_LOG",
     "result_bundles": {
       "macOS": "$MACOS_RESULT_BUNDLE",
+      "macOSCoverage": "$MACOS_COVERAGE_RESULT_BUNDLE",
       "iPhone": "$IPHONE_RESULT_BUNDLE",
       "iPad": "$IPAD_RESULT_BUNDLE"
     }
@@ -288,7 +300,7 @@ terminate_conflicting_macos_app_processes() {
         if ps -p "$pid" >/dev/null 2>&1; then
             kill -9 "$pid" >/dev/null 2>&1 || true
         fi
-    done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | grep -v '/DerivedData/' | awk '{print $1}' || true)
+    done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | awk '{print $1}' || true)
 }
 
 has_swiftpm_helper_crash() {
@@ -317,7 +329,7 @@ run_swift_test_scope() {
     local label="$1"
     local filter="$2"
     local log_path="$3"
-    local output fail_count pass_count helper_crashed=0 status=0
+    local output fail_count pass_count helper_crashed=0 requires_serial_rerun=0 status=0
 
     step "$label"
     if [ -n "$filter" ]; then
@@ -330,18 +342,31 @@ run_swift_test_scope() {
         run_swift_test_capture output swift test --package-path "$PACKAGE_PATH" --parallel
         status=$?
         set -e
+    fi
+    pass_count=$(printf '%s\n' "$output" | grep -c "passed" || true)
+    fail_count=$(printf '%s\n' "$output" | grep -cE "failed after|Test Case .* failed" || true)
+
+    if [ -z "$filter" ]; then
         if [ "$status" -ne 0 ] && has_swiftpm_helper_crash "$output"; then
             helper_crashed=1
             echo "  Detected SwiftPM helper crash under parallel execution; retrying serially..."
+            requires_serial_rerun=1
+        elif [ "$status" -ne 0 ] || [ "$fail_count" -gt 0 ]; then
+            echo "  Parallel full-suite result was not authoritative (exit: $status, failure markers: $fail_count); retrying serially..."
+            requires_serial_rerun=1
+        fi
+
+        if [ "$requires_serial_rerun" -eq 1 ]; then
             set +e
             run_swift_test_capture output swift test --package-path "$PACKAGE_PATH" --no-parallel
             status=$?
             set -e
+            pass_count=$(printf '%s\n' "$output" | grep -c "passed" || true)
+            fail_count=$(printf '%s\n' "$output" | grep -cE "failed after|Test Case .* failed" || true)
         fi
     fi
+
     printf '%s\n' "$output" > "$log_path"
-    pass_count=$(printf '%s\n' "$output" | grep -c "passed" || true)
-    fail_count=$(printf '%s\n' "$output" | grep -cE "failed after|Test Case .* failed" || true)
     echo "  pass markers: $pass_count"
     echo "  failure markers: $fail_count"
 
@@ -405,14 +430,13 @@ P4_FILTER="Phase4AudioMemoryBudget|Phase4AudioInterruption|Phase4HardwareCapabil
 run_swift_test_scope "Running focused Phase 4 SwiftPM suites" "$P4_FILTER" "$PHASE4_SWIFTPM_LOG"
 run_swift_test_scope "Running full QuartzKit SwiftPM suite" "" "$FULL_SWIFTPM_LOG"
 
-step "Running macOS xcodebuild test with coverage"
+step "Running macOS UI smoke test"
 terminate_conflicting_macos_app_processes
 reset_result_bundle "$MACOS_RESULT_BUNDLE"
 if run_xcodebuild_to_log "$MACOS_UI_LOG" \
     xcodebuild test -scheme Quartz \
         -destination "platform=macOS" \
         -only-testing:QuartzUITests/macOSSmokeUITests \
-        -enableCodeCoverage YES \
         -resultBundlePath "$MACOS_RESULT_BUNDLE"; then
     MACOS_TEST_STATUS="pass"
     UI_PASS=$((UI_PASS + 1))
@@ -424,12 +448,25 @@ else
     run_self_healing
 fi
 
-step "Extracting coverage report from macOS result bundle"
-if [ -d "$MACOS_RESULT_BUNDLE" ] && xcrun xccov view --report "$MACOS_RESULT_BUNDLE" > "$COVERAGE_REPORT" 2>/dev/null; then
+step "Collecting macOS coverage report"
+reset_result_bundle "$MACOS_COVERAGE_RESULT_BUNDLE"
+if run_xcodebuild_to_log "$MACOS_COVERAGE_LOG" \
+    xcodebuild test -scheme Quartz \
+        -parallel-testing-enabled NO \
+        -destination "platform=macOS" \
+        -only-testing:QuartzTests \
+        -enableCodeCoverage YES \
+        -resultBundlePath "$MACOS_COVERAGE_RESULT_BUNDLE" \
+    && [ -d "$MACOS_COVERAGE_RESULT_BUNDLE" ] \
+    && xcrun xccov view --report "$MACOS_COVERAGE_RESULT_BUNDLE" > "$COVERAGE_REPORT" 2>/dev/null; then
     COVERAGE_STATUS="present"
     pass "Coverage report written to $COVERAGE_REPORT"
 else
     COVERAGE_STATUS="missing"
+    if [ -f "$MACOS_COVERAGE_LOG" ]; then
+        classify_failures "$(cat "$MACOS_COVERAGE_LOG")"
+        run_self_healing
+    fi
 fi
 
 step "Running iPhone UI matrix"

@@ -48,16 +48,17 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
         // Track status changes
-        var statusUpdates: [IntelligenceEngineStatus] = []
+        let statusUpdates = Recorder<IntelligenceEngineStatus>()
         let statusObserver = NotificationCenter.default.addObserver(
             forName: .quartzIntelligenceEngineStatusChanged,
             object: nil,
             queue: .main
         ) { notification in
             if let status = notification.userInfo?["status"] as? IntelligenceEngineStatus {
-                statusUpdates.append(status)
+                Task { await statusUpdates.append(status) }
             }
         }
         defer { NotificationCenter.default.removeObserver(statusObserver) }
@@ -99,10 +100,11 @@ struct IntelligenceEngineStressTests {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
         // Verify we saw status updates (indexing status)
-        #expect(!statusUpdates.isEmpty, "Should have received status updates")
+        let recordedStatusUpdates = await statusUpdates.values()
+        #expect(!recordedStatusUpdates.isEmpty, "Should have received status updates")
 
         // Verify we saw indexing status at some point
-        let sawIndexing = statusUpdates.contains { status in
+        let sawIndexing = recordedStatusUpdates.contains { status in
             if case .indexing = status { return true }
             return false
         }
@@ -116,12 +118,14 @@ struct IntelligenceEngineStressTests {
 
         // Log performance
         print("[Stress Test] Processed \(noteURLs.count) file notifications in \(elapsed)s")
+
+        await coordinator.stopObserving()
     }
 
     @Test("Debouncing coalesces rapid file changes")
     func testDebouncing() async throws {
         // Track how many times processPendingChanges would be called
-        var statusChanges: [IntelligenceEngineStatus] = []
+        let statusChanges = Recorder<IntelligenceEngineStatus>()
 
         let tempDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -135,6 +139,7 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
         let observer = NotificationCenter.default.addObserver(
             forName: .quartzIntelligenceEngineStatusChanged,
@@ -142,7 +147,7 @@ struct IntelligenceEngineStressTests {
             queue: .main
         ) { notification in
             if let status = notification.userInfo?["status"] as? IntelligenceEngineStatus {
-                statusChanges.append(status)
+                Task { await statusChanges.append(status) }
             }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
@@ -164,7 +169,8 @@ struct IntelligenceEngineStressTests {
         // Count how many times we entered indexing state
         // With concurrent notification delivery, we may see multiple batches
         // The key behavior is that rapid changes to the SAME file should be coalesced
-        let indexingStarts = statusChanges.filter { status in
+        let recordedStatusChanges = await statusChanges.values()
+        let indexingStarts = recordedStatusChanges.filter { status in
             if case .indexing(let progress, _) = status, progress == 0 {
                 return true
             }
@@ -174,6 +180,8 @@ struct IntelligenceEngineStressTests {
         // We should see significantly fewer than 100 batches
         // (the number of rapid changes we posted)
         #expect(indexingStarts < 10, "Debouncing should reduce batches significantly, got \(indexingStarts) indexing starts")
+
+        await coordinator.stopObserving()
     }
 
     @Test("Status progress updates correctly during batch indexing")
@@ -192,8 +200,9 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
-        var progressValues: [(progress: Int, total: Int)] = []
+        let progressValues = Recorder<(progress: Int, total: Int)>()
         let observer = NotificationCenter.default.addObserver(
             forName: .quartzIntelligenceEngineStatusChanged,
             object: nil,
@@ -201,7 +210,7 @@ struct IntelligenceEngineStressTests {
         ) { notification in
             if let status = notification.userInfo?["status"] as? IntelligenceEngineStatus,
                case let .indexing(progress, total) = status {
-                progressValues.append((progress, total))
+                Task { await progressValues.append((progress, total)) }
             }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
@@ -230,14 +239,17 @@ struct IntelligenceEngineStressTests {
 
         // Verify progress updates were seen and generally increasing
         // Note: totals may fluctuate between batches if debounce windows overlap
-        if progressValues.count > 1 {
+        let recordedProgressValues = await progressValues.values()
+        if recordedProgressValues.count > 1 {
             // Just verify we see progress changing
-            let uniqueTotals = Set(progressValues.map(\.total))
+            let uniqueTotals = Set(recordedProgressValues.map(\.total))
             #expect(!uniqueTotals.isEmpty, "Should see some batch totals")
         }
 
         // Verify we saw progress
-        #expect(!progressValues.isEmpty, "Should have seen progress updates")
+        #expect(!recordedProgressValues.isEmpty, "Should have seen progress updates")
+
+        await coordinator.stopObserving()
     }
 
     @Test("Memory stays bounded during large vault processing")
@@ -257,6 +269,7 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
         await coordinator.startObserving()
 
@@ -291,6 +304,7 @@ struct IntelligenceEngineStressTests {
         try await Task.sleep(for: .seconds(5))
 
         // Capture final memory
+        count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         let finalResult = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
                 task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
@@ -300,10 +314,12 @@ struct IntelligenceEngineStressTests {
         let finalMemory = finalResult == KERN_SUCCESS ? info.resident_size : 0
 
         // Memory growth should be reasonable (< 200MB for 500 notes)
-        let memoryGrowthMB = Double(finalMemory - initialMemory) / (1024 * 1024)
+        let memoryGrowthMB = (Double(finalMemory) - Double(initialMemory)) / (1024 * 1024)
         #expect(memoryGrowthMB < 200, "Memory growth should be bounded, got \(memoryGrowthMB)MB")
 
         print("[Memory Test] Initial: \(initialMemory / (1024 * 1024))MB, Final: \(finalMemory / (1024 * 1024))MB, Growth: \(memoryGrowthMB)MB")
+
+        await coordinator.stopObserving()
     }
 
     @Test("Coordinator handles file deletions correctly")
@@ -320,6 +336,7 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
         await coordinator.startObserving()
 
@@ -336,6 +353,8 @@ struct IntelligenceEngineStressTests {
         // Verify coordinator didn't crash and returned to idle
         let status = await coordinator.status
         #expect(status == .idle, "Should be idle after deletion")
+
+        await coordinator.stopObserving()
     }
 
     @Test("Coordinator handles file moves correctly")
@@ -352,6 +371,7 @@ struct IntelligenceEngineStressTests {
             extractionService: nil,
             vaultRootURL: vaultRoot
         )
+        defer { Task { await coordinator.stopObserving() } }
 
         await coordinator.startObserving()
 
@@ -370,5 +390,19 @@ struct IntelligenceEngineStressTests {
         // Verify coordinator didn't crash and returned to idle
         let status = await coordinator.status
         #expect(status == .idle, "Should be idle after move")
+
+        await coordinator.stopObserving()
+    }
+}
+
+private actor Recorder<Value: Sendable> {
+    private var storage: [Value] = []
+
+    func append(_ value: Value) {
+        storage.append(value)
+    }
+
+    func values() -> [Value] {
+        storage
     }
 }

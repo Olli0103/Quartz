@@ -1,4 +1,7 @@
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 
 /// Shared base class for Quartz UI smoke tests.
 ///
@@ -9,6 +12,10 @@ import XCTest
 ///
 /// Each `@MainActor` test method must call `launchApp()` at the start.
 class QuartzUITestCase: XCTestCase {
+    #if os(macOS)
+    private static let macBundleIdentifier = "olli.QuartzNotes"
+    #endif
+
     private let defaultLaunchArguments = [
         "--uitesting",
         "--reset-state",
@@ -44,10 +51,39 @@ class QuartzUITestCase: XCTestCase {
         app = XCUIApplication()
         app.launchArguments += arguments
         app.launch()
+        #if os(macOS)
+        if app.state == .runningBackground {
+            app.activate()
+        }
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 15),
+            "Quartz must reach the foreground on macOS before UI assertions run"
+        )
+        #endif
     }
 
     @discardableResult
     private func terminateCurrentAppIfNeeded() -> Bool {
+        #if os(macOS)
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+        var terminatedAny = false
+        for runningApp in runningApps {
+            terminatedAny = true
+            runningApp.terminate()
+            let deadline = Date().addingTimeInterval(5)
+            while !runningApp.isTerminated && deadline.timeIntervalSinceNow > 0 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            if !runningApp.isTerminated {
+                runningApp.forceTerminate()
+            }
+        }
+
+        if terminatedAny {
+            return true
+        }
+        #endif
+
         let existingApp = app ?? XCUIApplication()
         guard existingApp.state != .notRunning else {
             return false
@@ -115,6 +151,7 @@ class QuartzUITestCase: XCTestCase {
 
     /// Asserts that the element has a non-empty accessibility label.
     /// Use this to enforce that UI controls are properly labeled for VoiceOver.
+    @MainActor
     func assertAccessibilityLabelNonEmpty(_ element: XCUIElement, context: String,
                                           file: StaticString = #filePath, line: UInt = #line) {
         let label = element.label

@@ -28,11 +28,11 @@ The autonomous loop from v1 continues and expands:
 
 ## Phase 4 — Audio Intelligence & Scan-to-Markdown ✅ COMPLETE
 
-**Status**: All 16 Linear issues (OLL-34 to OLL-45, OLL-61 to OLL-64) implemented, tested, and passing.
-**Completed**: 2026-04-10
-**Report**: `reports/phase4_report.json`
+**Status**: Complete, audited, and green at HEAD.
+**Completed**: 2026-04-14
+**Report**: `reports/phase4_report.json` (`status: pass`)
 **CI**: `scripts/ci_phase4.sh`
-**Tests**: 133 @Test annotations across 9 Phase4 test files, all passing.
+**Tests**: Focused Phase 4 SwiftPM suites, full QuartzKit regression, macOS UI smoke, iPhone UI matrix, iPad UI matrix, and macOS coverage all passing.
 
 **Objective**: OpenOats-inspired local-first transcript pipeline + native VisionKit scanning.
 
@@ -175,6 +175,7 @@ echo "=== Phase 4 Complete ==="
 - ✅ Hardware capability gating correct on all device classes.
 - ✅ **ALL v1 tests still green.** (1,508 total @Test, 0 failures)
 - ✅ **Self-healing matrix catches audio/scan regressions autonomously.**
+- ✅ Revalidated on 2026-04-14 after the test-runner split with fresh iPhone and iPad UI slice passes.
 
 ---
 

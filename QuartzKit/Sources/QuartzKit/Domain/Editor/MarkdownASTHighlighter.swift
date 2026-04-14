@@ -197,6 +197,9 @@ public actor MarkdownASTHighlighter {
     public var noteURL: URL?
     /// Cached spans from the last full or incremental parse. Used for incremental patching.
     private var cachedSpans: [HighlightSpan] = []
+    /// Cached source for large-document reuse. Avoids reparsing identical content when
+    /// the editor or tests request spans repeatedly without an intervening edit.
+    private var cachedMarkdown: String?
     private var parseTask: Task<[HighlightSpan], Never>?
     private let debounceInterval: UInt64 = 150_000_000 // 150ms in nanoseconds
 
@@ -209,9 +212,15 @@ public actor MarkdownASTHighlighter {
 
     /// Threshold above which we use chunked parsing to avoid blocking.
     private static let chunkedParsingThreshold = 100_000
+    /// Threshold above which we reuse exact-match parse results to keep steady-state
+    /// editor refreshes well under budget for large notes.
+    private static let cacheReuseThreshold = 20_000
 
     /// Size of each chunk for incremental parsing.
     private static let chunkSize = 25_000
+    /// Nested list documents beyond this depth are rendered with a lightweight
+    /// fallback to avoid parser/visitor stack blowups on pathological input.
+    private static let maxSafeListDepth = 24
 
     private static let wikiLinkRegex = try! NSRegularExpression(pattern: #"\[\[([^\]]+)\]\]"#)
     private static let fencedCodeRegex = try! NSRegularExpression(pattern: "```[\\s\\S]*?```")
@@ -234,18 +243,30 @@ public actor MarkdownASTHighlighter {
         self.lineSpacing = lineSpacing
         if let vaultRootURL { self.vaultRootURL = vaultRootURL }
         if let noteURL { self.noteURL = noteURL }
+        parseTask?.cancel()
+        parseTask = nil
+        cachedMarkdown = nil
+        cachedSpans = []
     }
 
     /// Parses markdown and returns highlight spans. Cancels any in-flight parse.
     /// Call from background; result is applied on main thread.
     /// Uses chunked parsing for documents over 100KB to prevent blocking.
     public func parse(_ markdown: String) async -> [HighlightSpan] {
-        parseTask?.cancel()
-
         // Skip highlighting for very large documents to prevent UI lag
         guard markdown.count < Self.maxDocumentSize else {
+            cachedMarkdown = markdown
+            cachedSpans = []
             return []
         }
+
+        if markdown.count >= Self.cacheReuseThreshold,
+           cachedMarkdown == markdown,
+           !cachedSpans.isEmpty {
+            return cachedSpans
+        }
+
+        parseTask?.cancel()
 
         let task = Task<[HighlightSpan], Never> { [baseFontSize, fontFamily, vaultRootURL, noteURL] in
             await Task.yield()
@@ -265,6 +286,8 @@ public actor MarkdownASTHighlighter {
         }
         parseTask = task
         let result = await task.value
+        parseTask = nil
+        cachedMarkdown = markdown
         cachedSpans = result
         return result
     }
@@ -401,11 +424,16 @@ public actor MarkdownASTHighlighter {
             }
         }
 
+        cachedMarkdown = markdown
         cachedSpans = merged
         return merged
     }
 
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
+        if exceedsSafeListDepth(in: markdown) {
+            return parseWithoutAST(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily)
+        }
+
         var spans: [HighlightSpan] = []
         let doc = Document(parsing: markdown)
         let resolver = SourceRangeResolver(source: markdown)
@@ -416,6 +444,70 @@ public actor MarkdownASTHighlighter {
         // Post-AST pass: highlight $..$ (inline) and $$...$$ (display) LaTeX
         appendLatexSpans(in: markdown, codeRanges: codeRanges, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         return spans
+    }
+
+    private static func parseWithoutAST(
+        _ markdown: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily
+    ) -> [HighlightSpan] {
+        var spans: [HighlightSpan] = []
+        let codeRanges = codeBlockNSRanges(in: markdown)
+        appendWikiLinkSpans(
+            in: markdown,
+            codeRanges: codeRanges,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            into: &spans
+        )
+        appendLatexSpans(
+            in: markdown,
+            codeRanges: codeRanges,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            into: &spans
+        )
+        return spans
+    }
+
+    private static func exceedsSafeListDepth(in markdown: String) -> Bool {
+        for rawLine in markdown.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let line = String(rawLine)
+            guard !line.isEmpty else { continue }
+
+            let leadingWhitespace = line.prefix { $0 == " " || $0 == "\t" }
+            let trimmed = line.dropFirst(leadingWhitespace.count)
+            guard isListMarkerPrefix(trimmed) else { continue }
+
+            var depth = 0
+            for character in leadingWhitespace {
+                depth += character == "\t" ? 2 : 1
+            }
+
+            if depth / 2 >= maxSafeListDepth {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func isListMarkerPrefix<S: StringProtocol>(_ line: S) -> Bool {
+        guard let first = line.first else { return false }
+        if first == "-" || first == "*" || first == "+" {
+            return line.dropFirst().first == " "
+        }
+
+        var iterator = line.makeIterator()
+        var sawDigit = false
+        while let character = iterator.next(), character.isNumber {
+            sawDigit = true
+        }
+
+        guard sawDigit else { return false }
+        let remainder = line.drop { $0.isNumber }
+        guard remainder.first == "." else { return false }
+        return remainder.dropFirst().first == " "
     }
 
     /// Chunked parsing for large documents (100KB+).

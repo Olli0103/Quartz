@@ -331,14 +331,13 @@ final class Phase4SnapshotMatrixTests: XCTestCase {
             line: line
         )
         #elseif canImport(AppKit)
-        let hostingView = NSHostingView(rootView: configuredView)
-        hostingView.appearance = NSAppearance(
-            named: colorScheme == .dark ? .darkAqua : .aqua
+        let snapshotImage = makeRetinaSnapshotImage(
+            rootView: configuredView,
+            colorScheme: colorScheme,
+            canvasSize: canvasSize
         )
-        hostingView.frame = NSRect(origin: .zero, size: canvasSize)
-        hostingView.layoutSubtreeIfNeeded()
         assertSnapshot(
-            of: hostingView,
+            of: snapshotImage,
             as: .image,
             named: name,
             file: file,

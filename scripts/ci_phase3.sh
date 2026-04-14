@@ -2,6 +2,11 @@
 # scripts/ci_phase3.sh — Phase 3 CI: cross-platform UX & accessibility
 #
 # Usage: bash scripts/ci_phase3.sh
+# Local iteration slices:
+#   bash scripts/test_quartzkit_phase3.sh
+#   bash scripts/test_ui_macos_smoke.sh
+#   bash scripts/test_ui_iphone_matrix.sh
+#   bash scripts/test_ui_ipad_matrix.sh
 # Exit code: 0 = success, 1 = failure
 set -euo pipefail
 
@@ -122,7 +127,7 @@ terminate_conflicting_macos_app_processes() {
         if ps -p "$pid" >/dev/null 2>&1; then
             kill -9 "$pid" >/dev/null 2>&1 || true
         fi
-    done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | grep -v '/DerivedData/' | awk '{print $1}' || true)
+    done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | awk '{print $1}' || true)
 }
 
 # ── Self-Healing: Failure Classification ─────────────────────────────

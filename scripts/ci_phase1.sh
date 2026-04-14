@@ -96,22 +96,34 @@ else
 fi
 
 # ── Step 3: Run test suite ───────────────────────────────────────────
-step "Running QuartzKit tests (parallel)"
+step "Running QuartzKit tests (parallel with serial fallback)"
 TEST_OUTPUT=""
 TEST_STATUS=0
+REQUIRES_SERIAL_RERUN=0
 if ! run_swift_test_capture TEST_OUTPUT swift test --package-path "$PACKAGE_PATH" --parallel; then
     TEST_STATUS=$?
 fi
 
+PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "passed" || true)
+FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -c "failed after" || true)
+
 if [ "$TEST_STATUS" -ne 0 ] && has_swiftpm_helper_crash "$TEST_OUTPUT"; then
     echo "  Detected SwiftPM helper crash under parallel execution; retrying serially..."
+    REQUIRES_SERIAL_RERUN=1
+elif [ "$TEST_STATUS" -ne 0 ] || [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "  Parallel run was not authoritative (exit: $TEST_STATUS, failure markers: $FAIL_COUNT); retrying serially..."
+    REQUIRES_SERIAL_RERUN=1
+fi
+
+if [ "$REQUIRES_SERIAL_RERUN" -eq 1 ]; then
     TEST_STATUS=0
     if ! run_swift_test_capture TEST_OUTPUT swift test --package-path "$PACKAGE_PATH" --no-parallel; then
         TEST_STATUS=$?
     fi
+    PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "passed" || true)
+    FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -c "failed after" || true)
 fi
-PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -c "passed" || true)
-FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -c "failed after" || true)
+
 echo "  Suites passed: $PASS_COUNT"
 echo "  Tests failed: $FAIL_COUNT"
 

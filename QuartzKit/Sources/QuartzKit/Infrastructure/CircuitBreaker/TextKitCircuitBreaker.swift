@@ -118,9 +118,6 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
     /// Validates input and returns the appropriate processing mode.
     /// Call before ANY text processing operation.
     public func validateInput(_ text: String) -> InputValidation {
-        let signpostID = OSSignpostID(log: signpostLog)
-        os_signpost(.begin, log: signpostLog, name: "TextKit.validate", signpostID: signpostID)
-        defer { os_signpost(.end, log: signpostLog, name: "TextKit.validate", signpostID: signpostID) }
         let utf8Count = text.utf8.count
 
         // Check document size

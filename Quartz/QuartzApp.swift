@@ -1,5 +1,38 @@
 import SwiftUI
 import QuartzKit
+#if os(macOS)
+import AppKit
+#endif
+
+#if os(macOS)
+@MainActor
+private enum QuartzUITestActivationCoordinator {
+    static func activateIfNeeded() async {
+        guard CommandLine.arguments.contains("--uitesting") else { return }
+
+        for _ in 0..<80 {
+            NSApp.setActivationPolicy(.regular)
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSApp.activate(ignoringOtherApps: true)
+
+            if let window = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) ?? NSApp.windows.first {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+}
+
+@MainActor
+private final class QuartzUITestAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await QuartzUITestActivationCoordinator.activateIfNeeded() }
+    }
+}
+#endif
 
 @main
 struct QuartzApp: App {
@@ -7,6 +40,9 @@ struct QuartzApp: App {
     @State private var appState = AppState()
     @State private var appearanceManager = AppearanceManager()
     @State private var focusModeManager = FocusModeManager()
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(QuartzUITestAppDelegate.self) private var uiTestAppDelegate
+    #endif
 
     /// Returns true if the app was launched with UI testing flags.
     private static var isUITesting: Bool {
@@ -99,6 +135,9 @@ struct QuartzApp: App {
                 .preferredColorScheme(appearanceManager.theme.colorScheme)
                 .tint(appearanceManager.accentColor)
                 .task {
+                    #if os(macOS)
+                    await QuartzUITestActivationCoordinator.activateIfNeeded()
+                    #endif
                     ServiceContainer.shared.bootstrap()
                     VaultAccessManager.shared.startObservingRemoteChanges()
                 }

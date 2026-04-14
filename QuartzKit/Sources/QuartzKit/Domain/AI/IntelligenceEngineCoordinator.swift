@@ -124,6 +124,20 @@ public actor IntelligenceEngineCoordinator {
         logger.info("IntelligenceEngineCoordinator started observing file events")
     }
 
+    /// Stops observing file system events and cancels any pending batch work.
+    public func stopObserving() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        pendingURLs.removeAll()
+
+        for token in observerTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        observerTokens.removeAll()
+
+        status = .idle
+    }
+
     // MARK: - Event Handlers
 
     /// Handles file content changes from any source.
