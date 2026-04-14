@@ -15,5 +15,6 @@ Current state:
 
 Next focus:
 ```bash
-# Phase 5 work can start from here.
+# Phase 4.5 editor rebuild is the next gate.
+# See PHASE_4_5_EDITOR_REBUILD.md and ROADMAP_V2.md.
 ```

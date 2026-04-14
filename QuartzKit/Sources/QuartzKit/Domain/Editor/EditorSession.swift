@@ -649,7 +649,6 @@ public final class EditorSession {
         let storageLength = storage.length
         guard storageLength > 0 else { return }
 
-        let savedTypingAttrs = textView.typingAttributes
         let savedSelection = textView.selectedRange
 
         let baseFontSize = highlighterBaseFontSize
@@ -716,13 +715,13 @@ public final class EditorSession {
         }
         storage.endEditing()
 
-        textView.typingAttributes = savedTypingAttrs
         if textView.selectedRange != savedSelection {
             let len = (textView.text ?? "").count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.selectedRange = savedSelection
             }
         }
+        updateTypingAttributes()
 
         #elseif canImport(AppKit)
         guard let textView = activeTextView, let storage = textView.textStorage else { return }
@@ -731,7 +730,6 @@ public final class EditorSession {
         let storageLength = storage.length
         guard storageLength > 0 else { return }
 
-        let savedTypingAttrs = textView.typingAttributes
         let savedSelection = textView.selectedRange()
 
         let baseFontSize = highlighterBaseFontSize
@@ -798,13 +796,13 @@ public final class EditorSession {
         }
         storage.endEditing()
 
-        textView.typingAttributes = savedTypingAttrs
         if textView.selectedRange() != savedSelection {
             let len = textView.string.count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.setSelectedRange(savedSelection)
             }
         }
+        updateTypingAttributes()
         #endif
     }
 
@@ -1114,7 +1112,6 @@ public final class EditorSession {
         let storageLength = storage.length
         guard storageLength > 0 else { return }
 
-        let savedTypingAttrs = textView.typingAttributes
         let savedSelection = textView.selectedRange
 
         let baseFontSize = highlighterBaseFontSize
@@ -1154,10 +1151,7 @@ public final class EditorSession {
         storage.beginEditing()
         for (range, targetAttrs) in segments {
             guard range.length > 0 else { continue }
-            let existing = storage.attributes(at: range.location, effectiveRange: nil)
-            if !fontsEqual(existing[.font] as? UIFont, targetAttrs[.font] as? UIFont) ||
-               !colorsEqual(existing[.foregroundColor] as? UIColor, targetAttrs[.foregroundColor] as? UIColor) ||
-               existing[.paragraphStyle] as? NSParagraphStyle != targetAttrs[.paragraphStyle] as? NSParagraphStyle {
+            if rangeNeedsFullAttributeRewrite(storage, range: range, targetAttrs: targetAttrs) {
                 storage.setAttributes(targetAttrs, range: range)
             }
         }
@@ -1189,13 +1183,13 @@ public final class EditorSession {
         }
         storage.endEditing()
 
-        textView.typingAttributes = savedTypingAttrs
         if textView.selectedRange != savedSelection {
             let len = (textView.text ?? "").count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.selectedRange = savedSelection
             }
         }
+        updateTypingAttributes()
 
         #elseif canImport(AppKit)
         guard let textView = activeTextView, let storage = textView.textStorage else { return }
@@ -1204,7 +1198,6 @@ public final class EditorSession {
         let storageLength = storage.length
         guard storageLength > 0 else { return }
 
-        let savedTypingAttrs = textView.typingAttributes
         let savedSelection = textView.selectedRange()
 
         let baseFontSize = highlighterBaseFontSize
@@ -1244,10 +1237,7 @@ public final class EditorSession {
         storage.beginEditing()
         for (range, targetAttrs) in segments {
             guard range.length > 0 else { continue }
-            let existing = storage.attributes(at: range.location, effectiveRange: nil)
-            if !fontsEqual(existing[.font] as? NSFont, targetAttrs[.font] as? NSFont) ||
-               !colorsEqual(existing[.foregroundColor] as? NSColor, targetAttrs[.foregroundColor] as? NSColor) ||
-               existing[.paragraphStyle] as? NSParagraphStyle != targetAttrs[.paragraphStyle] as? NSParagraphStyle {
+            if rangeNeedsFullAttributeRewrite(storage, range: range, targetAttrs: targetAttrs) {
                 storage.setAttributes(targetAttrs, range: range)
             }
         }
@@ -1279,13 +1269,13 @@ public final class EditorSession {
         }
         storage.endEditing()
 
-        textView.typingAttributes = savedTypingAttrs
         if textView.selectedRange() != savedSelection {
             let len = textView.string.count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.setSelectedRange(savedSelection)
             }
         }
+        updateTypingAttributes()
         #endif
     }
 
@@ -1310,10 +1300,21 @@ public final class EditorSession {
         guard let textView = activeTextView else { return }
         let text = textView.text ?? ""
         let loc = textView.selectedRange.location
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
 
         if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .uiKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
+            textView.typingAttributes = typing
+            return
+        }
+
+        // A fresh paragraph after a heading/list should start from body styling,
+        // not inherit stale attributes from the previous line break.
+        if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var typing = textView.typingAttributes
+            typing[.font] = defaultFont
+            typing[.foregroundColor] = UIColor.label
             textView.typingAttributes = typing
             return
         }
@@ -1330,10 +1331,21 @@ public final class EditorSession {
         guard let textView = activeTextView, let storage = textView.textStorage else { return }
         let text = textView.string
         let loc = textView.selectedRange().location
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
 
         if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .appKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
+            textView.typingAttributes = typing
+            return
+        }
+
+        // A fresh paragraph after a heading/list should start from body styling,
+        // not inherit stale attributes from the previous line break.
+        if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var typing = textView.typingAttributes
+            typing[.font] = defaultFont
+            typing[.foregroundColor] = NSColor.labelColor
             textView.typingAttributes = typing
             return
         }
@@ -1389,6 +1401,11 @@ public final class EditorSession {
             return nil
             #endif
         }
+    }
+
+    /// Test seam for deterministic attributed-string regression coverage.
+    func applyHighlightSpansForTesting(_ spans: [HighlightSpan]) {
+        applyHighlightSpans(spans)
     }
 
     // MARK: - Autosave
@@ -1710,6 +1727,93 @@ public final class EditorSession {
     }
 
     // MARK: - Helpers
+
+    private func currentLineText(in text: String, cursorLocation: Int) -> String {
+        let nsText = text as NSString
+        let safeCursor = min(max(cursorLocation, 0), nsText.length)
+
+        var start = safeCursor
+        while start > 0 {
+            let scalar = nsText.character(at: start - 1)
+            if scalar == 10 || scalar == 13 { break }
+            start -= 1
+        }
+
+        var end = safeCursor
+        while end < nsText.length {
+            let scalar = nsText.character(at: end)
+            if scalar == 10 || scalar == 13 { break }
+            end += 1
+        }
+
+        return nsText.substring(with: NSRange(location: start, length: end - start))
+    }
+
+    private func rangeNeedsFullAttributeRewrite(
+        _ storage: NSTextStorage,
+        range: NSRange,
+        targetAttrs: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        var effectiveRange = NSRange(location: 0, length: 0)
+        let existing = storage.attributes(at: range.location, effectiveRange: &effectiveRange)
+        let fullyCovered = effectiveRange.location <= range.location
+            && NSMaxRange(effectiveRange) >= NSMaxRange(range)
+
+        return !fullyCovered || !primaryAttributesEqual(existing, targetAttrs)
+    }
+
+    private func primaryAttributesEqual(
+        _ existing: [NSAttributedString.Key: Any],
+        _ target: [NSAttributedString.Key: Any]
+    ) -> Bool {
+        #if canImport(UIKit)
+        if !fontsEqual(existing[.font] as? UIFont, target[.font] as? UIFont) { return false }
+        if !colorsEqual(existing[.foregroundColor] as? UIColor, target[.foregroundColor] as? UIColor) { return false }
+        if !colorsEqual(existing[.backgroundColor] as? UIColor, target[.backgroundColor] as? UIColor) { return false }
+        #elseif canImport(AppKit)
+        if !fontsEqual(existing[.font] as? NSFont, target[.font] as? NSFont) { return false }
+        if !colorsEqual(existing[.foregroundColor] as? NSColor, target[.foregroundColor] as? NSColor) { return false }
+        if !colorsEqual(existing[.backgroundColor] as? NSColor, target[.backgroundColor] as? NSColor) { return false }
+        #endif
+
+        let existingParagraph = existing[.paragraphStyle] as? NSParagraphStyle
+        let targetParagraph = target[.paragraphStyle] as? NSParagraphStyle
+        if !(existingParagraph?.isEqual(targetParagraph) ?? (targetParagraph == nil)) { return false }
+
+        if !numberAttributesEqual(existing[.strikethroughStyle], target[.strikethroughStyle]) { return false }
+        if !numberAttributesEqual(existing[.quartzTableRowStyle], target[.quartzTableRowStyle]) { return false }
+        if !numberAttributesEqual(existing[.underlineStyle], target[.underlineStyle]) { return false }
+        if !numberAttributesEqual(existing[.kern], target[.kern]) { return false }
+
+        let existingWikiLink = existing[.quartzWikiLink] as? String
+        let targetWikiLink = target[.quartzWikiLink] as? String
+        if existingWikiLink != targetWikiLink { return false }
+
+        let existingAttachment = existing[.attachment] as? NSTextAttachment
+        let targetAttachment = target[.attachment] as? NSTextAttachment
+        if existingAttachment !== targetAttachment {
+            if !(existingAttachment == nil && targetAttachment == nil) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func numberAttributesEqual(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil):
+            return true
+        case let (lhs as NSNumber, rhs as NSNumber):
+            return lhs == rhs
+        case let (lhs as Int, rhs as Int):
+            return lhs == rhs
+        case let (lhs as CGFloat, rhs as CGFloat):
+            return lhs == rhs
+        default:
+            return false
+        }
+    }
 
     #if canImport(UIKit)
     private func fontsEqual(_ a: UIFont?, _ b: UIFont?) -> Bool {

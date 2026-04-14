@@ -179,7 +179,77 @@ echo "=== Phase 4 Complete ==="
 
 ---
 
+## Phase 4.5 — Editor Rebuild
+
+**Status**: Planned
+**Blocks**: Phase 5
+**Plan**: `PHASE_4_5_EDITOR_REBUILD.md`
+
+**Objective**: Rebuild Quartz's Markdown editor into a calm, native, semantically-driven writing surface before layering graph, CRDT, and onboarding features on top.
+
+### Why This Exists
+
+Phase 4 completed the feature roadmap, but the editor still shows structural weaknesses:
+
+- attribute drift after edit and reopen
+- syntax concealment that is not truly caret-aware
+- styling still applied as a repair pass over text storage
+- insufficient parity coverage for open -> edit -> close -> reopen flows
+
+Phase 5 is explicitly blocked until these are fixed at the architecture level.
+
+### 4.5 Core Principles
+
+- **Inline editing first**: No detached mini-editors unless accessibility or input constraints force one.
+- **Semantic model over paint pass**: Parse output must become stable editor state, not just transient style spans.
+- **Caret-aware markdown hiding**: Hidden or faded syntax must respect the active selection and editing context.
+- **Native writing, separate preview**: The writing surface stays native TextKit. High-fidelity preview/export can use a separate renderer.
+- **Corpus-driven quality**: Real-world markdown fixtures and reopen-parity tests gate every fix.
+
+### 4.5 Workstreams
+
+1. **Reality corpus + parity harness**
+   - Build a fixture corpus from real notes and current editor failures.
+   - Add reopen, selection, IME, paste, and concealment parity tests.
+2. **Semantic document model**
+   - Introduce stable block IDs, inline token IDs, dirty-block tracking, and render plans.
+3. **Rendering engine rewrite**
+   - Replace broad storage repair with block-local semantic re-rendering.
+4. **Editing behavior hardening**
+   - Fix typing context, undo coalescing, paste normalization, table safety, and selection stability.
+5. **Complex block strategy**
+   - Define native editor behaviors for links, tasks, tables, math, images, and footnotes.
+6. **Preview split**
+   - Keep the editor native; isolate richer preview compatibility to a separate path.
+
+### 4.5 Test Matrix — EDITOR SHIP GATE
+
+| Test Suite | What It Covers | Type |
+|---|---|---|
+| `EditorRenderingParityTests` | open/edit/close/reopen attributed parity | Integration |
+| `EditorSelectionParityTests` | selection and cursor stability under rerender | Integration |
+| `SyntaxConcealmentTests` | caret-aware hide/fade rules | Integration |
+| `TypingContextTests` | heading/list/code/paragraph typing behavior | Integration |
+| `EditorSnapshot_macOS` | macOS visual editor corpus | Snapshot |
+| `EditorSnapshot_iPhone` | iPhone visual editor corpus | Snapshot |
+| `EditorSnapshot_iPad` | iPad visual editor corpus | Snapshot |
+| `EditorKeystrokeLatencyTests` | keystroke-to-frame budget | Performance |
+| `EditorVoiceOverInteractionTests` | editor accessibility and token announcements | Accessibility |
+
+### Done When ✅ ALL VERIFIED
+
+- open -> edit -> close -> reopen editor parity is green
+- syntax concealment is caret-aware and selection-safe
+- complex markdown blocks behave natively in-flow
+- typing context never drifts across headings, lists, code, or paragraph boundaries
+- editor snapshot suites are green on macOS, iPhone, and iPad
+- Phase 5 can start without unresolved editor debt
+
+---
+
 ## Phase 5 — Knowledge Graph & Onboarding
+
+**Prerequisite**: Phase 4.5 complete.
 
 **Objective**: Lightning-fast graph queries grounded in filesystem truth. Interactive onboarding that builds feature mastery.
 

@@ -1,0 +1,233 @@
+import XCTest
+@testable import QuartzKit
+
+#if canImport(AppKit)
+import AppKit
+
+@MainActor
+final class EditorRenderingRegressionTests: XCTestCase {
+
+    func testBlankParagraphAfterHeadingUsesBodyTypingAttributes() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "### Test\n\n"
+        let headingFont = NSFont.systemFont(ofSize: 17.5, weight: .bold)
+
+        textView.string = text
+        textView.textStorage?.setAttributes(
+            [.font: headingFont, .foregroundColor: NSColor.tertiaryLabelColor],
+            range: NSRange(location: 0, length: (text as NSString).length)
+        )
+
+        session.activeTextView = textView
+        session.textDidChange(text)
+        session.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
+
+        let typingFont = textView.typingAttributes[.font] as? NSFont
+        let typingColor = textView.typingAttributes[.foregroundColor] as? NSColor
+
+        let resolvedTypingFont = try XCTUnwrap(typingFont)
+        XCTAssertEqual(resolvedTypingFont.pointSize, CGFloat(14), accuracy: 0.01)
+        XCTAssertEqual(typingColor, .labelColor)
+        XCTAssertFalse(NSFontManager.shared.traits(of: resolvedTypingFont).contains(.boldFontMask))
+    }
+
+    func testHighlightPassRewritesMixedHeadingRangeBeyondLeadingCharacter() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+
+        textView.string = text
+        session.activeTextView = textView
+        session.textDidChange(text)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+
+        let h2LineRange = NSRange(location: 11, length: 7) // "## Test"
+        let h2ContentRange = NSRange(location: 14, length: 4) // "Test"
+        let laterHeadingChar = h2ContentRange.location + 1    // "e" in "Test"
+        session.applyHighlightSpansForTesting(spans)
+
+        let expectedHeadingFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: laterHeadingChar, effectiveRange: nil) as? NSFont
+        )
+
+        let defaultFont = NSFont.systemFont(ofSize: 14)
+        textView.textStorage?.setAttributes(
+            [.font: defaultFont, .foregroundColor: NSColor.labelColor],
+            range: h2LineRange
+        )
+        textView.textStorage?.setAttributes(
+            [.font: expectedHeadingFont, .foregroundColor: NSColor.labelColor],
+            range: NSRange(location: h2ContentRange.location, length: 1)
+        )
+
+        session.applyHighlightSpansForTesting(spans)
+
+        let fixedHeadingFont = textView.textStorage?.attribute(.font, at: laterHeadingChar, effectiveRange: nil) as? NSFont
+        XCTAssertNotNil(fixedHeadingFont)
+        XCTAssertEqual(fixedHeadingFont?.fontName, expectedHeadingFont.fontName)
+        XCTAssertEqual(fixedHeadingFont?.pointSize ?? 0, expectedHeadingFont.pointSize, accuracy: 0.01)
+    }
+
+    func testHighlightPassRewritesPlainParagraphWhenSegmentStartsWithCleanNewline() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let nsText = text as NSString
+        let paragraphStart = nsText.range(of: "Das ist ein Test...").location
+        let staleRange = NSRange(location: paragraphStart, length: nsText.length - paragraphStart)
+
+        textView.string = text
+        session.activeTextView = textView
+        session.textDidChange(text)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+
+        let headingLikeFont = NSFont.systemFont(ofSize: 17.5, weight: .bold)
+        textView.textStorage?.setAttributes(
+            [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor.labelColor],
+            range: NSRange(location: paragraphStart - 1, length: 1)
+        )
+        textView.textStorage?.setAttributes(
+            [.font: headingLikeFont, .foregroundColor: NSColor.tertiaryLabelColor],
+            range: staleRange
+        )
+
+        session.applyHighlightSpansForTesting(spans)
+
+        let paragraphFont = textView.textStorage?.attribute(.font, at: paragraphStart, effectiveRange: nil) as? NSFont
+        let paragraphColor = textView.textStorage?.attribute(.foregroundColor, at: paragraphStart, effectiveRange: nil) as? NSColor
+
+        let resolvedParagraphFont = try XCTUnwrap(paragraphFont)
+        XCTAssertEqual(resolvedParagraphFont.pointSize, CGFloat(14), accuracy: 0.01)
+        XCTAssertFalse(NSFontManager.shared.traits(of: resolvedParagraphFont).contains(.boldFontMask))
+        XCTAssertEqual(paragraphColor, .labelColor)
+    }
+
+    func testHighlightPassRecomputesTypingAttributesForParagraphContext() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let paragraphEnd = (text as NSString).range(of: "Das ist ein Test...").upperBound
+
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: paragraphEnd, length: 0))
+        session.activeTextView = textView
+        session.textDidChange(text)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+
+        let staleHeadingFont = NSFont.systemFont(ofSize: 17.5, weight: .bold)
+        textView.typingAttributes = [
+            .font: staleHeadingFont,
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]
+
+        session.applyHighlightSpansForTesting(spans)
+
+        let typingFont = try XCTUnwrap(textView.typingAttributes[.font] as? NSFont)
+        let typingColor = try XCTUnwrap(textView.typingAttributes[.foregroundColor] as? NSColor)
+
+        XCTAssertEqual(typingFont.pointSize, CGFloat(14), accuracy: 0.01)
+        XCTAssertEqual(typingColor, .labelColor)
+        XCTAssertFalse(NSFontManager.shared.traits(of: typingFont).contains(.boldFontMask))
+    }
+
+    func testCloseAndReopenReappliesParagraphAttributesAfterStateDrift() async throws {
+        let provider = MockVaultProvider()
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-regression.md")
+        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let paragraphStart = (text as NSString).range(of: "Das ist ein Test...").location
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Welcome"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: paragraphStart)
+
+        let expectedFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: paragraphStart, effectiveRange: nil) as? NSFont
+        )
+        let expectedColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: paragraphStart, effectiveRange: nil) as? NSColor
+        )
+
+        let staleHeadingFont = NSFont.systemFont(ofSize: 17.5, weight: .bold)
+        textView.textStorage?.setAttributes(
+            [.font: staleHeadingFont, .foregroundColor: NSColor.tertiaryLabelColor],
+            range: NSRange(location: paragraphStart, length: (text as NSString).length - paragraphStart)
+        )
+        var staleTypingAttributes = textView.typingAttributes
+        staleTypingAttributes[.font] = staleHeadingFont
+        staleTypingAttributes[.foregroundColor] = NSColor.tertiaryLabelColor
+        textView.typingAttributes = staleTypingAttributes
+
+        session.closeNote()
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: paragraphStart)
+
+        let reopenedFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: paragraphStart, effectiveRange: nil) as? NSFont
+        )
+        let reopenedColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: paragraphStart, effectiveRange: nil) as? NSColor
+        )
+
+        XCTAssertEqual(reopenedFont.fontName, expectedFont.fontName)
+        XCTAssertEqual(reopenedFont.pointSize, expectedFont.pointSize, accuracy: 0.01)
+        XCTAssertEqual(reopenedColor, expectedColor)
+    }
+
+    private func makeSession() -> EditorSession {
+        EditorSession(
+            vaultProvider: MockVaultProvider(),
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+    }
+
+    private func makeTextView() -> NSTextView {
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+        textView.font = .systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.isRichText = false
+        textView.allowsUndo = false
+        return textView
+    }
+
+    private func waitForHighlightPass(on textView: NSTextView, monitoredLocation: Int) async throws {
+        for _ in 0..<50 {
+            if textView.alphaValue == 1,
+               let textStorage = textView.textStorage,
+               monitoredLocation < textStorage.length,
+               textStorage.attribute(.font, at: monitoredLocation, effectiveRange: nil) != nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for highlight pass to complete")
+    }
+}
+#endif
