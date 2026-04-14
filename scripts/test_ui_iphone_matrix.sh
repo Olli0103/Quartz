@@ -37,6 +37,7 @@ if run_xcodebuild_to_log "$LOG_PATH" \
         -only-testing:QuartzUITests/OnboardingFlowTests \
         -only-testing:QuartzUITests/AccessibilityUITests \
         -only-testing:QuartzUITests/PerformanceUITests \
+        -only-testing:QuartzUITests/iPhoneEditorShellUITests \
         -only-testing:QuartzUITests/iOSPhoneSmokeUITests; then
     pass "iPhone UI matrix passed"
 else

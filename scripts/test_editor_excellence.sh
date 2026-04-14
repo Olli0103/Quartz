@@ -14,8 +14,14 @@ PACKAGE_PATH="${PACKAGE_PATH:-QuartzKit}"
 LOG_PATH="${LOG_PATH:-reports/editor_excellence.log}"
 IOS_LOG_PATH="${IOS_LOG_PATH:-reports/editor_excellence_ios.log}"
 IPADOS_LOG_PATH="${IPADOS_LOG_PATH:-reports/editor_excellence_ipados.log}"
+MACOS_UI_LOG_PATH="${MACOS_UI_LOG_PATH:-reports/editor_excellence_ui_macos.log}"
+IOS_UI_LOG_PATH="${IOS_UI_LOG_PATH:-reports/editor_excellence_ui_ios.log}"
+IPADOS_UI_LOG_PATH="${IPADOS_UI_LOG_PATH:-reports/editor_excellence_ui_ipados.log}"
 IOS_RESULT_BUNDLE="${IOS_RESULT_BUNDLE:-/tmp/QuartzKitEditor_iPhone.xcresult}"
 IPADOS_RESULT_BUNDLE="${IPADOS_RESULT_BUNDLE:-/tmp/QuartzKitEditor_iPad.xcresult}"
+MACOS_UI_RESULT_BUNDLE="${MACOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_macOS.xcresult}"
+IOS_UI_RESULT_BUNDLE="${IOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPhone.xcresult}"
+IPADOS_UI_RESULT_BUNDLE="${IPADOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPad.xcresult}"
 IPHONE_PREFERRED_SIMULATOR="${IPHONE_PREFERRED_SIMULATOR:-iPhone 17 Pro}"
 IPAD_PREFERRED_SIMULATOR="${IPAD_PREFERRED_SIMULATOR:-iPad Pro 13-inch (M5)}"
 EDITOR_FILTER="${EDITOR_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip|Snapshot)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
@@ -56,6 +62,21 @@ run_package_editor_matrix() {
     local status=$?
     tail -n 60 "$log_path"
     return $status
+}
+
+run_editor_shell_ui_matrix() {
+    local destination="$1"
+    local log_path="$2"
+    local result_bundle="$3"
+    local test_class="$4"
+
+    reset_result_bundle "$result_bundle"
+    run_xcodebuild_to_log "$log_path" \
+        xcodebuild test -scheme Quartz \
+            -parallel-testing-enabled NO \
+            -destination "$destination" \
+            -resultBundlePath "$result_bundle" \
+            -only-testing:"QuartzUITests/$test_class"
 }
 
 step "Running editor excellence gate"
@@ -100,4 +121,38 @@ if run_package_editor_matrix \
     pass "iPad editor parity passed"
 else
     fail "iPad editor parity failed"
+fi
+
+step "Running macOS editor shell UI coverage"
+terminate_conflicting_macos_app_processes
+if run_editor_shell_ui_matrix \
+    "platform=macOS" \
+    "$MACOS_UI_LOG_PATH" \
+    "$MACOS_UI_RESULT_BUNDLE" \
+    "macOSEditorShellUITests"; then
+    pass "macOS editor shell UI coverage passed"
+else
+    fail "macOS editor shell UI coverage failed"
+fi
+
+step "Running iPhone editor shell UI coverage"
+if run_editor_shell_ui_matrix \
+    "platform=iOS Simulator,id=$IPHONE_SIM_ID" \
+    "$IOS_UI_LOG_PATH" \
+    "$IOS_UI_RESULT_BUNDLE" \
+    "iPhoneEditorShellUITests"; then
+    pass "iPhone editor shell UI coverage passed"
+else
+    fail "iPhone editor shell UI coverage failed"
+fi
+
+step "Running iPad editor shell UI coverage"
+if run_editor_shell_ui_matrix \
+    "platform=iOS Simulator,id=$IPAD_SIM_ID" \
+    "$IPADOS_UI_LOG_PATH" \
+    "$IPADOS_UI_RESULT_BUNDLE" \
+    "iPadEditorShellUITests"; then
+    pass "iPad editor shell UI coverage passed"
+else
+    fail "iPad editor shell UI coverage failed"
 fi

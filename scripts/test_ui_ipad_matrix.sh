@@ -33,6 +33,7 @@ if run_xcodebuild_to_log "$LOG_PATH" \
         -parallel-testing-enabled NO \
         -destination "platform=iOS Simulator,id=$SIM_ID" \
         -resultBundlePath "$RESULT_BUNDLE" \
+        -only-testing:QuartzUITests/iPadEditorShellUITests \
         -only-testing:QuartzUITests/iPadSmokeUITests; then
     pass "iPad UI matrix passed"
 else

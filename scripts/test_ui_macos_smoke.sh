@@ -25,6 +25,7 @@ if run_xcodebuild_to_log "$LOG_PATH" \
         -parallel-testing-enabled NO \
         -destination "platform=macOS" \
         -only-testing:QuartzUITests/macOSSmokeUITests \
+        -only-testing:QuartzUITests/macOSEditorShellUITests \
         -resultBundlePath "$RESULT_BUNDLE"; then
     pass "macOS UI smoke tests passed"
 else

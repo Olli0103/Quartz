@@ -129,6 +129,7 @@ struct IosEditorToolbar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(action.label)
+        .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
         .accessibilityAddTraits(active ? [.isSelected] : [])
     }
 
@@ -159,6 +160,7 @@ struct IosEditorToolbar: View {
         }
         .tint(.primary)
         .accessibilityLabel(String(localized: "Heading level", bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-heading-menu")
     }
 
     // MARK: - Overflow Menu
@@ -183,6 +185,7 @@ struct IosEditorToolbar: View {
         }
         .tint(.primary)
         .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-overflow-menu")
     }
 
     // MARK: - Divider

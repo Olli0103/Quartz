@@ -149,6 +149,116 @@ class QuartzUITestCase: XCTestCase {
         return app.textViews.firstMatch.waitForExistence(timeout: min(timeout, 5))
     }
 
+    @MainActor
+    func editorSurface(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let fallback = app.textViews.firstMatch
+        if fallback.exists {
+            return fallback
+        }
+
+        let identifiedEditor = element(matchingIdentifier: "editor-text-view")
+        XCTAssertTrue(identifiedEditor.exists || fallback.exists,
+                      "Editor surface must exist before querying it",
+                      file: file,
+                      line: line)
+        return identifiedEditor
+    }
+
+    @MainActor
+    func focusEditor(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        XCTAssertTrue(waitForEditorSurface(timeout: 10),
+                      "Editor surface must exist before focusing it",
+                      file: file,
+                      line: line)
+        let editor = editorSurface(file: file, line: line)
+        interact(with: editor)
+        return editor
+    }
+
+    @MainActor
+    func editorTextValue(file: StaticString = #filePath, line: UInt = #line) -> String {
+        let editor = editorSurface(file: file, line: line)
+        if let text = editor.value as? String {
+            return text
+        }
+        if let value = editor.value {
+            return String(describing: value)
+        }
+
+        XCTFail("Editor value must be readable as text", file: file, line: line)
+        return ""
+    }
+
+    @MainActor
+    func assertEditorContains(
+        _ substring: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if editorTextValue(file: file, line: line).contains(substring) {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        XCTFail("Editor text must contain '\(substring)'", file: file, line: line)
+    }
+
+    @MainActor
+    func openMockVaultNote(named title: String, timeout: TimeInterval = 10) -> XCUIElement? {
+        let noteList = element(matchingIdentifier: "note-list-view")
+        _ = noteList.waitForExistence(timeout: min(timeout, 5))
+
+        let predicate = NSPredicate(format: "label CONTAINS[c] %@", title)
+        let scopedQueries: [XCUIElementQuery] = [
+            noteList.descendants(matching: .any),
+            app.staticTexts,
+            app.cells,
+            app.outlineRows,
+            app.buttons
+        ]
+
+        for query in scopedQueries {
+            let match = query.matching(predicate).firstMatch
+            if match.waitForExistence(timeout: min(timeout, 3)) {
+                interact(with: match)
+                return match
+            }
+        }
+
+        return nil
+    }
+
+    @MainActor
+    func createNewNote(timeout: TimeInterval = 10) -> Bool {
+        let candidates = [
+            element(matchingIdentifier: "note-list-new-note"),
+            element(matchingIdentifier: "sidebar-new-note"),
+            app.buttons["New Note"]
+        ]
+
+        for candidate in candidates {
+            if candidate.waitForExistence(timeout: min(timeout, 3)) {
+                interact(with: candidate)
+                return waitForEditorSurface(timeout: timeout)
+            }
+        }
+
+        return false
+    }
+
+    @MainActor
+    func interact(with element: XCUIElement) {
+        #if os(macOS)
+        element.click()
+        #else
+        element.tap()
+        #endif
+    }
+
     /// Asserts that the element has a non-empty accessibility label.
     /// Use this to enforce that UI controls are properly labeled for VoiceOver.
     @MainActor
