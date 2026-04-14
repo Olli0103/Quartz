@@ -35,7 +35,7 @@ final class EditorRenderingRegressionTests: XCTestCase {
     func testHighlightPassRewritesMixedHeadingRangeBeyondLeadingCharacter() async throws {
         let session = makeSession()
         let textView = makeTextView()
-        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let text = try EditorRealityFixture.headingParagraphDrift.load()
 
         textView.string = text
         session.activeTextView = textView
@@ -75,7 +75,7 @@ final class EditorRenderingRegressionTests: XCTestCase {
     func testHighlightPassRewritesPlainParagraphWhenSegmentStartsWithCleanNewline() async throws {
         let session = makeSession()
         let textView = makeTextView()
-        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let text = try EditorRealityFixture.headingParagraphDrift.load()
         let nsText = text as NSString
         let paragraphStart = nsText.range(of: "Das ist ein Test...").location
         let staleRange = NSRange(location: paragraphStart, length: nsText.length - paragraphStart)
@@ -112,7 +112,7 @@ final class EditorRenderingRegressionTests: XCTestCase {
     func testHighlightPassRecomputesTypingAttributesForParagraphContext() async throws {
         let session = makeSession()
         let textView = makeTextView()
-        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let text = try EditorRealityFixture.headingParagraphDrift.load()
         let paragraphEnd = (text as NSString).range(of: "Das ist ein Test...").upperBound
 
         textView.string = text
@@ -143,7 +143,7 @@ final class EditorRenderingRegressionTests: XCTestCase {
     func testCloseAndReopenReappliesParagraphAttributesAfterStateDrift() async throws {
         let provider = MockVaultProvider()
         let url = URL(fileURLWithPath: "/tmp/editor-rendering-regression.md")
-        let text = "# Welcome\n\n## Test\n\n### Test\n\nDas ist ein Test..."
+        let text = try EditorRealityFixture.headingParagraphDrift.load()
         let paragraphStart = (text as NSString).range(of: "Das ist ein Test...").location
         let note = NoteDocument(
             fileURL: url,
@@ -199,6 +199,74 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertEqual(reopenedColor, expectedColor)
     }
 
+    func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = try EditorRealityFixture.concealmentBoundaries.load()
+        let nsText = text as NSString
+        let delimiterLocation = nsText.range(of: "**").location
+        let secondLineLocation = nsText.range(of: "Second line plain.").location
+
+        XCTAssertNotEqual(delimiterLocation, NSNotFound)
+        XCTAssertNotEqual(secondLineLocation, NSNotFound)
+
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: secondLineLocation, length: 0))
+        session.activeTextView = textView
+        session.textDidChange(text)
+        session.syntaxVisibilityMode = .hiddenUntilCaret
+        session.selectionDidChange(NSRange(location: secondLineLocation, length: 0))
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+        session.applyHighlightSpansForTesting(spans)
+
+        let overlayColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: delimiterLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertLessThanOrEqual(alphaComponent(of: overlayColor), 0.001)
+    }
+
+    func testHiddenUntilCaretRevealsOverlayWhenCaretReturnsToSameLine() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = try EditorRealityFixture.concealmentBoundaries.load()
+        let nsText = text as NSString
+        let delimiterLocation = nsText.range(of: "**").location
+        let boldLocation = nsText.range(of: "bold").location
+        let secondLineLocation = nsText.range(of: "Second line plain.").location
+
+        XCTAssertNotEqual(delimiterLocation, NSNotFound)
+        XCTAssertNotEqual(boldLocation, NSNotFound)
+        XCTAssertNotEqual(secondLineLocation, NSNotFound)
+
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: secondLineLocation, length: 0))
+        session.activeTextView = textView
+        session.textDidChange(text)
+        session.syntaxVisibilityMode = .hiddenUntilCaret
+        session.selectionDidChange(NSRange(location: secondLineLocation, length: 0))
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+        session.applyHighlightSpansForTesting(spans)
+
+        var hiddenColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: delimiterLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertLessThanOrEqual(alphaComponent(of: hiddenColor), 0.001)
+
+        textView.setSelectedRange(NSRange(location: boldLocation, length: 0))
+        session.selectionDidChange(NSRange(location: boldLocation, length: 0))
+
+        hiddenColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: delimiterLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertGreaterThan(alphaComponent(of: hiddenColor), 0.001)
+    }
+
     private func makeSession() -> EditorSession {
         EditorSession(
             vaultProvider: MockVaultProvider(),
@@ -228,6 +296,10 @@ final class EditorRenderingRegressionTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for highlight pass to complete")
+    }
+
+    private func alphaComponent(of color: NSColor) -> CGFloat {
+        color.usingColorSpace(.deviceRGB)?.alphaComponent ?? color.alphaComponent
     }
 }
 #endif

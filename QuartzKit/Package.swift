@@ -41,6 +41,9 @@ let package = Package(
             path: "Tests/QuartzKitTests",
             exclude: [
                 "__Snapshots__",
+            ],
+            resources: [
+                .process("EditorRealityCorpus"),
             ]
         ),
     ]

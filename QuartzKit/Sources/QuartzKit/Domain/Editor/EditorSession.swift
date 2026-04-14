@@ -432,9 +432,19 @@ public final class EditorSession {
 
     /// Called by the text view delegate when selection changes.
     public func selectionDidChange(_ range: NSRange) {
+        let previousRange = cursorPosition
         cursorPosition = range
         updateTypingAttributes()
         formattingState = FormattingState.detect(in: currentText, at: range.location)
+
+        guard syntaxVisibilityMode == .hiddenUntilCaret,
+              !isApplyingHighlights,
+              !lastAppliedHighlightSpans.isEmpty,
+              visibilityContextRange(for: previousRange, in: currentText) != visibilityContextRange(for: range, in: currentText) else {
+            return
+        }
+
+        applyHighlightSpans(lastAppliedHighlightSpans)
     }
 
     /// Called by the text view delegate when scroll position changes.
@@ -640,6 +650,7 @@ public final class EditorSession {
         guard !isComposing else { return }
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
+        lastAppliedHighlightSpans = spans
 
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
@@ -695,7 +706,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color), range: r)
+                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color, overlayRange: r), range: r)
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -776,7 +787,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color), range: r)
+                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color, overlayRange: r), range: r)
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -1031,6 +1042,8 @@ public final class EditorSession {
     public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
     /// Stored for deinit cleanup of debounced highlight work.
     private var highlightTask: Task<Void, Never>?
+    /// Reused when selection-only changes should refresh concealment without reparsing.
+    private var lastAppliedHighlightSpans: [HighlightSpan] = []
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     /// Uses incremental parsing when the current transaction supports it.
@@ -1103,6 +1116,7 @@ public final class EditorSession {
         guard !isComposing else { return }
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
+        lastAppliedHighlightSpans = spans
 
         #if canImport(UIKit)
         guard let textView = activeTextView, let cm = contentManager else { return }
@@ -1159,7 +1173,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                let adjusted = adjustedOverlayColor(color)
+                let adjusted = adjustedOverlayColor(color, overlayRange: r)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
                 if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted as? UIColor) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
@@ -1245,7 +1259,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                let adjusted = adjustedOverlayColor(color)
+                let adjusted = adjustedOverlayColor(color, overlayRange: r)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
                 if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
@@ -1749,6 +1763,19 @@ public final class EditorSession {
         return nsText.substring(with: NSRange(location: start, length: end - start))
     }
 
+    private func visibilityContextRange(for selection: NSRange, in text: String) -> NSRange? {
+        guard !text.isEmpty else { return nil }
+        let nsText = text as NSString
+        let clampedLocation = min(max(selection.location, 0), max(nsText.length - 1, 0))
+
+        if selection.length > 0 {
+            let safeLength = min(selection.length, max(nsText.length - clampedLocation, 0))
+            return nsText.lineRange(for: NSRange(location: clampedLocation, length: safeLength))
+        }
+
+        return nsText.lineRange(for: NSRange(location: clampedLocation, length: 0))
+    }
+
     private func rangeNeedsFullAttributeRewrite(
         _ storage: NSTextStorage,
         range: NSRange,
@@ -1840,14 +1867,18 @@ public final class EditorSession {
     /// Adjusts an overlay color based on the current `syntaxVisibilityMode`.
     /// - `.full`: returns the color unchanged (tertiaryLabel).
     /// - `.gentleFade`: returns the color at 0.4 alpha.
-    /// - `.hiddenUntilCaret`: returns `.clear`.
-    private func adjustedOverlayColor(_ color: PlatformColor) -> PlatformColor {
+    /// - `.hiddenUntilCaret`: hides delimiters unless the active selection is on the same line.
+    private func adjustedOverlayColor(_ color: PlatformColor, overlayRange: NSRange) -> PlatformColor {
         switch syntaxVisibilityMode {
         case .full:
             return color
         case .gentleFade:
             return color.withAlphaComponent(0.4)
         case .hiddenUntilCaret:
+            if let activeRange = visibilityContextRange(for: cursorPosition, in: currentText),
+               NSIntersectionRange(activeRange, overlayRange).length > 0 {
+                return color
+            }
             #if canImport(UIKit)
             return UIColor.clear
             #elseif canImport(AppKit)
