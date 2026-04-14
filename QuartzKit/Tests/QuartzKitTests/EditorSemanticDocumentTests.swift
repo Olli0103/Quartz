@@ -49,6 +49,32 @@ final class EditorSemanticDocumentTests: XCTestCase {
         XCTAssertEqual(baseHeading.id, editedHeading.id)
     }
 
+    func testSemanticDocumentClassifiesListKindsAndCodeFenceBodies() throws {
+        let markdown = """
+        - Bullet item
+        1. Numbered item
+        - [x] Checked item
+        > Quote
+        ```swift
+        let value = 1
+        ```
+        """
+
+        let document = EditorSemanticDocument.build(markdown: markdown, spans: [])
+
+        guard document.blocks.count >= 6 else {
+            return XCTFail("Expected list, quote, and code fence blocks")
+        }
+
+        XCTAssertEqual(document.blocks[0].kind, .listItem(kind: .bullet(marker: "-")))
+        XCTAssertEqual(document.blocks[1].kind, .listItem(kind: .numbered))
+        XCTAssertEqual(document.blocks[2].kind, .listItem(kind: .checkbox(checked: true, marker: "-")))
+        XCTAssertEqual(document.blocks[3].kind, .blockquote)
+        XCTAssertEqual(document.blocks[4].kind, .codeFence)
+        XCTAssertEqual(document.blocks[5].kind, .codeFence)
+        XCTAssertEqual(document.blocks[6].kind, .codeFence)
+    }
+
     func testRevealedInlineTokenIDsOnlyChangeWhenSelectionEntersSemanticToken() {
         let markdown = "Alpha **bold** and `code` suffix"
         let boldReveal = NSRange(location: 6, length: 8)
@@ -199,6 +225,57 @@ final class EditorSemanticDocumentTests: XCTestCase {
         XCTAssertEqual(codeState.headingLevel, 1)
         XCTAssertTrue(codeState.isCode)
         XCTAssertFalse(codeState.isItalic)
+    }
+
+    func testFormattingStateUsesSemanticBlockKindsForToolbarState() {
+        let markdown = """
+        - Bullet item
+        1. Numbered item
+        - [ ] Checkbox item
+        > Quote
+        ```
+        code
+        ```
+        """
+        let document = EditorSemanticDocument.build(markdown: markdown, spans: [])
+
+        let bulletState = FormattingState.detect(in: markdown, semanticDocument: document, at: 3)
+        XCTAssertTrue(bulletState.isBulletList)
+        XCTAssertFalse(bulletState.isNumberedList)
+
+        let numberedLocation = (markdown as NSString).range(of: "Numbered").location
+        let numberedState = FormattingState.detect(in: markdown, semanticDocument: document, at: numberedLocation)
+        XCTAssertTrue(numberedState.isNumberedList)
+        XCTAssertFalse(numberedState.isCheckbox)
+
+        let checkboxLocation = (markdown as NSString).range(of: "Checkbox").location
+        let checkboxState = FormattingState.detect(in: markdown, semanticDocument: document, at: checkboxLocation)
+        XCTAssertTrue(checkboxState.isCheckbox)
+
+        let quoteLocation = (markdown as NSString).range(of: "Quote").location
+        let quoteState = FormattingState.detect(in: markdown, semanticDocument: document, at: quoteLocation)
+        XCTAssertTrue(quoteState.isBlockquote)
+
+        let codeLocation = (markdown as NSString).range(of: "code").location
+        let codeState = FormattingState.detect(in: markdown, semanticDocument: document, at: codeLocation)
+        XCTAssertTrue(codeState.isCodeBlock)
+    }
+
+    func testFormattingStateMapsSemanticStateToToolbarActions() {
+        let state = FormattingState(
+            isBold: true,
+            isCheckbox: true,
+            isCodeBlock: true,
+            headingLevel: 3
+        )
+
+        XCTAssertTrue(state.isActive(.bold))
+        XCTAssertTrue(state.isActive(.checkbox))
+        XCTAssertTrue(state.isActive(.codeBlock))
+        XCTAssertTrue(state.isActive(.heading))
+        XCTAssertTrue(state.isActive(.heading3))
+        XCTAssertFalse(state.isActive(.paragraph))
+        XCTAssertFalse(state.isActive(.numberedList))
     }
 
     private func makeOverlaySpan(range: NSRange, revealRange: NSRange) -> HighlightSpan {

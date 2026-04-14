@@ -627,6 +627,14 @@ public struct MarkdownFormatter: Sendable {
             ) {
                 return edit
             }
+            if let edit = lineAwareBlockEdit(
+                open: open,
+                close: close,
+                text: nsText,
+                selection: selectedRange
+            ) {
+                return edit
+            }
             let replacement = "\(open)\(selectedText)\(close)"
             return MarkdownFormatEdit(
                 range: selectedRange,
@@ -799,6 +807,28 @@ public struct MarkdownFormatter: Sendable {
         )
     }
 
+    private func lineAwareBlockEdit(
+        open: String,
+        close: String,
+        text: NSString,
+        selection: NSRange
+    ) -> MarkdownFormatEdit? {
+        guard selection.length > 0 else { return nil }
+
+        let affectedRange = text.lineRange(for: selection)
+        guard affectedRange.length > 0 else { return nil }
+
+        let selectedLines = text.substring(with: affectedRange)
+        let replacement = "\(open)\(selectedLines)\(close)"
+        let openLength = (open as NSString).length
+
+        return MarkdownFormatEdit(
+            range: affectedRange,
+            replacement: replacement,
+            cursorAfter: NSRange(location: affectedRange.location + openLength, length: (selectedLines as NSString).length)
+        )
+    }
+
     private func surgicalLinePrefix(_ prefix: String, text: NSString, selection: NSRange) -> MarkdownFormatEdit {
         let lineRange = text.lineRange(for: selection)
         let line = text.substring(with: lineRange)
@@ -855,6 +885,16 @@ public struct MarkdownFormatter: Sendable {
         guard let semanticDocument,
               semanticDocument.textLength > 0 else {
             return nil
+        }
+
+        if isMultilineSelection(selection, in: text) {
+            return semanticMultilineLinePrefix(
+                for: action,
+                targetPrefix: targetPrefix,
+                text: text,
+                selection: selection,
+                semanticDocument: semanticDocument
+            )
         }
 
         let lineRange = text.lineRange(for: selection)
@@ -915,6 +955,112 @@ public struct MarkdownFormatter: Sendable {
             range: lineRange,
             replacement: replacement,
             cursorAfter: NSRange(location: cursorLocation, length: 0)
+        )
+    }
+
+    private func semanticMultilineLinePrefix(
+        for action: FormattingAction,
+        targetPrefix: String?,
+        text: NSString,
+        selection: NSRange,
+        semanticDocument: EditorSemanticDocument
+    ) -> MarkdownFormatEdit? {
+        let affectedRange = text.lineRange(for: selection)
+        guard affectedRange.length > 0 else { return nil }
+
+        var cursor = affectedRange.location
+        var replacement = ""
+        var mappings: [SemanticLineMapping] = []
+
+        while cursor < NSMaxRange(affectedRange) {
+            let lineRange = text.lineRange(for: NSRange(location: cursor, length: 0))
+            let contentRange = NSRange(
+                location: lineRange.location,
+                length: max(lineRange.length - trailingLineBreakLength(in: text, lineRange: lineRange), 0)
+            )
+            let lineContent = text.substring(with: contentRange)
+            let leadingWhitespaceLength = leadingWhitespaceLength(in: lineContent)
+            let leadingWhitespace = (lineContent as NSString).substring(to: leadingWhitespaceLength)
+            let newlineSuffix = text.substring(with: NSRange(
+                location: NSMaxRange(contentRange),
+                length: lineRange.length - contentRange.length
+            ))
+            let block = semanticDocument.block(containing: lineRange.location)
+
+            let originalLine = text.substring(with: lineRange)
+            let lineReplacement: String
+            let oldBodyStart: Int
+            let oldBodyEnd = NSMaxRange(contentRange)
+            let newBodyStart: Int
+            let newBodyEnd: Int
+            let newLineStart = affectedRange.location + (replacement as NSString).length
+
+            if let block,
+               block.range.location == lineRange.location,
+               supportsSemanticLineTransition(block.kind),
+               !(block.kind == .blank && action != .paragraph) {
+                let existingContentStart = existingContentStart(
+                    for: block,
+                    lineRange: lineRange,
+                    contentRange: contentRange,
+                    leadingWhitespaceLength: leadingWhitespaceLength
+                )
+                let bodyRange = NSRange(
+                    location: existingContentStart,
+                    length: max(NSMaxRange(contentRange) - existingContentStart, 0)
+                )
+                let body = text.substring(with: bodyRange)
+                let effectivePrefix: String
+                if matchesSemanticBlock(action: action, blockKind: block.kind) {
+                    effectivePrefix = ""
+                } else {
+                    effectivePrefix = targetPrefix ?? ""
+                }
+                lineReplacement = leadingWhitespace + effectivePrefix + body + newlineSuffix
+                oldBodyStart = existingContentStart
+                newBodyStart = newLineStart + leadingWhitespaceLength + (effectivePrefix as NSString).length
+                newBodyEnd = newBodyStart + (body as NSString).length
+            } else {
+                lineReplacement = originalLine
+                oldBodyStart = lineRange.location + leadingWhitespaceLength
+                newBodyStart = newLineStart + leadingWhitespaceLength
+                newBodyEnd = newBodyStart + max(contentRange.length - leadingWhitespaceLength, 0)
+            }
+
+            replacement += lineReplacement
+            mappings.append(SemanticLineMapping(
+                oldLineRange: lineRange,
+                oldBodyStart: oldBodyStart,
+                oldBodyEnd: oldBodyEnd,
+                newLineRange: NSRange(location: newLineStart, length: (lineReplacement as NSString).length),
+                newBodyStart: newBodyStart,
+                newBodyEnd: newBodyEnd
+            ))
+
+            cursor = NSMaxRange(lineRange)
+        }
+
+        let original = text.substring(with: affectedRange)
+        guard replacement != original else { return nil }
+
+        let selectionStart = mapMultilineSelectionPosition(
+            selection.location,
+            mappings: mappings,
+            affectedRange: affectedRange
+        )
+        let selectionEnd = mapMultilineSelectionPosition(
+            selection.location + selection.length,
+            mappings: mappings,
+            affectedRange: affectedRange
+        )
+
+        return MarkdownFormatEdit(
+            range: affectedRange,
+            replacement: replacement,
+            cursorAfter: NSRange(
+                location: selectionStart,
+                length: max(selectionEnd - selectionStart, 0)
+            )
         )
     }
 
@@ -983,6 +1129,41 @@ public struct MarkdownFormatter: Sendable {
             }
         }
         return length
+    }
+
+    private func isMultilineSelection(_ selection: NSRange, in text: NSString) -> Bool {
+        guard selection.length > 0, text.length > 0 else { return false }
+        let endLocation = min(selection.location + selection.length - 1, max(text.length - 1, 0))
+        let startLine = text.lineRange(for: NSRange(location: min(selection.location, max(text.length - 1, 0)), length: 0))
+        let endLine = text.lineRange(for: NSRange(location: endLocation, length: 0))
+        return !NSEqualRanges(startLine, endLine)
+    }
+
+    private func mapMultilineSelectionPosition(
+        _ position: Int,
+        mappings: [SemanticLineMapping],
+        affectedRange: NSRange
+    ) -> Int {
+        guard let mapping = mappings.first(where: {
+            position >= $0.oldLineRange.location && position <= NSMaxRange($0.oldLineRange)
+        }) ?? mappings.last else {
+            return position
+        }
+
+        if position <= mapping.oldBodyStart {
+            return mapping.newBodyStart
+        }
+
+        if position <= mapping.oldBodyEnd {
+            let offset = min(position - mapping.oldBodyStart, mapping.newBodyEnd - mapping.newBodyStart)
+            return mapping.newBodyStart + offset
+        }
+
+        let trailingOffset = min(
+            position - mapping.oldBodyEnd,
+            NSMaxRange(mapping.newLineRange) - mapping.newBodyEnd
+        )
+        return mapping.newBodyEnd + trailingOffset
     }
 
     private func semanticCodeFenceRegion(
@@ -1089,6 +1270,15 @@ public struct MarkdownFormatter: Sendable {
         let close: EditorBlockNode
         let enclosingRange: NSRange
         let mode: SemanticFenceMode
+    }
+
+    private struct SemanticLineMapping {
+        let oldLineRange: NSRange
+        let oldBodyStart: Int
+        let oldBodyEnd: Int
+        let newLineRange: NSRange
+        let newBodyStart: Int
+        let newBodyEnd: Int
     }
 
     /// Strips ALL line-level formatting: headings (#), bullets (- * +), numbers (1.), checkboxes (- [ ]), blockquotes (>).

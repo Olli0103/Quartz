@@ -238,6 +238,45 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertFalse(session.formattingState.isCodeBlock)
     }
 
+    func testMountedBulletFormattingTransformsEverySelectedLine() async throws {
+        let harness = try await makeMountedHarness(text: "First\nSecond")
+        let session = harness.session
+        let textView = harness.textView
+        let selection = NSRange(location: 0, length: textView.string.count)
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.bulletList)
+        try await waitForSessionText(session, expected: "- First\n- Second")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "- First\n- Second")
+        XCTAssertEqual(session.currentText, "- First\n- Second")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 2, length: 14))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 14))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+        XCTAssertTrue(session.formattingState.isBulletList)
+    }
+
+    func testMountedCodeBlockFormattingWrapsEntireSelectedLines() async throws {
+        let harness = try await makeMountedHarness(text: "First\nSecond")
+        let session = harness.session
+        let textView = harness.textView
+        let selection = NSRange(location: 1, length: 8)
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.codeBlock)
+        try await waitForSessionText(session, expected: "```\nFirst\nSecond\n```")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "```\nFirst\nSecond\n```")
+        XCTAssertEqual(session.currentText, "```\nFirst\nSecond\n```")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 4, length: 12))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 4, length: 12))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    }
+
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         let harness = try await makeMountedHarness(text: "## Heading")
         let session = harness.session

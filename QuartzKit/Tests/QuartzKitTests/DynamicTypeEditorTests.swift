@@ -45,6 +45,8 @@ struct DynamicTypeEditorTests {
         let empty = FormattingState.empty
         #expect(!empty.isBold && !empty.isItalic && !empty.isStrikethrough && !empty.isCode,
             "Empty state should have no active formatting")
+        #expect(!empty.isBulletList && !empty.isNumberedList && !empty.isCheckbox && !empty.isBlockquote && !empty.isCodeBlock,
+            "Empty state should have no active block formatting")
         #expect(empty.headingLevel == 0, "Empty state should have no heading")
 
         // Test detection in bold text

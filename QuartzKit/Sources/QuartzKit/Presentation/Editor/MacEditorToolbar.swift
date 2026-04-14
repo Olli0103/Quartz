@@ -24,20 +24,20 @@ struct MacEditorToolbar: View {
                 groupDivider
             }
 
-            formatButton("bold", action: .bold, active: formattingState.isBold)
-            formatButton("italic", action: .italic, active: formattingState.isItalic)
-            formatButton("strikethrough", action: .strikethrough, active: formattingState.isStrikethrough)
+            formatButton("bold", action: .bold, active: formattingState.isActive(.bold))
+            formatButton("italic", action: .italic, active: formattingState.isActive(.italic))
+            formatButton("strikethrough", action: .strikethrough, active: formattingState.isActive(.strikethrough))
 
             groupDivider
 
             headingMenu
-            formatButton("list.bullet", action: .bulletList)
-            formatButton("list.number", action: .numberedList)
-            formatButton("checklist", action: .checkbox)
+            formatButton("list.bullet", action: .bulletList, active: formattingState.isActive(.bulletList))
+            formatButton("list.number", action: .numberedList, active: formattingState.isActive(.numberedList))
+            formatButton("checklist", action: .checkbox, active: formattingState.isActive(.checkbox))
 
             groupDivider
 
-            formatButton("chevron.left.forwardslash.chevron.right", action: .code, active: formattingState.isCode)
+            formatButton("chevron.left.forwardslash.chevron.right", action: .code, active: formattingState.isActive(.code))
             formatButton("link", action: .link)
 
             groupDivider
@@ -112,17 +112,21 @@ struct MacEditorToolbar: View {
     private var headingMenu: some View {
         Menu {
             Button { onFormatting(.paragraph) } label: {
-                Label(FormattingAction.paragraph.label, systemImage: FormattingAction.paragraph.icon)
+                menuItemLabel(for: .paragraph)
             }
             Divider()
             ForEach(1...6, id: \.self) { level in
                 let action = [FormattingAction.heading1, .heading2, .heading3, .heading4, .heading5, .heading6][level - 1]
                 Button { onFormatting(action) } label: {
-                    Label(action.label, systemImage: action.icon)
+                    menuItemLabel(for: action)
                 }
             }
         } label: {
             iconLabel("textformat.size.larger")
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(formattingState.hasActiveHeading ? appearance.accentColor.opacity(0.15) : Color.clear)
+                )
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
@@ -136,11 +140,15 @@ struct MacEditorToolbar: View {
         Menu {
             ForEach([FormattingAction.codeBlock, .blockquote, .table, .image, .math, .mermaid], id: \.self) { action in
                 Button { onFormatting(action) } label: {
-                    Label(action.label, systemImage: action.icon)
+                    menuItemLabel(for: action)
                 }
             }
         } label: {
             iconLabel("ellipsis.circle")
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(formattingState.hasActiveOverflowStyle ? appearance.accentColor.opacity(0.15) : Color.clear)
+                )
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
@@ -153,6 +161,18 @@ struct MacEditorToolbar: View {
     private var groupDivider: some View {
         Divider()
             .frame(height: 12)
+    }
+
+    @ViewBuilder
+    private func menuItemLabel(for action: FormattingAction) -> some View {
+        HStack {
+            Label(action.label, systemImage: action.icon)
+            Spacer(minLength: 12)
+            if formattingState.isActive(action) {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 #endif

@@ -35,6 +35,14 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind(for: .phone)
     }
 
+    func testMountedBulletFormattingTransformsEverySelectedLine() async throws {
+        try await assertMountedBulletFormattingTransformsEverySelectedLine(for: .phone)
+    }
+
+    func testMountedCodeBlockFormattingWrapsEntireSelectedLines() async throws {
+        try await assertMountedCodeBlockFormattingWrapsEntireSelectedLines(for: .phone)
+    }
+
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         try await assertNativeReturnAfterHeadingDropsToParagraphTypingAttributes(for: .phone)
     }
@@ -77,6 +85,14 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind() async throws {
         try await assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind(for: .pad)
+    }
+
+    func testMountedBulletFormattingTransformsEverySelectedLine() async throws {
+        try await assertMountedBulletFormattingTransformsEverySelectedLine(for: .pad)
+    }
+
+    func testMountedCodeBlockFormattingWrapsEntireSelectedLines() async throws {
+        try await assertMountedCodeBlockFormattingWrapsEntireSelectedLines(for: .pad)
     }
 
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
@@ -357,6 +373,59 @@ private func assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelim
     XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
     XCTAssertEqual(session.currentTransaction?.origin, .formatting)
     XCTAssertFalse(session.formattingState.isCodeBlock)
+}
+
+@MainActor
+private func assertMountedBulletFormattingTransformsEverySelectedLine(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "First\nSecond",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let selection = NSRange(location: 0, length: (textView.text ?? "").count)
+    textView.selectedRange = selection
+    session.selectionDidChange(selection)
+
+    session.applyFormatting(.bulletList)
+    try await waitForMobileSessionText(session, expected: "- First\n- Second")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "- First\n- Second")
+    XCTAssertEqual(session.currentText, "- First\n- Second")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 2, length: 14))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 14))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    XCTAssertTrue(session.formattingState.isBulletList)
+}
+
+@MainActor
+private func assertMountedCodeBlockFormattingWrapsEntireSelectedLines(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "First\nSecond",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let selection = NSRange(location: 1, length: 8)
+    textView.selectedRange = selection
+    session.selectionDidChange(selection)
+
+    session.applyFormatting(.codeBlock)
+    try await waitForMobileSessionText(session, expected: "```\nFirst\nSecond\n```")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "```\nFirst\nSecond\n```")
+    XCTAssertEqual(session.currentText, "```\nFirst\nSecond\n```")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 4, length: 12))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 4, length: 12))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
 }
 
 @MainActor

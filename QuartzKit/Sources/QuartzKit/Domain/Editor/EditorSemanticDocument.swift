@@ -5,11 +5,17 @@ import UIKit
 import AppKit
 #endif
 
+public enum EditorListKind: Sendable, Equatable {
+    case bullet(marker: Character)
+    case numbered
+    case checkbox(checked: Bool, marker: Character)
+}
+
 public enum EditorBlockKind: Sendable, Equatable {
     case blank
     case paragraph
     case heading(level: Int)
-    case listItem
+    case listItem(kind: EditorListKind)
     case blockquote
     case codeFence
     case tableRow(style: QuartzTableRowStyle?)
@@ -419,13 +425,19 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         var blocks: [EditorBlockNode] = []
         var fingerprints: [String: Int] = [:]
         let tableSpans = spans.filter { $0.tableRowStyle != nil }
+        var activeCodeFenceMarker: Character?
         var cursor = 0
 
         while cursor < nsMarkdown.length {
             let fullLineRange = nsMarkdown.lineRange(for: NSRange(location: cursor, length: 0))
             let contentRange = lineRangeWithoutNewlines(fullLineRange, in: nsMarkdown)
             let line = nsMarkdown.substring(with: contentRange)
-            let classification = classifyBlock(line: line, lineRange: contentRange, tableSpans: tableSpans)
+            let classification = classifyBlock(
+                line: line,
+                lineRange: contentRange,
+                tableSpans: tableSpans,
+                activeCodeFenceMarker: activeCodeFenceMarker
+            )
             let fingerprint = "\(classification.kind)|\(classification.normalizedContent)"
             let occurrence = (fingerprints[fingerprint] ?? 0) + 1
             fingerprints[fingerprint] = occurrence
@@ -437,6 +449,14 @@ public struct EditorSemanticDocument: Sendable, Equatable {
                 contentRange: contentRange,
                 syntaxRange: classification.syntaxRange
             ))
+
+            if let fenceMarker = classification.codeFenceMarker {
+                if activeCodeFenceMarker == fenceMarker {
+                    activeCodeFenceMarker = nil
+                } else if activeCodeFenceMarker == nil {
+                    activeCodeFenceMarker = fenceMarker
+                }
+            }
 
             cursor = NSMaxRange(fullLineRange)
         }
@@ -565,35 +585,40 @@ public struct EditorSemanticDocument: Sendable, Equatable {
     private static func classifyBlock(
         line: String,
         lineRange: NSRange,
-        tableSpans: [HighlightSpan]
-    ) -> (kind: EditorBlockKind, syntaxRange: NSRange?, normalizedContent: String) {
+        tableSpans: [HighlightSpan],
+        activeCodeFenceMarker: Character?
+    ) -> (kind: EditorBlockKind, syntaxRange: NSRange?, normalizedContent: String, codeFenceMarker: Character?) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return (.blank, nil, "")
+            return (.blank, nil, "", nil)
+        }
+
+        if let fenceMarker = codeFenceMarker(in: line) {
+            return (.codeFence, codeFenceSyntaxRange(in: line, globalLocation: lineRange.location), trimmed, fenceMarker)
+        }
+
+        if activeCodeFenceMarker != nil {
+            return (.codeFence, nil, trimmed, nil)
         }
 
         if let level = headingLevel(in: line),
            let syntaxRange = headingSyntaxRange(in: line, globalLocation: lineRange.location, level: level) {
-            return (.heading(level: level), syntaxRange, trimmed)
+            return (.heading(level: level), syntaxRange, trimmed, nil)
         }
 
-        if let syntaxRange = listSyntaxRange(in: line, globalLocation: lineRange.location) {
-            return (.listItem, syntaxRange, trimmed)
+        if let (kind, syntaxRange) = listKindAndSyntaxRange(in: line, globalLocation: lineRange.location) {
+            return (.listItem(kind: kind), syntaxRange, trimmed, nil)
         }
 
         if let syntaxRange = blockquoteSyntaxRange(in: line, globalLocation: lineRange.location) {
-            return (.blockquote, syntaxRange, trimmed)
-        }
-
-        if isCodeFence(line) {
-            return (.codeFence, NSRange(location: lineRange.location, length: min(3, lineRange.length)), trimmed)
+            return (.blockquote, syntaxRange, trimmed, nil)
         }
 
         if let style = tableSpans.first(where: { NSIntersectionRange($0.range, lineRange).length > 0 })?.tableRowStyle {
-            return (.tableRow(style: style), nil, trimmed)
+            return (.tableRow(style: style), nil, trimmed, nil)
         }
 
-        return (.paragraph, nil, trimmed)
+        return (.paragraph, nil, trimmed, nil)
     }
 
     private static func lineRangeWithoutNewlines(_ range: NSRange, in text: NSString) -> NSRange {
@@ -632,14 +657,46 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         return NSRange(location: globalLocation + leadingWhitespace, length: min(level + 1, remainingLength))
     }
 
-    private static func listSyntaxRange(in line: String, globalLocation: Int) -> NSRange? {
+    private static func listKindAndSyntaxRange(in line: String, globalLocation: Int) -> (EditorListKind, NSRange)? {
         let nsLine = line as NSString
         let fullRange = NSRange(location: 0, length: nsLine.length)
-        guard let regex = try? NSRegularExpression(pattern: #"^\s*(?:[-+*]|\d+[.)])\s+"#),
-              let match = regex.firstMatch(in: line, range: fullRange) else {
-            return nil
+        if let checkboxRegex = try? NSRegularExpression(pattern: #"^\s*([-+*])\s+\[( |x|X)\]\s+"#),
+           let match = checkboxRegex.firstMatch(in: line, range: fullRange) {
+            let markerRange = match.range(at: 1)
+            let checkedRange = match.range(at: 2)
+            let marker = markerRange.location != NSNotFound
+                ? Character(nsLine.substring(with: markerRange))
+                : "-"
+            let checkedToken = checkedRange.location != NSNotFound
+                ? nsLine.substring(with: checkedRange)
+                : " "
+            return (
+                .checkbox(checked: checkedToken.lowercased() == "x", marker: marker),
+                NSRange(location: globalLocation + match.range.location, length: match.range.length)
+            )
         }
-        return NSRange(location: globalLocation + match.range.location, length: match.range.length)
+
+        if let numberedRegex = try? NSRegularExpression(pattern: #"^\s*\d+[.)]\s+"#),
+           let match = numberedRegex.firstMatch(in: line, range: fullRange) {
+            return (
+                .numbered,
+                NSRange(location: globalLocation + match.range.location, length: match.range.length)
+            )
+        }
+
+        if let bulletRegex = try? NSRegularExpression(pattern: #"^\s*([-+*])\s+"#),
+           let match = bulletRegex.firstMatch(in: line, range: fullRange) {
+            let markerRange = match.range(at: 1)
+            let marker = markerRange.location != NSNotFound
+                ? Character(nsLine.substring(with: markerRange))
+                : "-"
+            return (
+                .bullet(marker: marker),
+                NSRange(location: globalLocation + match.range.location, length: match.range.length)
+            )
+        }
+
+        return nil
     }
 
     private static func blockquoteSyntaxRange(in line: String, globalLocation: Int) -> NSRange? {
@@ -652,9 +709,27 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         return NSRange(location: globalLocation + match.range.location, length: match.range.length)
     }
 
-    private static func isCodeFence(_ line: String) -> Bool {
+    private static func codeFenceMarker(in line: String) -> Character? {
         let trimmedLeading = line.drop(while: { $0 == " " || $0 == "\t" })
-        return trimmedLeading.hasPrefix("```") || trimmedLeading.hasPrefix("~~~")
+        if trimmedLeading.hasPrefix("```") { return "`" }
+        if trimmedLeading.hasPrefix("~~~") { return "~" }
+        return nil
+    }
+
+    private static func codeFenceSyntaxRange(in line: String, globalLocation: Int) -> NSRange {
+        let nsLine = line as NSString
+        let leadingWhitespace = line.prefix { $0 == " " || $0 == "\t" }.utf16.count
+        let markerCharacter = codeFenceMarker(in: line) ?? "`"
+        var markerLength = 0
+        while leadingWhitespace + markerLength < nsLine.length {
+            let scalar = nsLine.character(at: leadingWhitespace + markerLength)
+            if scalar == markerCharacter.asciiValue.map(UInt16.init) ?? 0 {
+                markerLength += 1
+            } else {
+                break
+            }
+        }
+        return NSRange(location: globalLocation + leadingWhitespace, length: max(markerLength, 3))
     }
 
     private static func clamp(_ range: NSRange, textLength: Int) -> NSRange {

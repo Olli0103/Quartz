@@ -55,6 +55,11 @@ struct E2EEditExistingNoteTests {
         #expect(!empty.isItalic)
         #expect(!empty.isStrikethrough)
         #expect(!empty.isCode)
+        #expect(!empty.isBulletList)
+        #expect(!empty.isNumberedList)
+        #expect(!empty.isCheckbox)
+        #expect(!empty.isBlockquote)
+        #expect(!empty.isCodeBlock)
         #expect(empty.headingLevel == 0)
     }
 

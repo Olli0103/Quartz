@@ -25,21 +25,21 @@ struct IosEditorToolbar: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     // — Font styles —
-                    formatButton("bold", action: .bold, active: formattingState.isBold)
-                    formatButton("italic", action: .italic, active: formattingState.isItalic)
-                    formatButton("strikethrough", action: .strikethrough, active: formattingState.isStrikethrough)
+                    formatButton("bold", action: .bold, active: formattingState.isActive(.bold))
+                    formatButton("italic", action: .italic, active: formattingState.isActive(.italic))
+                    formatButton("strikethrough", action: .strikethrough, active: formattingState.isActive(.strikethrough))
 
                     groupDivider
 
                     // — Structure —
                     headingMenu
-                    formatButton("list.bullet", action: .bulletList)
-                    formatButton("checklist", action: .checkbox)
+                    formatButton("list.bullet", action: .bulletList, active: formattingState.isActive(.bulletList))
+                    formatButton("checklist", action: .checkbox, active: formattingState.isActive(.checkbox))
 
                     groupDivider
 
                     // — Code & links —
-                    formatButton("chevron.left.forwardslash.chevron.right", action: .code, active: formattingState.isCode)
+                    formatButton("chevron.left.forwardslash.chevron.right", action: .code, active: formattingState.isActive(.code))
                     formatButton("link", action: .link)
 
                     groupDivider
@@ -137,13 +137,13 @@ struct IosEditorToolbar: View {
     private var headingMenu: some View {
         Menu {
             Button { onFormatting(.paragraph) } label: {
-                Label(FormattingAction.paragraph.label, systemImage: FormattingAction.paragraph.icon)
+                menuItemLabel(for: .paragraph)
             }
             Divider()
             ForEach(1...6, id: \.self) { level in
                 let action = [FormattingAction.heading1, .heading2, .heading3, .heading4, .heading5, .heading6][level - 1]
                 Button { onFormatting(action) } label: {
-                    Label(action.label, systemImage: action.icon)
+                    menuItemLabel(for: action)
                 }
             }
         } label: {
@@ -152,6 +152,10 @@ struct IosEditorToolbar: View {
                 .imageScale(.large)
                 .foregroundStyle(.primary)
                 .frame(minWidth: 44, minHeight: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(formattingState.hasActiveHeading ? appearance.accentColor.opacity(0.15) : Color.clear)
+                )
         }
         .tint(.primary)
         .accessibilityLabel(String(localized: "Heading level", bundle: .module))
@@ -163,7 +167,7 @@ struct IosEditorToolbar: View {
         Menu {
             ForEach([FormattingAction.numberedList, .codeBlock, .blockquote, .table, .image, .math, .mermaid], id: \.self) { action in
                 Button { onFormatting(action) } label: {
-                    Label(action.label, systemImage: action.icon)
+                    menuItemLabel(for: action)
                 }
             }
         } label: {
@@ -172,6 +176,10 @@ struct IosEditorToolbar: View {
                 .imageScale(.large)
                 .foregroundStyle(.primary)
                 .frame(minWidth: 44, minHeight: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(formattingState.hasActiveOverflowStyle ? appearance.accentColor.opacity(0.15) : Color.clear)
+                )
         }
         .tint(.primary)
         .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
@@ -183,5 +191,17 @@ struct IosEditorToolbar: View {
         Divider()
             .frame(height: 16)
             .padding(.horizontal, 2)
+    }
+
+    @ViewBuilder
+    private func menuItemLabel(for action: FormattingAction) -> some View {
+        HStack {
+            Label(action.label, systemImage: action.icon)
+            Spacer(minLength: 12)
+            if formattingState.isActive(action) {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }

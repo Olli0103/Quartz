@@ -170,6 +170,62 @@ struct MarkdownFormatterTests {
         #expect(selection.location == 11)
     }
 
+    @Test("Bullet action formats every selected line semantically")
+    func bulletFormatsMultilineSelection() {
+        let text = "First\nSecond"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .bulletList,
+            to: text,
+            selectedRange: NSRange(location: 0, length: (text as NSString).length),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "- First\n- Second")
+        #expect(selection.location == 2)
+        #expect(selection.length == 14)
+    }
+
+    @Test("Paragraph action removes block syntax from every selected line semantically")
+    func paragraphRemovesMultilineBlockSyntax() {
+        let text = "- First\n> Second"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .paragraph,
+            to: text,
+            selectedRange: NSRange(location: 0, length: (text as NSString).length),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "First\nSecond")
+        #expect(selection.location == 0)
+        #expect(selection.length == 12)
+    }
+
+    @Test("Code block action wraps selected lines instead of only raw substring")
+    func codeBlockWrapsSelectedLines() {
+        let text = "First\nSecond"
+        let (result, selection) = formatter.apply(
+            .codeBlock,
+            to: text,
+            selectedRange: NSRange(location: 1, length: 8)
+        )
+        #expect(result == "```\nFirst\nSecond\n```")
+        #expect(selection.location == 4)
+        #expect(selection.length == 12)
+    }
+
+    @Test("Mermaid action wraps selected lines instead of only raw substring")
+    func mermaidWrapsSelectedLines() {
+        let text = "graph TD\nA-->B"
+        let (result, selection) = formatter.apply(
+            .mermaid,
+            to: text,
+            selectedRange: NSRange(location: 2, length: 10)
+        )
+        #expect(result == "```mermaid\ngraph TD\nA-->B\n```")
+        #expect(selection.location == 11)
+        #expect(selection.length == 14)
+    }
+
     // MARK: - Block Actions
 
     @Test("Code block wraps content")
