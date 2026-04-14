@@ -83,6 +83,99 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(session.currentTransaction?.origin, .pasteOrDrop)
     }
 
+    func testMountedProgrammaticEditUndoRedoRoundTripsContentAndInsertionPoint() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        textView.setSelectedRange(NSRange(location: 6, length: 4))
+        session.selectionDidChange(NSRange(location: 6, length: 4))
+
+        session.applyExternalEdit(
+            replacement: "**Beta**",
+            range: NSRange(location: 6, length: 4),
+            cursorAfter: NSRange(location: 10, length: 4),
+            origin: .pasteOrDrop
+        )
+
+        XCTAssertTrue(session.canUndo)
+
+        session.undo()
+        try await waitForSessionText(session, expected: "Alpha Beta")
+        XCTAssertEqual(textView.string, "Alpha Beta")
+        XCTAssertEqual(session.currentText, "Alpha Beta")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 10, length: 0))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 10, length: 0))
+
+        XCTAssertTrue(session.canRedo)
+
+        session.redo()
+        try await waitForSessionText(session, expected: "Alpha **Beta**")
+        XCTAssertEqual(textView.string, "Alpha **Beta**")
+        XCTAssertEqual(session.currentText, "Alpha **Beta**")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 14, length: 0))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 14, length: 0))
+    }
+
+    func testMountedBoldFormattingPreservesSelectionAcrossForcedHighlight() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        let selection = NSRange(location: 6, length: 4)
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        let formatter = MarkdownFormatter()
+        let edit = try XCTUnwrap(
+            formatter.surgicalEdit(.bold, in: session.currentText, selectedRange: selection)
+        )
+        let expectedText = ("Alpha Beta" as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+
+        session.applyFormatting(.bold)
+        try await waitForSessionText(session, expected: expectedText)
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "Alpha **Beta**")
+        XCTAssertEqual(session.currentText, "Alpha **Beta**")
+        XCTAssertEqual(textView.selectedRange(), edit.cursorAfter)
+        XCTAssertEqual(session.cursorPosition, edit.cursorAfter)
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+
+        let boldFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: edit.cursorAfter.location, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
+    }
+
+    func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
+        let harness = try await makeMountedHarness(text: "Title")
+        let session = harness.session
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: textView.string.count, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyFormatting(.heading2)
+        try await waitForSessionText(session, expected: "## Title")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "## Title")
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+
+        session.applyFormatting(.paragraph)
+        try await waitForSessionText(session, expected: "Title")
+        await pumpMountedHarness(harness)
+
+        let typingFont = try XCTUnwrap(textView.typingAttributes[.font] as? NSFont)
+        let typingColor = try XCTUnwrap(textView.typingAttributes[.foregroundColor] as? NSColor)
+
+        XCTAssertEqual(textView.string, "Title")
+        XCTAssertEqual(session.currentText, "Title")
+        XCTAssertEqual(session.cursorPosition, textView.selectedRange())
+        XCTAssertEqual(typingFont.pointSize, CGFloat(14), accuracy: 0.01)
+        XCTAssertFalse(NSFontManager.shared.traits(of: typingFont).contains(.boldFontMask))
+        XCTAssertEqual(typingColor, .labelColor)
+    }
+
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         let harness = try await makeMountedHarness(text: "## Heading")
         let session = harness.session
@@ -99,6 +192,41 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
 
         XCTAssertEqual(session.currentText, "## Heading\n")
         XCTAssertEqual(session.cursorPosition, NSRange(location: "## Heading\n".count, length: 0))
+        XCTAssertEqual(typingFont.pointSize, CGFloat(14), accuracy: 0.01)
+        XCTAssertFalse(NSFontManager.shared.traits(of: typingFont).contains(.boldFontMask))
+        XCTAssertEqual(typingColor, .labelColor)
+    }
+
+    func testMultiParagraphPastePreservesSelectionAndBodyTypingAfterHighlight() async throws {
+        let harness = try await makeMountedHarness(text: "Lead\n\nTail")
+        let session = harness.session
+        let textView = harness.textView
+        let selection = NSRange(location: 6, length: 4)
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        let replacement = "## Pasted Heading\n\nBody paragraph"
+        let endSelection = NSRange(location: 6 + replacement.count, length: 0)
+
+        session.applyExternalEdit(
+            replacement: replacement,
+            range: selection,
+            cursorAfter: endSelection,
+            origin: .pasteOrDrop
+        )
+
+        try await waitForSessionText(session, expected: "Lead\n\n## Pasted Heading\n\nBody paragraph")
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        let spans = await highlighter.parse(textView.string)
+        session.applyHighlightSpansForTesting(spans)
+
+        let typingFont = try XCTUnwrap(textView.typingAttributes[.font] as? NSFont)
+        let typingColor = try XCTUnwrap(textView.typingAttributes[.foregroundColor] as? NSColor)
+
+        XCTAssertEqual(textView.selectedRange(), endSelection)
+        XCTAssertEqual(session.cursorPosition, endSelection)
+        XCTAssertEqual(session.currentTransaction?.origin, .pasteOrDrop)
         XCTAssertEqual(typingFont.pointSize, CGFloat(14), accuracy: 0.01)
         XCTAssertFalse(NSFontManager.shared.traits(of: typingFont).contains(.boldFontMask))
         XCTAssertEqual(typingColor, .labelColor)
@@ -190,6 +318,15 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for editor text to become \(expected.debugDescription)")
+    }
+
+    private func pumpMountedHarness(_ harness: EditorHarness, iterations: Int = 12) async {
+        for _ in 0..<iterations {
+            harness.window.displayIfNeeded()
+            harness.container.layoutSubtreeIfNeeded()
+            harness.hostingView.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 }
 

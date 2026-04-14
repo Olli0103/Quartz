@@ -1,0 +1,72 @@
+{
+  "track": "editor_excellence",
+  "updated": "2026-04-14",
+  "failure_classes": [
+    {
+      "id": "editor_selection_drift",
+      "signal": "selectedRange mismatch|cursor jump|selection change",
+      "action": "Rerun mounted editor regressions and inspect selection save/restore in EditorSession",
+      "resolution": [
+        "Preserve selection through applyHighlightSpans",
+        "Avoid blind typingAttributes restores",
+        "Keep mutation origin intact through delegate echo"
+      ],
+      "stop": "Mounted editor regression suite green"
+    },
+    {
+      "id": "editor_typing_context",
+      "signal": "typingAttributes|heading stays bold|paragraph style drift",
+      "action": "Inspect typing-context derivation after newline, formatting, reopen, and paste",
+      "resolution": [
+        "Derive typing attributes from semantic line context",
+        "Prioritize empty-paragraph fallback after headings and lists",
+        "Add roundtrip regression fixture before the fix"
+      ],
+      "stop": "Typing context tests green for heading, paragraph, list, and paste paths"
+    },
+    {
+      "id": "editor_concealment_drift",
+      "signal": "hiddenUntilCaret|concealment|overlay visibility",
+      "action": "Inspect token-local reveal rules and selection overlap behavior",
+      "resolution": [
+        "Reveal only the active token",
+        "Keep unrelated markdown hidden on the same line",
+        "Preserve visible user text while hiding syntax wrappers"
+      ],
+      "stop": "Concealment regressions and snapshots green"
+    },
+    {
+      "id": "editor_undo_crash",
+      "signal": "signal 6|freed pointer|undo|redo",
+      "action": "Inspect native text-system undo ownership before custom registration",
+      "resolution": [
+        "Remove duplicate AppKit undo registration",
+        "Keep session snapshot sync after undo/redo",
+        "Validate mounted undo/redo regression path"
+      ],
+      "stop": "Mounted undo/redo tests green without crash"
+    },
+    {
+      "id": "editor_snapshot_mismatch",
+      "signal": "pixel-diff fail|snapshot mismatch|__Snapshots__",
+      "action": "Inspect editor reality corpus diff and affected platform baseline",
+      "resolution": [
+        "Fix rendering or concealment regression",
+        "Regenerate baselines only if intentionally changed",
+        "Keep macOS, iPhone, and iPad baselines separate"
+      ],
+      "stop": "Editor reality snapshots green on all tracked platforms"
+    },
+    {
+      "id": "editor_performance_budget",
+      "signal": "16ms|P95|main thread|memory budget",
+      "action": "Profile parse and attribute application paths",
+      "resolution": [
+        "Move parse work off main actor",
+        "Reduce rerender scope to dirty blocks and tokens",
+        "Avoid full storage rewrites on routine edits"
+      ],
+      "stop": "Editor performance budgets green"
+    }
+  ]
+}

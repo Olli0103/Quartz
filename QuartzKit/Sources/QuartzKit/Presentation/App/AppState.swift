@@ -11,6 +11,7 @@ public enum CommandAction: Equatable, Sendable {
     case toggleSidebar
     case dailyNote
     case format(FormattingAction)
+    case paste(EditorPasteMode)
     case openVault
     case createVault
 }

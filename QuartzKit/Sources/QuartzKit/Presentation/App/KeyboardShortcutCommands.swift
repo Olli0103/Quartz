@@ -20,6 +20,7 @@ public struct KeyboardShortcutCommands: Commands {
     let onToggleSidebar: () -> Void
     let onDailyNote: () -> Void
     var onFormatAction: ((FormattingAction) -> Void)?
+    var onPasteAction: ((EditorPasteMode) -> Void)?
     var onOpenVault: (() -> Void)?
     var onCreateVault: (() -> Void)?
 
@@ -31,6 +32,7 @@ public struct KeyboardShortcutCommands: Commands {
         onToggleSidebar: @escaping () -> Void,
         onDailyNote: @escaping () -> Void,
         onFormatAction: ((FormattingAction) -> Void)? = nil,
+        onPasteAction: ((EditorPasteMode) -> Void)? = nil,
         onOpenVault: (() -> Void)? = nil,
         onCreateVault: (() -> Void)? = nil
     ) {
@@ -41,6 +43,7 @@ public struct KeyboardShortcutCommands: Commands {
         self.onToggleSidebar = onToggleSidebar
         self.onDailyNote = onDailyNote
         self.onFormatAction = onFormatAction
+        self.onPasteAction = onPasteAction
         self.onOpenVault = onOpenVault
         self.onCreateVault = onCreateVault
     }
@@ -80,6 +83,13 @@ public struct KeyboardShortcutCommands: Commands {
         CommandGroup(after: .sidebar) {
             Button(String(localized: "Toggle Sidebar", bundle: .module)) { onToggleSidebar() }
                 .keyboardShortcut("/", modifiers: .command)
+        }
+
+        CommandGroup(after: .pasteboard) {
+            Button(String(localized: "Paste Smart", bundle: .module)) { onPasteAction?(.smart) }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+            Button(String(localized: "Paste As-Is", bundle: .module)) { onPasteAction?(.raw) }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
         }
 
         CommandMenu(String(localized: "Format", bundle: .module)) {

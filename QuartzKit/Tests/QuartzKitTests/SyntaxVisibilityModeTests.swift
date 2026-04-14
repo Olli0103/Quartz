@@ -42,12 +42,12 @@ struct SyntaxVisibilityModeTests {
 @Suite("AppearanceManager — Syntax Visibility Persistence")
 struct AppearanceManagerSyntaxVisibilityTests {
 
-    @Test("Default syntax visibility mode is .full")
+    @Test("Default syntax visibility mode is .hiddenUntilCaret")
     @MainActor func defaultMode() {
         let defaults = UserDefaults(suiteName: "test.syntaxVisibility.default")!
         defaults.removePersistentDomain(forName: "test.syntaxVisibility.default")
         let manager = AppearanceManager(defaults: defaults)
-        #expect(manager.syntaxVisibilityMode == .full)
+        #expect(manager.syntaxVisibilityMode == .hiddenUntilCaret)
     }
 
     @Test("Syntax visibility mode persists across instances")
@@ -85,8 +85,8 @@ struct AppearanceManagerSyntaxVisibilityTests {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    @Test("Invalid stored value defaults to .full")
-    @MainActor func invalidValueDefaultsToFull() {
+    @Test("Invalid stored value defaults to .hiddenUntilCaret")
+    @MainActor func invalidValueDefaultsToHiddenUntilCaret() {
         let suiteName = "test.syntaxVisibility.invalid"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -95,7 +95,7 @@ struct AppearanceManagerSyntaxVisibilityTests {
         defaults.set("nonexistent_mode", forKey: "quartz.appearance.syntaxVisibilityMode")
 
         let manager = AppearanceManager(defaults: defaults)
-        #expect(manager.syntaxVisibilityMode == .full)
+        #expect(manager.syntaxVisibilityMode == .hiddenUntilCaret)
 
         defaults.removePersistentDomain(forName: suiteName)
     }

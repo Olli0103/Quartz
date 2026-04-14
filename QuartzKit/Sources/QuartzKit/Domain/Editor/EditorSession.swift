@@ -137,6 +137,7 @@ public final class EditorSession {
     private let analysisDelay: Duration = .milliseconds(300)
 
     private let autosaveDelay: Duration = .seconds(1)
+    private let pasteNormalizer = EditorPasteNormalizer()
 
     // MARK: - Version History Throttle
 
@@ -361,6 +362,9 @@ public final class EditorSession {
 
         note = nil
         currentText = ""
+        semanticDocument = .empty
+        lastRenderPlan = .empty
+        lastAppliedHighlightSpans = []
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
@@ -416,9 +420,11 @@ public final class EditorSession {
 
         let previousText = currentText
         currentText = newText
+        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: lastAppliedHighlightSpans)
         guard newText != previousText else { return }
 
         if isApplyingExternalEdit {
+            updateTypingAttributes()
             isDirty = true
             scheduleAutosave()
             scheduleWordCountUpdate()
@@ -436,6 +442,7 @@ public final class EditorSession {
             replacementLength: max(editLen, 0)
         )
 
+        updateTypingAttributes()
         isDirty = true
         scheduleAutosave()
         scheduleWordCountUpdate()
@@ -454,8 +461,8 @@ public final class EditorSession {
               !isApplyingExternalEdit,
               !isApplyingHighlights,
               !lastAppliedHighlightSpans.isEmpty,
-              overlayVisibilitySignature(for: previousRange, spans: lastAppliedHighlightSpans, in: currentText)
-                != overlayVisibilitySignature(for: range, spans: lastAppliedHighlightSpans, in: currentText) else {
+              overlayVisibilitySignature(for: previousRange)
+                != overlayVisibilitySignature(for: range) else {
             return
         }
 
@@ -616,6 +623,31 @@ public final class EditorSession {
         #endif
     }
 
+    // MARK: - Paste
+
+    /// Pastes from the system pasteboard using the requested normalization mode.
+    public func paste(mode: EditorPasteMode = .smart) {
+        guard let text = systemPasteboardString() else { return }
+        applyPastedText(text, mode: mode)
+    }
+
+    /// Applies pasted text using the requested normalization mode.
+    public func applyPastedText(_ text: String, mode: EditorPasteMode = .smart) {
+        let replacement = pasteNormalizer.normalizedText(text, mode: mode)
+        let selection = currentSelectedRangeFromActiveTextView()
+        let cursorAfter = NSRange(
+            location: selection.location + (replacement as NSString).length,
+            length: 0
+        )
+
+        applyExternalEdit(
+            replacement: replacement,
+            range: selection,
+            cursorAfter: cursorAfter,
+            origin: .pasteOrDrop
+        )
+    }
+
     // MARK: - Tag Editing
 
     /// Updates the note's frontmatter tags and triggers a save.
@@ -659,6 +691,22 @@ public final class EditorSession {
                 self?.applyHighlightSpansForced(spans)
             }
         }
+    }
+
+    private func currentSelectedRangeFromActiveTextView() -> NSRange {
+        #if canImport(UIKit)
+        return activeTextView?.selectedRange ?? cursorPosition
+        #elseif canImport(AppKit)
+        return activeTextView?.selectedRange() ?? cursorPosition
+        #endif
+    }
+
+    private func systemPasteboardString() -> String? {
+        #if canImport(UIKit)
+        return UIPasteboard.general.string
+        #elseif canImport(AppKit)
+        return NSPasteboard.general.string(forType: .string)
+        #endif
     }
 
     /// Applies highlight spans WITHOUT diffing — forces all attributes to be rewritten.
@@ -943,26 +991,15 @@ public final class EditorSession {
             return
         }
 
-        let originalText = (textView.string as NSString).substring(with: range)
-        let originalSelection = textView.selectedRange()
-        if transaction.registersUndo {
-            undoManager?.registerUndo(withTarget: self) { target in
-                target.applyExternalEdit(
-                    replacement: originalText,
-                    range: NSRange(location: range.location, length: (replacement as NSString).length),
-                    cursorAfter: originalSelection,
-                    origin: origin
-                )
-            }
-        }
-
         storage.replaceCharacters(in: range, with: replacement)
+
+        // AppKit's shouldChangeText/didChangeText pipeline owns undo registration.
+        // Registering a second custom undo action here corrupts the mounted text system.
+        textView.didChangeText()
 
         if let cursor = cursorAfter {
             textView.setSelectedRange(cursor)
         }
-
-        textView.didChangeText()
 
         if transaction.needsExplicitUndoGroup {
             undoManager?.endUndoGrouping()
@@ -1103,11 +1140,15 @@ public final class EditorSession {
     /// Line spacing multiplier. Set by the representable.
     public var highlighterLineSpacing: CGFloat = 1.5
     /// Syntax visibility mode. Set by the representable from AppearanceManager.
-    public var syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    public var syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
+    /// Semantic editor model derived from the latest markdown parse.
+    public private(set) var semanticDocument: EditorSemanticDocument = .empty
     /// Stored for deinit cleanup of debounced highlight work.
     private var highlightTask: Task<Void, Never>?
     /// Reused when selection-only changes should refresh concealment without reparsing.
     private var lastAppliedHighlightSpans: [HighlightSpan] = []
+    /// Cached render grouping so the editor applies the latest parsed plan, not ad-hoc filters.
+    private var lastRenderPlan: EditorRenderPlan = .empty
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     /// Uses incremental parsing when the current transaction supports it.
@@ -1181,6 +1222,8 @@ public final class EditorSession {
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
+        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
+        lastRenderPlan = EditorRenderPlan(spans: spans)
 
         #if canImport(UIKit)
         guard let textView = activeTextView, let cm = contentManager else { return }
@@ -1196,44 +1239,24 @@ public final class EditorSession {
         let defaultFont = UIFont.systemFont(ofSize: baseFontSize)
         let defaultColor: UIColor = .label
 
-        var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
-        let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
-
-        var lastEnd = 0
-        for span in primarySpans {
-            let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-            if r.location > lastEnd {
-                segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
-                                [.font: defaultFont, .foregroundColor: defaultColor]))
-            }
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: span.font, .foregroundColor: span.color ?? defaultColor,
-                .backgroundColor: span.backgroundColor ?? UIColor.clear,
-                .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]
-            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
-            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
-            segments.append((r, attrs))
-            lastEnd = r.location + r.length
-        }
-        if lastEnd < storageLength {
-            segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd),
-                            [.font: defaultFont, .foregroundColor: defaultColor]))
-        }
+        let segments = lastRenderPlan.primarySegments(
+            for: semanticDocument,
+            defaultFont: defaultFont,
+            defaultColor: defaultColor
+        ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should not pollute the undo stack
         textView.undoManager?.disableUndoRegistration()
         defer { textView.undoManager?.enableUndoRegistration() }
 
         storage.beginEditing()
-        for (range, targetAttrs) in segments {
-            guard range.length > 0 else { continue }
-            if rangeNeedsFullAttributeRewrite(storage, range: range, targetAttrs: targetAttrs) {
-                storage.setAttributes(targetAttrs, range: range)
+        for segment in segments {
+            guard segment.range.length > 0 else { continue }
+            if rangeNeedsFullAttributeRewrite(storage, range: segment.range, targetAttrs: segment.attributes) {
+                storage.setAttributes(segment.attributes, range: segment.range)
             }
         }
-        for span in spans where span.isOverlay {
+        for span in lastRenderPlan.overlaySpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
@@ -1252,7 +1275,7 @@ public final class EditorSession {
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
-        for span in spans where span.attachment != nil {
+        for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
@@ -1282,44 +1305,24 @@ public final class EditorSession {
         let defaultFont = NSFont.systemFont(ofSize: baseFontSize)
         let defaultColor: NSColor = .labelColor
 
-        var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
-        let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
-
-        var lastEnd = 0
-        for span in primarySpans {
-            let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-            if r.location > lastEnd {
-                segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
-                                [.font: defaultFont, .foregroundColor: defaultColor]))
-            }
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: span.font, .foregroundColor: span.color ?? defaultColor,
-                .backgroundColor: span.backgroundColor ?? NSColor.clear,
-                .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]
-            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
-            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
-            segments.append((r, attrs))
-            lastEnd = r.location + r.length
-        }
-        if lastEnd < storageLength {
-            segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd),
-                            [.font: defaultFont, .foregroundColor: defaultColor]))
-        }
+        let segments = lastRenderPlan.primarySegments(
+            for: semanticDocument,
+            defaultFont: defaultFont,
+            defaultColor: defaultColor
+        ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should not pollute the undo stack
         textView.undoManager?.disableUndoRegistration()
         defer { textView.undoManager?.enableUndoRegistration() }
 
         storage.beginEditing()
-        for (range, targetAttrs) in segments {
-            guard range.length > 0 else { continue }
-            if rangeNeedsFullAttributeRewrite(storage, range: range, targetAttrs: targetAttrs) {
-                storage.setAttributes(targetAttrs, range: range)
+        for segment in segments {
+            guard segment.range.length > 0 else { continue }
+            if rangeNeedsFullAttributeRewrite(storage, range: segment.range, targetAttrs: segment.attributes) {
+                storage.setAttributes(segment.attributes, range: segment.range)
             }
         }
-        for span in spans where span.isOverlay {
+        for span in lastRenderPlan.overlaySpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
@@ -1338,7 +1341,7 @@ public final class EditorSession {
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
-        for span in spans where span.attachment != nil {
+        for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
@@ -1379,10 +1382,9 @@ public final class EditorSession {
         let text = textView.text ?? ""
         let loc = textView.selectedRange.location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
+        let typingContext = semanticDocument.typingContext(at: loc)
 
-        // A fresh paragraph after a heading/list should start from body styling,
-        // not inherit stale attributes from the previous line break.
-        if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = UIColor.label
@@ -1390,7 +1392,8 @@ public final class EditorSession {
             return
         }
 
-        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .uiKit) {
+        if case let .heading(level) = typingContext,
+           let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .uiKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
             textView.typingAttributes = typing
@@ -1410,10 +1413,9 @@ public final class EditorSession {
         let text = textView.string
         let loc = textView.selectedRange().location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
+        let typingContext = semanticDocument.typingContext(at: loc)
 
-        // A fresh paragraph after a heading/list should start from body styling,
-        // not inherit stale attributes from the previous line break.
-        if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = NSColor.labelColor
@@ -1421,7 +1423,8 @@ public final class EditorSession {
             return
         }
 
-        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .appKit) {
+        if case let .heading(level) = typingContext,
+           let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .appKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
             textView.typingAttributes = typing
@@ -1440,29 +1443,7 @@ public final class EditorSession {
 
     private enum Platform { case uiKit, appKit }
 
-    /// Detects if the cursor is on a heading line and returns the appropriately scaled font.
-    private func headingFontForCurrentLine(in text: String, cursorLocation: Int, baseFontSize: CGFloat, platform: Platform) -> Any? {
-        guard !text.isEmpty, cursorLocation <= text.count else { return nil }
-
-        // Find the start of the current line
-        let nsText = text as NSString
-        let lineRange = nsText.lineRange(for: NSRange(location: min(cursorLocation, nsText.length - 1), length: 0))
-        let line = nsText.substring(with: lineRange)
-        let trimmed = line.trimmingCharacters(in: .newlines)
-
-        // Check for heading prefix
-        guard trimmed.hasPrefix("#") else { return nil }
-
-        var level = 0
-        for ch in trimmed {
-            if ch == "#" { level += 1 } else { break }
-        }
-        guard level >= 1, level <= 6 else { return nil }
-
-        // Must have a space after the # characters (or be just # characters being typed)
-        let afterHashes = String(trimmed.dropFirst(level))
-        guard afterHashes.isEmpty || afterHashes.hasPrefix(" ") else { return nil }
-
+    private func headingFont(for level: Int, baseFontSize: CGFloat, platform: Platform) -> Any? {
         let scale = Self.headingScales[level] ?? 1.05
 
         switch platform {
@@ -1806,72 +1787,8 @@ public final class EditorSession {
 
     // MARK: - Helpers
 
-    private func currentLineText(in text: String, cursorLocation: Int) -> String {
-        let nsText = text as NSString
-        let safeCursor = min(max(cursorLocation, 0), nsText.length)
-
-        var start = safeCursor
-        while start > 0 {
-            let scalar = nsText.character(at: start - 1)
-            if scalar == 10 || scalar == 13 { break }
-            start -= 1
-        }
-
-        var end = safeCursor
-        while end < nsText.length {
-            let scalar = nsText.character(at: end)
-            if scalar == 10 || scalar == 13 { break }
-            end += 1
-        }
-
-        return nsText.substring(with: NSRange(location: start, length: end - start))
-    }
-
-    private func overlayVisibilitySignature(
-        for selection: NSRange,
-        spans: [HighlightSpan],
-        in text: String
-    ) -> [String] {
-        let textLength = (text as NSString).length
-
-        return spans.compactMap { span in
-            guard span.isOverlay else { return nil }
-
-            switch span.overlayVisibilityBehavior {
-            case .alwaysVisible:
-                return nil
-            case let .concealWhenInactive(revealRange):
-                guard selectionTouchesRevealRange(selection, revealRange: revealRange, textLength: textLength) else {
-                    return nil
-                }
-                return "\(revealRange.location):\(revealRange.length)"
-            }
-        }
-    }
-
-    private func selectionTouchesRevealRange(
-        _ selection: NSRange,
-        revealRange: NSRange,
-        textLength: Int
-    ) -> Bool {
-        guard revealRange.location != NSNotFound,
-              revealRange.location >= 0,
-              revealRange.length > 0,
-              NSMaxRange(revealRange) <= textLength else {
-            return false
-        }
-
-        let clampedLocation = min(max(selection.location, 0), textLength)
-        let clampedLength = min(max(selection.length, 0), max(textLength - clampedLocation, 0))
-
-        if clampedLength == 0 {
-            return clampedLocation >= revealRange.location && clampedLocation < NSMaxRange(revealRange)
-        }
-
-        return NSIntersectionRange(
-            NSRange(location: clampedLocation, length: clampedLength),
-            revealRange
-        ).length > 0
+    private func overlayVisibilitySignature(for selection: NSRange) -> [String] {
+        semanticDocument.revealedInlineTokenIDs(for: selection)
     }
 
     private func synchronizeSnapshotFromActiveTextView() {
@@ -1885,6 +1802,7 @@ public final class EditorSession {
         cursorPosition = textView.selectedRange()
         #endif
 
+        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: lastAppliedHighlightSpans)
         formattingState = FormattingState.detect(in: currentText, at: cursorPosition.location)
         updateTypingAttributes()
     }
@@ -2001,11 +1919,7 @@ public final class EditorSession {
             case .alwaysVisible:
                 return color
             case let .concealWhenInactive(revealRange):
-                if selectionTouchesRevealRange(
-                    cursorPosition,
-                    revealRange: revealRange,
-                    textLength: (currentText as NSString).length
-                ) {
+                if semanticDocument.selectionTouchesRevealRange(cursorPosition, revealRange: revealRange) {
                     return color
                 }
             }

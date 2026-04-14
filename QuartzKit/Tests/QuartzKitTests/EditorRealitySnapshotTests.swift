@@ -22,6 +22,9 @@ final class EditorRealitySnapshotTests: XCTestCase {
         if UserDefaults.standard.bool(forKey: "QUARTZ_RECORD_EDITOR_SNAPSHOTS") {
             return .all
         }
+        if FileManager.default.fileExists(atPath: "/tmp/quartz_record_editor_snapshots.flag") {
+            return .all
+        }
         return .never
     }
 

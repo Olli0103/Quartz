@@ -186,7 +186,7 @@ public final class AppearanceManager {
     private static func loadSyntaxVisibilityMode(from defaults: UserDefaults) -> SyntaxVisibilityMode {
         guard let raw = defaults.string(forKey: Keys.syntaxVisibilityMode),
               let mode = SyntaxVisibilityMode(rawValue: raw) else {
-            return .full
+            return .hiddenUntilCaret
         }
         return mode
     }

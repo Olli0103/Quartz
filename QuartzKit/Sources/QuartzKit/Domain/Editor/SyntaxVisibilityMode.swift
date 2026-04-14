@@ -12,7 +12,7 @@ public enum SyntaxVisibilityMode: String, Sendable, CaseIterable {
     /// Delimiters shown at reduced opacity (gentler fade than `full`).
     case gentleFade
 
-    /// Delimiters hidden (clear color) until the cursor is on the same line.
-    /// When the cursor enters a line, delimiters on that line become visible.
+    /// Delimiters hidden (clear color) until the active selection touches the
+    /// owning semantic token. This is the Bear-style default for 4.5.
     case hiddenUntilCaret
 }

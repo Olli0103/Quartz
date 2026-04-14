@@ -1,7 +1,7 @@
 # Phase 4.5 — Editor Rebuild Plan
 
 Date: 2026-04-14
-Status: Planned
+Status: In Progress
 Blocks: Phase 5
 
 ## Why This Phase Exists
@@ -28,6 +28,46 @@ Quartz 4.5 must deliver a native inline Markdown editor that feels:
 
 This phase is not about adding more syntax. It is about making the editor trustworthy.
 
+## Current Execution Status
+
+What is already materially in place:
+
+- reality corpus fixtures for known editor regressions
+- close/reopen parity coverage
+- macOS editor snapshot baselines for heading/paragraph drift and concealment
+- token-aware concealment instead of line-wide reveal behavior
+- mounted live-editor regressions for formatting, paste, undo/redo, and heading-to-paragraph typing context
+- a dedicated editor quality gate in `scripts/test_editor_excellence.sh`
+- a dedicated editor self-heal / CI path in `scripts/heal_editor.sh` and `scripts/ci_phase4_5_editor.sh`
+
+What is explicitly still missing:
+
+- iPhone editor snapshot parity
+- iPad editor snapshot parity
+- mobile live-editor parity for the same mutation paths covered on macOS
+- paste normalization policy that is productized rather than only regression-tested
+
+Rules:
+
+- Phase 4.5 does not complete on macOS strength alone.
+- Mobile parity is a hard blocker, not a follow-up cleanup item.
+
+## Non-Negotiable Ship Gates
+
+Quartz does not leave Phase 4.5 until all of the following are true:
+
+- selection is invariant across formatting, paste, undo/redo, reopen, and rerender
+- typing attributes never drift across heading, paragraph, list, quote, table, or code boundaries
+- syntax concealment is token-local and caret-aware, never line-global
+- programmatic edits and native text-system undo/redo never crash
+- the dedicated editor gate is green:
+  - `bash scripts/test_editor_excellence.sh`
+  - `bash scripts/ci_phase4_5_editor.sh`
+- editor snapshots are green on:
+  - macOS
+  - iPhone
+  - iPad
+
 ## Research Takeaways
 
 ### Antinote
@@ -35,6 +75,7 @@ This phase is not about adding more syntax. It is about making the editor trustw
 - Hide complexity only when the user is not actively editing it.
 - Visual simplification must preserve original input.
 - Text transformations should happen after the cursor leaves the active region, not during token entry.
+- Paste cleanup and “paste as-is” are explicit user-facing behaviors, not accidental side effects.
 
 Reference: <https://antinote.io/user-manual>
 
@@ -66,6 +107,24 @@ References:
 - <https://raw.githubusercontent.com/xykong/flux-markdown/master/README.md>
 - <https://raw.githubusercontent.com/xykong/flux-markdown/master/docs/dev/ARCHITECTURE.md>
 - <https://raw.githubusercontent.com/xykong/flux-markdown/master/docs/dev/renderer/RENDERER_MARKDOWN_IT_PLUGIN_ROADMAP.md>
+
+## Competitive Intake Requirements
+
+Quartz should translate the best competitive ideas into explicit editor requirements:
+
+- `Antinote -> Quartz`
+  - conceal or simplify syntax only after the caret leaves the token
+  - provide explicit paste cleanup policy plus an untouched paste path
+- `Bear -> Quartz`
+  - keep complex markdown inline whenever possible
+  - preserve selection and editing flow through rich formatting and block transforms
+  - treat mobile ergonomics as a first-class editing constraint, not a desktop afterthought
+- `Ulysses -> Quartz`
+  - expose contextual formatting affordances that reduce syntax hunting
+  - stay keyboard-first and semantically predictable
+- `FluxMarkdown -> Quartz`
+  - keep preview/export compatibility separate from the live writing surface
+  - grow the quality corpus from real documents, not synthetic demos
 
 ## Current Quartz Diagnosis
 
@@ -155,6 +214,7 @@ Deliverables:
 Rule:
 
 - Every editor bug must add a corpus sample and a parity test before the fix lands.
+- Every macOS parity test that proves user value must get an iPhone and iPad follow-up unless the behavior is platform-specific.
 
 ### 4.5.2 Semantic Model Extraction
 
@@ -199,6 +259,7 @@ Deliverables:
 - paste pipeline with explicit normalization policy
 - undo coalescing rules by mutation class
 - selection preservation for all editor-originated mutations
+- the same behavioral guarantees on macOS, iPhone, and iPad
 
 This is the point where Quartz should start to feel calm rather than merely correct.
 
@@ -268,7 +329,15 @@ Rule:
 | `EditorSnapshot_iPad` | iPad editor visual parity corpus | Snapshot |
 | `EditorFocusedTokenSnapshots` | token selected vs unselected concealment states | Snapshot |
 
-### D. Performance
+### D. Platform Live Parity
+
+| Test Suite | What It Covers | Type |
+|---|---|---|
+| `EditorLiveMutation_macOS` | mounted macOS live-edit mutation parity | Integration |
+| `EditorLiveMutation_iOS` | compact-width live editing parity | Integration |
+| `EditorLiveMutation_iPadOS` | regular-width live editing parity | Integration |
+
+### E. Performance
 
 | Test Suite | What It Covers | Type |
 |---|---|---|
@@ -277,7 +346,7 @@ Rule:
 | `EditorMemorySteadyStateTests` | no attribute churn or runaway attachment memory | Performance |
 | `EditorScrollStabilityTests` | fast scrolling while background parse updates | Performance |
 
-### E. Accessibility
+### F. Accessibility
 
 | Test Suite | What It Covers | Type |
 |---|---|---|
@@ -294,8 +363,9 @@ Rule:
 5. Add caret-aware concealment.
 6. Migrate complex blocks: tables, tasks, inline attachments, math.
 7. Turn on visual parity gates for macOS, iPhone, and iPad.
-8. Remove obsolete segment-rewrite paths once parity is proven.
-9. Only then resume Phase 5.
+8. Turn on live mutation parity for iPhone and iPad, not just macOS.
+9. Remove obsolete segment-rewrite paths once parity is proven.
+10. Only then resume Phase 5.
 
 ## Explicit Non-Goals
 
@@ -313,5 +383,6 @@ Rule:
 - complex markdown elements feel editor-native, not bolted on
 - reopen parity is proven by tests, not assumed
 - macOS, iPhone, and iPad editor snapshot suites are green
+- macOS, iPhone, and iPad live-edit mutation suites are green
 - performance budgets stay within Phase 1 and Phase 4 limits
 - Phase 5 work can begin without carrying editor debt forward

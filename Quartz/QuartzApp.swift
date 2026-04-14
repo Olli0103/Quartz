@@ -151,6 +151,7 @@ struct QuartzApp: App {
                 onToggleSidebar: { appState.pendingCommand = .toggleSidebar },
                 onDailyNote: { appState.pendingCommand = .dailyNote },
                 onFormatAction: { action in appState.pendingCommand = .format(action) },
+                onPasteAction: { mode in appState.pendingCommand = .paste(mode) },
                 onOpenVault: { appState.pendingCommand = .openVault },
                 onCreateVault: { appState.pendingCommand = .createVault }
             )

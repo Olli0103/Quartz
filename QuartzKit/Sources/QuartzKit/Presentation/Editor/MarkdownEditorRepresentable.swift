@@ -15,13 +15,26 @@ import AppKit
 ///
 /// This eliminates the SwiftUI → TextKit feedback cycle that causes cursor jitter.
 #if os(iOS)
+@MainActor
+final class MarkdownEditorUITextView: UITextView {
+    weak var editorSession: EditorSession?
+
+    override func paste(_ sender: Any?) {
+        guard let editorSession else {
+            super.paste(sender)
+            return
+        }
+        editorSession.paste(mode: .smart)
+    }
+}
+
 public struct MarkdownEditorRepresentable: UIViewRepresentable {
     let session: EditorSession
     var editorFontScale: CGFloat
     var editorFontFamily: AppearanceManager.EditorFontFamily = .system
     var editorLineSpacing: CGFloat = 1.5
     var editorMaxWidth: CGFloat = 720
-    var syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    var syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
 
     public init(
         session: EditorSession,
@@ -29,7 +42,7 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         editorFontFamily: AppearanceManager.EditorFontFamily = .system,
         editorLineSpacing: CGFloat = 1.5,
         editorMaxWidth: CGFloat = 720,
-        syntaxVisibilityMode: SyntaxVisibilityMode = .full
+        syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
     ) {
         self.session = session
         self.editorFontScale = editorFontScale
@@ -47,8 +60,9 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, container) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
-        let textView = UITextView(frame: .zero, textContainer: container)
+        let textView = MarkdownEditorUITextView(frame: .zero, textContainer: container)
         textView.delegate = context.coordinator
+        textView.editorSession = session
 
         let baseFont = EditorFontFactory.makeFont(family: editorFontFamily, size: baseFontSize)
         textView.font = UIFontMetrics.default.scaledFont(for: baseFont)
@@ -429,6 +443,22 @@ final class MarkdownEditorNSTextView: NSTextView {
         super.doCommand(by: selector)
     }
 
+    override func paste(_ sender: Any?) {
+        guard let editorSession else {
+            super.paste(sender)
+            return
+        }
+        editorSession.paste(mode: .smart)
+    }
+
+    override func pasteAsPlainText(_ sender: Any?) {
+        guard let editorSession else {
+            super.pasteAsPlainText(sender)
+            return
+        }
+        editorSession.paste(mode: .raw)
+    }
+
     // MARK: - Wiki-Link Click Interception
 
     override func mouseDown(with event: NSEvent) {
@@ -578,7 +608,7 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
     var editorFontFamily: AppearanceManager.EditorFontFamily = .system
     var editorLineSpacing: CGFloat = 1.5
     var editorMaxWidth: CGFloat = 720
-    var syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    var syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
 
     public init(
         session: EditorSession,
@@ -586,7 +616,7 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         editorFontFamily: AppearanceManager.EditorFontFamily = .system,
         editorLineSpacing: CGFloat = 1.5,
         editorMaxWidth: CGFloat = 720,
-        syntaxVisibilityMode: SyntaxVisibilityMode = .full
+        syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
     ) {
         self.session = session
         self.editorFontScale = editorFontScale
