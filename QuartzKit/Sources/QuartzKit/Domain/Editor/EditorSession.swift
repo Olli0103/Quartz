@@ -672,7 +672,12 @@ public final class EditorSession {
         guard !isComposing else { return }
 
         let formatter = MarkdownFormatter()
-        guard let edit = formatter.surgicalEdit(action, in: currentText, selectedRange: cursorPosition) else { return }
+        guard let edit = formatter.surgicalEdit(
+            action,
+            in: currentText,
+            selectedRange: cursorPosition,
+            semanticDocument: semanticDocument
+        ) else { return }
 
         applyExternalEdit(
             replacement: edit.replacement,
@@ -1234,7 +1239,7 @@ public final class EditorSession {
         lastRenderPlan = EditorRenderPlan(spans: spans)
 
         #if canImport(UIKit)
-        guard let textView = activeTextView, let cm = contentManager else { return }
+        guard let textView = activeTextView, contentManager != nil else { return }
         guard textView.markedTextRange == nil else { return }
 
         let storage = textView.textStorage
@@ -1270,7 +1275,7 @@ public final class EditorSession {
             if let color = span.color {
                 let adjusted = adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
-                if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted as? UIColor) {
+                if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
             }

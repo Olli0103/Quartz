@@ -176,6 +176,68 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(typingColor, .labelColor)
     }
 
+    func testMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering() async throws {
+        let harness = try await makeMountedHarness(text: "- [ ] Task")
+        let session = harness.session
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: 6, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyFormatting(.bulletList)
+        try await waitForSessionText(session, expected: "- Task")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "- Task")
+        XCTAssertEqual(session.currentText, "- Task")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+        XCTAssertTrue(session.formattingState.isBulletList)
+        XCTAssertFalse(session.formattingState.isCheckbox)
+    }
+
+    func testMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering() async throws {
+        let harness = try await makeMountedHarness(text: "1. Task")
+        let session = harness.session
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: 3, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyFormatting(.blockquote)
+        try await waitForSessionText(session, expected: "> Task")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "> Task")
+        XCTAssertEqual(session.currentText, "> Task")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+        XCTAssertTrue(session.formattingState.isBlockquote)
+        XCTAssertFalse(session.formattingState.isNumberedList)
+    }
+
+    func testMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind() async throws {
+        let harness = try await makeMountedHarness(text: "```swift\nlet x = 1\n```")
+        let session = harness.session
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: 11, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyFormatting(.paragraph)
+        try await waitForSessionText(session, expected: "let x = 1\n")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "let x = 1\n")
+        XCTAssertEqual(session.currentText, "let x = 1\n")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+        XCTAssertFalse(session.formattingState.isCodeBlock)
+    }
+
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         let harness = try await makeMountedHarness(text: "## Heading")
         let session = harness.session

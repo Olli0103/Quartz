@@ -86,6 +86,90 @@ struct MarkdownFormatterTests {
         #expect(result == "Item")
     }
 
+    @Test("Bullet action removes non-canonical bullet markers semantically")
+    func bulletToggleOffForNonCanonicalMarker() {
+        let text = "* Item"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .bulletList,
+            to: text,
+            selectedRange: NSRange(location: 2, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "Item")
+        #expect(selection.location == 0)
+    }
+
+    @Test("Bullet action replaces checkbox syntax semantically")
+    func bulletReplacesCheckboxPrefix() {
+        let text = "- [ ] Task"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .bulletList,
+            to: text,
+            selectedRange: NSRange(location: 6, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "- Task")
+        #expect(selection.location == 2)
+    }
+
+    @Test("Blockquote action replaces numbered list syntax semantically")
+    func blockquoteReplacesNumberedListPrefix() {
+        let text = "1. Item"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .blockquote,
+            to: text,
+            selectedRange: NSRange(location: 3, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "> Item")
+        #expect(selection.location == 2)
+    }
+
+    @Test("Paragraph action removes checkbox syntax semantically")
+    func paragraphRemovesCheckboxPrefix() {
+        let text = "- [ ] Task"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .paragraph,
+            to: text,
+            selectedRange: NSRange(location: 8, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "Task")
+        #expect(selection.location == 2)
+    }
+
+    @Test("Paragraph action removes surrounding code fences semantically")
+    func paragraphRemovesCodeFence() {
+        let text = "```swift\nlet x = 1\n```"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .paragraph,
+            to: text,
+            selectedRange: NSRange(location: 11, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "let x = 1\n")
+        #expect(selection.location == 2)
+    }
+
+    @Test("Mermaid action converts plain code fence semantically")
+    func mermaidReplacesPlainCodeFence() {
+        let text = "```\ngraph TD\n```"
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: [])
+        let (result, selection) = formatter.apply(
+            .mermaid,
+            to: text,
+            selectedRange: NSRange(location: 4, length: 0),
+            semanticDocument: semanticDocument
+        )
+        #expect(result == "```mermaid\ngraph TD\n```")
+        #expect(selection.location == 11)
+    }
+
     // MARK: - Block Actions
 
     @Test("Code block wraps content")

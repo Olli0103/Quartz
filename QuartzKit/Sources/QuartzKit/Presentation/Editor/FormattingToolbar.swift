@@ -276,16 +276,81 @@ public struct FormattingState: Equatable, Sendable {
     public var isItalic: Bool = false
     public var isStrikethrough: Bool = false
     public var isCode: Bool = false
+    public var isBulletList: Bool = false
+    public var isNumberedList: Bool = false
+    public var isCheckbox: Bool = false
+    public var isBlockquote: Bool = false
+    public var isCodeBlock: Bool = false
     public var headingLevel: Int = 0  // 0 = no heading, 1-6 = H1-H6
 
     public static let empty = FormattingState()
 
-    public init(isBold: Bool = false, isItalic: Bool = false, isStrikethrough: Bool = false, isCode: Bool = false, headingLevel: Int = 0) {
+    public init(
+        isBold: Bool = false,
+        isItalic: Bool = false,
+        isStrikethrough: Bool = false,
+        isCode: Bool = false,
+        isBulletList: Bool = false,
+        isNumberedList: Bool = false,
+        isCheckbox: Bool = false,
+        isBlockquote: Bool = false,
+        isCodeBlock: Bool = false,
+        headingLevel: Int = 0
+    ) {
         self.isBold = isBold
         self.isItalic = isItalic
         self.isStrikethrough = isStrikethrough
         self.isCode = isCode
+        self.isBulletList = isBulletList
+        self.isNumberedList = isNumberedList
+        self.isCheckbox = isCheckbox
+        self.isBlockquote = isBlockquote
+        self.isCodeBlock = isCodeBlock
         self.headingLevel = headingLevel
+    }
+
+    public var hasActiveHeading: Bool { headingLevel > 0 }
+    public var hasActiveOverflowStyle: Bool { isNumberedList || isBlockquote || isCodeBlock }
+
+    public func isActive(_ action: FormattingAction) -> Bool {
+        switch action {
+        case .bold:
+            return isBold
+        case .italic:
+            return isItalic
+        case .strikethrough:
+            return isStrikethrough
+        case .code:
+            return isCode
+        case .bulletList:
+            return isBulletList
+        case .numberedList:
+            return isNumberedList
+        case .checkbox:
+            return isCheckbox
+        case .blockquote:
+            return isBlockquote
+        case .codeBlock:
+            return isCodeBlock
+        case .heading1:
+            return headingLevel == 1
+        case .heading2:
+            return headingLevel == 2
+        case .heading3:
+            return headingLevel == 3
+        case .heading4:
+            return headingLevel == 4
+        case .heading5:
+            return headingLevel == 5
+        case .heading6:
+            return headingLevel == 6
+        case .heading:
+            return hasActiveHeading
+        case .paragraph:
+            return !hasActiveHeading && !isBulletList && !isNumberedList && !isCheckbox && !isBlockquote && !isCodeBlock
+        case .link, .image, .highlight, .table, .math, .footnote, .mermaid:
+            return false
+        }
     }
 
     /// Detects formatting state at a given cursor position in markdown text.
@@ -314,12 +379,18 @@ public struct FormattingState: Equatable, Sendable {
         let isItalic = isWrappedSingle(in: nsText, at: cursorLocation, marker: "*", doubleMarker: "**")
         let isStrikethrough = isWrapped(in: nsText, at: cursorLocation, marker: "~~")
         let isCode = isWrapped(in: nsText, at: cursorLocation, marker: "`")
+        let blockState = blockState(in: nsText, at: cursorLocation)
 
         return FormattingState(
             isBold: isBold,
             isItalic: isItalic,
             isStrikethrough: isStrikethrough,
             isCode: isCode,
+            isBulletList: blockState.isBulletList,
+            isNumberedList: blockState.isNumberedList,
+            isCheckbox: blockState.isCheckbox,
+            isBlockquote: blockState.isBlockquote,
+            isCodeBlock: blockState.isCodeBlock,
             headingLevel: headingLevel
         )
     }
@@ -343,13 +414,117 @@ public struct FormattingState: Equatable, Sendable {
         }
 
         let inlineKinds = semanticDocument.inlineFormatKinds(at: cursorLocation)
+        let semanticBlockState = blockState(in: semanticDocument, at: cursorLocation)
         return FormattingState(
             isBold: inlineKinds.contains(.bold) || fallback.isBold,
             isItalic: inlineKinds.contains(.italic) || fallback.isItalic,
             isStrikethrough: inlineKinds.contains(.strikethrough) || fallback.isStrikethrough,
             isCode: inlineKinds.contains(.inlineCode) || fallback.isCode,
+            isBulletList: semanticBlockState.isBulletList || fallback.isBulletList,
+            isNumberedList: semanticBlockState.isNumberedList || fallback.isNumberedList,
+            isCheckbox: semanticBlockState.isCheckbox || fallback.isCheckbox,
+            isBlockquote: semanticBlockState.isBlockquote || fallback.isBlockquote,
+            isCodeBlock: semanticBlockState.isCodeBlock || fallback.isCodeBlock,
             headingLevel: headingLevel
         )
+    }
+
+    private static func blockState(in semanticDocument: EditorSemanticDocument, at cursorLocation: Int) -> FormattingState {
+        guard let block = semanticDocument.block(containing: cursorLocation) else { return .empty }
+        switch block.kind {
+        case let .listItem(kind):
+            switch kind {
+            case .bullet:
+                return FormattingState(isBulletList: true)
+            case .numbered:
+                return FormattingState(isNumberedList: true)
+            case .checkbox:
+                return FormattingState(isCheckbox: true)
+            }
+        case .blockquote:
+            return FormattingState(isBlockquote: true)
+        case .codeFence:
+            return FormattingState(isCodeBlock: true)
+        case .blank, .paragraph, .heading, .tableRow:
+            return .empty
+        }
+    }
+
+    private static func blockState(in text: NSString, at cursorLocation: Int) -> FormattingState {
+        let lineRange = text.lineRange(for: NSRange(location: min(cursorLocation, max(0, text.length - 1)), length: 0))
+        let line = text.substring(with: lineRange)
+        let trimmedLine = line.trimmingCharacters(in: .newlines)
+
+        if isInsideCodeFence(in: text as String, at: cursorLocation) {
+            return FormattingState(isCodeBlock: true)
+        }
+
+        if trimmedLine.range(of: #"^\s*>\s?"#, options: .regularExpression) != nil {
+            return FormattingState(isBlockquote: true)
+        }
+
+        if trimmedLine.range(of: #"^\s*[-+*]\s+\[( |x|X)\]\s+"#, options: .regularExpression) != nil {
+            return FormattingState(isCheckbox: true)
+        }
+
+        if trimmedLine.range(of: #"^\s*\d+[.)]\s+"#, options: .regularExpression) != nil {
+            return FormattingState(isNumberedList: true)
+        }
+
+        if trimmedLine.range(of: #"^\s*[-+*]\s+"#, options: .regularExpression) != nil {
+            return FormattingState(isBulletList: true)
+        }
+
+        return .empty
+    }
+
+    private static func isInsideCodeFence(in text: String, at cursorLocation: Int) -> Bool {
+        var activeFence: Character?
+        let nsText = text as NSString
+        var cursor = 0
+
+        while cursor < nsText.length {
+            let lineRange = nsText.lineRange(for: NSRange(location: cursor, length: 0))
+            let contentRange = NSRange(location: lineRange.location, length: max(lineRange.length - trailingNewlineLength(of: nsText, in: lineRange), 0))
+            let line = nsText.substring(with: contentRange)
+            let marker = codeFenceMarker(in: line)
+
+            if cursorLocation >= lineRange.location && cursorLocation <= NSMaxRange(lineRange) {
+                return activeFence != nil || marker != nil
+            }
+
+            if let marker {
+                if activeFence == marker {
+                    activeFence = nil
+                } else if activeFence == nil {
+                    activeFence = marker
+                }
+            }
+
+            cursor = NSMaxRange(lineRange)
+        }
+
+        return activeFence != nil && cursorLocation >= nsText.length
+    }
+
+    private static func trailingNewlineLength(of text: NSString, in lineRange: NSRange) -> Int {
+        var length = 0
+        while length < lineRange.length {
+            let scalar = text.character(at: lineRange.location + lineRange.length - length - 1)
+            if scalar == 10 || scalar == 13 {
+                length += 1
+            } else {
+                break
+            }
+        }
+        return length
+    }
+
+    private static func codeFenceMarker(in line: String) -> Character? {
+        let trimmedLeading = line.drop(while: { $0 == " " || $0 == "\t" })
+        if trimmedLeading.hasPrefix("```") { return "`" }
+        if trimmedLeading.hasPrefix("~~~") { return "~" }
+        return nil
     }
 
     /// Checks if cursor position is between two instances of `marker` on the same line.
@@ -421,7 +596,8 @@ public struct MarkdownFormatter: Sendable {
     public func surgicalEdit(
         _ action: FormattingAction,
         in text: String,
-        selectedRange: NSRange
+        selectedRange: NSRange,
+        semanticDocument: EditorSemanticDocument? = nil
     ) -> MarkdownFormatEdit? {
         let nsText = text as NSString
         let selectedText = nsText.substring(with: selectedRange)
@@ -430,8 +606,27 @@ public struct MarkdownFormatter: Sendable {
         case .wrap(let marker):
             return surgicalWrap(marker, text: nsText, selection: selectedRange, selectedText: selectedText)
         case .linePrefix(let prefix):
+            if let edit = semanticLinePrefix(
+                for: action,
+                targetPrefix: prefix,
+                text: nsText,
+                selection: selectedRange,
+                semanticDocument: semanticDocument
+            ) {
+                return edit
+            }
             return surgicalLinePrefix(prefix, text: nsText, selection: selectedRange)
         case .block(let open, let close):
+            if let edit = semanticCodeFenceEdit(
+                for: action,
+                open: open,
+                close: close,
+                text: nsText,
+                selection: selectedRange,
+                semanticDocument: semanticDocument
+            ) {
+                return edit
+            }
             let replacement = "\(open)\(selectedText)\(close)"
             return MarkdownFormatEdit(
                 range: selectedRange,
@@ -458,6 +653,25 @@ public struct MarkdownFormatter: Sendable {
                 cursorAfter: NSRange(location: selectedRange.location + (raw as NSString).length, length: 0)
             )
         case .removeHeadingPrefix:
+            if let edit = semanticCodeFenceEdit(
+                for: action,
+                open: nil,
+                close: nil,
+                text: nsText,
+                selection: selectedRange,
+                semanticDocument: semanticDocument
+            ) {
+                return edit
+            }
+            if let edit = semanticLinePrefix(
+                for: action,
+                targetPrefix: nil,
+                text: nsText,
+                selection: selectedRange,
+                semanticDocument: semanticDocument
+            ) {
+                return edit
+            }
             return surgicalRemoveHeading(text: nsText, selection: selectedRange)
         }
     }
@@ -508,6 +722,83 @@ public struct MarkdownFormatter: Sendable {
         )
     }
 
+    private func semanticCodeFenceEdit(
+        for action: FormattingAction,
+        open: String?,
+        close: String?,
+        text: NSString,
+        selection: NSRange,
+        semanticDocument: EditorSemanticDocument?
+    ) -> MarkdownFormatEdit? {
+        guard let semanticDocument,
+              semanticDocument.textLength > 0,
+              let fencedRegion = semanticCodeFenceRegion(
+                in: text,
+                selection: selection,
+                semanticDocument: semanticDocument
+              ) else {
+            return nil
+        }
+
+        let desiredMode: SemanticFenceMode?
+        switch action {
+        case .codeBlock:
+            desiredMode = .plain
+        case .mermaid:
+            desiredMode = .mermaid
+        case .paragraph:
+            desiredMode = nil
+        default:
+            return nil
+        }
+
+        let openLineBreakLength = max(fencedRegion.open.range.length - fencedRegion.open.contentRange.length, 0)
+        let closeLineBreakLength = max(fencedRegion.close.range.length - fencedRegion.close.contentRange.length, 0)
+        let innerContentRange = NSRange(
+            location: NSMaxRange(fencedRegion.open.range),
+            length: max(fencedRegion.close.range.location - NSMaxRange(fencedRegion.open.range), 0)
+        )
+        let innerContent = text.substring(with: innerContentRange)
+        let replacement: String
+        let newInnerContentStart: Int
+
+        if let desiredMode {
+            let openingLine = openingFenceLine(for: desiredMode) + repeatedLineBreak(length: openLineBreakLength)
+            let closingLine = closingFenceLine() + repeatedLineBreak(length: closeLineBreakLength)
+            replacement = openingLine + innerContent + closingLine
+            newInnerContentStart = fencedRegion.open.range.location + (openingLine as NSString).length
+
+            if fencedRegion.mode == desiredMode {
+                return MarkdownFormatEdit(
+                    range: fencedRegion.enclosingRange,
+                    replacement: innerContent,
+                    cursorAfter: semanticCodeFenceCursorAfter(
+                        selection: selection,
+                        oldInnerContentStart: NSMaxRange(fencedRegion.open.range),
+                        oldInnerContentLength: innerContentRange.length,
+                        newInnerContentStart: fencedRegion.open.range.location,
+                        newInnerContentLength: innerContentRange.length
+                    )
+                )
+            }
+        } else {
+            replacement = innerContent
+            newInnerContentStart = fencedRegion.open.range.location
+        }
+
+        return MarkdownFormatEdit(
+            range: fencedRegion.enclosingRange,
+            replacement: replacement,
+            cursorAfter: semanticCodeFenceCursorAfter(
+                selection: selection,
+                oldInnerContentStart: NSMaxRange(fencedRegion.open.range),
+                oldInnerContentLength: innerContentRange.length,
+                newInnerContentStart: newInnerContentStart,
+                newInnerContentLength: innerContentRange.length
+            )
+        )
+    }
+
     private func surgicalLinePrefix(_ prefix: String, text: NSString, selection: NSRange) -> MarkdownFormatEdit {
         let lineRange = text.lineRange(for: selection)
         let line = text.substring(with: lineRange)
@@ -552,6 +843,252 @@ public struct MarkdownFormatter: Sendable {
                 cursorAfter: NSRange(location: selection.location + prefixLen, length: 0)
             )
         }
+    }
+
+    private func semanticLinePrefix(
+        for action: FormattingAction,
+        targetPrefix: String?,
+        text: NSString,
+        selection: NSRange,
+        semanticDocument: EditorSemanticDocument?
+    ) -> MarkdownFormatEdit? {
+        guard let semanticDocument,
+              semanticDocument.textLength > 0 else {
+            return nil
+        }
+
+        let lineRange = text.lineRange(for: selection)
+        let anchorLocation = min(selection.location, max(text.length - 1, 0))
+        let anchorLineRange = text.lineRange(for: NSRange(location: anchorLocation, length: 0))
+        guard NSEqualRanges(lineRange, anchorLineRange),
+              let block = semanticDocument.block(containing: lineRange.location),
+              block.range.location == lineRange.location,
+              supportsSemanticLineTransition(block.kind) else {
+            return nil
+        }
+
+        if targetPrefix == nil, block.syntaxRange == nil {
+            return nil
+        }
+
+        let trailingNewlineLength = trailingLineBreakLength(in: text, lineRange: lineRange)
+        let contentRange = NSRange(
+            location: lineRange.location,
+            length: max(lineRange.length - trailingNewlineLength, 0)
+        )
+        let lineContent = text.substring(with: contentRange)
+        let leadingWhitespaceLength = leadingWhitespaceLength(in: lineContent)
+        let leadingWhitespace = (lineContent as NSString).substring(to: leadingWhitespaceLength)
+
+        let existingContentStart = existingContentStart(
+            for: block,
+            lineRange: lineRange,
+            contentRange: contentRange,
+            leadingWhitespaceLength: leadingWhitespaceLength
+        )
+        let bodyRange = NSRange(
+            location: existingContentStart,
+            length: max(NSMaxRange(contentRange) - existingContentStart, 0)
+        )
+        let body = text.substring(with: bodyRange)
+
+        let effectivePrefix: String
+        if matchesSemanticBlock(action: action, blockKind: block.kind) {
+            effectivePrefix = ""
+        } else {
+            effectivePrefix = targetPrefix ?? ""
+        }
+
+        let replacementContent = leadingWhitespace + effectivePrefix + body
+        let newlineSuffix = trailingNewlineLength > 0
+            ? text.substring(with: NSRange(location: NSMaxRange(contentRange), length: trailingNewlineLength))
+            : ""
+        let replacement = replacementContent + newlineSuffix
+
+        let previousContentStart = existingContentStart
+        let bodyOffset = max(selection.location - previousContentStart, 0)
+        let newContentStart = lineRange.location + leadingWhitespaceLength + (effectivePrefix as NSString).length
+        let clampedBodyOffset = min(bodyOffset, (body as NSString).length)
+        let cursorLocation = newContentStart + clampedBodyOffset
+
+        return MarkdownFormatEdit(
+            range: lineRange,
+            replacement: replacement,
+            cursorAfter: NSRange(location: cursorLocation, length: 0)
+        )
+    }
+
+    private func supportsSemanticLineTransition(_ kind: EditorBlockKind) -> Bool {
+        switch kind {
+        case .blank, .paragraph, .heading, .listItem, .blockquote:
+            return true
+        case .codeFence, .tableRow:
+            return false
+        }
+    }
+
+    private func matchesSemanticBlock(action: FormattingAction, blockKind: EditorBlockKind) -> Bool {
+        switch (action, blockKind) {
+        case (.heading, .heading(level: 1)), (.heading1, .heading(level: 1)):
+            return true
+        case (.heading2, .heading(level: 2)):
+            return true
+        case (.heading3, .heading(level: 3)):
+            return true
+        case (.heading4, .heading(level: 4)):
+            return true
+        case (.heading5, .heading(level: 5)):
+            return true
+        case (.heading6, .heading(level: 6)):
+            return true
+        case (.bulletList, .listItem(kind: .bullet)):
+            return true
+        case (.numberedList, .listItem(kind: .numbered)):
+            return true
+        case (.checkbox, .listItem(kind: .checkbox)):
+            return true
+        case (.blockquote, .blockquote):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func existingContentStart(
+        for block: EditorBlockNode,
+        lineRange: NSRange,
+        contentRange: NSRange,
+        leadingWhitespaceLength: Int
+    ) -> Int {
+        if let syntaxRange = block.syntaxRange,
+           syntaxRange.location >= lineRange.location,
+           NSMaxRange(syntaxRange) <= NSMaxRange(contentRange) {
+            return NSMaxRange(syntaxRange)
+        }
+        return lineRange.location + leadingWhitespaceLength
+    }
+
+    private func leadingWhitespaceLength(in line: String) -> Int {
+        line.prefix { $0 == " " || $0 == "\t" }.utf16.count
+    }
+
+    private func trailingLineBreakLength(in text: NSString, lineRange: NSRange) -> Int {
+        var length = 0
+        while length < lineRange.length {
+            let scalar = text.character(at: lineRange.location + lineRange.length - length - 1)
+            if scalar == 10 || scalar == 13 {
+                length += 1
+            } else {
+                break
+            }
+        }
+        return length
+    }
+
+    private func semanticCodeFenceRegion(
+        in text: NSString,
+        selection: NSRange,
+        semanticDocument: EditorSemanticDocument
+    ) -> SemanticCodeFenceRegion? {
+        let location = min(selection.location, max(text.length - 1, 0))
+        guard let block = semanticDocument.block(containing: location),
+              case .codeFence = block.kind,
+              let blockIndex = semanticDocument.blocks.firstIndex(where: { $0.id == block.id }) else {
+            return nil
+        }
+
+        let fenceMarkerIndices = semanticDocument.blocks.indices.filter { index in
+            let candidate = semanticDocument.blocks[index]
+            if case .codeFence = candidate.kind {
+                return candidate.syntaxRange != nil
+            }
+            return false
+        }
+
+        guard let pairStart = stride(from: 0, to: fenceMarkerIndices.count, by: 2).first(where: { pairStart in
+            let openIndex = fenceMarkerIndices[pairStart]
+            guard pairStart + 1 < fenceMarkerIndices.count else { return false }
+            let closeIndex = fenceMarkerIndices[pairStart + 1]
+            return openIndex <= blockIndex && blockIndex <= closeIndex
+        }) else {
+            return nil
+        }
+
+        let openIndex = fenceMarkerIndices[pairStart]
+        let closeIndex = fenceMarkerIndices[pairStart + 1]
+        let openBlock = semanticDocument.blocks[openIndex]
+        let closeBlock = semanticDocument.blocks[closeIndex]
+        let openingContent = text.substring(with: openBlock.contentRange)
+
+        return SemanticCodeFenceRegion(
+            open: openBlock,
+            close: closeBlock,
+            enclosingRange: NSRange(
+                location: openBlock.range.location,
+                length: NSMaxRange(closeBlock.range) - openBlock.range.location
+            ),
+            mode: semanticFenceMode(for: openingContent)
+        )
+    }
+
+    private func semanticFenceMode(for openingContent: String) -> SemanticFenceMode {
+        let trimmed = openingContent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.hasPrefix("```mermaid") {
+            return .mermaid
+        }
+        return .plain
+    }
+
+    private func openingFenceLine(for mode: SemanticFenceMode) -> String {
+        switch mode {
+        case .plain:
+            return "```"
+        case .mermaid:
+            return "```mermaid"
+        }
+    }
+
+    private func closingFenceLine() -> String {
+        "```"
+    }
+
+    private func repeatedLineBreak(length: Int) -> String {
+        guard length > 0 else { return "" }
+        return String(repeating: "\n", count: length)
+    }
+
+    private func semanticCodeFenceCursorAfter(
+        selection: NSRange,
+        oldInnerContentStart: Int,
+        oldInnerContentLength: Int,
+        newInnerContentStart: Int,
+        newInnerContentLength: Int
+    ) -> NSRange {
+        let oldInnerContentEnd = oldInnerContentStart + oldInnerContentLength
+        let newInnerContentEnd = newInnerContentStart + newInnerContentLength
+
+        if selection.location <= oldInnerContentStart {
+            return NSRange(location: newInnerContentStart, length: 0)
+        }
+
+        if selection.location >= oldInnerContentEnd {
+            return NSRange(location: newInnerContentEnd, length: 0)
+        }
+
+        let bodyOffset = min(selection.location - oldInnerContentStart, newInnerContentLength)
+        return NSRange(location: newInnerContentStart + bodyOffset, length: 0)
+    }
+
+    private enum SemanticFenceMode {
+        case plain
+        case mermaid
+    }
+
+    private struct SemanticCodeFenceRegion {
+        let open: EditorBlockNode
+        let close: EditorBlockNode
+        let enclosingRange: NSRange
+        let mode: SemanticFenceMode
     }
 
     /// Strips ALL line-level formatting: headings (#), bullets (- * +), numbers (1.), checkboxes (- [ ]), blockquotes (>).
@@ -626,34 +1163,20 @@ public struct MarkdownFormatter: Sendable {
     public func apply(
         _ action: FormattingAction,
         to text: String,
-        selectedRange: NSRange
+        selectedRange: NSRange,
+        semanticDocument: EditorSemanticDocument? = nil
     ) -> (text: String, newSelection: NSRange) {
         let nsText = text as NSString
-        let selectedText = nsText.substring(with: selectedRange)
-
-        switch action.markdownSyntax {
-        case .wrap(let marker):
-            return applyWrap(marker, text: text, selection: selectedRange, selectedText: selectedText)
-        case .linePrefix(let prefix):
-            return applyLinePrefix(prefix, text: text, selection: selectedRange)
-        case .block(let open, let close):
-            let replacement = "\(open)\(selectedText)\(close)"
-            let newText = nsText.replacingCharacters(in: selectedRange, with: replacement)
-            return (newText, NSRange(location: selectedRange.location + open.count, length: selectedText.count))
-        case .template(let before, let after):
-            let replacement = "\(before)\(selectedText)\(after)"
-            let newText = nsText.replacingCharacters(in: selectedRange, with: replacement)
-            if selectedText.isEmpty {
-                return (newText, NSRange(location: selectedRange.location + before.count, length: 0))
-            } else {
-                return (newText, NSRange(location: selectedRange.location + before.count + selectedText.count + after.count, length: 0))
-            }
-        case .insert(let raw):
-            let newText = nsText.replacingCharacters(in: selectedRange, with: raw)
-            return (newText, NSRange(location: selectedRange.location + raw.count, length: 0))
-        case .removeHeadingPrefix:
-            return removeHeadingPrefix(text: text, selection: selectedRange)
+        if let edit = surgicalEdit(
+            action,
+            in: text,
+            selectedRange: selectedRange,
+            semanticDocument: semanticDocument
+        ) {
+            let newText = nsText.replacingCharacters(in: edit.range, with: edit.replacement)
+            return (newText, edit.cursorAfter)
         }
+        return (text, selectedRange)
     }
 
     private func applyWrap(_ marker: String, text: String, selection: NSRange, selectedText: String) -> (String, NSRange) {

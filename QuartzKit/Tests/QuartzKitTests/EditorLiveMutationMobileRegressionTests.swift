@@ -23,6 +23,18 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for: .phone)
     }
 
+    func testMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering() async throws {
+        try await assertMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering(for: .phone)
+    }
+
+    func testMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering() async throws {
+        try await assertMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering(for: .phone)
+    }
+
+    func testMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind() async throws {
+        try await assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind(for: .phone)
+    }
+
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         try await assertNativeReturnAfterHeadingDropsToParagraphTypingAttributes(for: .phone)
     }
@@ -53,6 +65,18 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
         try await assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for: .pad)
+    }
+
+    func testMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering() async throws {
+        try await assertMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering(for: .pad)
+    }
+
+    func testMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering() async throws {
+        try await assertMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering(for: .pad)
+    }
+
+    func testMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind() async throws {
+        try await assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind(for: .pad)
     }
 
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
@@ -250,6 +274,89 @@ private func assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for 
     XCTAssertEqual(typingFont.pointSize, expectedMobileBodyFontSize(), accuracy: 0.01)
     XCTAssertFalse(isBoldFont(typingFont))
     assertResolvedEqual(typingColor, UIColor.label)
+}
+
+@MainActor
+private func assertMountedBulletFormattingReplacesCheckboxSyntaxWithoutLayering(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "- [ ] Task",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let insertionPoint = NSRange(location: 6, length: 0)
+    textView.selectedRange = insertionPoint
+    session.selectionDidChange(insertionPoint)
+
+    session.applyFormatting(.bulletList)
+    try await waitForMobileSessionText(session, expected: "- Task")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "- Task")
+    XCTAssertEqual(session.currentText, "- Task")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    XCTAssertTrue(session.formattingState.isBulletList)
+    XCTAssertFalse(session.formattingState.isCheckbox)
+}
+
+@MainActor
+private func assertMountedBlockquoteFormattingReplacesNumberedListSyntaxWithoutLayering(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "1. Task",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let insertionPoint = NSRange(location: 3, length: 0)
+    textView.selectedRange = insertionPoint
+    session.selectionDidChange(insertionPoint)
+
+    session.applyFormatting(.blockquote)
+    try await waitForMobileSessionText(session, expected: "> Task")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "> Task")
+    XCTAssertEqual(session.currentText, "> Task")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    XCTAssertTrue(session.formattingState.isBlockquote)
+    XCTAssertFalse(session.formattingState.isNumberedList)
+}
+
+@MainActor
+private func assertMountedParagraphFormattingRemovesCodeFenceWithoutLeavingDelimitersBehind(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "```swift\nlet x = 1\n```",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let insertionPoint = NSRange(location: 11, length: 0)
+    textView.selectedRange = insertionPoint
+    session.selectionDidChange(insertionPoint)
+
+    session.applyFormatting(.paragraph)
+    try await waitForMobileSessionText(session, expected: "let x = 1\n")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "let x = 1\n")
+    XCTAssertEqual(session.currentText, "let x = 1\n")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 2, length: 0))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    XCTAssertFalse(session.formattingState.isCodeBlock)
 }
 
 @MainActor
