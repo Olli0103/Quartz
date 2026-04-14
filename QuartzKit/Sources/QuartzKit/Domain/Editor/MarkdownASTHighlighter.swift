@@ -123,6 +123,16 @@ public enum OverlayVisibilityBehavior: Sendable {
     case concealWhenInactive(revealRange: NSRange)
 }
 
+public enum HighlightSemanticRole: Sendable, Equatable {
+    case heading(level: Int)
+    case bold
+    case italic
+    case inlineCode
+    case strikethrough
+    case blockquote
+    case codeBlock
+}
+
 public struct HighlightSpan: @unchecked Sendable {
     public let range: NSRange
     public let font: PlatformFont
@@ -149,8 +159,10 @@ public struct HighlightSpan: @unchecked Sendable {
     /// When set, marks this span as a wiki-link. Value is the linked note title.
     /// Applied as NSAttributedString.Key.quartzWikiLink and underline styling.
     public let wikiLinkTitle: String?
+    /// Semantic role propagated from the markdown parser for higher-level editor state.
+    public let semanticRole: HighlightSemanticRole?
 
-    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, overlayVisibilityBehavior: OverlayVisibilityBehavior = .alwaysVisible, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil, wikiLinkTitle: String? = nil) {
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, overlayVisibilityBehavior: OverlayVisibilityBehavior = .alwaysVisible, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil, wikiLinkTitle: String? = nil, semanticRole: HighlightSemanticRole? = nil) {
         self.range = range
         self.font = font
         self.color = color
@@ -164,6 +176,7 @@ public struct HighlightSpan: @unchecked Sendable {
         self.tableRowStyle = tableRowStyle
         self.kern = kern
         self.wikiLinkTitle = wikiLinkTitle
+        self.semanticRole = semanticRole
     }
 }
 
@@ -393,7 +406,8 @@ public actor MarkdownASTHighlighter {
                 paragraphStyle: span.paragraphStyle,
                 tableRowStyle: span.tableRowStyle,
                 kern: span.kern,
-                wikiLinkTitle: span.wikiLinkTitle
+                wikiLinkTitle: span.wikiLinkTitle,
+                semanticRole: span.semanticRole
             )
         }
 
@@ -439,7 +453,8 @@ public actor MarkdownASTHighlighter {
                     paragraphStyle: span.paragraphStyle,
                     tableRowStyle: span.tableRowStyle,
                     kern: span.kern,
-                    wikiLinkTitle: span.wikiLinkTitle
+                    wikiLinkTitle: span.wikiLinkTitle,
+                    semanticRole: span.semanticRole
                 ))
             }
         }
@@ -714,7 +729,7 @@ public actor MarkdownASTHighlighter {
                 default: 1.05
                 }
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, semanticRole: .heading(level: heading.level)))
                 if let prefixRange = headingPrefixRange(in: source, contentRange: nsRange) {
                     let lineRange = (source as NSString).lineRange(for: prefixRange)
                     let mutedColor: PlatformColor
@@ -745,7 +760,7 @@ public actor MarkdownASTHighlighter {
                 #elseif canImport(AppKit)
                 mutedColor = NSColor.tertiaryLabelColor
                 #endif
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, semanticRole: .bold))
                 // Mute opening and closing ** delimiters
                 if nsRange.length > syntaxLen * 2 {
                     spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
@@ -762,7 +777,7 @@ public actor MarkdownASTHighlighter {
                 #elseif canImport(AppKit)
                 mutedColor = NSColor.tertiaryLabelColor
                 #endif
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, semanticRole: .italic))
                 // Mute opening and closing * delimiters
                 if nsRange.length > syntaxLen * 2 {
                     spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
@@ -776,10 +791,10 @@ public actor MarkdownASTHighlighter {
                 let mutedColor: PlatformColor
                 #if canImport(UIKit)
                 mutedColor = UIColor.tertiaryLabel
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false, semanticRole: .inlineCode))
                 #elseif canImport(AppKit)
                 mutedColor = NSColor.tertiaryLabelColor
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false, semanticRole: .inlineCode))
                 #endif
                 // Mute backtick delimiters
                 if nsRange.length > syntaxLen * 2 {
@@ -791,9 +806,9 @@ public actor MarkdownASTHighlighter {
             if markup is CodeBlock {
                 let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
                 #if canImport(UIKit)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false, semanticRole: .codeBlock))
                 #elseif canImport(AppKit)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false, semanticRole: .codeBlock))
                 #endif
                 return
             }
@@ -808,7 +823,7 @@ public actor MarkdownASTHighlighter {
                 mutedColor = NSColor.tertiaryLabelColor
                 strikeColor = NSColor.secondaryLabelColor
                 #endif
-                spans.append(HighlightSpan(range: nsRange, font: font, color: strikeColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: true))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: strikeColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: true, semanticRole: .strikethrough))
                 // Mute ~~ delimiters
                 let syntaxLen = 2
                 if nsRange.length > syntaxLen * 2 {
@@ -993,7 +1008,7 @@ public actor MarkdownASTHighlighter {
                 #elseif canImport(AppKit)
                 quoteColor = NSColor.secondaryLabelColor
                 #endif
-                spans.append(HighlightSpan(range: nsRange, font: font, color: quoteColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
+                spans.append(HighlightSpan(range: nsRange, font: font, color: quoteColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, semanticRole: .blockquote))
                 // Don't recurse into children — blockquote styles the whole range
                 return
             }

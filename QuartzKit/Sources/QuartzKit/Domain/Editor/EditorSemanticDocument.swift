@@ -66,6 +66,25 @@ public struct EditorInlineToken: Sendable, Equatable, Identifiable {
     }
 }
 
+public enum EditorInlineFormatKind: Sendable, Equatable, Hashable {
+    case bold
+    case italic
+    case strikethrough
+    case inlineCode
+}
+
+public struct EditorInlineFormatRun: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let kind: EditorInlineFormatKind
+    public let range: NSRange
+
+    public init(id: String, kind: EditorInlineFormatKind, range: NSRange) {
+        self.id = id
+        self.kind = kind
+        self.range = range
+    }
+}
+
 public enum EditorTypingContext: Sendable, Equatable {
     case paragraph
     case heading(level: Int)
@@ -280,16 +299,23 @@ public struct EditorTextSegment {
 }
 
 public struct EditorSemanticDocument: Sendable, Equatable {
-    public static let empty = EditorSemanticDocument(textLength: 0, blocks: [], inlineTokens: [])
+    public static let empty = EditorSemanticDocument(textLength: 0, blocks: [], inlineTokens: [], inlineFormats: [])
 
     public let textLength: Int
     public let blocks: [EditorBlockNode]
     public let inlineTokens: [EditorInlineToken]
+    public let inlineFormats: [EditorInlineFormatRun]
 
-    public init(textLength: Int, blocks: [EditorBlockNode], inlineTokens: [EditorInlineToken]) {
+    public init(
+        textLength: Int,
+        blocks: [EditorBlockNode],
+        inlineTokens: [EditorInlineToken],
+        inlineFormats: [EditorInlineFormatRun]
+    ) {
         self.textLength = textLength
         self.blocks = blocks
         self.inlineTokens = inlineTokens
+        self.inlineFormats = inlineFormats
     }
 
     public static func build(markdown: String, spans: [HighlightSpan]) -> EditorSemanticDocument {
@@ -300,7 +326,8 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         return EditorSemanticDocument(
             textLength: textLength,
             blocks: buildBlockNodes(spans: spans, nsMarkdown: nsMarkdown),
-            inlineTokens: buildInlineTokens(spans: spans, nsMarkdown: nsMarkdown)
+            inlineTokens: buildInlineTokens(spans: spans, nsMarkdown: nsMarkdown),
+            inlineFormats: buildInlineFormats(spans: spans, nsMarkdown: nsMarkdown)
         )
     }
 
@@ -373,6 +400,16 @@ public struct EditorSemanticDocument: Sendable, Equatable {
             NSRange(location: clampedLocation, length: clampedLength),
             revealRange
         ).length > 0
+    }
+
+    public func inlineFormatKinds(at location: Int) -> Set<EditorInlineFormatKind> {
+        let clampedLocation = min(max(location, 0), textLength)
+        return Set(inlineFormats.compactMap { format in
+            guard Self.rangeContainsCaret(format.range, at: clampedLocation, textLength: textLength) else {
+                return nil
+            }
+            return format.kind
+        })
     }
 
     private static func buildBlockNodes(
@@ -479,6 +516,52 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         return tokens
     }
 
+    private static func buildInlineFormats(
+        spans: [HighlightSpan],
+        nsMarkdown: NSString
+    ) -> [EditorInlineFormatRun] {
+        var formats: [EditorInlineFormatRun] = []
+        var fingerprints: [String: Int] = [:]
+
+        let ordered = spans.sorted { lhs, rhs in
+            if lhs.range.location == rhs.range.location {
+                return lhs.range.length < rhs.range.length
+            }
+            return lhs.range.location < rhs.range.location
+        }
+
+        for span in ordered {
+            let kind: EditorInlineFormatKind
+            switch span.semanticRole {
+            case .bold?:
+                kind = .bold
+            case .italic?:
+                kind = .italic
+            case .strikethrough?:
+                kind = .strikethrough
+            case .inlineCode?:
+                kind = .inlineCode
+            default:
+                continue
+            }
+
+            let clampedRange = clamp(span.range, textLength: nsMarkdown.length)
+            guard clampedRange.length > 0 else { continue }
+            let surface = nsMarkdown.substring(with: clampedRange)
+            let fingerprint = "\(kind)|\(surface)"
+            let occurrence = (fingerprints[fingerprint] ?? 0) + 1
+            fingerprints[fingerprint] = occurrence
+
+            formats.append(EditorInlineFormatRun(
+                id: "\(fingerprint)#\(occurrence)",
+                kind: kind,
+                range: clampedRange
+            ))
+        }
+
+        return formats
+    }
+
     private static func classifyBlock(
         line: String,
         lineRange: NSRange,
@@ -578,6 +661,14 @@ public struct EditorSemanticDocument: Sendable, Equatable {
         let location = min(max(range.location, 0), textLength)
         let length = min(max(range.length, 0), max(textLength - location, 0))
         return NSRange(location: location, length: length)
+    }
+
+    private static func rangeContainsCaret(_ range: NSRange, at location: Int, textLength: Int) -> Bool {
+        guard range.location != NSNotFound, range.length > 0 else { return false }
+        if location == textLength, location > 0 {
+            return NSLocationInRange(location - 1, range)
+        }
+        return NSLocationInRange(location, range)
     }
 
     private static func hasTrailingLineBreak(_ text: String) -> Bool {

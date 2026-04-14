@@ -455,7 +455,11 @@ public final class EditorSession {
         let previousRange = cursorPosition
         cursorPosition = range
         updateTypingAttributes()
-        formattingState = FormattingState.detect(in: currentText, at: range.location)
+        formattingState = FormattingState.detect(
+            in: currentText,
+            semanticDocument: semanticDocument,
+            at: range.location
+        )
 
         guard syntaxVisibilityMode == .hiddenUntilCaret,
               !isApplyingExternalEdit,
@@ -676,7 +680,11 @@ public final class EditorSession {
             cursorAfter: edit.cursorAfter,
             origin: .formatting
         )
-        formattingState = FormattingState.detect(in: currentText, at: edit.cursorAfter.location)
+        formattingState = FormattingState.detect(
+            in: currentText,
+            semanticDocument: semanticDocument,
+            at: edit.cursorAfter.location
+        )
 
         // Run highlight IMMEDIATELY with NO DIFF — force all attributes to be rewritten.
         // Formatting actions are infrequent (user clicks a button) so no perf concern.
@@ -1803,7 +1811,11 @@ public final class EditorSession {
         #endif
 
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: lastAppliedHighlightSpans)
-        formattingState = FormattingState.detect(in: currentText, at: cursorPosition.location)
+        formattingState = FormattingState.detect(
+            in: currentText,
+            semanticDocument: semanticDocument,
+            at: cursorPosition.location
+        )
         updateTypingAttributes()
     }
 

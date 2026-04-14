@@ -164,6 +164,43 @@ final class EditorSemanticDocumentTests: XCTestCase {
         XCTAssertEqual(segments[0].attributes[.quartzTableRowStyle] as? Int, QuartzTableRowStyle.header.rawValue)
     }
 
+    func testSemanticDocumentBuildsInlineFormatsFromSemanticRoles() {
+        let markdown = "Alpha **bold** `code` ~~gone~~"
+        let spans = [
+            makeSemanticSpan(range: NSRange(location: 6, length: 8), role: .bold),
+            makeSemanticSpan(range: NSRange(location: 15, length: 6), role: .inlineCode),
+            makeSemanticSpan(range: NSRange(location: 22, length: 8), role: .strikethrough),
+            makeSemanticSpan(range: NSRange(location: 0, length: 5), role: .blockquote)
+        ]
+
+        let document = EditorSemanticDocument.build(markdown: markdown, spans: spans)
+
+        XCTAssertEqual(document.inlineFormats.map(\.kind), [.bold, .inlineCode, .strikethrough])
+        XCTAssertEqual(document.inlineFormatKinds(at: 9), Set([.bold]))
+        XCTAssertEqual(document.inlineFormatKinds(at: 17), Set([.inlineCode]))
+        XCTAssertEqual(document.inlineFormatKinds(at: 25), Set([.strikethrough]))
+    }
+
+    func testFormattingStateUsesSemanticInlineFormatsAndHeadingContext() {
+        let markdown = "# **Bold** and `code`"
+        let spans = [
+            makeSemanticSpan(range: NSRange(location: 0, length: 21), role: .heading(level: 1)),
+            makeSemanticSpan(range: NSRange(location: 2, length: 8), role: .bold),
+            makeSemanticSpan(range: NSRange(location: 15, length: 6), role: .inlineCode)
+        ]
+        let document = EditorSemanticDocument.build(markdown: markdown, spans: spans)
+
+        let boldState = FormattingState.detect(in: markdown, semanticDocument: document, at: 5)
+        XCTAssertEqual(boldState.headingLevel, 1)
+        XCTAssertTrue(boldState.isBold)
+        XCTAssertFalse(boldState.isCode)
+
+        let codeState = FormattingState.detect(in: markdown, semanticDocument: document, at: 17)
+        XCTAssertEqual(codeState.headingLevel, 1)
+        XCTAssertTrue(codeState.isCode)
+        XCTAssertFalse(codeState.isItalic)
+    }
+
     private func makeOverlaySpan(range: NSRange, revealRange: NSRange) -> HighlightSpan {
         HighlightSpan(
             range: range,
@@ -177,11 +214,40 @@ final class EditorSemanticDocumentTests: XCTestCase {
         )
     }
 
+    private func makeSemanticSpan(range: NSRange, role: HighlightSemanticRole) -> HighlightSpan {
+        HighlightSpan(
+            range: range,
+            font: EditorFontFactory.makeFont(family: .system, size: 14),
+            color: nil,
+            traits: FontTraits(bold: role == .bold || role.isHeading, italic: role == .italic || role == .blockquote),
+            backgroundColor: role == .inlineCode ? platformCodeBackgroundColor() : nil,
+            strikethrough: role == .strikethrough,
+            semanticRole: role
+        )
+    }
+
     private func platformLabelColor() -> PlatformColor {
         #if canImport(UIKit)
         return UIColor.label
         #elseif canImport(AppKit)
         return NSColor.labelColor
         #endif
+    }
+
+    private func platformCodeBackgroundColor() -> PlatformColor {
+        #if canImport(UIKit)
+        return UIColor.systemFill
+        #elseif canImport(AppKit)
+        return NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
+        #endif
+    }
+}
+
+private extension HighlightSemanticRole {
+    var isHeading: Bool {
+        if case .heading = self {
+            return true
+        }
+        return false
     }
 }

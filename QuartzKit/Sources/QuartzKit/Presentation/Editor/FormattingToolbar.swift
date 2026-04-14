@@ -324,6 +324,34 @@ public struct FormattingState: Equatable, Sendable {
         )
     }
 
+    /// Prefers semantic editor state, but falls back to lightweight markdown heuristics
+    /// while highlight spans are still catching up after a live edit.
+    public static func detect(
+        in text: String,
+        semanticDocument: EditorSemanticDocument,
+        at cursorLocation: Int
+    ) -> FormattingState {
+        let fallback = detect(in: text, at: cursorLocation)
+        guard semanticDocument.textLength > 0 else { return fallback }
+
+        let headingLevel: Int
+        switch semanticDocument.typingContext(at: cursorLocation) {
+        case let .heading(level):
+            headingLevel = level
+        case .paragraph:
+            headingLevel = fallback.headingLevel
+        }
+
+        let inlineKinds = semanticDocument.inlineFormatKinds(at: cursorLocation)
+        return FormattingState(
+            isBold: inlineKinds.contains(.bold) || fallback.isBold,
+            isItalic: inlineKinds.contains(.italic) || fallback.isItalic,
+            isStrikethrough: inlineKinds.contains(.strikethrough) || fallback.isStrikethrough,
+            isCode: inlineKinds.contains(.inlineCode) || fallback.isCode,
+            headingLevel: headingLevel
+        )
+    }
+
     /// Checks if cursor position is between two instances of `marker` on the same line.
     private static func isWrapped(in text: NSString, at cursor: Int, marker: String) -> Bool {
         let lineRange = text.lineRange(for: NSRange(location: min(cursor, max(0, text.length - 1)), length: 0))
