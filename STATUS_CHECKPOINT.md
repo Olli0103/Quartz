@@ -40,3 +40,7 @@ Next focus:
 bash scripts/test_editor_excellence.sh
 bash scripts/ci_phase4_5_editor.sh
 ```
+
+Follow-up quality track:
+- Bear-level editor polish is tracked in `EDITOR_BEAR_GAP_PLAN.md`.
+- That plan explicitly adds app-level UI tests on top of the existing editor harness.

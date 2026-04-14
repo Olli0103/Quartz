@@ -253,6 +253,11 @@ Phase 5 is explicitly blocked until these are fixed at the architecture level.
 - ✅ mobile live-edit parity exists for the critical mutation paths already covered on macOS
 - ✅ Phase 5 can start without unresolved editor debt
 
+### Post-4.5 Editor Quality Track
+
+- Bear-gap polish and app-level editor UI coverage are tracked separately in `EDITOR_BEAR_GAP_PLAN.md`.
+- This track does not block Phase 5 start, but it does block any claim that the editor is already Bear-level.
+
 ---
 
 ## Phase 5 — Knowledge Graph & Onboarding
