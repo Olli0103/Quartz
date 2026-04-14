@@ -267,6 +267,77 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertGreaterThan(alphaComponent(of: hiddenColor), 0.001)
     }
 
+    func testHiddenUntilCaretKeepsInlineSyntaxHiddenWhenCaretIsInPlainTextOnSameLine() async throws {
+        let text = try EditorRealityFixture.concealmentBoundaries.load()
+        let nsText = text as NSString
+        let plainTextLocation = nsText.range(of: "Paragraph").location
+        let boldDelimiterLocation = nsText.range(of: "**").location
+        let italicDelimiterLocation = nsText.range(of: "*italic*").location
+        let codeDelimiterLocation = nsText.range(of: "`code`").location
+
+        XCTAssertNotEqual(plainTextLocation, NSNotFound)
+        XCTAssertNotEqual(boldDelimiterLocation, NSNotFound)
+        XCTAssertNotEqual(italicDelimiterLocation, NSNotFound)
+        XCTAssertNotEqual(codeDelimiterLocation, NSNotFound)
+
+        let textView = try await makeHiddenUntilCaretTextView(
+            text: text,
+            selection: NSRange(location: plainTextLocation, length: 0)
+        )
+
+        XCTAssertTrue(isVisuallyHidden(at: boldDelimiterLocation, in: textView))
+        XCTAssertTrue(isVisuallyHidden(at: italicDelimiterLocation, in: textView))
+        XCTAssertTrue(isVisuallyHidden(at: codeDelimiterLocation, in: textView))
+    }
+
+    func testHiddenUntilCaretRevealsOnlyActiveInlineTokenOnSharedLine() async throws {
+        let text = try EditorRealityFixture.concealmentBoundaries.load()
+        let nsText = text as NSString
+        let boldContentLocation = nsText.range(of: "bold").location
+        let boldDelimiterLocation = nsText.range(of: "**").location
+        let italicDelimiterLocation = nsText.range(of: "*italic*").location
+        let codeDelimiterLocation = nsText.range(of: "`code`").location
+
+        XCTAssertNotEqual(boldContentLocation, NSNotFound)
+        XCTAssertNotEqual(boldDelimiterLocation, NSNotFound)
+        XCTAssertNotEqual(italicDelimiterLocation, NSNotFound)
+        XCTAssertNotEqual(codeDelimiterLocation, NSNotFound)
+
+        let textView = try await makeHiddenUntilCaretTextView(
+            text: text,
+            selection: NSRange(location: boldContentLocation, length: 0)
+        )
+
+        XCTAssertFalse(isVisuallyHidden(at: boldDelimiterLocation, in: textView))
+        XCTAssertTrue(isVisuallyHidden(at: italicDelimiterLocation, in: textView))
+        XCTAssertTrue(isVisuallyHidden(at: codeDelimiterLocation, in: textView))
+    }
+
+    func testHiddenUntilCaretKeepsWikiLinkTextVisibleWhileHidingItsBrackets() async throws {
+        let text = "Paragraph with [[Linked Note]] and plain text.\nSecond line plain."
+        let nsText = text as NSString
+        let secondLineLocation = nsText.range(of: "Second line plain.").location
+        let bracketLocation = nsText.range(of: "[[").location
+        let linkTextLocation = nsText.range(of: "Linked Note").location
+
+        XCTAssertNotEqual(secondLineLocation, NSNotFound)
+        XCTAssertNotEqual(bracketLocation, NSNotFound)
+        XCTAssertNotEqual(linkTextLocation, NSNotFound)
+
+        let textView = try await makeHiddenUntilCaretTextView(
+            text: text,
+            selection: NSRange(location: secondLineLocation, length: 0)
+        )
+
+        XCTAssertTrue(isVisuallyHidden(at: bracketLocation, in: textView))
+        XCTAssertFalse(isVisuallyHidden(at: linkTextLocation, in: textView))
+
+        let linkColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: linkTextLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
+    }
+
     private func makeSession() -> EditorSession {
         EditorSession(
             vaultProvider: MockVaultProvider(),
@@ -296,6 +367,35 @@ final class EditorRenderingRegressionTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for highlight pass to complete")
+    }
+
+    private func makeHiddenUntilCaretTextView(
+        text: String,
+        selection: NSRange
+    ) async throws -> NSTextView {
+        let session = makeSession()
+        let textView = makeTextView()
+
+        textView.string = text
+        textView.setSelectedRange(selection)
+        session.activeTextView = textView
+        session.textDidChange(text)
+        session.syntaxVisibilityMode = .hiddenUntilCaret
+        session.selectionDidChange(selection)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+        session.applyHighlightSpansForTesting(spans)
+
+        return textView
+    }
+
+    private func isVisuallyHidden(at location: Int, in textView: NSTextView) -> Bool {
+        guard let color = textView.textStorage?.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor else {
+            return false
+        }
+        return alphaComponent(of: color) <= 0.001
     }
 
     private func alphaComponent(of color: NSColor) -> CGFloat {

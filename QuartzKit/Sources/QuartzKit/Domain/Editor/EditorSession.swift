@@ -79,6 +79,10 @@ public final class EditorSession {
     /// when it detects changes that we ourselves triggered.
     private var isSavingToFileSystem: Bool = false
 
+    /// Guard flag: true while a programmatic edit is mutating the active text view.
+    /// Prevents delegate callbacks from downgrading the mutation origin to `.userTyping`.
+    private var isApplyingExternalEdit: Bool = false
+
     /// SHA-256 hash of the last content we wrote to disk.
     /// Used for content-based echo suppression (replaces timing-based guard).
     private var lastSavedContentHash: SHA256Digest?
@@ -414,6 +418,15 @@ public final class EditorSession {
         currentText = newText
         guard newText != previousText else { return }
 
+        if isApplyingExternalEdit {
+            isDirty = true
+            scheduleAutosave()
+            scheduleWordCountUpdate()
+            scheduleAnalysis()
+            scheduleHighlight()
+            return
+        }
+
         // Track mutation origin for undo/highlight policy
         let editLen = (newText as NSString).length - (previousText as NSString).length
         let editLocation = cursorPosition.location - max(editLen, 0)
@@ -438,9 +451,11 @@ public final class EditorSession {
         formattingState = FormattingState.detect(in: currentText, at: range.location)
 
         guard syntaxVisibilityMode == .hiddenUntilCaret,
+              !isApplyingExternalEdit,
               !isApplyingHighlights,
               !lastAppliedHighlightSpans.isEmpty,
-              visibilityContextRange(for: previousRange, in: currentText) != visibilityContextRange(for: range, in: currentText) else {
+              overlayVisibilitySignature(for: previousRange, spans: lastAppliedHighlightSpans, in: currentText)
+                != overlayVisibilitySignature(for: range, spans: lastAppliedHighlightSpans, in: currentText) else {
             return
         }
 
@@ -570,6 +585,7 @@ public final class EditorSession {
         #elseif canImport(AppKit)
         activeTextView?.undoManager?.undo()
         #endif
+        synchronizeSnapshotFromActiveTextView()
     }
 
     /// Triggers redo on the native text view's undo manager.
@@ -579,6 +595,7 @@ public final class EditorSession {
         #elseif canImport(AppKit)
         activeTextView?.undoManager?.redo()
         #endif
+        synchronizeSnapshotFromActiveTextView()
     }
 
     /// Whether undo is available.
@@ -706,7 +723,11 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color, overlayRange: r), range: r)
+                storage.addAttribute(
+                    .foregroundColor,
+                    value: adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior),
+                    range: r
+                )
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -787,7 +808,11 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                storage.addAttribute(.foregroundColor, value: adjustedOverlayColor(color, overlayRange: r), range: r)
+                storage.addAttribute(
+                    .foregroundColor,
+                    value: adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior),
+                    range: r
+                )
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -837,6 +862,8 @@ public final class EditorSession {
         origin: MutationOrigin = .formatting
     ) {
         guard !isComposing else { return }
+        isApplyingExternalEdit = true
+        defer { isApplyingExternalEdit = false }
 
         // Track mutation transaction
         currentTransaction = MutationTransaction(
@@ -862,6 +889,19 @@ public final class EditorSession {
             undoManager?.beginUndoGrouping()
         }
 
+        let originalText = ((textView.text ?? "") as NSString).substring(with: range)
+        let originalSelection = textView.selectedRange
+        if transaction.registersUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                target.applyExternalEdit(
+                    replacement: originalText,
+                    range: NSRange(location: range.location, length: (replacement as NSString).length),
+                    cursorAfter: originalSelection,
+                    origin: origin
+                )
+            }
+        }
+
         textView.textStorage.replaceCharacters(in: range, with: replacement)
 
         if let cursor = cursorAfter {
@@ -878,9 +918,6 @@ public final class EditorSession {
             undoManager?.enableUndoRegistration()
         }
 
-        // Sync snapshot
-        currentText = textView.text ?? ""
-
         #elseif canImport(AppKit)
         guard let textView = activeTextView, let storage = textView.textStorage else { return }
         let undoManager = textView.undoManager
@@ -896,11 +933,36 @@ public final class EditorSession {
             undoManager?.beginUndoGrouping()
         }
 
+        guard textView.shouldChangeText(in: range, replacementString: replacement) else {
+            if transaction.needsExplicitUndoGroup {
+                undoManager?.endUndoGrouping()
+            }
+            if !transaction.registersUndo {
+                undoManager?.enableUndoRegistration()
+            }
+            return
+        }
+
+        let originalText = (textView.string as NSString).substring(with: range)
+        let originalSelection = textView.selectedRange()
+        if transaction.registersUndo {
+            undoManager?.registerUndo(withTarget: self) { target in
+                target.applyExternalEdit(
+                    replacement: originalText,
+                    range: NSRange(location: range.location, length: (replacement as NSString).length),
+                    cursorAfter: originalSelection,
+                    origin: origin
+                )
+            }
+        }
+
         storage.replaceCharacters(in: range, with: replacement)
 
         if let cursor = cursorAfter {
             textView.setSelectedRange(cursor)
         }
+
+        textView.didChangeText()
 
         if transaction.needsExplicitUndoGroup {
             undoManager?.endUndoGrouping()
@@ -909,12 +971,14 @@ public final class EditorSession {
             undoManager?.enableUndoRegistration()
         }
 
-        // Sync snapshot
-        currentText = textView.string
         #endif
+
+        synchronizeSnapshotFromActiveTextView()
 
         isDirty = true
         scheduleAutosave()
+        scheduleWordCountUpdate()
+        scheduleAnalysis()
         scheduleHighlight()
     }
 
@@ -1173,7 +1237,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                let adjusted = adjustedOverlayColor(color, overlayRange: r)
+                let adjusted = adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
                 if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted as? UIColor) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
@@ -1259,7 +1323,7 @@ public final class EditorSession {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
-                let adjusted = adjustedOverlayColor(color, overlayRange: r)
+                let adjusted = adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior)
                 let existing = storage.attributes(at: r.location, effectiveRange: nil)
                 if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
@@ -1316,19 +1380,19 @@ public final class EditorSession {
         let loc = textView.selectedRange.location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
 
-        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .uiKit) {
-            var typing = textView.typingAttributes
-            typing[.font] = headingFont
-            textView.typingAttributes = typing
-            return
-        }
-
         // A fresh paragraph after a heading/list should start from body styling,
         // not inherit stale attributes from the previous line break.
         if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = UIColor.label
+            textView.typingAttributes = typing
+            return
+        }
+
+        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .uiKit) {
+            var typing = textView.typingAttributes
+            typing[.font] = headingFont
             textView.typingAttributes = typing
             return
         }
@@ -1347,19 +1411,19 @@ public final class EditorSession {
         let loc = textView.selectedRange().location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
 
-        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .appKit) {
-            var typing = textView.typingAttributes
-            typing[.font] = headingFont
-            textView.typingAttributes = typing
-            return
-        }
-
         // A fresh paragraph after a heading/list should start from body styling,
         // not inherit stale attributes from the previous line break.
         if currentLineText(in: text, cursorLocation: loc).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = NSColor.labelColor
+            textView.typingAttributes = typing
+            return
+        }
+
+        if let headingFont = headingFontForCurrentLine(in: text, cursorLocation: loc, baseFontSize: baseFontSize, platform: .appKit) {
+            var typing = textView.typingAttributes
+            typing[.font] = headingFont
             textView.typingAttributes = typing
             return
         }
@@ -1763,17 +1827,66 @@ public final class EditorSession {
         return nsText.substring(with: NSRange(location: start, length: end - start))
     }
 
-    private func visibilityContextRange(for selection: NSRange, in text: String) -> NSRange? {
-        guard !text.isEmpty else { return nil }
-        let nsText = text as NSString
-        let clampedLocation = min(max(selection.location, 0), max(nsText.length - 1, 0))
+    private func overlayVisibilitySignature(
+        for selection: NSRange,
+        spans: [HighlightSpan],
+        in text: String
+    ) -> [String] {
+        let textLength = (text as NSString).length
 
-        if selection.length > 0 {
-            let safeLength = min(selection.length, max(nsText.length - clampedLocation, 0))
-            return nsText.lineRange(for: NSRange(location: clampedLocation, length: safeLength))
+        return spans.compactMap { span in
+            guard span.isOverlay else { return nil }
+
+            switch span.overlayVisibilityBehavior {
+            case .alwaysVisible:
+                return nil
+            case let .concealWhenInactive(revealRange):
+                guard selectionTouchesRevealRange(selection, revealRange: revealRange, textLength: textLength) else {
+                    return nil
+                }
+                return "\(revealRange.location):\(revealRange.length)"
+            }
+        }
+    }
+
+    private func selectionTouchesRevealRange(
+        _ selection: NSRange,
+        revealRange: NSRange,
+        textLength: Int
+    ) -> Bool {
+        guard revealRange.location != NSNotFound,
+              revealRange.location >= 0,
+              revealRange.length > 0,
+              NSMaxRange(revealRange) <= textLength else {
+            return false
         }
 
-        return nsText.lineRange(for: NSRange(location: clampedLocation, length: 0))
+        let clampedLocation = min(max(selection.location, 0), textLength)
+        let clampedLength = min(max(selection.length, 0), max(textLength - clampedLocation, 0))
+
+        if clampedLength == 0 {
+            return clampedLocation >= revealRange.location && clampedLocation < NSMaxRange(revealRange)
+        }
+
+        return NSIntersectionRange(
+            NSRange(location: clampedLocation, length: clampedLength),
+            revealRange
+        ).length > 0
+    }
+
+    private func synchronizeSnapshotFromActiveTextView() {
+        #if canImport(UIKit)
+        guard let textView = activeTextView else { return }
+        currentText = textView.text ?? ""
+        cursorPosition = textView.selectedRange
+        #elseif canImport(AppKit)
+        guard let textView = activeTextView else { return }
+        currentText = textView.string
+        cursorPosition = textView.selectedRange()
+        #endif
+
+        formattingState = FormattingState.detect(in: currentText, at: cursorPosition.location)
+        updateTypingAttributes()
     }
 
     private func rangeNeedsFullAttributeRewrite(
@@ -1866,18 +1979,35 @@ public final class EditorSession {
 
     /// Adjusts an overlay color based on the current `syntaxVisibilityMode`.
     /// - `.full`: returns the color unchanged (tertiaryLabel).
-    /// - `.gentleFade`: returns the color at 0.4 alpha.
-    /// - `.hiddenUntilCaret`: hides delimiters unless the active selection is on the same line.
-    private func adjustedOverlayColor(_ color: PlatformColor, overlayRange: NSRange) -> PlatformColor {
+    /// - `.gentleFade`: fades only concealable markdown syntax.
+    /// - `.hiddenUntilCaret`: hides only concealable markdown syntax unless the
+    ///   active selection is touching the owning semantic token.
+    private func adjustedOverlayColor(
+        _ color: PlatformColor,
+        overlayVisibilityBehavior: OverlayVisibilityBehavior
+    ) -> PlatformColor {
         switch syntaxVisibilityMode {
         case .full:
             return color
         case .gentleFade:
-            return color.withAlphaComponent(0.4)
-        case .hiddenUntilCaret:
-            if let activeRange = visibilityContextRange(for: cursorPosition, in: currentText),
-               NSIntersectionRange(activeRange, overlayRange).length > 0 {
+            switch overlayVisibilityBehavior {
+            case .alwaysVisible:
                 return color
+            case .concealWhenInactive:
+                return color.withAlphaComponent(0.4)
+            }
+        case .hiddenUntilCaret:
+            switch overlayVisibilityBehavior {
+            case .alwaysVisible:
+                return color
+            case let .concealWhenInactive(revealRange):
+                if selectionTouchesRevealRange(
+                    cursorPosition,
+                    revealRange: revealRange,
+                    textLength: (currentText as NSString).length
+                ) {
+                    return color
+                }
             }
             #if canImport(UIKit)
             return UIColor.clear

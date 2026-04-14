@@ -93,6 +93,25 @@ final class EditorRealitySnapshotTests: XCTestCase {
         )
     }
 
+    func testConcealmentSnapshotWhenCaretIsInPlainTextOnMarkdownLine() async throws {
+        let fixture = try EditorRealityFixture.concealmentBoundaries.load()
+        let caretLocation = (fixture as NSString).range(of: "Paragraph").location
+        XCTAssertNotEqual(caretLocation, NSNotFound)
+
+        let session = try await makeLoadedSession(fixture: .concealmentBoundaries)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .hiddenUntilCaret,
+            selection: NSRange(location: caretLocation, length: 0)
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_Concealment_PlainTextSameLine_\(platformSuffix)"
+        )
+    }
+
     private func makeLoadedSession(fixture: EditorRealityFixture) async throws -> EditorSession {
         let provider = MockVaultProvider()
         let text = try fixture.load()

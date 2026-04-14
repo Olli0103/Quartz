@@ -115,6 +115,14 @@ private struct SourceRangeResolver {
 }
 
 /// Attribute application record for a range.
+public enum OverlayVisibilityBehavior: Sendable {
+    /// Overlay is a stylistic layer only and should never be concealed.
+    case alwaysVisible
+    /// Overlay represents markdown syntax and should only be visible while the
+    /// active selection/caret is inside the associated semantic range.
+    case concealWhenInactive(revealRange: NSRange)
+}
+
 public struct HighlightSpan: @unchecked Sendable {
     public let range: NSRange
     public let font: PlatformFont
@@ -123,8 +131,11 @@ public struct HighlightSpan: @unchecked Sendable {
     public let backgroundColor: PlatformColor?
     public let strikethrough: Bool
     /// When true, only the foreground color is applied (overlays on existing attributes).
-    /// Used for muting syntax delimiter characters (e.g., `#`, `**`, `` ` ``).
+    /// Used for muting syntax delimiter characters and additive styling like wiki links.
     public let isOverlay: Bool
+    /// Controls whether the overlay should stay visible or be concealed
+    /// unless the active selection is interacting with its semantic token.
+    public let overlayVisibilityBehavior: OverlayVisibilityBehavior
     /// When set, an NSTextAttachment is applied to the first character of the range.
     /// Used for inline image rendering — the attachment replaces the `!` character visually.
     public let attachment: NSTextAttachment?
@@ -139,7 +150,7 @@ public struct HighlightSpan: @unchecked Sendable {
     /// Applied as NSAttributedString.Key.quartzWikiLink and underline styling.
     public let wikiLinkTitle: String?
 
-    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil, wikiLinkTitle: String? = nil) {
+    public init(range: NSRange, font: PlatformFont, color: PlatformColor?, traits: FontTraits, backgroundColor: PlatformColor?, strikethrough: Bool, isOverlay: Bool = false, overlayVisibilityBehavior: OverlayVisibilityBehavior = .alwaysVisible, attachment: NSTextAttachment? = nil, paragraphStyle: NSParagraphStyle? = nil, tableRowStyle: QuartzTableRowStyle? = nil, kern: CGFloat? = nil, wikiLinkTitle: String? = nil) {
         self.range = range
         self.font = font
         self.color = color
@@ -147,6 +158,7 @@ public struct HighlightSpan: @unchecked Sendable {
         self.backgroundColor = backgroundColor
         self.strikethrough = strikethrough
         self.isOverlay = isOverlay
+        self.overlayVisibilityBehavior = overlayVisibilityBehavior
         self.attachment = attachment
         self.paragraphStyle = paragraphStyle
         self.tableRowStyle = tableRowStyle
@@ -373,6 +385,10 @@ public actor MarkdownASTHighlighter {
                 backgroundColor: span.backgroundColor,
                 strikethrough: span.strikethrough,
                 isOverlay: span.isOverlay,
+                overlayVisibilityBehavior: Self.offsetOverlayVisibilityBehavior(
+                    span.overlayVisibilityBehavior,
+                    by: dirtyRange.location
+                ),
                 attachment: span.attachment,
                 paragraphStyle: span.paragraphStyle,
                 tableRowStyle: span.tableRowStyle,
@@ -415,6 +431,10 @@ public actor MarkdownASTHighlighter {
                     backgroundColor: span.backgroundColor,
                     strikethrough: span.strikethrough,
                     isOverlay: span.isOverlay,
+                    overlayVisibilityBehavior: Self.shiftedOverlayVisibilityBehavior(
+                        span.overlayVisibilityBehavior,
+                        by: lengthDelta
+                    ),
                     attachment: span.attachment,
                     paragraphStyle: span.paragraphStyle,
                     tableRowStyle: span.tableRowStyle,
@@ -653,6 +673,7 @@ public actor MarkdownASTHighlighter {
                 backgroundColor: nil,
                 strikethrough: false,
                 isOverlay: true,
+                overlayVisibilityBehavior: .alwaysVisible,
                 wikiLinkTitle: targetTitle
             ))
 
@@ -666,7 +687,8 @@ public actor MarkdownASTHighlighter {
                 traits: FontTraits(bold: false, italic: false),
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: globalFullRange)
             ))
             spans.append(HighlightSpan(
                 range: closeBrackets,
@@ -675,7 +697,8 @@ public actor MarkdownASTHighlighter {
                 traits: FontTraits(bold: false, italic: false),
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: globalFullRange)
             ))
         }
     }
@@ -693,13 +716,23 @@ public actor MarkdownASTHighlighter {
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
                 if let prefixRange = headingPrefixRange(in: source, contentRange: nsRange) {
+                    let lineRange = (source as NSString).lineRange(for: prefixRange)
                     let mutedColor: PlatformColor
                     #if canImport(UIKit)
                     mutedColor = UIColor.tertiaryLabel
                     #elseif canImport(AppKit)
                     mutedColor = NSColor.tertiaryLabelColor
                     #endif
-                    spans.append(HighlightSpan(range: prefixRange, font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(
+                        range: prefixRange,
+                        font: font,
+                        color: mutedColor,
+                        traits: FontTraits(bold: true, italic: false),
+                        backgroundColor: nil,
+                        strikethrough: false,
+                        isOverlay: true,
+                        overlayVisibilityBehavior: .concealWhenInactive(revealRange: lineRange)
+                    ))
                 }
                 return
             }
@@ -715,8 +748,8 @@ public actor MarkdownASTHighlighter {
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false))
                 // Mute opening and closing ** delimiters
                 if nsRange.length > syntaxLen * 2 {
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
                 }
                 return
             }
@@ -732,8 +765,8 @@ public actor MarkdownASTHighlighter {
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false))
                 // Mute opening and closing * delimiters
                 if nsRange.length > syntaxLen * 2 {
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true))
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
                 }
                 return
             }
@@ -750,8 +783,8 @@ public actor MarkdownASTHighlighter {
                 #endif
                 // Mute backtick delimiters
                 if nsRange.length > syntaxLen * 2 {
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
                 }
                 return
             }
@@ -779,8 +812,8 @@ public actor MarkdownASTHighlighter {
                 // Mute ~~ delimiters
                 let syntaxLen = 2
                 if nsRange.length > syntaxLen * 2 {
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
+                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
                 }
                 return
             }
@@ -901,6 +934,7 @@ public actor MarkdownASTHighlighter {
 
                     // --- Overlay: dim pipe characters (skip divider — fully invisible) ---
                     if !isDividerLine {
+                        let rowRevealRange = lineRange
                         for (charIdx, ch) in line.enumerated() {
                             if ch == "|" {
                                 spans.append(HighlightSpan(
@@ -909,7 +943,8 @@ public actor MarkdownASTHighlighter {
                                     color: mutedColor,
                                     traits: FontTraits(bold: false, italic: false),
                                     backgroundColor: nil, strikethrough: false,
-                                    isOverlay: true
+                                    isOverlay: true,
+                                    overlayVisibilityBehavior: .concealWhenInactive(revealRange: rowRevealRange)
                                 ))
                             }
                         }
@@ -1144,6 +1179,7 @@ public actor MarkdownASTHighlighter {
                 backgroundColor: nil,
                 strikethrough: false,
                 isOverlay: true,
+                overlayVisibilityBehavior: .alwaysVisible,
                 wikiLinkTitle: targetTitle
             ))
 
@@ -1157,7 +1193,8 @@ public actor MarkdownASTHighlighter {
                 traits: FontTraits(bold: false, italic: false),
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullNSRange)
             ))
             spans.append(HighlightSpan(
                 range: closeBrackets,
@@ -1166,7 +1203,8 @@ public actor MarkdownASTHighlighter {
                 traits: FontTraits(bold: false, italic: false),
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullNSRange)
             ))
         }
     }
@@ -1236,7 +1274,8 @@ public actor MarkdownASTHighlighter {
                 traits: noTraits,
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
             ))
 
             // LaTeX content
@@ -1260,7 +1299,8 @@ public actor MarkdownASTHighlighter {
                 traits: noTraits,
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
             ))
         }
 
@@ -1284,7 +1324,8 @@ public actor MarkdownASTHighlighter {
                 traits: noTraits,
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
             ))
 
             // LaTeX content
@@ -1308,7 +1349,38 @@ public actor MarkdownASTHighlighter {
                 traits: noTraits,
                 backgroundColor: nil,
                 strikethrough: false,
-                isOverlay: true
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
+            ))
+        }
+    }
+
+    private static func offsetOverlayVisibilityBehavior(
+        _ behavior: OverlayVisibilityBehavior,
+        by offset: Int
+    ) -> OverlayVisibilityBehavior {
+        switch behavior {
+        case .alwaysVisible:
+            return .alwaysVisible
+        case let .concealWhenInactive(revealRange):
+            return .concealWhenInactive(revealRange: NSRange(
+                location: revealRange.location + offset,
+                length: revealRange.length
+            ))
+        }
+    }
+
+    private static func shiftedOverlayVisibilityBehavior(
+        _ behavior: OverlayVisibilityBehavior,
+        by delta: Int
+    ) -> OverlayVisibilityBehavior {
+        switch behavior {
+        case .alwaysVisible:
+            return .alwaysVisible
+        case let .concealWhenInactive(revealRange):
+            return .concealWhenInactive(revealRange: NSRange(
+                location: revealRange.location + delta,
+                length: revealRange.length
             ))
         }
     }
