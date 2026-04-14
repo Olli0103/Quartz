@@ -1,8 +1,8 @@
 # Phase 4.5 — Editor Rebuild Plan
 
 Date: 2026-04-14
-Status: In Progress
-Blocks: Phase 5
+Status: Complete
+Unblocks: Phase 5
 
 ## Why This Phase Exists
 
@@ -35,26 +35,31 @@ What is already materially in place:
 - reality corpus fixtures for known editor regressions
 - close/reopen parity coverage
 - macOS editor snapshot baselines for heading/paragraph drift and concealment
-- token-aware concealment instead of line-wide reveal behavior
-- mounted live-editor regressions for formatting, paste, undo/redo, and heading-to-paragraph typing context
-- a dedicated editor quality gate in `scripts/test_editor_excellence.sh`
-- a dedicated editor self-heal / CI path in `scripts/heal_editor.sh` and `scripts/ci_phase4_5_editor.sh`
-
-What is explicitly still missing:
-
 - iPhone editor snapshot parity
 - iPad editor snapshot parity
-- mobile live-editor parity for the same mutation paths covered on macOS
-- paste normalization policy that is productized rather than only regression-tested
+- token-aware concealment instead of line-wide reveal behavior
+- mounted live-editor regressions for formatting, paste, undo/redo, and heading-to-paragraph typing context on macOS, iPhone, and iPad
+- a dedicated editor quality gate in `scripts/test_editor_excellence.sh`
+- a dedicated editor self-heal / CI path in `scripts/heal_editor.sh` and `scripts/ci_phase4_5_editor.sh`
+- productized `smart` and `raw` paste policy
+- semantic editor state in `EditorSemanticDocument`
+- a plan-based primary renderer instead of relying only on broad storage repair
+- semantically driven formatting state and block transitions
+
+Completion proof:
+
+- `bash scripts/test_editor_excellence.sh` is green
+- `bash scripts/ci_phase4_5_editor.sh` is green
+- `reports/editor_excellence_report.json` is `pass`
 
 Rules:
 
-- Phase 4.5 does not complete on macOS strength alone.
-- Mobile parity is a hard blocker, not a follow-up cleanup item.
+- Phase 4.5 did not complete on macOS strength alone.
+- Mobile parity was treated as a hard blocker and is now closed.
 
 ## Non-Negotiable Ship Gates
 
-Quartz does not leave Phase 4.5 until all of the following are true:
+Quartz did not leave Phase 4.5 until all of the following were true:
 
 - selection is invariant across formatting, paste, undo/redo, reopen, and rerender
 - typing attributes never drift across heading, paragraph, list, quote, table, or code boundaries

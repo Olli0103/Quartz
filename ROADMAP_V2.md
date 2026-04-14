@@ -181,7 +181,7 @@ echo "=== Phase 4 Complete ==="
 
 ## Phase 4.5 — Editor Rebuild
 
-**Status**: In Progress
+**Status**: Complete
 **Blocks**: Phase 5
 **Plan**: `PHASE_4_5_EDITOR_REBUILD.md`
 
@@ -236,22 +236,22 @@ Phase 5 is explicitly blocked until these are fixed at the architecture level.
 | `EditorKeystrokeLatencyTests` | keystroke-to-frame budget | Performance |
 | `EditorVoiceOverInteractionTests` | editor accessibility and token announcements | Accessibility |
 
-**Current implementation note (2026-04-14)**:
-- macOS editor parity is materially ahead.
-- iPhone and iPad editor parity remain blocking work, not backlog.
-- current command entry points:
-  - `bash scripts/test_editor_excellence.sh`
-  - `bash scripts/ci_phase4_5_editor.sh`
+**Completion note (2026-04-14)**:
+- `bash scripts/test_editor_excellence.sh` is green.
+- `bash scripts/ci_phase4_5_editor.sh` is green.
+- `reports/editor_excellence_report.json` is `pass`.
+- Editor parity is closed on macOS, iPhone, and iPad.
+- Phase 5 is now unblocked.
 
 ### Done When ✅ ALL VERIFIED
 
-- open -> edit -> close -> reopen editor parity is green
-- syntax concealment is caret-aware and selection-safe
-- complex markdown blocks behave natively in-flow
-- typing context never drifts across headings, lists, code, or paragraph boundaries
-- editor snapshot suites are green on macOS, iPhone, and iPad
-- mobile live-edit parity exists for the critical mutation paths already covered on macOS
-- Phase 5 can start without unresolved editor debt
+- ✅ open -> edit -> close -> reopen editor parity is green
+- ✅ syntax concealment is caret-aware and selection-safe
+- ✅ complex markdown blocks behave natively in-flow
+- ✅ typing context never drifts across headings, lists, code, or paragraph boundaries
+- ✅ editor snapshot suites are green on macOS, iPhone, and iPad
+- ✅ mobile live-edit parity exists for the critical mutation paths already covered on macOS
+- ✅ Phase 5 can start without unresolved editor debt
 
 ---
 
