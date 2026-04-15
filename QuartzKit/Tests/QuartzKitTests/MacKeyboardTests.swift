@@ -35,6 +35,8 @@ struct MacKeyboardTests {
         // Key actions should have keyboard shortcuts
         let bold = actions.first(where: { $0.rawValue == "bold" })
         #expect(bold?.shortcut != nil, "Bold should have a keyboard shortcut")
+        let paragraph = actions.first(where: { $0.rawValue == "paragraph" })
+        #expect(paragraph?.shortcut == "\u{2318}0", "Paragraph should expose Cmd+0 for toolbar/menu parity")
     }
 
     @Test("MutationOrigin distinguishes keyboard vs other input sources")

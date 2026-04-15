@@ -102,6 +102,8 @@ public struct KeyboardShortcutCommands: Commands {
 
             Divider()
 
+            Button(String(localized: "Paragraph", bundle: .module)) { onFormatAction?(.paragraph) }
+                .keyboardShortcut("0", modifiers: .command)
             Button(String(localized: "Heading 1", bundle: .module)) { onFormatAction?(.heading1) }
                 .keyboardShortcut("1", modifiers: .command)
             Button(String(localized: "Heading 2", bundle: .module)) { onFormatAction?(.heading2) }

@@ -39,7 +39,8 @@ class QuartzUITestCase: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        terminateCurrentAppIfNeeded()
+        let currentApp = app
+        _ = MainActor.assumeIsolated { Self.terminateCurrentApp(currentApp) }
         app = nil
     }
 
@@ -60,7 +61,7 @@ class QuartzUITestCase: XCTestCase {
     /// Creates and launches the app with explicit launch arguments.
     @MainActor
     func launchApp(arguments: [String]) {
-        terminateCurrentAppIfNeeded()
+        _ = Self.terminateCurrentApp(app)
         app = XCUIApplication()
         app.launchArguments += arguments
         app.launch()
@@ -76,7 +77,8 @@ class QuartzUITestCase: XCTestCase {
     }
 
     @discardableResult
-    private func terminateCurrentAppIfNeeded() -> Bool {
+    @MainActor
+    private static func terminateCurrentApp(_ currentApp: XCUIApplication?) -> Bool {
         #if os(macOS)
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
         var terminatedAny = false
@@ -97,7 +99,7 @@ class QuartzUITestCase: XCTestCase {
         }
         #endif
 
-        let existingApp = app ?? XCUIApplication()
+        let existingApp = currentApp ?? XCUIApplication()
         guard existingApp.state != .notRunning else {
             return false
         }
@@ -221,6 +223,24 @@ class QuartzUITestCase: XCTestCase {
     }
 
     @MainActor
+    func assertEditorNotContains(
+        _ substring: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !editorTextValue(file: file, line: line).contains(substring) {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        XCTFail("Editor text must not contain '\(substring)'", file: file, line: line)
+    }
+
+    @MainActor
     func openMockVaultNote(named title: String, timeout: TimeInterval = 10) -> XCUIElement? {
         let noteList = element(matchingIdentifier: "note-list-view")
         _ = noteList.waitForExistence(timeout: min(timeout, 5))
@@ -298,7 +318,7 @@ class QuartzUITestCase: XCTestCase {
 
     var isPhone: Bool {
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .phone
+        MainActor.assumeIsolated { UIDevice.current.userInterfaceIdiom == .phone }
         #else
         false
         #endif
@@ -306,7 +326,7 @@ class QuartzUITestCase: XCTestCase {
 
     var isPad: Bool {
         #if os(iOS)
-        UIDevice.current.userInterfaceIdiom == .pad
+        MainActor.assumeIsolated { UIDevice.current.userInterfaceIdiom == .pad }
         #else
         false
         #endif

@@ -8,7 +8,7 @@ final class iPadSmokeUITests: QuartzUITestCase {
 
     override func setUpWithError() throws {
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .pad else {
+        guard MainActor.assumeIsolated({ UIDevice.current.userInterfaceIdiom }) == .pad else {
             throw XCTSkip("Skipping iPad tests on iPhone")
         }
         #else

@@ -563,7 +563,7 @@ struct EditorFormattingActionMetadataTests {
 
     @Test("Primary actions have keyboard shortcuts")
     func primaryActionsHaveShortcuts() {
-        let withShortcuts: [FormattingAction] = [.bold, .italic, .strikethrough, .heading, .code, .link, .blockquote]
+        let withShortcuts: [FormattingAction] = [.bold, .italic, .strikethrough, .heading, .paragraph, .code, .link, .blockquote]
         for action in withShortcuts {
             #expect(action.shortcut != nil, "\(action) should have shortcut")
         }

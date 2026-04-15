@@ -149,7 +149,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
 final class iPhoneEditorShellUITests: QuartzUITestCase {
 
     override func setUpWithError() throws {
-        guard UIDevice.current.userInterfaceIdiom == .phone else {
+        guard MainActor.assumeIsolated({ UIDevice.current.userInterfaceIdiom }) == .phone else {
             throw XCTSkip("Skipping iPhone editor shell tests on iPad")
         }
         try super.setUpWithError()
@@ -248,7 +248,7 @@ final class iPhoneEditorShellUITests: QuartzUITestCase {
 final class iPadEditorShellUITests: QuartzUITestCase {
 
     override func setUpWithError() throws {
-        guard UIDevice.current.userInterfaceIdiom == .pad else {
+        guard MainActor.assumeIsolated({ UIDevice.current.userInterfaceIdiom }) == .pad else {
             throw XCTSkip("Skipping iPad editor shell tests on iPhone")
         }
         try super.setUpWithError()
@@ -369,5 +369,46 @@ final class iPadEditorShellUITests: QuartzUITestCase {
         editor.typeText(token)
         assertEditorContains("**\(token)**")
     }
+
+    @MainActor
+    func testHardwareKeyboardHeadingAndParagraphCommandsRoundTrip() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForHeadingRoundTrip")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let token = "ipadHeading\(UUID().uuidString.prefix(6))"
+
+        app.typeKey("2", modifierFlags: .command)
+        editor.typeText(token)
+        assertEditorContains("## \(token)")
+
+        app.typeKey("0", modifierFlags: .command)
+        assertEditorContains(token)
+        assertEditorNotContains("## \(token)")
+    }
+
+    @MainActor
+    func testHardwareKeyboardLinkCommandInsertsMarkdownTemplate() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForKeyboardLink")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        app.typeKey("l", modifierFlags: [.command, .shift])
+
+        let token = "ipadCmdLink\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("[\(token)](url)")
+    }
+
 }
 #endif
