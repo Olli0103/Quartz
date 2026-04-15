@@ -133,6 +133,7 @@ func makeMobileSnapshotHarness(
     window.layoutIfNeeded()
 
     try await waitForMobileEditorReady(session: session, hostView: controller.view)
+    await settleMobileSnapshotSurface(controller: controller, window: window)
 
     if let textView = session.activeTextView as? MarkdownEditorUITextView {
         textView.hidesInsertionPointForSnapshots = true
@@ -141,11 +142,7 @@ func makeMobileSnapshotHarness(
     if let selection {
         session.restoreCursor(location: selection.location, length: selection.length)
         session.selectionDidChange(selection)
-        for _ in 0..<8 {
-            controller.view.layoutIfNeeded()
-            window.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await settleMobileSnapshotSurface(controller: controller, window: window)
     }
 
     return MobileEditorSnapshotHarness(session: session, controller: controller, window: window)
@@ -257,6 +254,21 @@ func pumpMobileHarness(_ harness: MobileEditorHarness, iterations: Int = 12) asy
         harness.controller.view.layoutIfNeeded()
         harness.window.layoutIfNeeded()
         try? await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+@MainActor
+private func settleMobileSnapshotSurface(
+    controller: UIHostingController<AnyView>,
+    window: UIWindow,
+    iterations: Int = 18
+) async {
+    for _ in 0..<iterations {
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        window.layoutIfNeeded()
+        CATransaction.flush()
+        try? await Task.sleep(for: .milliseconds(16))
     }
 }
 

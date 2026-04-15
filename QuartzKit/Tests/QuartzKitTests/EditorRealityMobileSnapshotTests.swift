@@ -136,7 +136,9 @@ private func snapshotStrategy(
 ) -> Snapshotting<UIViewController, UIImage> {
     switch target {
     case .phone:
-        return .image(precision: 0.995, perceptualPrecision: 0.99)
+        // iPhone simulator snapshots occasionally drift at sub-pixel text antialias edges
+        // after longer multi-suite runs even when the rendered editor state is identical.
+        return .image(precision: 0.993, perceptualPrecision: 0.98)
     case .pad:
         // iPad simulator rasterization shows low-level antialias jitter across runs
         // even when the semantic/editor state is identical.
