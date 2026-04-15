@@ -679,6 +679,12 @@ public final class EditorSession {
             semanticDocument: semanticDocument
         ) else { return }
 
+        if !edit.changesText {
+            restoreCursor(location: edit.cursorAfter.location, length: edit.cursorAfter.length)
+            selectionDidChange(edit.cursorAfter)
+            return
+        }
+
         applyExternalEdit(
             replacement: edit.replacement,
             range: edit.range,

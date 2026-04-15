@@ -23,6 +23,10 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedLinkFormattingSelectsURLPlaceholder(for: .phone)
     }
 
+    func testMountedLinkFormattingOnExistingMarkdownLinkKeepsTextAndSelectsURL() async throws {
+        try await assertMountedLinkFormattingOnExistingMarkdownLinkKeepsTextAndSelectsURL(for: .phone)
+    }
+
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
         try await assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for: .phone)
     }
@@ -49,6 +53,14 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
 
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         try await assertNativeReturnAfterHeadingDropsToParagraphTypingAttributes(for: .phone)
+    }
+
+    func testMountedTableTabSelectsNextCellWithoutMutatingMarkdown() async throws {
+        try await assertMountedTableTabSelectsNextCellWithoutMutatingMarkdown(for: .phone)
+    }
+
+    func testMountedTableTabAtLastCellInsertsNewRow() async throws {
+        try await assertMountedTableTabAtLastCellInsertsNewRow(for: .phone)
     }
 
     func testSmartPasteNormalizesMultiParagraphPasteWithoutBreakingSelection() async throws {
@@ -79,6 +91,10 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
         try await assertMountedLinkFormattingSelectsURLPlaceholder(for: .pad)
     }
 
+    func testMountedLinkFormattingOnExistingMarkdownLinkKeepsTextAndSelectsURL() async throws {
+        try await assertMountedLinkFormattingOnExistingMarkdownLinkKeepsTextAndSelectsURL(for: .pad)
+    }
+
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
         try await assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for: .pad)
     }
@@ -105,6 +121,14 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testNativeReturnAfterHeadingDropsToParagraphTypingAttributes() async throws {
         try await assertNativeReturnAfterHeadingDropsToParagraphTypingAttributes(for: .pad)
+    }
+
+    func testMountedTableTabSelectsNextCellWithoutMutatingMarkdown() async throws {
+        try await assertMountedTableTabSelectsNextCellWithoutMutatingMarkdown(for: .pad)
+    }
+
+    func testMountedTableTabAtLastCellInsertsNewRow() async throws {
+        try await assertMountedTableTabAtLastCellInsertsNewRow(for: .pad)
     }
 
     func testSmartPasteNormalizesMultiParagraphPasteWithoutBreakingSelection() async throws {
@@ -287,6 +311,117 @@ private func assertMountedLinkFormattingSelectsURLPlaceholder(for target: Mobile
     XCTAssertEqual(textView.selectedRange, NSRange(location: 13, length: 3))
     XCTAssertEqual(session.cursorPosition, NSRange(location: 13, length: 3))
     XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+}
+
+@MainActor
+private func assertMountedLinkFormattingOnExistingMarkdownLinkKeepsTextAndSelectsURL(
+    for target: MobileEditorTargetDevice
+) async throws {
+    try requireMobileDevice(target)
+
+    let text = "Alpha [Beta](url) Gamma"
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let selection = NSRange(location: 8, length: 0)
+    textView.selectedRange = selection
+    session.selectionDidChange(selection)
+
+    session.applyFormatting(.link)
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, text)
+    XCTAssertEqual(session.currentText, text)
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 13, length: 3))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 13, length: 3))
+    XCTAssertNil(session.currentTransaction)
+    XCTAssertFalse(session.isDirty)
+}
+
+@MainActor
+private func assertMountedTableTabSelectsNextCellWithoutMutatingMarkdown(
+    for target: MobileEditorTargetDevice
+) async throws {
+    try requireMobileDevice(target)
+
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |\n"
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let aLocation = (text as NSString).range(of: "A").location
+    let delegate = try XCTUnwrap(textView.delegate)
+    textView.selectedRange = NSRange(location: aLocation, length: 0)
+    session.selectionDidChange(NSRange(location: aLocation, length: 0))
+
+    let shouldChange = delegate.textView?(
+        textView,
+        shouldChangeTextIn: NSRange(location: aLocation, length: 0),
+        replacementText: "\t"
+    )
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(shouldChange, false)
+    XCTAssertEqual(textView.text, text)
+    XCTAssertEqual(session.currentText, text)
+    XCTAssertEqual(selectedString(in: textView), "B")
+    XCTAssertNil(session.currentTransaction)
+}
+
+@MainActor
+private func assertMountedTableTabAtLastCellInsertsNewRow(
+    for target: MobileEditorTargetDevice
+) async throws {
+    try requireMobileDevice(target)
+
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |\n"
+    let navigation = MarkdownTableNavigation()
+    let lastCellLocation = (text as NSString).range(of: "2").location
+    let expectedNavigation = try XCTUnwrap(
+        navigation.handleTab(in: text, cursorPosition: lastCellLocation, isShiftTab: false)
+    )
+    let expectedInsertion = try XCTUnwrap(expectedNavigation.newRowInsertion)
+    let expectedText = text + expectedInsertion.rowText
+
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let delegate = try XCTUnwrap(textView.delegate)
+    textView.selectedRange = NSRange(location: lastCellLocation, length: 0)
+    session.selectionDidChange(NSRange(location: lastCellLocation, length: 0))
+
+    let shouldChange = delegate.textView?(
+        textView,
+        shouldChangeTextIn: NSRange(location: lastCellLocation, length: 0),
+        replacementText: "\t"
+    )
+    try await waitForMobileSessionText(session, expected: expectedText)
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(shouldChange, false)
+    XCTAssertEqual(textView.text, expectedText)
+    XCTAssertEqual(session.currentText, expectedText)
+    XCTAssertEqual(textView.selectedRange, expectedNavigation.selectionRange)
+    XCTAssertEqual(session.cursorPosition, expectedNavigation.selectionRange)
+    XCTAssertEqual(session.currentTransaction?.origin, .tableNavigation)
+}
+
+@MainActor
+private func selectedString(in textView: UITextView) -> String {
+    let range = textView.selectedRange
+    guard range.length > 0 else { return "" }
+    return ((textView.text ?? "") as NSString).substring(with: range)
 }
 
 @MainActor

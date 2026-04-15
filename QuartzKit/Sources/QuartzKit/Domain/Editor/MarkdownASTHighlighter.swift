@@ -460,8 +460,9 @@ public actor MarkdownASTHighlighter {
         }
 
         cachedMarkdown = markdown
-        cachedSpans = merged
-        return merged
+        let sortedMerged = Self.sortSpans(merged)
+        cachedSpans = sortedMerged
+        return sortedMerged
     }
 
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
@@ -473,12 +474,19 @@ public actor MarkdownASTHighlighter {
         let doc = Document(parsing: markdown)
         let resolver = SourceRangeResolver(source: markdown)
         let codeRanges = codeBlockNSRanges(in: markdown)
+        let fencedCodeRanges = fencedCodeBlockNSRanges(in: markdown)
         collectSpans(from: doc, in: markdown, resolver: resolver, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
+        appendInlineCodeSpans(
+            in: markdown,
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         // Post-AST pass: highlight [[wiki-links]] which swift-markdown treats as plain text
         appendWikiLinkSpans(in: markdown, codeRanges: codeRanges, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
         // Post-AST pass: highlight $..$ (inline) and $$...$$ (display) LaTeX
         appendLatexSpans(in: markdown, codeRanges: codeRanges, baseFontSize: baseFontSize, fontFamily: fontFamily, into: &spans)
-        return spans
+        return sortSpans(spans)
     }
 
     private static func parseWithoutAST(
@@ -488,6 +496,13 @@ public actor MarkdownASTHighlighter {
     ) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let codeRanges = codeBlockNSRanges(in: markdown)
+        let fencedCodeRanges = fencedCodeBlockNSRanges(in: markdown)
+        appendInlineCodeSpans(
+            in: markdown,
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         appendWikiLinkSpans(
             in: markdown,
             codeRanges: codeRanges,
@@ -502,7 +517,7 @@ public actor MarkdownASTHighlighter {
             fontFamily: fontFamily,
             into: &spans
         )
-        return spans
+        return sortSpans(spans)
     }
 
     private static func exceedsSafeListDepth(in markdown: String) -> Bool {
@@ -559,6 +574,7 @@ public actor MarkdownASTHighlighter {
         // but process the resulting tree in chunks with yield points.
         let doc = Document(parsing: markdown)
         let resolver = SourceRangeResolver(source: markdown)
+        let fencedCodeRanges = fencedCodeBlockNSRanges(in: markdown)
 
         var spans: [HighlightSpan] = []
         var processedNodes = 0
@@ -587,6 +603,15 @@ public actor MarkdownASTHighlighter {
         }
 
         // Check cancellation before wiki-link pass
+        guard !Task.isCancelled else { return spans }
+
+        appendInlineCodeSpans(
+            in: markdown,
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
+
         guard !Task.isCancelled else { return spans }
 
         // Wiki-links: process in chunks of source text
@@ -634,7 +659,7 @@ public actor MarkdownASTHighlighter {
             into: &spans
         )
 
-        return spans
+        return sortSpans(spans)
     }
 
     /// Finds wiki-links in a chunk and emits spans with corrected global offsets.
@@ -780,21 +805,9 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is InlineCode {
-                let syntaxLen = 1
-                let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
-                let mutedColor: PlatformColor
-                #if canImport(UIKit)
-                mutedColor = UIColor.tertiaryLabel
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false, semanticRole: .inlineCode))
-                #elseif canImport(AppKit)
-                mutedColor = NSColor.tertiaryLabelColor
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false, semanticRole: .inlineCode))
-                #endif
-                // Mute backtick delimiters
-                if nsRange.length > syntaxLen * 2 {
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
-                    spans.append(HighlightSpan(range: NSRange(location: nsRange.location + nsRange.length - syntaxLen, length: syntaxLen), font: font, color: mutedColor, traits: FontTraits(bold: false, italic: false), backgroundColor: nil, strikethrough: false, isOverlay: true, overlayVisibilityBehavior: .concealWhenInactive(revealRange: nsRange)))
-                }
+                // Inline code ranges from swift-markdown source locations are not
+                // stable enough for the live editor. A dedicated regex pass emits
+                // the canonical inline-code spans after the AST walk.
                 return
             }
             if markup is CodeBlock {
@@ -1218,14 +1231,88 @@ public actor MarkdownASTHighlighter {
         }
     }
 
+    private static func appendInlineCodeSpans(
+        in source: String,
+        fencedCodeRanges: [NSRange],
+        baseFontSize: CGFloat,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsSource = source as NSString
+        guard nsSource.length > 0 else { return }
+
+        let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
+        let syntaxLen = 1
+        let mutedColor: PlatformColor
+        let backgroundColor: PlatformColor
+        #if canImport(UIKit)
+        mutedColor = UIColor.tertiaryLabel
+        backgroundColor = UIColor.systemFill
+        #elseif canImport(AppKit)
+        mutedColor = NSColor.tertiaryLabelColor
+        backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
+        #endif
+
+        let matches = Self.inlineCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        for match in matches {
+            let fullRange = match.range
+            let intersectsFence = fencedCodeRanges.contains { NSIntersectionRange($0, fullRange).length > 0 }
+            guard !intersectsFence else { continue }
+
+            spans.append(HighlightSpan(
+                range: fullRange,
+                font: font,
+                color: nil,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: backgroundColor,
+                strikethrough: false,
+                semanticRole: .inlineCode
+            ))
+
+            guard fullRange.length > syntaxLen * 2 else { continue }
+            spans.append(HighlightSpan(
+                range: NSRange(location: fullRange.location, length: syntaxLen),
+                font: font,
+                color: mutedColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
+            ))
+            spans.append(HighlightSpan(
+                range: NSRange(location: fullRange.location + fullRange.length - syntaxLen, length: syntaxLen),
+                font: font,
+                color: mutedColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
+            ))
+        }
+    }
+
+    private static func sortSpans(_ spans: [HighlightSpan]) -> [HighlightSpan] {
+        spans.sorted { lhs, rhs in
+            if lhs.range.location == rhs.range.location {
+                if lhs.range.length == rhs.range.length {
+                    return lhs.isOverlay && !rhs.isOverlay
+                }
+                return lhs.range.length < rhs.range.length
+            }
+            return lhs.range.location < rhs.range.location
+        }
+    }
+
+    private static func fencedCodeBlockNSRanges(in source: String) -> [NSRange] {
+        let nsSource = source as NSString
+        return Self.fencedCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length)).map(\.range)
+    }
+
     /// Returns NSRanges for all fenced code blocks and inline code spans.
     private static func codeBlockNSRanges(in source: String) -> [NSRange] {
-        var ranges: [NSRange] = []
+        var ranges: [NSRange] = fencedCodeBlockNSRanges(in: source)
         let nsSource = source as NSString
-
-        // Fenced code blocks
-        let fencedMatches = Self.fencedCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-        ranges.append(contentsOf: fencedMatches.map(\.range))
 
         // Inline code
         let inlineMatches = Self.inlineCodeRegex.matches(in: source, range: NSRange(location: 0, length: nsSource.length))

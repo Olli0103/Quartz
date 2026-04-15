@@ -83,7 +83,7 @@ struct Phase4ASTIncrementalParseIntegrationTests {
     func codeFenceTriggersFullReparse() async {
         let h = makeHighlighter()
         let original = "Hello world\n\nSome text"
-        let fullSpans = await h.parse(original)
+        _ = await h.parse(original)
 
         // Insert code fence: "Hello world\n\n```swift\ncode\n```\n\nSome text"
         let modified = "Hello world\n\n```swift\ncode\n```\n\nSome text"

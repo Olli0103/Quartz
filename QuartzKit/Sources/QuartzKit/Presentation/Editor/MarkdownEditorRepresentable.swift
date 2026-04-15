@@ -532,8 +532,8 @@ final class MarkdownEditorNSTextView: NSTextView {
         let assetManager = AssetManager()
         let insertionIndex = charIndex
 
-        Task { @MainActor [weak self, weak session] in
-            guard let self, let session else { return }
+        Task { @MainActor [weak session] in
+            guard let session else { return }
 
             var markdownFragments: [String] = []
 

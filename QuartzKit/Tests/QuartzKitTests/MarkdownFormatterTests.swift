@@ -320,4 +320,30 @@ struct MarkdownFormatterTests {
         #expect(selection.location == 7)
         #expect(selection.length == 3)
     }
+
+    @Test("Link action on existing markdown link selects URL instead of nesting")
+    func linkActionSelectsExistingURL() {
+        let text = "Alpha [Beta](url) Gamma"
+        let (result, selection) = formatter.apply(
+            .link,
+            to: text,
+            selectedRange: NSRange(location: 8, length: 0)
+        )
+        #expect(result == text)
+        #expect(selection.location == 13)
+        #expect(selection.length == 3)
+    }
+
+    @Test("Image action on existing markdown image selects path instead of nesting")
+    func imageActionSelectsExistingPath() {
+        let text = "![Alt](path)"
+        let (result, selection) = formatter.apply(
+            .image,
+            to: text,
+            selectedRange: NSRange(location: 3, length: 0)
+        )
+        #expect(result == text)
+        #expect(selection.location == 7)
+        #expect(selection.length == 4)
+    }
 }

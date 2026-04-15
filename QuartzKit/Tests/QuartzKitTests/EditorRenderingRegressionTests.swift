@@ -199,6 +199,68 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertEqual(reopenedColor, expectedColor)
     }
 
+    func testStateRoundtripDoesNotLeakBackgroundColorOutsideInlineCode() async throws {
+        let provider = MockVaultProvider()
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-roundtrip-background.md")
+        let text = try EditorRealityFixture.editorStateRoundtrip.load()
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "State Roundtrip"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        await session.loadNote(at: url)
+        let inlineCodeLocation = (text as NSString).range(of: "inline code").location
+        try await waitForHighlightPass(on: textView, monitoredLocation: inlineCodeLocation)
+
+        let allowedInlineCodeRange = (text as NSString).range(of: "`inline code`")
+        XCTAssertNotEqual(allowedInlineCodeRange.location, NSNotFound)
+
+        let leakedRanges = nonClearBackgroundRanges(in: textView).filter {
+            NSIntersectionRange($0, allowedInlineCodeRange).length != $0.length
+        }
+
+        XCTAssertTrue(
+            leakedRanges.isEmpty,
+            "Unexpected background color ranges outside inline code: \(leakedRanges)"
+        )
+    }
+
+    func testStateRoundtripHighlighterScopesBackgroundColorToInlineCode() async throws {
+        let text = try EditorRealityFixture.editorStateRoundtrip.load()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        let spans = await highlighter.parse(text)
+        let allowedInlineCodeRange = (text as NSString).range(of: "`inline code`")
+
+        XCTAssertNotEqual(allowedInlineCodeRange.location, NSNotFound)
+
+        let leakedRanges = spans.compactMap { span -> NSRange? in
+            guard let backgroundColor = span.backgroundColor, !isEffectivelyClear(backgroundColor) else {
+                return nil
+            }
+            return NSIntersectionRange(span.range, allowedInlineCodeRange).length == span.range.length
+                ? nil
+                : span.range
+        }
+
+        XCTAssertTrue(
+            leakedRanges.isEmpty,
+            "Highlighter emitted background spans outside inline code: \(leakedRanges)"
+        )
+    }
+
     func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
         let session = makeSession()
         let textView = makeTextView()
@@ -400,6 +462,26 @@ final class EditorRenderingRegressionTests: XCTestCase {
 
     private func alphaComponent(of color: NSColor) -> CGFloat {
         color.usingColorSpace(.deviceRGB)?.alphaComponent ?? color.alphaComponent
+    }
+
+    private func nonClearBackgroundRanges(in textView: NSTextView) -> [NSRange] {
+        guard let storage = textView.textStorage else { return [] }
+
+        var ranges: [NSRange] = []
+        var location = 0
+        while location < storage.length {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let background = storage.attribute(.backgroundColor, at: location, effectiveRange: &effectiveRange) as? NSColor
+            if let background, !isEffectivelyClear(background) {
+                ranges.append(effectiveRange)
+            }
+            location = NSMaxRange(effectiveRange)
+        }
+        return ranges
+    }
+
+    private func isEffectivelyClear(_ color: NSColor) -> Bool {
+        alphaComponent(of: color) <= 0.001
     }
 }
 #endif

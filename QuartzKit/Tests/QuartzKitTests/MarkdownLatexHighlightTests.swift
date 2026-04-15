@@ -64,7 +64,7 @@ struct MarkdownLatexHighlightTests {
         let text = "Use `$x$` for variables."
         let spans = await parseSpans(text)
         // The $x$ should be styled as inline code, not LaTeX
-        let xSpans = spansOverlapping(text, substring: "x", in: spans)
+        _ = spansOverlapping(text, substring: "x", in: spans)
         // Verify we get spans (from inline code styling)
         // Inline code spans may or may not cover 'x' depending on parser — no crash is the baseline
     }

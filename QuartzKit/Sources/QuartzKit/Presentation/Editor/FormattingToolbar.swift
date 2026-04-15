@@ -259,11 +259,14 @@ public struct MarkdownFormatEdit: Sendable {
     public let replacement: String
     /// Where to place the cursor after the edit.
     public let cursorAfter: NSRange
+    /// Whether applying this edit should mutate the markdown text.
+    public let changesText: Bool
 
-    public init(range: NSRange, replacement: String, cursorAfter: NSRange) {
+    public init(range: NSRange, replacement: String, cursorAfter: NSRange, changesText: Bool = true) {
         self.range = range
         self.replacement = replacement
         self.cursorAfter = cursorAfter
+        self.changesText = changesText
     }
 }
 
@@ -588,6 +591,10 @@ private extension NSRange {
 // MARK: - Markdown Text Formatting Logic
 
 public struct MarkdownFormatter: Sendable {
+    private static let markdownLinkRegex = try! NSRegularExpression(
+        pattern: #"(?<image>!)?\[(?<label>[^\]]*)\]\((?<destination>[^)]*)\)"#
+    )
+
     public init() {}
 
     /// Computes a surgical edit descriptor for a formatting action.
@@ -642,6 +649,13 @@ public struct MarkdownFormatter: Sendable {
                 cursorAfter: NSRange(location: selectedRange.location + (open as NSString).length, length: (selectedText as NSString).length)
             )
         case .template(let before, let after):
+            if let selectionOnlyEdit = selectionOnlyTemplateEdit(
+                for: action,
+                text: nsText,
+                selection: selectedRange
+            ) {
+                return selectionOnlyEdit
+            }
             let replacement = "\(before)\(selectedText)\(after)"
             return MarkdownFormatEdit(
                 range: selectedRange,
@@ -682,6 +696,49 @@ public struct MarkdownFormatter: Sendable {
             }
             return surgicalRemoveHeading(text: nsText, selection: selectedRange)
         }
+    }
+
+    private func selectionOnlyTemplateEdit(
+        for action: FormattingAction,
+        text: NSString,
+        selection: NSRange
+    ) -> MarkdownFormatEdit? {
+        guard action == .link || action == .image else { return nil }
+        guard text.length > 0 else { return nil }
+
+        let fullRange = NSRange(location: 0, length: text.length)
+        let matches = Self.markdownLinkRegex.matches(in: text as String, range: fullRange)
+
+        for match in matches {
+            let matchRange = match.range
+            guard selectionIntersects(selection, candidate: matchRange) else { continue }
+
+            let imageRange = match.range(withName: "image")
+            let isImage = imageRange.location != NSNotFound
+            guard (action == .image) == isImage else { continue }
+
+            let destinationRange = match.range(withName: "destination")
+            guard destinationRange.location != NSNotFound else { continue }
+
+            return MarkdownFormatEdit(
+                range: selection,
+                replacement: text.substring(with: selection),
+                cursorAfter: destinationRange,
+                changesText: false
+            )
+        }
+
+        return nil
+    }
+
+    private func selectionIntersects(_ selection: NSRange, candidate: NSRange) -> Bool {
+        guard candidate.location != NSNotFound, candidate.length > 0 else { return false }
+
+        if selection.length == 0 {
+            return selection.location >= candidate.location && selection.location <= NSMaxRange(candidate)
+        }
+
+        return NSIntersectionRange(selection, candidate).length > 0
     }
 
     private func surgicalWrap(_ marker: String, text: NSString, selection: NSRange, selectedText: String) -> MarkdownFormatEdit {
