@@ -146,6 +146,60 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
     }
 
+    func testMountedItalicFormattingImmediatelyStylesSelectionWithoutHeadingDrift() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let selection = (text as NSString).range(of: "How are you?")
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.italic)
+
+        XCTAssertEqual(textView.string, "# Welcome to Quartz Notes\n\n*How are you?*")
+        XCTAssertEqual(session.currentText, "# Welcome to Quartz Notes\n\n*How are you?*")
+        XCTAssertTrue(session.formattingState.isItalic)
+
+        let italicLocation = ("# Welcome to Quartz Notes\n\n*How are you?*" as NSString).range(of: "How are you?").location
+        let italicFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: italicLocation, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertTrue(NSFontManager.shared.traits(of: italicFont).contains(.italicFontMask))
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes"
+        )
+    }
+
+    func testMountedBoldFormattingImmediatelyStylesSelectionWithoutHeadingDrift() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let selection = (text as NSString).range(of: "How are you?")
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.bold)
+
+        XCTAssertEqual(textView.string, "# Welcome to Quartz Notes\n\n**How are you?**")
+        XCTAssertEqual(session.currentText, "# Welcome to Quartz Notes\n\n**How are you?**")
+        XCTAssertTrue(session.formattingState.isBold)
+
+        let boldLocation = ("# Welcome to Quartz Notes\n\n**How are you?**" as NSString).range(of: "How are you?").location
+        let boldFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: boldLocation, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes"
+        )
+    }
+
     func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
         let harness = try await makeMountedHarness(text: "Alpha Beta")
         let session = harness.session
@@ -183,6 +237,37 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(session.cursorPosition, NSRange(location: 13, length: 3))
         XCTAssertNil(session.currentTransaction)
         XCTAssertFalse(session.isDirty)
+    }
+
+    func testMountedLinkFormattingImmediatelyStylesSelectionWithoutHeadingDrift() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let selection = (text as NSString).range(of: "How are you?")
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.link)
+
+        let expectedText = "# Welcome to Quartz Notes\n\n[How are you?](url)"
+        let expectedURLSelection = (expectedText as NSString).range(of: "url")
+        XCTAssertEqual(textView.string, expectedText)
+        XCTAssertEqual(session.currentText, expectedText)
+        XCTAssertEqual(textView.selectedRange(), expectedURLSelection)
+        XCTAssertEqual(session.cursorPosition, expectedURLSelection)
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes"
+        )
+
+        let linkLabelLocation = (expectedText as NSString).range(of: "How are you?").location
+        let linkLabelColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: linkLabelLocation, effectiveRange: nil) as? NSColor
+        )
+        let normalizedLinkColor = try XCTUnwrap(normalizedColor(linkLabelColor))
+        XCTAssertGreaterThan(normalizedLinkColor.blueComponent, 0.2)
     }
 
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
@@ -417,7 +502,10 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(typingColor, .labelColor)
     }
 
-    private func makeMountedHarness(text: String) async throws -> EditorHarness {
+    private func makeMountedHarness(
+        text: String,
+        syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    ) async throws -> EditorHarness {
         let provider = MockVaultProvider()
         let url = URL(fileURLWithPath: "/tmp/editor-live-mutation-regression-\(UUID().uuidString).md")
         let note = NoteDocument(
@@ -445,7 +533,7 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
                 editorFontFamily: EditorTypography.defaultFontFamily,
                 editorLineSpacing: EditorTypography.defaultLineSpacingMultiplier,
                 editorMaxWidth: EditorTypography.defaultMaxWidth,
-                syntaxVisibilityMode: .full
+                syntaxVisibilityMode: syntaxVisibilityMode
             )
         }
         .frame(width: canvasSize.width, height: canvasSize.height)
@@ -518,6 +606,27 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         let range = textView.selectedRange()
         guard range.length > 0 else { return "" }
         return (textView.string as NSString).substring(with: range)
+    }
+
+    private func assertVisibleTextUsesPrimaryColor(in textView: NSTextView, substring: String) {
+        let nsText = textView.string as NSString
+        let range = nsText.range(of: substring)
+        XCTAssertNotEqual(range.location, NSNotFound)
+
+        let expected = normalizedColor(.labelColor)
+        for offset in 0..<range.length {
+            let location = range.location + offset
+            let scalar = nsText.substring(with: NSRange(location: location, length: 1))
+            if scalar == " " { continue }
+            let color = try? XCTUnwrap(
+                textView.textStorage?.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+            )
+            XCTAssertEqual(normalizedColor(color), expected)
+        }
+    }
+
+    private func normalizedColor(_ color: NSColor?) -> NSColor? {
+        color?.usingColorSpace(.deviceRGB)
     }
 }
 

@@ -400,6 +400,34 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
     }
 
+    func testHiddenUntilCaretKeepsMarkdownLinkLabelVisibleWhileHidingSyntaxAndURL() async throws {
+        let text = "Paragraph with [Linked Note](url) and plain text.\nSecond line plain."
+        let nsText = text as NSString
+        let secondLineLocation = nsText.range(of: "Second line plain.").location
+        let openBracketLocation = nsText.range(of: "[").location
+        let linkTextLocation = nsText.range(of: "Linked Note").location
+        let destinationLocation = nsText.range(of: "url").location
+
+        XCTAssertNotEqual(secondLineLocation, NSNotFound)
+        XCTAssertNotEqual(openBracketLocation, NSNotFound)
+        XCTAssertNotEqual(linkTextLocation, NSNotFound)
+        XCTAssertNotEqual(destinationLocation, NSNotFound)
+
+        let textView = try await makeHiddenUntilCaretTextView(
+            text: text,
+            selection: NSRange(location: secondLineLocation, length: 0)
+        )
+
+        XCTAssertTrue(isVisuallyHidden(at: openBracketLocation, in: textView))
+        XCTAssertFalse(isVisuallyHidden(at: linkTextLocation, in: textView))
+        XCTAssertTrue(isVisuallyHidden(at: destinationLocation, in: textView))
+
+        let linkColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: linkTextLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
+    }
+
     private func makeSession() -> EditorSession {
         EditorSession(
             vaultProvider: MockVaultProvider(),

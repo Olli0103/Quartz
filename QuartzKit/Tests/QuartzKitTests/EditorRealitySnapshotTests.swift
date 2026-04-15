@@ -115,6 +115,69 @@ final class EditorRealitySnapshotTests: XCTestCase {
         )
     }
 
+    func testSelectionOnLaterParagraphDoesNotCorruptHeadingSnapshot() async throws {
+        let fixture = try EditorRealityFixture.multilineFormattingToolbar.load()
+        let selection = (fixture as NSString).range(of: "How are you?")
+        XCTAssertNotEqual(selection.location, NSNotFound)
+
+        let session = try await makeLoadedSession(fixture: .multilineFormattingToolbar)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .hiddenUntilCaret,
+            selection: selection
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_MultilineFormatting_Selection_\(platformSuffix)"
+        )
+    }
+
+    func testBoldFormattingOnLaterParagraphKeepsHeadingStableSnapshot() async throws {
+        let fixture = try EditorRealityFixture.multilineFormattingToolbar.load()
+        let selection = (fixture as NSString).range(of: "How are you?")
+        XCTAssertNotEqual(selection.location, NSNotFound)
+
+        let session = try await makeLoadedSession(fixture: .multilineFormattingToolbar)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .hiddenUntilCaret,
+            selection: selection,
+            preparation: { session in
+                session.applyFormatting(.bold)
+            }
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_MultilineFormatting_Bold_\(platformSuffix)"
+        )
+    }
+
+    func testLinkFormattingOnLaterParagraphKeepsHeadingStableSnapshot() async throws {
+        let fixture = try EditorRealityFixture.multilineFormattingToolbar.load()
+        let selection = (fixture as NSString).range(of: "How are you?")
+        XCTAssertNotEqual(selection.location, NSNotFound)
+
+        let session = try await makeLoadedSession(fixture: .multilineFormattingToolbar)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .hiddenUntilCaret,
+            selection: selection,
+            preparation: { session in
+                session.applyFormatting(.link)
+            }
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_MultilineFormatting_Link_\(platformSuffix)"
+        )
+    }
+
     private func makeLoadedSession(fixture: EditorRealityFixture) async throws -> EditorSession {
         let provider = MockVaultProvider()
         let text = try fixture.load()
@@ -140,6 +203,7 @@ final class EditorRealitySnapshotTests: XCTestCase {
         session: EditorSession,
         syntaxVisibilityMode: SyntaxVisibilityMode,
         selection: NSRange? = nil,
+        preparation: (@MainActor (EditorSession) -> Void)? = nil,
         colorScheme: ColorScheme = .light,
         canvasSize: CGSize = CGSize(width: 820, height: 420)
     ) async throws -> NSImage {
@@ -187,6 +251,16 @@ final class EditorRealitySnapshotTests: XCTestCase {
             window.displayIfNeeded()
             container.layoutSubtreeIfNeeded()
             hostingView.layoutSubtreeIfNeeded()
+        }
+
+        if let preparation {
+            preparation(session)
+            for _ in 0..<20 {
+                window.displayIfNeeded()
+                container.layoutSubtreeIfNeeded()
+                hostingView.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(10))
+            }
         }
 
         let bitmapRep = NSBitmapImageRep(

@@ -34,6 +34,62 @@ struct MarkdownParserTests {
         #expect(!italic.isEmpty, "*italic* should produce italic trait spans")
     }
 
+    @Test("Multiline bold delimiters keep global ranges")
+    func multilineBoldDelimiterRanges() async {
+        let text = "# Welcome to Quartz Notes\n\n**How are you?**"
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(text)
+        let nsText = text as NSString
+        let fullRange = nsText.range(of: "**How are you?**")
+        let openRange = NSRange(location: fullRange.location, length: 2)
+        let closeRange = NSRange(location: NSMaxRange(fullRange) - 2, length: 2)
+        let headingVisiblePrefix = NSRange(location: 2, length: 2)
+
+        let boldOverlays = spans.filter { $0.isOverlay && $0.traits.bold }
+        #expect(boldOverlays.contains { NSEqualRanges($0.range, openRange) })
+        #expect(boldOverlays.contains { NSEqualRanges($0.range, closeRange) })
+        #expect(!boldOverlays.contains { NSIntersectionRange($0.range, headingVisiblePrefix).length > 0 })
+    }
+
+    @Test("Multiline italic delimiters keep global ranges")
+    func multilineItalicDelimiterRanges() async {
+        let text = "# Welcome to Quartz Notes\n\n*How are you?*"
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(text)
+        let nsText = text as NSString
+        let fullRange = nsText.range(of: "*How are you?*")
+        let openRange = NSRange(location: fullRange.location, length: 1)
+        let closeRange = NSRange(location: NSMaxRange(fullRange) - 1, length: 1)
+        let headingVisiblePrefix = NSRange(location: 2, length: 2)
+
+        let italicOverlays = spans.filter { $0.isOverlay && $0.traits.italic }
+        #expect(italicOverlays.contains { NSEqualRanges($0.range, openRange) })
+        #expect(italicOverlays.contains { NSEqualRanges($0.range, closeRange) })
+        #expect(!italicOverlays.contains { NSIntersectionRange($0.range, headingVisiblePrefix).length > 0 })
+    }
+
+    @Test("Multiline markdown links keep global ranges")
+    func multilineMarkdownLinkRanges() async {
+        let text = "# Welcome to Quartz Notes\n\n[How are you?](url)"
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(text)
+        let nsText = text as NSString
+        let fullRange = nsText.range(of: "[How are you?](url)")
+        let labelRange = nsText.range(of: "How are you?")
+        let destinationRange = nsText.range(of: "url")
+        let headingVisiblePrefix = NSRange(location: 2, length: 2)
+
+        let primaryLinkSpan = spans.first {
+            !$0.isOverlay && $0.color != nil && NSEqualRanges($0.range, labelRange)
+        }
+        let linkOverlays = spans.filter { $0.isOverlay }
+
+        #expect(primaryLinkSpan != nil)
+        #expect(linkOverlays.contains { NSEqualRanges($0.range, destinationRange) })
+        #expect(linkOverlays.contains { NSIntersectionRange($0.range, fullRange).length > 0 })
+        #expect(!linkOverlays.contains { NSIntersectionRange($0.range, headingVisiblePrefix).length > 0 })
+    }
+
     @Test("Wiki-links produce wikiLinkTitle spans")
     func wikiLinks() async {
         let highlighter = MarkdownASTHighlighter()

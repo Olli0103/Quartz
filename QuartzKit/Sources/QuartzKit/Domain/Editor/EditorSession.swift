@@ -138,6 +138,9 @@ public final class EditorSession {
 
     private let autosaveDelay: Duration = .seconds(1)
     private let pasteNormalizer = EditorPasteNormalizer()
+    /// Small-note threshold where a synchronous formatting rehighlight is fast enough
+    /// to avoid visible markdown/style drift after toolbar actions.
+    private static let synchronousFormattingHighlightThreshold = 4_000
 
     // MARK: - Version History Throttle
 
@@ -365,6 +368,7 @@ public final class EditorSession {
         semanticDocument = .empty
         lastRenderPlan = .empty
         lastAppliedHighlightSpans = []
+        lastAppliedHighlightSourceText = ""
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
@@ -420,7 +424,7 @@ public final class EditorSession {
 
         let previousText = currentText
         currentText = newText
-        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: lastAppliedHighlightSpans)
+        synchronizeSemanticSnapshotFromCurrentText()
         guard newText != previousText else { return }
 
         if isApplyingExternalEdit {
@@ -464,13 +468,14 @@ public final class EditorSession {
         guard syntaxVisibilityMode == .hiddenUntilCaret,
               !isApplyingExternalEdit,
               !isApplyingHighlights,
+              lastAppliedHighlightSourceText == currentText,
               !lastAppliedHighlightSpans.isEmpty,
               overlayVisibilitySignature(for: previousRange)
                 != overlayVisibilitySignature(for: range) else {
             return
         }
 
-        applyHighlightSpans(lastAppliedHighlightSpans)
+        applyHighlightSpansForced(lastAppliedHighlightSpans)
     }
 
     /// Called by the text view delegate when scroll position changes.
@@ -697,9 +702,24 @@ public final class EditorSession {
             at: edit.cursorAfter.location
         )
 
-        // Run highlight IMMEDIATELY with NO DIFF — force all attributes to be rewritten.
-        // Formatting actions are infrequent (user clicks a button) so no perf concern.
-        // The diff optimization can miss stale overlay colors after replaceCharacters shifts ranges.
+        // For small notes, pay the synchronous parse cost immediately so the user sees
+        // the styled result now, not one async turn later.
+        if currentText.count <= Self.synchronousFormattingHighlightThreshold {
+            let spans = MarkdownASTHighlighter.parseImmediately(
+                currentText,
+                baseFontSize: highlighterBaseFontSize,
+                fontFamily: highlighterFontFamily,
+                vaultRootURL: vaultRootURL,
+                noteURL: note?.fileURL
+            )
+            applyHighlightSpansForced(spans)
+            return
+        }
+
+        applyOptimisticFormattingPreview(action: action, edit: edit)
+
+        // Run highlight IMMEDIATELY with NO DIFF for larger notes once parsing completes.
+        // Formatting actions are infrequent, so this can bypass the regular debounced path.
         highlightTask?.cancel()
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
@@ -710,6 +730,62 @@ public final class EditorSession {
                 self?.applyHighlightSpansForced(spans)
             }
         }
+    }
+
+    private func applyOptimisticFormattingPreview(action: FormattingAction, edit: MarkdownFormatEdit) {
+        let previewRange = NSRange(location: edit.range.location, length: (edit.replacement as NSString).length)
+        guard previewRange.length > 0 else { return }
+
+        #if canImport(UIKit)
+        guard let textView = activeTextView else { return }
+        let storage = textView.textStorage
+        let labelColor = UIColor.label
+        #elseif canImport(AppKit)
+        guard let textView = activeTextView, let storage = textView.textStorage else { return }
+        let labelColor = NSColor.labelColor
+        #endif
+
+        guard previewRange.location >= 0, NSMaxRange(previewRange) <= storage.length else { return }
+
+        var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: labelColor]
+        let baseFont = EditorFontFactory.makeFont(
+            family: highlighterFontFamily,
+            size: highlighterBaseFontSize
+        )
+
+        switch action {
+        case .bold:
+            attributes[.font] = EditorFontFactory.makeFont(
+                family: highlighterFontFamily,
+                size: highlighterBaseFontSize,
+                weight: .bold
+            )
+        case .italic:
+            attributes[.font] = EditorFontFactory.makeFont(
+                family: highlighterFontFamily,
+                size: highlighterBaseFontSize,
+                italic: true
+            )
+        case .strikethrough:
+            attributes[.font] = baseFont
+            attributes[.strikethroughStyle] = 1
+        case .code:
+            attributes[.font] = EditorFontFactory.makeCodeFont(size: highlighterBaseFontSize * 0.9)
+            #if canImport(UIKit)
+            attributes[.backgroundColor] = UIColor.systemFill
+            #elseif canImport(AppKit)
+            attributes[.backgroundColor] = NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
+            #endif
+        default:
+            return
+        }
+
+        textView.undoManager?.disableUndoRegistration()
+        defer { textView.undoManager?.enableUndoRegistration() }
+
+        storage.beginEditing()
+        storage.addAttributes(attributes, range: previewRange)
+        storage.endEditing()
     }
 
     private func currentSelectedRangeFromActiveTextView() -> NSRange {
@@ -735,8 +811,14 @@ public final class EditorSession {
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
+        lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        formattingState = FormattingState.detect(
+            in: currentText,
+            semanticDocument: semanticDocument,
+            at: cursorPosition.location
+        )
 
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
@@ -1140,6 +1222,8 @@ public final class EditorSession {
     private var highlightTask: Task<Void, Never>?
     /// Reused when selection-only changes should refresh concealment without reparsing.
     private var lastAppliedHighlightSpans: [HighlightSpan] = []
+    /// Source text for the cached highlight spans.
+    private var lastAppliedHighlightSourceText: String = ""
     /// Cached render grouping so the editor applies the latest parsed plan, not ad-hoc filters.
     private var lastRenderPlan: EditorRenderPlan = .empty
 
@@ -1215,8 +1299,14 @@ public final class EditorSession {
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
+        lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        formattingState = FormattingState.detect(
+            in: currentText,
+            semanticDocument: semanticDocument,
+            at: cursorPosition.location
+        )
 
         #if canImport(UIKit)
         guard let textView = activeTextView, contentManager != nil else { return }
@@ -1828,13 +1918,26 @@ public final class EditorSession {
         cursorPosition = textView.selectedRange()
         #endif
 
-        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: lastAppliedHighlightSpans)
+        synchronizeSemanticSnapshotFromCurrentText()
         formattingState = FormattingState.detect(
             in: currentText,
             semanticDocument: semanticDocument,
             at: cursorPosition.location
         )
         updateTypingAttributes()
+    }
+
+    private func synchronizeSemanticSnapshotFromCurrentText() {
+        let spans = cachedHighlightSpansForCurrentText()
+        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
+        if spans.isEmpty {
+            lastRenderPlan = .empty
+        }
+    }
+
+    private func cachedHighlightSpansForCurrentText() -> [HighlightSpan] {
+        guard lastAppliedHighlightSourceText == currentText else { return [] }
+        return lastAppliedHighlightSpans
     }
 
     private func rangeNeedsFullAttributeRewrite(

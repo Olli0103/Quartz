@@ -5,6 +5,7 @@ enum EditorRealityFixture: String, CaseIterable {
     case headingParagraphDrift = "heading_paragraph_drift"
     case editorStateRoundtrip = "editor_state_roundtrip"
     case concealmentBoundaries = "concealment_boundaries"
+    case multilineFormattingToolbar = "multiline_formatting_toolbar"
 
     var fileName: String { rawValue }
 
@@ -16,6 +17,8 @@ enum EditorRealityFixture: String, CaseIterable {
             return "Paragraph with"
         case .concealmentBoundaries:
             return "Paragraph with"
+        case .multilineFormattingToolbar:
+            return "How are you?"
         }
     }
 
