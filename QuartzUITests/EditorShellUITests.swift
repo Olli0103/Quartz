@@ -51,6 +51,97 @@ final class macOSEditorShellUITests: QuartzUITestCase {
         editor.typeText(token)
         assertEditorContains("**\(token)**")
     }
+
+    @MainActor
+    func testToolbarLinkActionInsertsMarkdownTemplate() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForLink")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let linkButton = element(matchingIdentifier: "editor-toolbar-link")
+        XCTAssertTrue(linkButton.waitForExistence(timeout: 5),
+                      "Link toolbar action must exist on macOS")
+
+        interact(with: linkButton)
+
+        let token = "macLink\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("[\(token)](url)")
+    }
+
+    @MainActor
+    func testToolbarCheckboxActionInsertsTaskPrefix() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForCheckbox")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let checkboxButton = element(matchingIdentifier: "editor-toolbar-checkbox")
+        XCTAssertTrue(checkboxButton.waitForExistence(timeout: 5),
+                      "Checkbox toolbar action must exist on macOS")
+
+        interact(with: checkboxButton)
+
+        let token = "macTask\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("- [ ] \(token)")
+    }
+
+    @MainActor
+    func testPasteAndUndoRedoCommandsRoundTripEditorState() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForPaste")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        _ = focusEditor()
+        setPasteboardText("Line 1\r\n\t- [ ] task  \r\n\t\tIndented\t \r")
+
+        app.typeKey("v", modifierFlags: [.command, .option])
+        assertEditorContains("Line 1\n    - [ ] task\n        Indented\n")
+
+        app.typeKey("z", modifierFlags: .command)
+        XCTAssertFalse(editorTextValue().contains("Indented"),
+                       "Undo must remove the pasted payload")
+
+        app.typeKey("z", modifierFlags: [.command, .shift])
+        assertEditorContains("Line 1\n    - [ ] task\n        Indented\n")
+    }
+
+    @MainActor
+    func testEditorContextRestoresAcrossRelaunchWithoutReset() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForRestore")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let marker = "\nmac-restore-\(UUID().uuidString.prefix(8))"
+        editor.typeText(marker)
+        assertEditorContains(marker)
+
+        app.typeKey("s", modifierFlags: .command)
+        relaunchAppPreservingState()
+
+        XCTAssertTrue(waitForEditorSurface(timeout: 10),
+                      "Editor must return after relaunch without state reset")
+        assertEditorContains(marker)
+    }
 }
 #endif
 
@@ -107,6 +198,50 @@ final class iPhoneEditorShellUITests: QuartzUITestCase {
         let token = "iosBold\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
+    func testCompactToolbarLinkActionInsertsMarkdownTemplate() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForLink")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let linkButton = element(matchingIdentifier: "editor-toolbar-link")
+        XCTAssertTrue(linkButton.waitForExistence(timeout: 5),
+                      "Link floating-toolbar action must exist on iPhone")
+
+        interact(with: linkButton)
+
+        let token = "iosLink\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("[\(token)](url)")
+    }
+
+    @MainActor
+    func testCompactToolbarCheckboxActionInsertsTaskPrefix() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForCheckbox")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let checkboxButton = element(matchingIdentifier: "editor-toolbar-checkbox")
+        XCTAssertTrue(checkboxButton.waitForExistence(timeout: 5),
+                      "Checkbox floating-toolbar action must exist on iPhone")
+
+        interact(with: checkboxButton)
+
+        let token = "iosTask\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("- [ ] \(token)")
     }
 }
 
@@ -169,6 +304,68 @@ final class iPadEditorShellUITests: QuartzUITestCase {
         interact(with: boldButton)
 
         let token = "ipadBold\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
+    func testSplitViewToolbarLinkActionInsertsMarkdownTemplate() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForLink")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let linkButton = element(matchingIdentifier: "editor-toolbar-link")
+        XCTAssertTrue(linkButton.waitForExistence(timeout: 5),
+                      "Link floating-toolbar action must exist on iPad")
+
+        interact(with: linkButton)
+
+        let token = "ipadLink\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("[\(token)](url)")
+    }
+
+    @MainActor
+    func testSplitViewToolbarCheckboxActionInsertsTaskPrefix() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForCheckbox")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        let checkboxButton = element(matchingIdentifier: "editor-toolbar-checkbox")
+        XCTAssertTrue(checkboxButton.waitForExistence(timeout: 5),
+                      "Checkbox floating-toolbar action must exist on iPad")
+
+        interact(with: checkboxButton)
+
+        let token = "ipadTask\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("- [ ] \(token)")
+    }
+
+    @MainActor
+    func testHardwareKeyboardBoldCommandAppliesMarkdownInline() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForKeyboardBold")
+            XCTFail("Welcome note must exist in the mock vault")
+            return
+        }
+
+        let editor = focusEditor()
+        app.typeKey("b", modifierFlags: .command)
+
+        let token = "ipadCmdBold\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("**\(token)**")
     }

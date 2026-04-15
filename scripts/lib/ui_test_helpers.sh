@@ -23,14 +23,25 @@ reset_result_bundle() {
 run_xcodebuild_to_log() {
     local log_path="$1"
     shift
+    local attempt=1
+    local max_attempts=2
 
-    if "$@" >"$log_path" 2>&1; then
-        tail -n 20 "$log_path"
-        return 0
-    fi
+    while [ "$attempt" -le "$max_attempts" ]; do
+        if "$@" >"$log_path" 2>&1; then
+            tail -n 20 "$log_path"
+            return 0
+        fi
 
-    tail -n 40 "$log_path"
-    return 1
+        if [ "$attempt" -lt "$max_attempts" ] && ui_automation_timeout_in_log "$log_path"; then
+            echo "UI automation mode timed out; healing and retrying once..." >>"$log_path"
+            heal_ui_automation_timeout
+            attempt=$((attempt + 1))
+            continue
+        fi
+
+        tail -n 40 "$log_path"
+        return 1
+    done
 }
 
 extract_simulator_id() {
@@ -110,4 +121,16 @@ terminate_conflicting_macos_app_processes() {
             kill -9 "$pid" >/dev/null 2>&1 || true
         fi
     done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | awk '{print $1}' || true)
+}
+
+ui_automation_timeout_in_log() {
+    local log_path="$1"
+    grep -q "Timed out while enabling automation mode" "$log_path"
+}
+
+heal_ui_automation_timeout() {
+    pkill -f "QuartzUITests-Runner" >/dev/null 2>&1 || true
+    pkill -f "/Quartz.app/Contents/MacOS/Quartz" >/dev/null 2>&1 || true
+    pkill -f "xcodebuild test -scheme Quartz" >/dev/null 2>&1 || true
+    sleep 2
 }

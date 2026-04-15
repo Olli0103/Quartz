@@ -80,6 +80,7 @@ struct MacEditorToolbar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(action.label)
+        .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
         .accessibilityAddTraits(active ? [.isSelected] : [])
         .help(action.shortcut.map { "\(action.label) (\($0))" } ?? action.label)
     }
@@ -94,6 +95,7 @@ struct MacEditorToolbar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(String(localized: .init(stringLiteral: label), bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-\(label.lowercased())")
         .help(String(localized: .init(stringLiteral: help), bundle: .module))
     }
 
@@ -131,6 +133,7 @@ struct MacEditorToolbar: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(String(localized: "Heading level", bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-heading-menu")
         .help(String(localized: "Change heading level (⌘1-6)", bundle: .module))
     }
 
@@ -153,6 +156,7 @@ struct MacEditorToolbar: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .accessibilityLabel(String(localized: "More formatting options", bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-overflow-menu")
         .help(String(localized: "More formatting options", bundle: .module))
     }
 

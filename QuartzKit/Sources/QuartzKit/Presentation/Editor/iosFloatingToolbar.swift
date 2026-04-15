@@ -103,6 +103,7 @@ struct IosEditorToolbar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Save note", bundle: .module))
+            .accessibilityIdentifier("editor-toolbar-save")
             .padding(.trailing, 4)
         }
         .padding(.horizontal, 16)

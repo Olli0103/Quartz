@@ -49,6 +49,11 @@ struct QuartzApp: App {
         CommandLine.arguments.contains("--uitesting")
     }
 
+    /// UI tests only reset state when explicitly requested.
+    private static var shouldResetUITestingState: Bool {
+        CommandLine.arguments.contains("--reset-state")
+    }
+
     /// Auto-create and open a fixture vault instead of showing the vault picker.
     private static var shouldMockVault: Bool {
         CommandLine.arguments.contains("--mock-vault")
@@ -62,7 +67,7 @@ struct QuartzApp: App {
 
     init() {
         // Reset state for UI testing to ensure a clean slate
-        if Self.isUITesting {
+        if Self.shouldResetUITestingState {
             Self.resetUITestingState()
         }
         if Self.shouldDisableAnimations {
@@ -100,8 +105,24 @@ struct QuartzApp: App {
     /// directly into the workspace with known content.
     private static func setupMockVault() {
         do {
-            let vault = try UITestFixtureVault.create()
             let defaults = UserDefaults.standard
+
+            if !Self.shouldResetUITestingState,
+               let fixtureVaultPath = defaults.string(forKey: fixtureVaultPathKey) {
+                let fixtureURL = URL(fileURLWithPath: fixtureVaultPath, isDirectory: true)
+                if FileManager.default.fileExists(atPath: fixtureURL.path(percentEncoded: false)) {
+                    defaults.set(true, forKey: "quartz.hasCompletedOnboarding")
+                    defaults.set(
+                        defaults.string(forKey: "quartz.lastVault.name") ?? fixtureURL.lastPathComponent,
+                        forKey: "quartz.lastVault.name"
+                    )
+                    defaults.set(fixtureURL.path(percentEncoded: false), forKey: fixtureVaultPathKey)
+                    defaults.synchronize()
+                    return
+                }
+            }
+
+            let vault = try UITestFixtureVault.create()
             defaults.set(true, forKey: "quartz.hasCompletedOnboarding")
             defaults.set(vault.name, forKey: "quartz.lastVault.name")
             // Persist a bookmark matching VaultAccessManager's expected format

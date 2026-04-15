@@ -1,6 +1,8 @@
 import XCTest
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 
 /// Shared base class for Quartz UI smoke tests.
@@ -19,6 +21,12 @@ class QuartzUITestCase: XCTestCase {
     private let defaultLaunchArguments = [
         "--uitesting",
         "--reset-state",
+        "--mock-vault",
+        "--disable-animations"
+    ]
+
+    private let statePreservingLaunchArguments = [
+        "--uitesting",
         "--mock-vault",
         "--disable-animations"
     ]
@@ -42,6 +50,11 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     func launchApp() {
         launchApp(arguments: defaultLaunchArguments)
+    }
+
+    @MainActor
+    func relaunchAppPreservingState() {
+        launchApp(arguments: statePreservingLaunchArguments)
     }
 
     /// Creates and launches the app with explicit launch arguments.
@@ -256,6 +269,17 @@ class QuartzUITestCase: XCTestCase {
         element.click()
         #else
         element.tap()
+        #endif
+    }
+
+    @MainActor
+    func setPasteboardText(_ text: String) {
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
         #endif
     }
 
