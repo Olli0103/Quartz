@@ -2,14 +2,15 @@ import XCTest
 
 #if os(macOS)
 final class macOSEditorShellUITests: QuartzUITestCase {
+    private let preferredExistingNoteTitles = ["Welcome", "Todo"]
 
     @MainActor
     func testEditorPreservesEditsAcrossNoteSwitching() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcome")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
@@ -24,9 +25,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_WelcomeMissingAfterSwitch")
-            XCTFail("Welcome note must remain selectable after switching away")
+            XCTFail("A fixture note must remain selectable after switching away")
             return
         }
 
@@ -38,9 +39,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testKeyboardBoldActionAppliesMarkdownInline() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForBold")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
@@ -56,9 +57,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarLinkActionInsertsMarkdownTemplate() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForLink")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
@@ -78,9 +79,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarCheckboxActionInsertsTaskPrefix() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForCheckbox")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
@@ -141,9 +142,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarBoldActionWrapsCurrentSelection() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForToolbarBold")
-            XCTFail("Welcome note must exist for toolbar selection coverage")
+            XCTFail("An existing fixture note must exist for toolbar selection coverage")
             return
         }
 
@@ -165,9 +166,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testPasteAndUndoRedoCommandsRoundTripEditorState() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForPaste")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
@@ -189,9 +190,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testEditorContextRestoresAcrossRelaunchWithoutReset() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForRestore")
-            XCTFail("Welcome note must exist in the mock vault")
+            XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 

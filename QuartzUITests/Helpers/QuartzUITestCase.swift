@@ -252,15 +252,30 @@ class QuartzUITestCase: XCTestCase {
 
     @MainActor
     func openMockVaultNote(named title: String, timeout: TimeInterval = 10) -> XCUIElement? {
+        openMockVaultNote(matchingAnyOf: [title], timeout: timeout)
+    }
+
+    @MainActor
+    func openMockVaultNote(
+        matchingAnyOf titles: [String],
+        timeout: TimeInterval = 10
+    ) -> XCUIElement? {
+        let filteredTitles = titles.filter { !$0.isEmpty }
+        guard !filteredTitles.isEmpty else { return nil }
+
         let noteList = element(matchingIdentifier: "note-list-view")
         _ = noteList.waitForExistence(timeout: timeout)
 
-        let predicate = NSPredicate(format: "label CONTAINS[c] %@", title)
+        let predicate = NSCompoundPredicate(
+            orPredicateWithSubpredicates: filteredTitles.map {
+                NSPredicate(format: "label CONTAINS[c] %@", $0)
+            }
+        )
         let scopedQueries: [XCUIElementQuery] = [
             noteList.descendants(matching: .any),
-            app.staticTexts,
-            app.cells,
             app.outlineRows,
+            app.cells,
+            app.staticTexts,
             app.buttons
         ]
 
