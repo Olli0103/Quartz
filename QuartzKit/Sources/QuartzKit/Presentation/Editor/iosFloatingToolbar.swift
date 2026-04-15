@@ -150,6 +150,7 @@ struct IosEditorToolbar: View {
                     menuItemLabel(for: action)
                 }
                 .editorKeyboardShortcut(action)
+                .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
             }
         } label: {
             Image(systemName: "textformat.size.larger")
@@ -176,6 +177,7 @@ struct IosEditorToolbar: View {
                     menuItemLabel(for: action)
                 }
                 .editorKeyboardShortcut(action)
+                .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
             }
         } label: {
             Image(systemName: "ellipsis.circle")

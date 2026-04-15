@@ -491,7 +491,13 @@ public actor MarkdownASTHighlighter {
 
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {
         if exceedsSafeListDepth(in: markdown) {
-            return parseWithoutAST(markdown, baseFontSize: baseFontSize, fontFamily: fontFamily)
+            return parseWithoutAST(
+                markdown,
+                baseFontSize: baseFontSize,
+                fontFamily: fontFamily,
+                vaultRootURL: vaultRootURL,
+                noteURL: noteURL
+            )
         }
 
         var spans: [HighlightSpan] = []
@@ -505,10 +511,24 @@ public actor MarkdownASTHighlighter {
             codeRanges: codeRanges,
             baseFontSize: baseFontSize,
             fontFamily: fontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL,
+            into: &spans
+        )
+        appendBlockquoteSpans(
+            in: markdown,
+            codeRanges: codeRanges,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
             into: &spans
         )
         appendInlineCodeSpans(
             in: markdown,
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
+        appendFencedCodeBlockSpans(
             fencedCodeRanges: fencedCodeRanges,
             baseFontSize: baseFontSize,
             into: &spans
@@ -523,7 +543,9 @@ public actor MarkdownASTHighlighter {
     private static func parseWithoutAST(
         _ markdown: String,
         baseFontSize: CGFloat,
-        fontFamily: AppearanceManager.EditorFontFamily
+        fontFamily: AppearanceManager.EditorFontFamily,
+        vaultRootURL: URL?,
+        noteURL: URL?
     ) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
         let codeRanges = codeBlockNSRanges(in: markdown)
@@ -534,7 +556,21 @@ public actor MarkdownASTHighlighter {
             baseFontSize: baseFontSize,
             into: &spans
         )
+        appendFencedCodeBlockSpans(
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         appendInlineFormattingSpans(
+            in: markdown,
+            codeRanges: codeRanges,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL,
+            into: &spans
+        )
+        appendBlockquoteSpans(
             in: markdown,
             codeRanges: codeRanges,
             baseFontSize: baseFontSize,
@@ -649,7 +685,21 @@ public actor MarkdownASTHighlighter {
             baseFontSize: baseFontSize,
             into: &spans
         )
+        appendFencedCodeBlockSpans(
+            fencedCodeRanges: fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         appendInlineFormattingSpans(
+            in: markdown,
+            codeRanges: codeBlockNSRanges(in: markdown),
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL,
+            into: &spans
+        )
+        appendBlockquoteSpans(
             in: markdown,
             codeRanges: codeBlockNSRanges(in: markdown),
             baseFontSize: baseFontSize,
@@ -824,12 +874,8 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is CodeBlock {
-                let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
-                #if canImport(UIKit)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: UIColor.systemFill, strikethrough: false, semanticRole: .codeBlock))
-                #elseif canImport(AppKit)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: false, italic: false), backgroundColor: NSColor.quaternaryLabelColor.withAlphaComponent(0.15), strikethrough: false, semanticRole: .codeBlock))
-                #endif
+                // Code block source ranges from swift-markdown drift in multiline live-editor
+                // documents. A global fenced-code pass injects the canonical block ranges.
                 return
             }
             if markup is Strikethrough { return }
@@ -1002,75 +1048,13 @@ public actor MarkdownASTHighlighter {
                 return
             }
             if markup is BlockQuote {
-                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, italic: true)
-                let quoteColor: PlatformColor
-                #if canImport(UIKit)
-                quoteColor = UIColor.secondaryLabel
-                #elseif canImport(AppKit)
-                quoteColor = NSColor.secondaryLabelColor
-                #endif
-                spans.append(HighlightSpan(range: nsRange, font: font, color: quoteColor, traits: FontTraits(bold: false, italic: true), backgroundColor: nil, strikethrough: false, semanticRole: .blockquote))
-                // Don't recurse into children — blockquote styles the whole range
+                // Blockquote source ranges can drift in multiline documents.
+                // A global line pass injects canonical blockquote spans.
                 return
             }
-            if let image = markup as? Markdown.Image {
-                // Inline image rendering: resolve the relative path, load the image,
-                // and produce an attachment span that replaces the raw syntax visually.
-                let attachment = resolveImageAttachment(
-                    source: image.source,
-                    vaultRootURL: vaultRootURL,
-                    noteURL: noteURL
-                )
-
-                let bodyFont = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
-
-                if nsRange.length >= 2 {
-                    // First character: will be replaced with U+FFFC in applyHighlightSpans.
-                    // Use normal body font so the line fragment has room for the image.
-                    spans.append(HighlightSpan(
-                        range: NSRange(location: nsRange.location, length: 1),
-                        font: bodyFont,
-                        color: nil,
-                        traits: FontTraits(bold: false, italic: false),
-                        backgroundColor: nil,
-                        strikethrough: false,
-                        attachment: attachment
-                    ))
-
-                    // Remaining characters: hide the raw `[alt](path)` syntax
-                    let invisibleFont = EditorFontFactory.makeFont(family: fontFamily, size: 0.1)
-                    let clearColor: PlatformColor
-                    #if canImport(UIKit)
-                    clearColor = UIColor.clear
-                    #elseif canImport(AppKit)
-                    clearColor = NSColor.clear
-                    #endif
-
-                    spans.append(HighlightSpan(
-                        range: NSRange(location: nsRange.location + 1, length: nsRange.length - 1),
-                        font: invisibleFont,
-                        color: clearColor,
-                        traits: FontTraits(bold: false, italic: false),
-                        backgroundColor: nil,
-                        strikethrough: false
-                    ))
-                } else {
-                    // Edge case: single character image node — just style as link
-                    let linkColor: PlatformColor
-                    #if canImport(UIKit)
-                    linkColor = UIColor.systemBlue
-                    #elseif canImport(AppKit)
-                    linkColor = NSColor.linkColor
-                    #endif
-                    spans.append(HighlightSpan(
-                        range: nsRange,
-                        font: bodyFont,
-                        color: linkColor,
-                        traits: FontTraits(bold: false, italic: false),
-                        backgroundColor: nil,
-                        strikethrough: false
-                    ))
-                }
+            if markup is Markdown.Image {
+                // Markdown image nodes show the same paragraph-local source range drift as
+                // links and emphasis. A global regex pass injects canonical image spans.
                 return
             }
             if markup is Link {
@@ -1225,6 +1209,8 @@ public actor MarkdownASTHighlighter {
         codeRanges: [NSRange],
         baseFontSize: CGFloat,
         fontFamily: AppearanceManager.EditorFontFamily,
+        vaultRootURL: URL?,
+        noteURL: URL?,
         into spans: inout [HighlightSpan]
     ) {
         let nsSource = source as NSString
@@ -1236,6 +1222,8 @@ public actor MarkdownASTHighlighter {
             in: source,
             baseFontSize: baseFontSize,
             fontFamily: fontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL,
             occupiedRanges: &occupiedRanges,
             into: &spans
         )
@@ -1299,6 +1287,8 @@ public actor MarkdownASTHighlighter {
         in source: String,
         baseFontSize: CGFloat,
         fontFamily: AppearanceManager.EditorFontFamily,
+        vaultRootURL: URL?,
+        noteURL: URL?,
         occupiedRanges: inout [NSRange],
         into spans: inout [HighlightSpan]
     ) {
@@ -1324,14 +1314,29 @@ public actor MarkdownASTHighlighter {
             let labelRange = match.range(withName: "label")
             let destinationRange = match.range(withName: "destination")
 
-            guard imageRange.location == NSNotFound,
-                  fullRange.location != NSNotFound,
+            guard fullRange.location != NSNotFound,
                   fullRange.length > 0,
                   labelRange.location != NSNotFound,
                   labelRange.length >= 0,
                   destinationRange.location != NSNotFound,
                   destinationRange.length >= 0,
                   !occupiedRanges.contains(where: { NSIntersectionRange($0, fullRange).length > 0 }) else {
+                continue
+            }
+
+            if imageRange.location != NSNotFound {
+                appendMarkdownImageSpans(
+                    fullRange: fullRange,
+                    labelRange: labelRange,
+                    destinationRange: destinationRange,
+                    source: source,
+                    baseFontSize: baseFontSize,
+                    fontFamily: fontFamily,
+                    vaultRootURL: vaultRootURL,
+                    noteURL: noteURL,
+                    into: &spans
+                )
+                occupiedRanges.append(fullRange)
                 continue
             }
 
@@ -1368,6 +1373,93 @@ public actor MarkdownASTHighlighter {
             }
 
             occupiedRanges.append(fullRange)
+        }
+    }
+
+    private static func appendMarkdownImageSpans(
+        fullRange: NSRange,
+        labelRange: NSRange,
+        destinationRange: NSRange,
+        source: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        vaultRootURL: URL?,
+        noteURL: URL?,
+        into spans: inout [HighlightSpan]
+    ) {
+        let bodyFont = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize)
+        let mutedColor: PlatformColor
+        let accentColor: PlatformColor
+        let clearColor: PlatformColor
+        #if canImport(UIKit)
+        mutedColor = UIColor.tertiaryLabel
+        accentColor = UIColor.systemBlue
+        clearColor = UIColor.clear
+        #elseif canImport(AppKit)
+        mutedColor = NSColor.tertiaryLabelColor
+        accentColor = NSColor.linkColor
+        clearColor = NSColor.clear
+        #endif
+
+        let destination = (source as NSString).substring(with: destinationRange)
+        if let attachment = resolveImageAttachment(
+            source: destination,
+            vaultRootURL: vaultRootURL,
+            noteURL: noteURL
+        ) {
+            spans.append(HighlightSpan(
+                range: NSRange(location: fullRange.location, length: 1),
+                font: bodyFont,
+                color: nil,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                attachment: attachment
+            ))
+
+            if fullRange.length > 1 {
+                let invisibleFont = EditorFontFactory.makeFont(family: fontFamily, size: 0.1)
+                spans.append(HighlightSpan(
+                    range: NSRange(location: fullRange.location + 1, length: fullRange.length - 1),
+                    font: invisibleFont,
+                    color: clearColor,
+                    traits: FontTraits(bold: false, italic: false),
+                    backgroundColor: nil,
+                    strikethrough: false
+                ))
+            }
+            return
+        }
+
+        spans.append(HighlightSpan(
+            range: labelRange,
+            font: bodyFont,
+            color: accentColor,
+            traits: FontTraits(bold: false, italic: false),
+            backgroundColor: nil,
+            strikethrough: false
+        ))
+
+        let openingSyntaxRange = NSRange(location: fullRange.location, length: 2)
+        let middleSyntaxRange = NSRange(location: NSMaxRange(labelRange), length: 2)
+        let closingParenRange = NSRange(location: NSMaxRange(destinationRange), length: 1)
+
+        for syntaxRange in [openingSyntaxRange, middleSyntaxRange, destinationRange, closingParenRange] {
+            guard syntaxRange.location >= 0,
+                  syntaxRange.length > 0 else {
+                continue
+            }
+
+            spans.append(HighlightSpan(
+                range: syntaxRange,
+                font: bodyFont,
+                color: mutedColor,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
+            ))
         }
     }
 
@@ -1496,6 +1588,111 @@ public actor MarkdownASTHighlighter {
                 overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullRange)
             ))
         }
+    }
+
+    private static func appendFencedCodeBlockSpans(
+        fencedCodeRanges: [NSRange],
+        baseFontSize: CGFloat,
+        into spans: inout [HighlightSpan]
+    ) {
+        guard !fencedCodeRanges.isEmpty else { return }
+
+        let font = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
+        let backgroundColor: PlatformColor
+        #if canImport(UIKit)
+        backgroundColor = UIColor.systemFill
+        #elseif canImport(AppKit)
+        backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.15)
+        #endif
+
+        for range in fencedCodeRanges where range.location != NSNotFound && range.length > 0 {
+            spans.append(HighlightSpan(
+                range: range,
+                font: font,
+                color: nil,
+                traits: FontTraits(bold: false, italic: false),
+                backgroundColor: backgroundColor,
+                strikethrough: false,
+                semanticRole: .codeBlock
+            ))
+        }
+    }
+
+    private static func appendBlockquoteSpans(
+        in source: String,
+        codeRanges: [NSRange],
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsSource = source as NSString
+        guard nsSource.length > 0 else { return }
+
+        let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize, italic: true)
+        let quoteColor: PlatformColor
+        let mutedColor: PlatformColor
+        #if canImport(UIKit)
+        quoteColor = UIColor.secondaryLabel
+        mutedColor = UIColor.tertiaryLabel
+        #elseif canImport(AppKit)
+        quoteColor = NSColor.secondaryLabelColor
+        mutedColor = NSColor.tertiaryLabelColor
+        #endif
+
+        var cursor = 0
+        while cursor < nsSource.length {
+            let lineRange = nsSource.lineRange(for: NSRange(location: cursor, length: 0))
+            let trailingBreakLength = trailingLineBreakLengthStatic(in: nsSource, lineRange: lineRange)
+            let contentRange = NSRange(
+                location: lineRange.location,
+                length: max(lineRange.length - trailingBreakLength, 0)
+            )
+            let line = nsSource.substring(with: contentRange)
+            defer { cursor = NSMaxRange(lineRange) }
+
+            if codeRanges.contains(where: { NSIntersectionRange($0, lineRange).length > 0 }) {
+                continue
+            }
+
+            let leadingWhitespaceLength = line.prefix { $0 == " " || $0 == "\t" }.utf16.count
+            let trimmed = (line as NSString).substring(from: leadingWhitespaceLength)
+            guard trimmed.hasPrefix(">") else { continue }
+
+            spans.append(HighlightSpan(
+                range: lineRange,
+                font: font,
+                color: quoteColor,
+                traits: FontTraits(bold: false, italic: true),
+                backgroundColor: nil,
+                strikethrough: false,
+                semanticRole: .blockquote
+            ))
+
+            let syntaxLength = trimmed.hasPrefix("> ") ? 2 : 1
+            spans.append(HighlightSpan(
+                range: NSRange(location: lineRange.location + leadingWhitespaceLength, length: syntaxLength),
+                font: font,
+                color: mutedColor,
+                traits: FontTraits(bold: false, italic: true),
+                backgroundColor: nil,
+                strikethrough: false,
+                isOverlay: true,
+                overlayVisibilityBehavior: .concealWhenInactive(revealRange: lineRange)
+            ))
+        }
+    }
+
+    private static func trailingLineBreakLengthStatic(in text: NSString, lineRange: NSRange) -> Int {
+        var length = 0
+        while length < lineRange.length {
+            let scalar = text.character(at: lineRange.location + lineRange.length - length - 1)
+            if scalar == 10 || scalar == 13 {
+                length += 1
+            } else {
+                break
+            }
+        }
+        return length
     }
 
     private static func sortSpans(_ spans: [HighlightSpan]) -> [HighlightSpan] {

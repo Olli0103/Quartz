@@ -122,6 +122,7 @@ struct MacEditorToolbar: View {
                 Button { onFormatting(action) } label: {
                     menuItemLabel(for: action)
                 }
+                .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
             }
         } label: {
             iconLabel("textformat.size.larger")
@@ -145,6 +146,7 @@ struct MacEditorToolbar: View {
                 Button { onFormatting(action) } label: {
                     menuItemLabel(for: action)
                 }
+                .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
             }
         } label: {
             iconLabel("ellipsis.circle")

@@ -19,6 +19,26 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .phone)
     }
 
+    func testToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot() async throws {
+        try await assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(for: .phone)
+    }
+
+    func testToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses() async throws {
+        try await assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for: .phone)
+    }
+
+    func testToolbarSelectionMatrixPreservesHeadingAcrossAllActions() async throws {
+        try await assertToolbarSelectionMatrixPreservesHeadingAcrossAllActions(for: .phone)
+    }
+
+    func testToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions() async throws {
+        try await assertToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions(for: .phone)
+    }
+
+    func testToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering() async throws {
+        try await assertToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering(for: .phone)
+    }
+
     func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
         try await assertMountedLinkFormattingSelectsURLPlaceholder(for: .phone)
     }
@@ -85,6 +105,26 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testMountedBoldFormattingPreservesSelectionAcrossForcedHighlight() async throws {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .pad)
+    }
+
+    func testToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot() async throws {
+        try await assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(for: .pad)
+    }
+
+    func testToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses() async throws {
+        try await assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for: .pad)
+    }
+
+    func testToolbarSelectionMatrixPreservesHeadingAcrossAllActions() async throws {
+        try await assertToolbarSelectionMatrixPreservesHeadingAcrossAllActions(for: .pad)
+    }
+
+    func testToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions() async throws {
+        try await assertToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions(for: .pad)
+    }
+
+    func testToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering() async throws {
+        try await assertToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering(for: .pad)
     }
 
     func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
@@ -285,6 +325,219 @@ private func assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(
         textView.textStorage.attribute(.font, at: attributeLocation, effectiveRange: nil) as? UIFont
     )
     XCTAssertTrue(isBoldFont(boldFont))
+}
+
+@MainActor
+private func assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let text = "# Welcome to Quartz Notes\n\nHow are you?"
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let staleSelection = (text as NSString).range(of: "Welcome")
+    let liveSelection = (text as NSString).range(of: "How are you?")
+
+    textView.selectedRange = staleSelection
+    session.selectionDidChange(staleSelection)
+
+    textView.selectedRange = liveSelection
+    session.applyToolbarFormatting(.italic)
+    await pumpMobileHarness(harness)
+
+    let expectedText = "# Welcome to Quartz Notes\n\n*How are you?*"
+    XCTAssertEqual(textView.text, expectedText)
+    XCTAssertEqual(session.currentText, expectedText)
+    XCTAssertTrue(session.formattingState.isItalic)
+
+    let italicLocation = (expectedText as NSString).range(of: "How are you?").location
+    let italicFont = try XCTUnwrap(
+        textView.textStorage.attribute(.font, at: italicLocation, effectiveRange: nil) as? UIFont
+    )
+    XCTAssertTrue(isItalicFont(italicFont))
+    assertVisibleTextUsesPrimaryColor(in: textView, substring: "Welcome to Quartz Notes")
+}
+
+@MainActor
+private func assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let text = "# Welcome to Quartz Notes\n\nHow are you?"
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let selection = (text as NSString).range(of: "How are you?")
+
+    textView.selectedRange = selection
+    session.selectionDidChange(selection)
+
+    let collapsedSelection = NSRange(location: selection.location + selection.length, length: 0)
+    textView.selectedRange = collapsedSelection
+    textView.resignFirstResponder()
+
+    session.applyToolbarFormatting(.bold)
+    await pumpMobileHarness(harness)
+
+    let expectedText = "# Welcome to Quartz Notes\n\n**How are you?**"
+    let expectedSelection = (expectedText as NSString).range(of: "How are you?")
+    XCTAssertEqual(textView.text, expectedText)
+    XCTAssertEqual(session.currentText, expectedText)
+    XCTAssertEqual(textView.selectedRange, expectedSelection)
+    XCTAssertEqual(session.cursorPosition, expectedSelection)
+    XCTAssertTrue(textView.isFirstResponder)
+
+    let boldFont = try XCTUnwrap(
+        textView.textStorage.attribute(.font, at: expectedSelection.location, effectiveRange: nil) as? UIFont
+    )
+    XCTAssertTrue(isBoldFont(boldFont))
+    assertVisibleTextUsesPrimaryColor(in: textView, substring: "Welcome to Quartz Notes")
+}
+
+@MainActor
+private func assertToolbarSelectionMatrixPreservesHeadingAcrossAllActions(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let text = "# Welcome to Quartz Notes\n\nHow are you?"
+    let staleSelection = (text as NSString).range(of: "Welcome")
+    let liveSelection = (text as NSString).range(of: "How are you?")
+
+    for action in FormattingAction.allCases {
+        let harness = try await makeMountedMobileHarness(
+            text: text,
+            target: target,
+            syntaxVisibilityMode: .hiddenUntilCaret
+        )
+        let session = harness.session
+        let textView = harness.textView
+
+        textView.selectedRange = staleSelection
+        session.selectionDidChange(staleSelection)
+
+        textView.selectedRange = liveSelection
+        let expected = expectedMobileToolbarFormattingResult(
+            action: action,
+            text: text,
+            selection: liveSelection
+        )
+
+        session.applyToolbarFormatting(action)
+        try await waitForMobileSessionText(session, expected: expected.text)
+        await pumpMobileHarness(harness)
+
+        XCTAssertEqual(textView.text, expected.text, "Action \(action.rawValue) must only format the live selection")
+        XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must keep session text in sync")
+        XCTAssertEqual(textView.selectedRange, expected.newSelection, "Action \(action.rawValue) must restore the expected selection")
+        XCTAssertEqual(session.cursorPosition, expected.newSelection, "Action \(action.rawValue) must keep the cursor snapshot aligned")
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes",
+            context: action.rawValue
+        )
+        if action == .table {
+            assertTableRowStylesRendered(in: textView)
+        }
+    }
+}
+
+@MainActor
+private func assertToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let text = "# Welcome to Quartz Notes\n\nHow are you?"
+    let staleSelection = (text as NSString).range(of: "Welcome")
+    let liveCursor = NSRange(location: (text as NSString).range(of: "How are you?").location + 2, length: 0)
+    let actions: [FormattingAction] = [
+        .heading, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6,
+        .paragraph, .bulletList, .numberedList, .checkbox, .blockquote, .codeBlock, .mermaid
+    ]
+
+    for action in actions {
+        let harness = try await makeMountedMobileHarness(
+            text: text,
+            target: target,
+            syntaxVisibilityMode: .hiddenUntilCaret
+        )
+        let session = harness.session
+        let textView = harness.textView
+
+        textView.selectedRange = staleSelection
+        session.selectionDidChange(staleSelection)
+
+        textView.selectedRange = liveCursor
+        textView.resignFirstResponder()
+        let expected = expectedMobileToolbarFormattingResult(
+            action: action,
+            text: text,
+            selection: liveCursor
+        )
+
+        session.applyToolbarFormatting(action)
+        try await waitForMobileSessionText(session, expected: expected.text)
+        await pumpMobileHarness(harness)
+
+        XCTAssertEqual(textView.text, expected.text, "Action \(action.rawValue) must use the live cursor position")
+        XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must keep session text in sync")
+        XCTAssertEqual(textView.selectedRange, expected.newSelection, "Action \(action.rawValue) must restore the expected cursor/selection")
+        XCTAssertEqual(session.cursorPosition, expected.newSelection, "Action \(action.rawValue) must keep the cursor snapshot aligned")
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes",
+            context: action.rawValue
+        )
+    }
+}
+
+@MainActor
+private func assertToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let text = "# Welcome to Quartz Notes\n\nHow are you?"
+    let harness = try await makeMountedMobileHarness(
+        text: text,
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let staleSelection = (text as NSString).range(of: "Welcome")
+    let liveCursor = NSRange(location: (text as NSString).range(of: "How are you?").location + 2, length: 0)
+
+    textView.selectedRange = staleSelection
+    session.selectionDidChange(staleSelection)
+
+    textView.selectedRange = liveCursor
+    textView.resignFirstResponder()
+    let expected = expectedMobileToolbarFormattingResult(
+        action: .table,
+        text: text,
+        selection: liveCursor
+    )
+
+    session.applyToolbarFormatting(.table)
+    try await waitForMobileSessionText(session, expected: expected.text)
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, expected.text)
+    XCTAssertEqual(session.currentText, expected.text)
+    XCTAssertEqual(textView.selectedRange, expected.newSelection)
+    XCTAssertEqual(session.cursorPosition, expected.newSelection)
+
+    assertVisibleTextUsesPrimaryColor(
+        in: textView,
+        substring: "Welcome to Quartz Notes",
+        context: "table"
+    )
+    assertTableRowStylesRendered(in: textView)
 }
 
 @MainActor
@@ -699,6 +952,75 @@ private func validAttributeLocation(_ preferred: Int, storageLength: Int) -> Int
     return min(max(preferred, 0), storageLength - 1)
 }
 
+private func isItalicFont(_ font: UIFont) -> Bool {
+    font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+}
+
+@MainActor
+private func assertVisibleTextUsesPrimaryColor(
+    in textView: UITextView,
+    substring: String,
+    context: String? = nil,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    let nsText = (textView.text ?? "") as NSString
+    let range = nsText.range(of: substring)
+    XCTAssertNotEqual(range.location, NSNotFound, file: file, line: line)
+
+    for offset in 0..<range.length {
+        let location = range.location + offset
+        let scalar = nsText.substring(with: NSRange(location: location, length: 1))
+        if scalar == " " { continue }
+        guard let color = textView.textStorage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? UIColor else {
+            XCTFail("Expected foreground color at location \(location)", file: file, line: line)
+            return
+        }
+        assertResolvedEqual(
+            color,
+            UIColor.label,
+            message: "Visible heading text leaked styling in context \(context ?? "unknown") at character \(scalar)",
+            file: file,
+            line: line
+        )
+    }
+}
+
+private func expectedMobileToolbarFormattingResult(
+    action: FormattingAction,
+    text: String,
+    selection: NSRange
+) -> (text: String, newSelection: NSRange) {
+    let spans = MarkdownASTHighlighter.parseImmediately(
+        text,
+        baseFontSize: expectedMobileBodyFontSize(),
+        fontFamily: EditorTypography.defaultFontFamily,
+        vaultRootURL: nil,
+        noteURL: nil
+    )
+    let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: spans)
+    let formatter = MarkdownFormatter()
+    return formatter.apply(
+        action,
+        to: text,
+        selectedRange: selection,
+        semanticDocument: semanticDocument
+    )
+}
+
+@MainActor
+private func assertTableRowStylesRendered(in textView: UITextView) {
+    var foundTableRowStyle = false
+    for location in 0..<textView.textStorage.length {
+        if textView.textStorage.attribute(.quartzTableRowStyle, at: location, effectiveRange: nil) != nil {
+            foundTableRowStyle = true
+            break
+        }
+    }
+
+    XCTAssertTrue(foundTableRowStyle, "Inserted table must produce rendered table row styles")
+}
+
 private func expectedMobileBodyFontSize() -> CGFloat {
     UIFont.preferredFont(forTextStyle: .body).pointSize
 }
@@ -706,12 +1028,13 @@ private func expectedMobileBodyFontSize() -> CGFloat {
 private func assertResolvedEqual(
     _ color: UIColor,
     _ expected: UIColor,
+    message: String? = nil,
     file: StaticString = #filePath,
     line: UInt = #line
 ) {
     let traitCollection = UITraitCollection(userInterfaceStyle: .light)
     let lhs = color.resolvedColor(with: traitCollection)
     let rhs = expected.resolvedColor(with: traitCollection)
-    XCTAssertTrue(lhs.isEqual(rhs), "Expected \(lhs) to equal \(rhs)", file: file, line: line)
+    XCTAssertTrue(lhs.isEqual(rhs), message ?? "Expected \(lhs) to equal \(rhs)", file: file, line: line)
 }
 #endif

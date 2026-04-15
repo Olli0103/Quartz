@@ -97,6 +97,71 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testToolbarTableActionInsertsMarkdownTable() throws {
+        launchApp()
+
+        guard createNewNote() else {
+            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForTable")
+            XCTFail("New note action must succeed for macOS table toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("This is a test note for UI testing.")
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("table", fallbackLabel: "Table")
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorContains("| Column 1 | Column 2 | Column 3 |")
+        assertEditorContains("| --- | --- | --- |")
+        assertEditorContains("| Cell 1 | Cell 2 | Cell 3 |")
+    }
+
+    @MainActor
+    func testToolbarMermaidActionWrapsCurrentLineInFence() throws {
+        launchApp()
+
+        guard createNewNote() else {
+            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForMermaid")
+            XCTFail("New note action must succeed for macOS mermaid toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("This is a test note for UI testing.")
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("mermaid", fallbackLabel: "Mermaid Diagram")
+        let token = "graph TD"
+        editor.typeText(token)
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorNotContains("```mermaid\nThis is a test note for UI testing.")
+        assertEditorContains("```mermaid\n\(token)\n```")
+    }
+
+    @MainActor
+    func testToolbarBoldActionWrapsCurrentSelection() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForToolbarBold")
+            XCTFail("Welcome note must exist for toolbar selection coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        let token = "macToolbarBold\(UUID().uuidString.prefix(6))"
+        app.typeKey("a", modifierFlags: .command)
+        editor.typeText(token)
+        app.typeKey("a", modifierFlags: .command)
+
+        let boldButton = element(matchingIdentifier: "editor-toolbar-bold")
+        XCTAssertTrue(boldButton.waitForExistence(timeout: 5),
+                      "Bold toolbar action must exist on macOS")
+
+        interact(with: boldButton)
+        assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
     func testPasteAndUndoRedoCommandsRoundTripEditorState() throws {
         launchApp()
 
@@ -243,6 +308,45 @@ final class iPhoneEditorShellUITests: QuartzUITestCase {
         editor.typeText(token)
         assertEditorContains("- [ ] \(token)")
     }
+
+    @MainActor
+    func testCompactToolbarTableActionInsertsMarkdownTable() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForTable")
+            XCTFail("Welcome note must exist for iPhone table toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("table", fallbackLabel: "Table")
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorContains("| Column 1 | Column 2 | Column 3 |")
+        assertEditorContains("| --- | --- | --- |")
+        assertEditorContains("| Cell 1 | Cell 2 | Cell 3 |")
+    }
+
+    @MainActor
+    func testCompactToolbarMermaidActionWrapsCurrentLineInFence() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForMermaid")
+            XCTFail("Welcome note must exist for iPhone mermaid toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("mermaid", fallbackLabel: "Mermaid Diagram")
+        let token = "graph TD"
+        editor.typeText(token)
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorNotContains("```mermaid\nThis is a test note for UI testing.")
+        assertEditorContains("```mermaid\n\(token)\n```")
+    }
 }
 
 final class iPadEditorShellUITests: QuartzUITestCase {
@@ -350,6 +454,45 @@ final class iPadEditorShellUITests: QuartzUITestCase {
         let token = "ipadTask\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("- [ ] \(token)")
+    }
+
+    @MainActor
+    func testSplitViewToolbarTableActionInsertsMarkdownTable() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForTable")
+            XCTFail("Welcome note must exist for iPad table toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("table", fallbackLabel: "Table")
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorContains("| Column 1 | Column 2 | Column 3 |")
+        assertEditorContains("| --- | --- | --- |")
+        assertEditorContains("| Cell 1 | Cell 2 | Cell 3 |")
+    }
+
+    @MainActor
+    func testSplitViewToolbarMermaidActionWrapsCurrentLineInFence() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForMermaid")
+            XCTFail("Welcome note must exist for iPad mermaid toolbar coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n")
+        triggerOverflowFormattingAction("mermaid", fallbackLabel: "Mermaid Diagram")
+        let token = "graph TD"
+        editor.typeText(token)
+        assertEditorContains("This is a test note for UI testing.")
+        assertEditorNotContains("```mermaid\nThis is a test note for UI testing.")
+        assertEditorContains("```mermaid\n\(token)\n```")
     }
 
     @MainActor

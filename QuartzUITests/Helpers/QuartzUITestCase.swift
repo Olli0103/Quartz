@@ -219,7 +219,12 @@ class QuartzUITestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
 
-        XCTFail("Editor text must contain '\(substring)'", file: file, line: line)
+        let actual = editorTextValue(file: file, line: line)
+        XCTFail(
+            "Editor text must contain '\(substring)'. Actual editor text:\n\(actual)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
@@ -237,13 +242,18 @@ class QuartzUITestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
 
-        XCTFail("Editor text must not contain '\(substring)'", file: file, line: line)
+        let actual = editorTextValue(file: file, line: line)
+        XCTFail(
+            "Editor text must not contain '\(substring)'. Actual editor text:\n\(actual)",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor
     func openMockVaultNote(named title: String, timeout: TimeInterval = 10) -> XCUIElement? {
         let noteList = element(matchingIdentifier: "note-list-view")
-        _ = noteList.waitForExistence(timeout: min(timeout, 5))
+        _ = noteList.waitForExistence(timeout: timeout)
 
         let predicate = NSPredicate(format: "label CONTAINS[c] %@", title)
         let scopedQueries: [XCUIElementQuery] = [
@@ -254,12 +264,16 @@ class QuartzUITestCase: XCTestCase {
             app.buttons
         ]
 
-        for query in scopedQueries {
-            let match = query.matching(predicate).firstMatch
-            if match.waitForExistence(timeout: min(timeout, 3)) {
-                interact(with: match)
-                return match
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for query in scopedQueries {
+                let match = query.matching(predicate).firstMatch
+                if match.exists {
+                    interact(with: match)
+                    return match
+                }
             }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
 
         return nil
@@ -290,6 +304,39 @@ class QuartzUITestCase: XCTestCase {
         #else
         element.tap()
         #endif
+    }
+
+    @MainActor
+    func triggerOverflowFormattingAction(
+        _ actionIdentifier: String,
+        fallbackLabel: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let overflowMenu = element(matchingIdentifier: "editor-toolbar-overflow-menu")
+        XCTAssertTrue(
+            overflowMenu.waitForExistence(timeout: timeout),
+            "Overflow formatting menu must exist before selecting \(actionIdentifier)",
+            file: file,
+            line: line
+        )
+        interact(with: overflowMenu)
+
+        let identifiedAction = element(matchingIdentifier: "editor-toolbar-\(actionIdentifier)")
+        if identifiedAction.waitForExistence(timeout: min(timeout, 2)) {
+            interact(with: identifiedAction)
+            return
+        }
+
+        let labeledAction = app.buttons[fallbackLabel]
+        XCTAssertTrue(
+            labeledAction.waitForExistence(timeout: timeout),
+            "Overflow action '\(fallbackLabel)' must exist",
+            file: file,
+            line: line
+        )
+        interact(with: labeledAction)
     }
 
     @MainActor

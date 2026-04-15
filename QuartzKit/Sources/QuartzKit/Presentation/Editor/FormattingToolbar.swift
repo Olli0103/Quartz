@@ -111,6 +111,18 @@ public enum FormattingAction: String, CaseIterable, Sendable {
     }
 }
 
+extension FormattingAction {
+    var prefersRecoveredExpandedSelection: Bool {
+        switch self {
+        case .bold, .italic, .strikethrough, .code, .link, .image, .highlight, .math, .footnote:
+            return true
+        case .heading, .bulletList, .numberedList, .checkbox, .codeBlock, .blockquote, .table, .mermaid,
+                .heading1, .heading2, .heading3, .heading4, .heading5, .heading6, .paragraph:
+            return false
+        }
+    }
+}
+
 public enum MarkdownSyntax: Sendable {
     case wrap(String)
     case linePrefix(String)
@@ -634,6 +646,15 @@ public struct MarkdownFormatter: Sendable {
             ) {
                 return edit
             }
+            if let edit = structuredFenceInsertEdit(
+                for: action,
+                open: open,
+                close: close,
+                text: nsText,
+                selection: selectedRange
+            ) {
+                return edit
+            }
             if let edit = lineAwareBlockEdit(
                 open: open,
                 close: close,
@@ -669,6 +690,14 @@ public struct MarkdownFormatter: Sendable {
                 )
             )
         case .insert(let raw):
+            if let edit = structuredInsertEdit(
+                for: action,
+                raw: raw,
+                text: nsText,
+                selection: selectedRange
+            ) {
+                return edit
+            }
             return MarkdownFormatEdit(
                 range: selectedRange,
                 replacement: raw,
@@ -883,6 +912,88 @@ public struct MarkdownFormatter: Sendable {
             range: affectedRange,
             replacement: replacement,
             cursorAfter: NSRange(location: affectedRange.location + openLength, length: (selectedLines as NSString).length)
+        )
+    }
+
+    private func structuredFenceInsertEdit(
+        for action: FormattingAction,
+        open: String,
+        close: String,
+        text: NSString,
+        selection: NSRange
+    ) -> MarkdownFormatEdit? {
+        guard selection.length == 0 else { return nil }
+        guard action == .codeBlock || action == .mermaid else { return nil }
+
+        let affectedRange = text.lineRange(for: selection)
+        guard affectedRange.length > 0 else { return nil }
+
+        let contentRange = NSRange(
+            location: affectedRange.location,
+            length: max(affectedRange.length - trailingLineBreakLength(in: text, lineRange: affectedRange), 0)
+        )
+        let lineContent = text.substring(with: contentRange)
+        let lineIsBlank = lineContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let insertionLocation: Int
+        let replacement: String
+        let openLength = (open as NSString).length
+        let cursorLocation: Int
+
+        if lineIsBlank {
+            insertionLocation = selection.location
+            replacement = "\(open)\(close)"
+            cursorLocation = insertionLocation + openLength
+        } else {
+            insertionLocation = NSMaxRange(affectedRange)
+            let needsLeadingNewline = insertionLocation > 0
+                && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 10)
+                && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 13)
+            replacement = (needsLeadingNewline ? "\n" : "") + open + close
+            cursorLocation = insertionLocation + (needsLeadingNewline ? 1 : 0) + openLength
+        }
+
+        return MarkdownFormatEdit(
+            range: NSRange(location: insertionLocation, length: 0),
+            replacement: replacement,
+            cursorAfter: NSRange(location: cursorLocation, length: 0)
+        )
+    }
+
+    private func structuredInsertEdit(
+        for action: FormattingAction,
+        raw: String,
+        text: NSString,
+        selection: NSRange
+    ) -> MarkdownFormatEdit? {
+        guard action == .table, selection.length == 0 else { return nil }
+
+        let lineRange = text.lineRange(for: selection)
+        let contentRange = NSRange(
+            location: lineRange.location,
+            length: max(lineRange.length - trailingLineBreakLength(in: text, lineRange: lineRange), 0)
+        )
+        let lineContent = text.substring(with: contentRange)
+
+        guard !lineContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        let insertionLocation = NSMaxRange(lineRange)
+        let needsLeadingNewline = insertionLocation > 0
+            && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 10)
+            && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 13)
+        let replacement = (needsLeadingNewline ? "\n" : "") + raw
+        let replacementNSString = replacement as NSString
+        let firstColumnRange = replacementNSString.range(of: "Column 1")
+        let cursorLocation: Int
+        if firstColumnRange.location != NSNotFound {
+            cursorLocation = insertionLocation + firstColumnRange.location
+        } else {
+            cursorLocation = insertionLocation + replacementNSString.length
+        }
+
+        return MarkdownFormatEdit(
+            range: NSRange(location: insertionLocation, length: 0),
+            replacement: replacement,
+            cursorAfter: NSRange(location: cursorLocation, length: 0)
         )
     }
 

@@ -35,6 +35,11 @@ public final class EditorSession {
     /// Current cursor/selection range — updated by delegate callbacks.
     public private(set) var cursorPosition: NSRange = .init(location: 0, length: 0)
 
+    /// Last expanded selection before the editor temporarily collapsed it.
+    /// Used to recover toolbar actions that steal focus immediately after a text selection.
+    private var lastExpandedSelection: NSRange = .init(location: 0, length: 0)
+    private var lastExpandedSelectionDate: Date?
+
     /// Current scroll offset — updated by delegate callbacks.
     /// Used to restore scroll position after inspector toggle or layout changes.
     public private(set) var scrollOffset: CGPoint = .zero
@@ -458,6 +463,10 @@ public final class EditorSession {
     public func selectionDidChange(_ range: NSRange) {
         let previousRange = cursorPosition
         cursorPosition = range
+        if range.length > 0 {
+            lastExpandedSelection = range
+            lastExpandedSelectionDate = Date()
+        }
         updateTypingAttributes()
         formattingState = FormattingState.detect(
             in: currentText,
@@ -674,13 +683,29 @@ public final class EditorSession {
     /// Applies a formatting action surgically via `applyExternalEdit`.
     /// Guarded by IME composition check.
     public func applyFormatting(_ action: FormattingAction) {
+        let selection = resolvedFormattingSelection()
+        applyFormatting(action, selectedRange: selection)
+    }
+
+    /// Applies a formatting action initiated from a toolbar button.
+    /// Toolbar clicks can temporarily desynchronize the native text view's visible selection
+    /// from the editor's last known cursor snapshot, so we resolve a single command range
+    /// and restore it onto the text view before mutating markdown.
+    public func applyToolbarFormatting(_ action: FormattingAction) {
+        let selection = resolvedToolbarFormattingSelection(for: action)
+        synchronizeActiveSelectionForFormatting(selection)
+        applyFormatting(action, selectedRange: selection)
+        reassertToolbarSelectionAfterFormatting()
+    }
+
+    private func applyFormatting(_ action: FormattingAction, selectedRange: NSRange) {
         guard !isComposing else { return }
 
         let formatter = MarkdownFormatter()
         guard let edit = formatter.surgicalEdit(
             action,
             in: currentText,
-            selectedRange: cursorPosition,
+            selectedRange: selectedRange,
             semanticDocument: semanticDocument
         ) else { return }
 
@@ -793,6 +818,99 @@ public final class EditorSession {
         return activeTextView?.selectedRange ?? cursorPosition
         #elseif canImport(AppKit)
         return activeTextView?.selectedRange() ?? cursorPosition
+        #endif
+    }
+
+    private func resolvedFormattingSelection() -> NSRange {
+        let liveSelection = currentSelectedRangeFromActiveTextView()
+        if liveSelection.length > 0 || cursorPosition.length == 0 {
+            return liveSelection
+        }
+        return cursorPosition
+    }
+
+    private func resolvedToolbarFormattingSelection(for action: FormattingAction) -> NSRange {
+        let liveSelection = currentSelectedRangeFromActiveTextView()
+        switch (liveSelection.length > 0, cursorPosition.length > 0) {
+        case (true, _):
+            return liveSelection
+        case (false, true):
+            return cursorPosition
+        case (false, false):
+            return recoveredSelectionForToolbarAction(action, liveSelection: liveSelection) ?? liveSelection
+        }
+    }
+
+    private func recoveredSelectionForToolbarAction(
+        _ action: FormattingAction,
+        liveSelection: NSRange
+    ) -> NSRange? {
+        guard action.prefersRecoveredExpandedSelection,
+              selectionLikelyCollapsedFromRecentExpandedSelection(liveSelection) else {
+            return nil
+        }
+        return recentExpandedSelectionForToolbarAction()
+    }
+
+    private func selectionLikelyCollapsedFromRecentExpandedSelection(_ liveSelection: NSRange) -> Bool {
+        guard liveSelection.length == 0 else { return false }
+        guard lastExpandedSelection.length > 0 else { return false }
+        let location = liveSelection.location
+        return location >= lastExpandedSelection.location && location <= NSMaxRange(lastExpandedSelection)
+    }
+
+    private func recentExpandedSelectionForToolbarAction() -> NSRange? {
+        guard lastExpandedSelection.length > 0,
+              !activeTextViewIsFirstResponder,
+              let lastExpandedSelectionDate,
+              Date().timeIntervalSince(lastExpandedSelectionDate) <= 1 else {
+            return nil
+        }
+        return lastExpandedSelection
+    }
+
+    private var activeTextViewIsFirstResponder: Bool {
+        #if canImport(UIKit)
+        return activeTextView?.isFirstResponder ?? false
+        #elseif canImport(AppKit)
+        guard let textView = activeTextView else { return false }
+        return textView.window?.firstResponder === textView
+        #endif
+    }
+
+    private func synchronizeActiveSelectionForFormatting(_ range: NSRange) {
+        #if canImport(UIKit)
+        if let textView = activeTextView {
+            if !textView.isFirstResponder {
+                textView.becomeFirstResponder()
+            }
+            if textView.selectedRange != range {
+                textView.selectedRange = range
+            }
+        }
+        #elseif canImport(AppKit)
+        if let textView = activeTextView {
+            if textView.window?.firstResponder !== textView {
+                textView.window?.makeFirstResponder(textView)
+            }
+            if textView.selectedRange() != range {
+                textView.setSelectedRange(range)
+            }
+        }
+        #endif
+
+        if cursorPosition != range {
+            selectionDidChange(range)
+        }
+    }
+
+    private func reassertToolbarSelectionAfterFormatting() {
+        #if canImport(UIKit)
+        let expectedSelection = cursorPosition
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.synchronizeActiveSelectionForFormatting(expectedSelection)
+        }
         #endif
     }
 

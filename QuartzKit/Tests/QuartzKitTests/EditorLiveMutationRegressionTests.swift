@@ -169,7 +169,8 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
 
         assertVisibleTextUsesPrimaryColor(
             in: textView,
-            substring: "Welcome to Quartz Notes"
+            substring: "Welcome to Quartz Notes",
+            context: "italic"
         )
     }
 
@@ -268,6 +269,230 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         )
         let normalizedLinkColor = try XCTUnwrap(normalizedColor(linkLabelColor))
         XCTAssertGreaterThan(normalizedLinkColor.blueComponent, 0.2)
+    }
+
+    func testToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let staleSelection = (text as NSString).range(of: "Welcome")
+        let liveSelection = (text as NSString).range(of: "How are you?")
+
+        textView.setSelectedRange(staleSelection)
+        session.selectionDidChange(staleSelection)
+
+        textView.setSelectedRange(liveSelection)
+        session.applyToolbarFormatting(.italic)
+
+        XCTAssertEqual(textView.string, "# Welcome to Quartz Notes\n\n*How are you?*")
+        XCTAssertEqual(session.currentText, "# Welcome to Quartz Notes\n\n*How are you?*")
+        XCTAssertTrue(session.formattingState.isItalic)
+
+        let italicLocation = ("# Welcome to Quartz Notes\n\n*How are you?*" as NSString).range(of: "How are you?").location
+        let italicFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: italicLocation, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertTrue(NSFontManager.shared.traits(of: italicFont).contains(.italicFontMask))
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes"
+        )
+    }
+
+    func testToolbarFormattingFallsBackToCursorSnapshotWhenLiveSelectionCollapses() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let selection = (text as NSString).range(of: "How are you?")
+
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        let collapsedSelection = NSRange(location: selection.location + selection.length, length: 0)
+        textView.setSelectedRange(collapsedSelection)
+        harness.window.makeFirstResponder(nil)
+
+        session.applyToolbarFormatting(.bold)
+
+        let expectedText = "# Welcome to Quartz Notes\n\n**How are you?**"
+        let expectedSelection = (expectedText as NSString).range(of: "How are you?")
+        XCTAssertEqual(textView.string, expectedText)
+        XCTAssertEqual(session.currentText, expectedText)
+        XCTAssertEqual(textView.selectedRange(), expectedSelection)
+        XCTAssertEqual(session.cursorPosition, expectedSelection)
+        XCTAssertTrue(harness.window.firstResponder === textView)
+
+        let boldLocation = expectedSelection.location
+        let boldFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: boldLocation, effectiveRange: nil) as? NSFont
+        )
+        XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes"
+        )
+    }
+
+    func testToolbarSelectionMatrixPreservesHeadingAcrossAllActions() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let staleSelection = (text as NSString).range(of: "Welcome")
+        let liveSelection = (text as NSString).range(of: "How are you?")
+
+        for action in FormattingAction.allCases {
+            let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+            let session = harness.session
+            let textView = harness.textView
+
+            textView.setSelectedRange(staleSelection)
+            session.selectionDidChange(staleSelection)
+
+            textView.setSelectedRange(liveSelection)
+            let expected = expectedToolbarFormattingResult(
+                action: action,
+                text: text,
+                selection: liveSelection
+            )
+
+            session.applyToolbarFormatting(action)
+            try await waitForSessionText(session, expected: expected.text)
+            await pumpMountedHarness(harness)
+
+            XCTAssertEqual(textView.string, expected.text, "Action \(action.rawValue) must only format the live selection")
+            XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must keep session text in sync")
+            XCTAssertEqual(textView.selectedRange(), expected.newSelection, "Action \(action.rawValue) must restore the expected selection")
+            XCTAssertEqual(session.cursorPosition, expected.newSelection, "Action \(action.rawValue) must keep the cursor snapshot aligned")
+
+            assertVisibleTextUsesPrimaryColor(
+                in: textView,
+                substring: "Welcome to Quartz Notes",
+                context: action.rawValue
+            )
+            if action == .table {
+                assertTableRowStylesRendered(in: textView)
+            }
+        }
+    }
+
+    func testToolbarCursorMatrixUsesCurrentInsertionPointAcrossBlockActions() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let staleSelection = (text as NSString).range(of: "Welcome")
+        let liveCursor = NSRange(location: (text as NSString).range(of: "How are you?").location + 2, length: 0)
+        let actions: [FormattingAction] = [
+            .heading, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6,
+            .paragraph, .bulletList, .numberedList, .checkbox, .blockquote, .codeBlock, .mermaid
+        ]
+
+        for action in actions {
+            let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+            let session = harness.session
+            let textView = harness.textView
+
+            textView.setSelectedRange(staleSelection)
+            session.selectionDidChange(staleSelection)
+
+            textView.setSelectedRange(liveCursor)
+            harness.window.makeFirstResponder(nil)
+            let expected = expectedToolbarFormattingResult(
+                action: action,
+                text: text,
+                selection: liveCursor
+            )
+
+            session.applyToolbarFormatting(action)
+            try await waitForSessionText(session, expected: expected.text)
+            await pumpMountedHarness(harness)
+
+            XCTAssertEqual(textView.string, expected.text, "Action \(action.rawValue) must use the live cursor position")
+            XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must keep session text in sync")
+            XCTAssertEqual(textView.selectedRange(), expected.newSelection, "Action \(action.rawValue) must restore the expected cursor/selection")
+            XCTAssertEqual(session.cursorPosition, expected.newSelection, "Action \(action.rawValue) must keep the cursor snapshot aligned")
+
+            assertVisibleTextUsesPrimaryColor(
+                in: textView,
+                substring: "Welcome to Quartz Notes",
+                context: action.rawValue
+            )
+        }
+    }
+
+    func testToolbarTableInsertionUsesCurrentCursorAndPreservesTableRendering() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let staleSelection = (text as NSString).range(of: "Welcome")
+        let liveCursor = NSRange(location: (text as NSString).range(of: "How are you?").location + 2, length: 0)
+
+        textView.setSelectedRange(staleSelection)
+        session.selectionDidChange(staleSelection)
+
+        textView.setSelectedRange(liveCursor)
+        harness.window.makeFirstResponder(nil)
+        let expected = expectedToolbarFormattingResult(
+            action: .table,
+            text: text,
+            selection: liveCursor
+        )
+
+        session.applyToolbarFormatting(.table)
+        try await waitForSessionText(session, expected: expected.text)
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, expected.text)
+        XCTAssertEqual(session.currentText, expected.text)
+        XCTAssertEqual(textView.selectedRange(), expected.newSelection)
+        XCTAssertEqual(session.cursorPosition, expected.newSelection)
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes",
+            context: "table"
+        )
+        assertTableRowStylesRendered(in: textView)
+    }
+
+    func testToolbarMermaidInsertionPreservesParagraphBodyStyling() async throws {
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+        let session = harness.session
+        let textView = harness.textView
+        let staleSelection = (text as NSString).range(of: "Welcome")
+        let liveCursor = NSRange(location: (text as NSString).range(of: "How are you?").location + 2, length: 0)
+        let expectedText = "# Welcome to Quartz Notes\n\nHow are you?\n```mermaid\n\n```"
+        let expectedSelection = NSRange(
+            location: ((expectedText as NSString).range(of: "```mermaid\n").location + ("```mermaid\n" as NSString).length),
+            length: 0
+        )
+
+        textView.setSelectedRange(staleSelection)
+        session.selectionDidChange(staleSelection)
+
+        textView.setSelectedRange(liveCursor)
+        harness.window.makeFirstResponder(nil)
+
+        session.applyToolbarFormatting(.mermaid)
+        try await waitForSessionText(session, expected: expectedText)
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, expectedText)
+        XCTAssertEqual(session.currentText, expectedText)
+        XCTAssertEqual(textView.selectedRange(), expectedSelection)
+        XCTAssertEqual(session.cursorPosition, expectedSelection)
+
+        assertVisibleTextUsesPrimaryColor(
+            in: textView,
+            substring: "Welcome to Quartz Notes",
+            context: "mermaid-heading"
+        )
+        assertBodyTextStyling(
+            in: textView,
+            substring: "How are you?",
+            context: "mermaid-body"
+        )
     }
 
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
@@ -608,7 +833,7 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         return (textView.string as NSString).substring(with: range)
     }
 
-    private func assertVisibleTextUsesPrimaryColor(in textView: NSTextView, substring: String) {
+    private func assertVisibleTextUsesPrimaryColor(in textView: NSTextView, substring: String, context: String? = nil) {
         let nsText = textView.string as NSString
         let range = nsText.range(of: substring)
         XCTAssertNotEqual(range.location, NSNotFound)
@@ -621,12 +846,88 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
             let color = try? XCTUnwrap(
                 textView.textStorage?.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
             )
-            XCTAssertEqual(normalizedColor(color), expected)
+            XCTAssertEqual(
+                normalizedColor(color),
+                expected,
+                "Visible heading text leaked styling in context \(context ?? "unknown") at character \(scalar)"
+            )
         }
+    }
+
+    private func assertBodyTextStyling(in textView: NSTextView, substring: String, context: String? = nil) {
+        let nsText = textView.string as NSString
+        let range = nsText.range(of: substring)
+        XCTAssertNotEqual(range.location, NSNotFound)
+
+        let codeFontName = EditorFontFactory.makeCodeFont(size: 14 * 0.9).fontName
+        let expectedColor = normalizedColor(.labelColor)
+
+        for offset in 0..<range.length {
+            let location = range.location + offset
+            let scalar = nsText.substring(with: NSRange(location: location, length: 1))
+            if scalar == " " { continue }
+
+            let font = try? XCTUnwrap(
+                textView.textStorage?.attribute(.font, at: location, effectiveRange: nil) as? NSFont
+            )
+            let color = try? XCTUnwrap(
+                textView.textStorage?.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+            )
+            let background = textView.textStorage?.attribute(.backgroundColor, at: location, effectiveRange: nil) as? NSColor
+
+            XCTAssertNotEqual(font?.fontName, codeFontName, "Body text leaked code font in context \(context ?? "unknown") at character \(scalar)")
+            XCTAssertTrue(
+                background == nil || isEffectivelyClear(background),
+                "Body text leaked code background in context \(context ?? "unknown") at character \(scalar)"
+            )
+            XCTAssertEqual(normalizedColor(color), expectedColor, "Body text leaked color styling in context \(context ?? "unknown") at character \(scalar)")
+        }
+    }
+
+    private func isEffectivelyClear(_ color: NSColor?) -> Bool {
+        guard let color = normalizedColor(color) else { return true }
+        return color.alphaComponent == 0
     }
 
     private func normalizedColor(_ color: NSColor?) -> NSColor? {
         color?.usingColorSpace(.deviceRGB)
+    }
+
+    private func expectedToolbarFormattingResult(
+        action: FormattingAction,
+        text: String,
+        selection: NSRange
+    ) -> (text: String, newSelection: NSRange) {
+        let spans = MarkdownASTHighlighter.parseImmediately(
+            text,
+            baseFontSize: 14,
+            fontFamily: EditorTypography.defaultFontFamily,
+            vaultRootURL: nil,
+            noteURL: nil
+        )
+        let semanticDocument = EditorSemanticDocument.build(markdown: text, spans: spans)
+        let formatter = MarkdownFormatter()
+        return formatter.apply(
+            action,
+            to: text,
+            selectedRange: selection,
+            semanticDocument: semanticDocument
+        )
+    }
+
+    private func assertTableRowStylesRendered(in textView: NSTextView) {
+        let storage = textView.textStorage
+        XCTAssertNotNil(storage)
+
+        var foundTableRowStyle = false
+        for location in 0..<(storage?.length ?? 0) {
+            if storage?.attribute(.quartzTableRowStyle, at: location, effectiveRange: nil) != nil {
+                foundTableRowStyle = true
+                break
+            }
+        }
+
+        XCTAssertTrue(foundTableRowStyle, "Inserted table must produce rendered table row styles")
     }
 }
 
