@@ -27,12 +27,119 @@ final class MarkdownEditorUITextView: UITextView {
         return super.caretRect(for: position)
     }
 
+    override var keyCommands: [UIKeyCommand]? {
+        let baseCommands = super.keyCommands ?? []
+        let editorCommands = Self.editorShortcutCommands.map { shortcut in
+            let command = UIKeyCommand(
+                input: shortcut.input,
+                modifierFlags: shortcut.modifierFlags,
+                action: #selector(handleEditorKeyCommand(_:))
+            )
+            command.discoverabilityTitle = discoverabilityTitle(for: shortcut.shortcut)
+            if #available(iOS 15.0, *) {
+                command.wantsPriorityOverSystemBehavior = true
+            }
+            return command
+        }
+        return baseCommands + editorCommands
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let shortcut = Self.shortcut(for: presses) {
+            apply(shortcut)
+            return
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
     override func paste(_ sender: Any?) {
         guard let editorSession else {
             super.paste(sender)
             return
         }
         editorSession.paste(mode: .smart)
+    }
+
+    @objc private func handleEditorKeyCommand(_ sender: UIKeyCommand) {
+        guard let shortcut = Self.shortcut(for: sender) else { return }
+        apply(shortcut)
+    }
+
+    private func apply(_ shortcut: EditorKeyboardShortcut) {
+        switch shortcut {
+        case .formatting(let action):
+            editorSession?.applyFormatting(action)
+        case .paste(let mode):
+            editorSession?.paste(mode: mode)
+        }
+    }
+
+    private func discoverabilityTitle(for shortcut: EditorKeyboardShortcut) -> String {
+        switch shortcut {
+        case .formatting(let action):
+            return action.label
+        case .paste(let mode):
+            switch mode {
+            case .smart:
+                return String(localized: "Paste Smart", bundle: .module)
+            case .raw:
+                return String(localized: "Paste As-Is", bundle: .module)
+            }
+        }
+    }
+
+    private static func shortcut(for command: UIKeyCommand) -> EditorKeyboardShortcut? {
+        guard let input = command.input?.lowercased() else { return nil }
+        return EditorKeyboardShortcutResolver.resolve(
+            input: input,
+            modifiers: .init(uiKit: command.modifierFlags)
+        )
+    }
+
+    private static func shortcut(for presses: Set<UIPress>) -> EditorKeyboardShortcut? {
+        guard presses.count == 1,
+              let key = presses.first?.key else { return nil }
+        return EditorKeyboardShortcutResolver.resolve(
+            input: key.charactersIgnoringModifiers,
+            modifiers: .init(uiKit: key.modifierFlags)
+        )
+    }
+
+    private struct EditorShortcutCommand {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let shortcut: EditorKeyboardShortcut
+    }
+
+    private static let editorShortcutCommands: [EditorShortcutCommand] = [
+        .init(input: "b", modifierFlags: .command, shortcut: .formatting(.bold)),
+        .init(input: "i", modifierFlags: .command, shortcut: .formatting(.italic)),
+        .init(input: "x", modifierFlags: [.command, .shift], shortcut: .formatting(.strikethrough)),
+        .init(input: "0", modifierFlags: .command, shortcut: .formatting(.paragraph)),
+        .init(input: "1", modifierFlags: .command, shortcut: .formatting(.heading1)),
+        .init(input: "2", modifierFlags: .command, shortcut: .formatting(.heading2)),
+        .init(input: "3", modifierFlags: .command, shortcut: .formatting(.heading3)),
+        .init(input: "4", modifierFlags: .command, shortcut: .formatting(.heading4)),
+        .init(input: "5", modifierFlags: .command, shortcut: .formatting(.heading5)),
+        .init(input: "6", modifierFlags: .command, shortcut: .formatting(.heading6)),
+        .init(input: "e", modifierFlags: [.command, .alternate], shortcut: .formatting(.code)),
+        .init(input: "e", modifierFlags: [.command, .shift], shortcut: .formatting(.codeBlock)),
+        .init(input: "l", modifierFlags: [.command, .shift], shortcut: .formatting(.link)),
+        .init(input: "q", modifierFlags: [.command, .shift], shortcut: .formatting(.blockquote)),
+        .init(input: "v", modifierFlags: [.command, .alternate], shortcut: .paste(.smart)),
+        .init(input: "v", modifierFlags: [.command, .shift], shortcut: .paste(.raw))
+    ]
+}
+
+private extension EditorKeyboardShortcutResolver.Modifiers {
+    init(uiKit modifierFlags: UIKeyModifierFlags) {
+        let supported: UIKeyModifierFlags = [.command, .shift, .alternate]
+        let normalized = modifierFlags.intersection(supported)
+        var modifiers: Self = []
+        if normalized.contains(.command) { modifiers.insert(.command) }
+        if normalized.contains(.shift) { modifiers.insert(.shift) }
+        if normalized.contains(.alternate) { modifiers.insert(.alternate) }
+        self = modifiers
     }
 }
 

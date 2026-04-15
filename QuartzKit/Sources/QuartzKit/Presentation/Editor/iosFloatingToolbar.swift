@@ -129,6 +129,7 @@ struct IosEditorToolbar: View {
                 )
         }
         .buttonStyle(.plain)
+        .editorKeyboardShortcut(action)
         .accessibilityLabel(action.label)
         .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
         .accessibilityAddTraits(active ? [.isSelected] : [])
@@ -141,12 +142,14 @@ struct IosEditorToolbar: View {
             Button { onFormatting(.paragraph) } label: {
                 menuItemLabel(for: .paragraph)
             }
+            .editorKeyboardShortcut(.paragraph)
             Divider()
             ForEach(1...6, id: \.self) { level in
                 let action = [FormattingAction.heading1, .heading2, .heading3, .heading4, .heading5, .heading6][level - 1]
                 Button { onFormatting(action) } label: {
                     menuItemLabel(for: action)
                 }
+                .editorKeyboardShortcut(action)
             }
         } label: {
             Image(systemName: "textformat.size.larger")
@@ -172,6 +175,7 @@ struct IosEditorToolbar: View {
                 Button { onFormatting(action) } label: {
                     menuItemLabel(for: action)
                 }
+                .editorKeyboardShortcut(action)
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -206,6 +210,44 @@ struct IosEditorToolbar: View {
                 Image(systemName: "checkmark")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func editorKeyboardShortcut(_ action: FormattingAction) -> some View {
+        switch action {
+        case .bold:
+            keyboardShortcut("b", modifiers: .command)
+        case .italic:
+            keyboardShortcut("i", modifiers: .command)
+        case .strikethrough:
+            keyboardShortcut("x", modifiers: [.command, .shift])
+        case .paragraph:
+            keyboardShortcut("0", modifiers: .command)
+        case .heading1:
+            keyboardShortcut("1", modifiers: .command)
+        case .heading2:
+            keyboardShortcut("2", modifiers: .command)
+        case .heading3:
+            keyboardShortcut("3", modifiers: .command)
+        case .heading4:
+            keyboardShortcut("4", modifiers: .command)
+        case .heading5:
+            keyboardShortcut("5", modifiers: .command)
+        case .heading6:
+            keyboardShortcut("6", modifiers: .command)
+        case .code:
+            keyboardShortcut("e", modifiers: [.command, .option])
+        case .codeBlock:
+            keyboardShortcut("e", modifiers: [.command, .shift])
+        case .link:
+            keyboardShortcut("l", modifiers: [.command, .shift])
+        case .blockquote:
+            keyboardShortcut("q", modifiers: [.command, .shift])
+        default:
+            self
         }
     }
 }

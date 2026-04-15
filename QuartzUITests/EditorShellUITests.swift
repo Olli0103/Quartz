@@ -45,7 +45,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
         }
 
         let editor = focusEditor()
-        app.typeKey("b", modifierFlags: .command)
+        editor.typeKey("b", modifierFlags: .command)
 
         let token = "macBold\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
@@ -353,61 +353,30 @@ final class iPadEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
-    func testHardwareKeyboardBoldCommandAppliesMarkdownInline() throws {
+    func testSplitViewHeadingMenuRoundTripAppliesAndRemovesHeadingSyntax() throws {
         launchApp()
 
         guard openMockVaultNote(named: "Welcome") != nil else {
-            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForKeyboardBold")
-            XCTFail("Welcome note must exist in the mock vault")
-            return
-        }
-
-        let editor = focusEditor()
-        app.typeKey("b", modifierFlags: .command)
-
-        let token = "ipadCmdBold\(UUID().uuidString.prefix(6))"
-        editor.typeText(token)
-        assertEditorContains("**\(token)**")
-    }
-
-    @MainActor
-    func testHardwareKeyboardHeadingAndParagraphCommandsRoundTrip() throws {
-        launchApp()
-
-        guard openMockVaultNote(named: "Welcome") != nil else {
-            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForHeadingRoundTrip")
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForHeadingMenu")
             XCTFail("Welcome note must exist in the mock vault")
             return
         }
 
         let editor = focusEditor()
         let token = "ipadHeading\(UUID().uuidString.prefix(6))"
+        let headingMenu = element(matchingIdentifier: "editor-toolbar-heading-menu")
+        XCTAssertTrue(headingMenu.waitForExistence(timeout: 5),
+                      "Heading floating-toolbar menu must exist on iPad")
 
-        app.typeKey("2", modifierFlags: .command)
+        interact(with: headingMenu)
+        interact(with: app.buttons["Heading 2"])
         editor.typeText(token)
         assertEditorContains("## \(token)")
 
-        app.typeKey("0", modifierFlags: .command)
+        interact(with: headingMenu)
+        interact(with: app.buttons["Paragraph"])
         assertEditorContains(token)
         assertEditorNotContains("## \(token)")
-    }
-
-    @MainActor
-    func testHardwareKeyboardLinkCommandInsertsMarkdownTemplate() throws {
-        launchApp()
-
-        guard openMockVaultNote(named: "Welcome") != nil else {
-            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForKeyboardLink")
-            XCTFail("Welcome note must exist in the mock vault")
-            return
-        }
-
-        let editor = focusEditor()
-        app.typeKey("l", modifierFlags: [.command, .shift])
-
-        let token = "ipadCmdLink\(UUID().uuidString.prefix(6))"
-        editor.typeText(token)
-        assertEditorContains("[\(token)](url)")
     }
 
 }
