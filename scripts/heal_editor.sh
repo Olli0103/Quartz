@@ -62,6 +62,11 @@ LIVE_MUTATION_TEST_COUNT=${LIVE_MUTATION_TEST_COUNT:-0}
 
 PERFORMANCE_BUDGET_ASSERTION_COUNT=$(rg -n "16ms|P95|main thread|frame budget|memory" "$PERF_TEST_FILE" 2>/dev/null | wc -l | tr -d ' ')
 PERFORMANCE_BUDGET_ASSERTION_COUNT=${PERFORMANCE_BUDGET_ASSERTION_COUNT:-0}
+MACOS_UI_AUTOMATION_REQUIRES_AUTH="false"
+
+if command -v automationmodetool >/dev/null 2>&1 && macos_ui_automation_requires_authentication; then
+    MACOS_UI_AUTOMATION_REQUIRES_AUTH="true"
+fi
 
 if bash "$SCRIPT_DIR/test_editor_excellence.sh" >"$RERUN_LOG" 2>&1; then
     RERUN_STATUS="pass"
@@ -84,6 +89,7 @@ cat > "$OUTPUT_PATH" <<JSON
   "snapshot_baseline_count": $SNAPSHOT_BASELINE_COUNT,
   "live_mutation_test_count": $LIVE_MUTATION_TEST_COUNT,
   "performance_budget_assertion_count": $PERFORMANCE_BUDGET_ASSERTION_COUNT,
+  "macos_ui_automation_requires_authentication": $MACOS_UI_AUTOMATION_REQUIRES_AUTH,
   "rerun_status": "$RERUN_STATUS",
   "rerun_log": "$RERUN_LOG"
 }
@@ -97,6 +103,7 @@ echo "  reality fixtures: $REALITY_FIXTURE_COUNT"
 echo "  snapshot baselines: $SNAPSHOT_BASELINE_COUNT"
 echo "  live mutation tests: $LIVE_MUTATION_TEST_COUNT"
 echo "  performance assertions: $PERFORMANCE_BUDGET_ASSERTION_COUNT"
+echo "  macOS UI automation requires auth: $MACOS_UI_AUTOMATION_REQUIRES_AUTH"
 echo "  rerun status: $RERUN_STATUS"
 
 if [ "$LINEAR_ANIMATION_COUNT" -gt 0 ] || \
@@ -107,6 +114,7 @@ if [ "$LINEAR_ANIMATION_COUNT" -gt 0 ] || \
    [ "$SNAPSHOT_BASELINE_COUNT" -lt 15 ] || \
    [ "$LIVE_MUTATION_TEST_COUNT" -lt 20 ] || \
    [ "$PERFORMANCE_BUDGET_ASSERTION_COUNT" -lt 4 ] || \
+   [ "$MACOS_UI_AUTOMATION_REQUIRES_AUTH" = "true" ] || \
    [ "$RERUN_EXIT" -ne 0 ]; then
     fail "[HEAL:EDITOR] Blocking editor diagnostics found"
 fi

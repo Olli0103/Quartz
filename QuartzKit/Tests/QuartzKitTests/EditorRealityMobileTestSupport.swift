@@ -112,8 +112,8 @@ func makeMobileSnapshotHarness(
             MarkdownEditorRepresentable(
                 session: session,
                 editorFontScale: 1.0,
-                editorFontFamily: .system,
-                editorLineSpacing: 1.5,
+                editorFontFamily: EditorTypography.defaultFontFamily,
+                editorLineSpacing: EditorTypography.defaultLineSpacingMultiplier,
                 editorMaxWidth: target.editorMaxWidth,
                 syntaxVisibilityMode: syntaxVisibilityMode
             )
@@ -134,11 +134,18 @@ func makeMobileSnapshotHarness(
 
     try await waitForMobileEditorReady(session: session, hostView: controller.view)
 
+    if let textView = session.activeTextView as? MarkdownEditorUITextView {
+        textView.hidesInsertionPointForSnapshots = true
+    }
+
     if let selection {
         session.restoreCursor(location: selection.location, length: selection.length)
         session.selectionDidChange(selection)
-        controller.view.layoutIfNeeded()
-        window.layoutIfNeeded()
+        for _ in 0..<8 {
+            controller.view.layoutIfNeeded()
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     return MobileEditorSnapshotHarness(session: session, controller: controller, window: window)
@@ -179,8 +186,8 @@ func mountMobileEditor(
             MarkdownEditorRepresentable(
                 session: session,
                 editorFontScale: 1.0,
-                editorFontFamily: .system,
-                editorLineSpacing: 1.5,
+                editorFontFamily: EditorTypography.defaultFontFamily,
+                editorLineSpacing: EditorTypography.defaultLineSpacingMultiplier,
                 editorMaxWidth: target.editorMaxWidth,
                 syntaxVisibilityMode: syntaxVisibilityMode
             )

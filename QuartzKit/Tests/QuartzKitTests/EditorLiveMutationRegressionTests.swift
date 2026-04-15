@@ -146,6 +146,25 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
     }
 
+    func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        let selection = NSRange(location: 6, length: 4)
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.applyFormatting(.link)
+        try await waitForSessionText(session, expected: "Alpha [Beta](url)")
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(textView.string, "Alpha [Beta](url)")
+        XCTAssertEqual(session.currentText, "Alpha [Beta](url)")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 13, length: 3))
+        XCTAssertEqual(session.cursorPosition, NSRange(location: 13, length: 3))
+        XCTAssertEqual(session.currentTransaction?.origin, .formatting)
+    }
+
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
         let harness = try await makeMountedHarness(text: "Title")
         let session = harness.session
@@ -358,9 +377,9 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
             MarkdownEditorRepresentable(
                 session: session,
                 editorFontScale: 1.0,
-                editorFontFamily: .system,
-                editorLineSpacing: 1.5,
-                editorMaxWidth: 560,
+                editorFontFamily: EditorTypography.defaultFontFamily,
+                editorLineSpacing: EditorTypography.defaultLineSpacingMultiplier,
+                editorMaxWidth: EditorTypography.defaultMaxWidth,
                 syntaxVisibilityMode: .full
             )
         }

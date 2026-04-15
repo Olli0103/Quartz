@@ -721,13 +721,7 @@ public actor MarkdownASTHighlighter {
     private static func collectSpans(from markup: any Markup, in source: String, resolver: SourceRangeResolver, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
         if let range = markup.range, let nsRange = resolver.nsRange(for: range), nsRange.length > 0 {
             if let heading = markup as? Heading {
-                let scale: CGFloat = switch heading.level {
-                case 1: 1.7
-                case 2: 1.45
-                case 3: 1.25
-                case 4: 1.12
-                default: 1.05
-                }
+                let scale = EditorTypography.headingScale(for: heading.level)
                 let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
                 spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, semanticRole: .heading(level: heading.level)))
                 if let prefixRange = headingPrefixRange(in: source, contentRange: nsRange) {

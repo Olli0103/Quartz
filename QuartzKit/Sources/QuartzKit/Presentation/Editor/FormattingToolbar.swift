@@ -643,16 +643,16 @@ public struct MarkdownFormatter: Sendable {
             )
         case .template(let before, let after):
             let replacement = "\(before)\(selectedText)\(after)"
-            let cursorLoc: Int
-            if selectedText.isEmpty {
-                cursorLoc = selectedRange.location + (before as NSString).length
-            } else {
-                cursorLoc = selectedRange.location + (replacement as NSString).length
-            }
             return MarkdownFormatEdit(
                 range: selectedRange,
                 replacement: replacement,
-                cursorAfter: NSRange(location: cursorLoc, length: 0)
+                cursorAfter: templateCursorRange(
+                    for: action,
+                    selectedRange: selectedRange,
+                    selectedText: selectedText,
+                    before: before,
+                    after: after
+                )
             )
         case .insert(let raw):
             return MarkdownFormatEdit(
@@ -827,6 +827,38 @@ public struct MarkdownFormatter: Sendable {
             replacement: replacement,
             cursorAfter: NSRange(location: affectedRange.location + openLength, length: (selectedLines as NSString).length)
         )
+    }
+
+    private func templateCursorRange(
+        for action: FormattingAction,
+        selectedRange: NSRange,
+        selectedText: String,
+        before: String,
+        after: String
+    ) -> NSRange {
+        let beforeLength = (before as NSString).length
+        let selectedLength = (selectedText as NSString).length
+
+        if selectedText.isEmpty {
+            return NSRange(location: selectedRange.location + beforeLength, length: 0)
+        }
+
+        switch action {
+        case .link:
+            return NSRange(location: selectedRange.location + beforeLength + selectedLength + 2, length: 3)
+        case .image:
+            return NSRange(location: selectedRange.location + beforeLength + selectedLength + 2, length: 4)
+        case .footnote:
+            return NSRange(
+                location: selectedRange.location + beforeLength + selectedLength + (after as NSString).length,
+                length: 0
+            )
+        default:
+            return NSRange(
+                location: selectedRange.location + beforeLength + selectedLength + (after as NSString).length,
+                length: 0
+            )
+        }
     }
 
     private func surgicalLinePrefix(_ prefix: String, text: NSString, selection: NSRange) -> MarkdownFormatEdit {

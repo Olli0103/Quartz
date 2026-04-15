@@ -238,8 +238,10 @@ struct MarkdownFormatterTests {
 
     @Test("Link template creates markdown link")
     func linkTemplate() {
-        let (result, _) = formatter.apply(.link, to: "click here", selectedRange: NSRange(location: 0, length: 10))
+        let (result, selection) = formatter.apply(.link, to: "click here", selectedRange: NSRange(location: 0, length: 10))
         #expect(result == "[click here](url)")
+        #expect(selection.location == 13)
+        #expect(selection.length == 3)
     }
 
     @Test("Link with empty selection places cursor")
@@ -251,8 +253,10 @@ struct MarkdownFormatterTests {
 
     @Test("Image template creates markdown image")
     func imageTemplate() {
-        let (result, _) = formatter.apply(.image, to: "alt text", selectedRange: NSRange(location: 0, length: 8))
+        let (result, selection) = formatter.apply(.image, to: "alt text", selectedRange: NSRange(location: 0, length: 8))
         #expect(result == "![alt text](path)")
+        #expect(selection.location == 12)
+        #expect(selection.length == 4)
     }
 
     // MARK: - Mid-Text Operations
@@ -311,7 +315,9 @@ struct MarkdownFormatterTests {
 
     @Test("Link on selected text")
     func linkSelectedText() {
-        let (result, _) = formatter.apply(.link, to: "text", selectedRange: NSRange(location: 0, length: 4))
+        let (result, selection) = formatter.apply(.link, to: "text", selectedRange: NSRange(location: 0, length: 4))
         #expect(result == "[text](url)")
+        #expect(selection.location == 7)
+        #expect(selection.length == 3)
     }
 }

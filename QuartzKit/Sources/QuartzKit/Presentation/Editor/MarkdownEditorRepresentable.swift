@@ -18,6 +18,14 @@ import AppKit
 @MainActor
 final class MarkdownEditorUITextView: UITextView {
     weak var editorSession: EditorSession?
+    var hidesInsertionPointForSnapshots = false
+
+    override func caretRect(for position: UITextPosition) -> CGRect {
+        if hidesInsertionPointForSnapshots {
+            return .zero
+        }
+        return super.caretRect(for: position)
+    }
 
     override func paste(_ sender: Any?) {
         guard let editorSession else {
@@ -31,17 +39,17 @@ final class MarkdownEditorUITextView: UITextView {
 public struct MarkdownEditorRepresentable: UIViewRepresentable {
     let session: EditorSession
     var editorFontScale: CGFloat
-    var editorFontFamily: AppearanceManager.EditorFontFamily = .system
-    var editorLineSpacing: CGFloat = 1.5
-    var editorMaxWidth: CGFloat = 720
+    var editorFontFamily: AppearanceManager.EditorFontFamily = EditorTypography.defaultFontFamily
+    var editorLineSpacing: CGFloat = EditorTypography.defaultLineSpacingMultiplier
+    var editorMaxWidth: CGFloat = EditorTypography.defaultMaxWidth
     var syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
 
     public init(
         session: EditorSession,
         editorFontScale: CGFloat = 1.0,
-        editorFontFamily: AppearanceManager.EditorFontFamily = .system,
-        editorLineSpacing: CGFloat = 1.5,
-        editorMaxWidth: CGFloat = 720,
+        editorFontFamily: AppearanceManager.EditorFontFamily = EditorTypography.defaultFontFamily,
+        editorLineSpacing: CGFloat = EditorTypography.defaultLineSpacingMultiplier,
+        editorMaxWidth: CGFloat = EditorTypography.defaultMaxWidth,
         syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
     ) {
         self.session = session
@@ -68,7 +76,7 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         textView.font = UIFontMetrics.default.scaledFont(for: baseFont)
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        textView.textContainerInset = UIEdgeInsets(top: 20, left: 18, bottom: 24, right: 18)
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.widthTracksTextView = true
 
@@ -141,12 +149,12 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
 
         // Dynamic max-width inset
         let viewWidth = uiView.bounds.width
-        let minPadding: CGFloat = 16
+        let minPadding: CGFloat = 18
         if viewWidth > editorMaxWidth + (minPadding * 2) {
             let horizontalInset = (viewWidth - editorMaxWidth) / 2
-            uiView.textContainerInset = UIEdgeInsets(top: 16, left: horizontalInset, bottom: 16, right: horizontalInset)
+            uiView.textContainerInset = UIEdgeInsets(top: 20, left: horizontalInset, bottom: 24, right: horizontalInset)
         } else {
-            uiView.textContainerInset = UIEdgeInsets(top: 16, left: minPadding, bottom: 16, right: minPadding)
+            uiView.textContainerInset = UIEdgeInsets(top: 20, left: minPadding, bottom: 24, right: minPadding)
         }
     }
 
@@ -605,17 +613,17 @@ final class MarkdownEditorNSTextView: NSTextView {
 public struct MarkdownEditorRepresentable: NSViewRepresentable {
     let session: EditorSession
     var editorFontScale: CGFloat
-    var editorFontFamily: AppearanceManager.EditorFontFamily = .system
-    var editorLineSpacing: CGFloat = 1.5
-    var editorMaxWidth: CGFloat = 720
+    var editorFontFamily: AppearanceManager.EditorFontFamily = EditorTypography.defaultFontFamily
+    var editorLineSpacing: CGFloat = EditorTypography.defaultLineSpacingMultiplier
+    var editorMaxWidth: CGFloat = EditorTypography.defaultMaxWidth
     var syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
 
     public init(
         session: EditorSession,
         editorFontScale: CGFloat = 1.0,
-        editorFontFamily: AppearanceManager.EditorFontFamily = .system,
-        editorLineSpacing: CGFloat = 1.5,
-        editorMaxWidth: CGFloat = 720,
+        editorFontFamily: AppearanceManager.EditorFontFamily = EditorTypography.defaultFontFamily,
+        editorLineSpacing: CGFloat = EditorTypography.defaultLineSpacingMultiplier,
+        editorMaxWidth: CGFloat = EditorTypography.defaultMaxWidth,
         syntaxVisibilityMode: SyntaxVisibilityMode = .hiddenUntilCaret
     ) {
         self.session = session
@@ -642,7 +650,7 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         textView.insertionPointColor = .labelColor
         textView.drawsBackground = false
         textView.allowsUndo = true
-        textView.textContainerInset = NSSize(width: 16, height: 16)
+        textView.textContainerInset = NSSize(width: 24, height: 24)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.isVerticallyResizable = true
@@ -729,12 +737,12 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
 
         // Dynamic max-width inset
         let viewWidth = nsView.documentVisibleRect.width
-        let minPadding: CGFloat = 16
+        let minPadding: CGFloat = 24
         if viewWidth > editorMaxWidth + (minPadding * 2) {
             let horizontalInset = (viewWidth - editorMaxWidth) / 2
-            textView.textContainerInset = NSSize(width: horizontalInset, height: 16)
+            textView.textContainerInset = NSSize(width: horizontalInset, height: 24)
         } else {
-            textView.textContainerInset = NSSize(width: minPadding, height: 16)
+            textView.textContainerInset = NSSize(width: minPadding, height: 24)
         }
     }
 

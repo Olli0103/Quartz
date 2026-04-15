@@ -59,6 +59,12 @@ if bash "$SCRIPT_DIR/test_editor_excellence.sh"; then
 fi
 
 FAIL_REASON="Editor excellence gate failed"
+if ui_automation_disabled_in_log "$LOG_PATH" || \
+   ui_automation_disabled_in_log "${MACOS_UI_LOG_PATH:-reports/editor_excellence_ui_macos.log}"; then
+    FAIL_REASON="macOS UI automation is disabled on this host and requires local user authentication"
+    fail "Editor excellence gate blocked by host UI automation setup"
+fi
+
 HEAL_RAN="true"
 
 step "Running editor self-heal diagnostics"

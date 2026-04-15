@@ -14,14 +14,15 @@ struct AppearanceMgrTests {
         AppearanceManager(defaults: UserDefaults(suiteName: "test-\(UUID().uuidString)")!)
     }
 
-    @Test("Defaults: theme=system, font=system, size=16, pureDark=false")
+    @Test("Defaults: theme=system, writer-first editor defaults, pureDark=false")
     @MainActor func defaults() {
         let m = isolated()
         #expect(m.theme == .system)
-        #expect(m.editorFontFamily == .system)
-        #expect(m.editorFontSize == 16)
+        #expect(m.editorFontFamily == EditorTypography.defaultFontFamily)
+        #expect(m.editorFontSize == EditorTypography.defaultFontSize)
         #expect(m.pureDarkMode == false)
-        #expect(m.editorLineSpacing >= 1.0)
+        #expect(m.editorLineSpacing == EditorTypography.defaultLineSpacingMultiplier)
+        #expect(m.editorMaxWidth == EditorTypography.defaultMaxWidth)
     }
 
     @Test("Persistence round-trips for theme, font, size")

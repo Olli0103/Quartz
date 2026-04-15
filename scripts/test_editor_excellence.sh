@@ -124,6 +124,10 @@ else
 fi
 
 step "Running macOS editor shell UI coverage"
+if ! ensure_macos_ui_automation_available "$MACOS_UI_LOG_PATH"; then
+    fail "macOS editor shell UI coverage is blocked by host UI automation setup"
+fi
+
 terminate_conflicting_macos_app_processes
 if run_editor_shell_ui_matrix \
     "platform=macOS" \

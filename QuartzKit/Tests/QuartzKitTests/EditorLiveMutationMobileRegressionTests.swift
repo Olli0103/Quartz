@@ -19,6 +19,10 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .phone)
     }
 
+    func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
+        try await assertMountedLinkFormattingSelectsURLPlaceholder(for: .phone)
+    }
+
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
         try await assertMountedHeadingRoundTripRestoresParagraphTypingAttributes(for: .phone)
     }
@@ -69,6 +73,10 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testMountedBoldFormattingPreservesSelectionAcrossForcedHighlight() async throws {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .pad)
+    }
+
+    func testMountedLinkFormattingSelectsURLPlaceholder() async throws {
+        try await assertMountedLinkFormattingSelectsURLPlaceholder(for: .pad)
     }
 
     func testMountedHeadingRoundTripRestoresParagraphTypingAttributes() async throws {
@@ -253,6 +261,32 @@ private func assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(
         textView.textStorage.attribute(.font, at: attributeLocation, effectiveRange: nil) as? UIFont
     )
     XCTAssertTrue(isBoldFont(boldFont))
+}
+
+@MainActor
+private func assertMountedLinkFormattingSelectsURLPlaceholder(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "Alpha Beta",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+    let selection = NSRange(location: 6, length: 4)
+    textView.selectedRange = selection
+    session.selectionDidChange(selection)
+
+    session.applyFormatting(.link)
+    try await waitForMobileSessionText(session, expected: "Alpha [Beta](url)")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(textView.text, "Alpha [Beta](url)")
+    XCTAssertEqual(session.currentText, "Alpha [Beta](url)")
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 13, length: 3))
+    XCTAssertEqual(session.cursorPosition, NSRange(location: 13, length: 3))
+    XCTAssertEqual(session.currentTransaction?.origin, .formatting)
 }
 
 @MainActor

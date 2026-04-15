@@ -124,7 +124,8 @@ public struct EditorRenderPlan: Sendable {
     public func primarySegments(
         for semanticDocument: EditorSemanticDocument,
         defaultFont: PlatformFont,
-        defaultColor: PlatformColor
+        defaultColor: PlatformColor,
+        defaultParagraphStyle: ((EditorBlockNode?) -> NSParagraphStyle?)? = nil
     ) -> [EditorTextSegment] {
         guard semanticDocument.textLength > 0 else { return [] }
 
@@ -160,7 +161,8 @@ public struct EditorRenderPlan: Sendable {
             var attributes = baseAttributes(
                 for: block,
                 defaultFont: defaultFont,
-                defaultColor: defaultColor
+                defaultColor: defaultColor,
+                defaultParagraphStyle: defaultParagraphStyle?(block)
             )
 
             for span in orderedPrimarySpans where spanCoversRange(span, range: range) {
@@ -188,7 +190,8 @@ public struct EditorRenderPlan: Sendable {
     private func baseAttributes(
         for block: EditorBlockNode?,
         defaultFont: PlatformFont,
-        defaultColor: PlatformColor
+        defaultColor: PlatformColor,
+        defaultParagraphStyle: NSParagraphStyle?
     ) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: defaultFont,
@@ -196,6 +199,10 @@ public struct EditorRenderPlan: Sendable {
             .backgroundColor: platformClearColor(),
             .strikethroughStyle: 0
         ]
+
+        if let defaultParagraphStyle {
+            attributes[.paragraphStyle] = defaultParagraphStyle
+        }
 
         if case let .tableRow(style?) = block?.kind {
             attributes[.quartzTableRowStyle] = style.rawValue

@@ -119,9 +119,9 @@ public final class AppearanceManager {
         self.defaults = defaults
         self.theme = Self.loadTheme(from: defaults)
         self.editorFontFamily = Self.loadFontFamily(from: defaults)
-        self.editorFontSize = defaults.double(forKey: Keys.editorFontSize).clamped(to: 12...24, default: 16)
-        self.editorLineSpacing = defaults.double(forKey: Keys.editorLineSpacing).clamped(to: 1.0...2.5, default: 1.5)
-        self.editorMaxWidth = defaults.double(forKey: Keys.editorMaxWidth).clamped(to: 400...1200, default: 720)
+        self.editorFontSize = defaults.double(forKey: Keys.editorFontSize).clamped(to: 12...24, default: EditorTypography.defaultFontSize)
+        self.editorLineSpacing = defaults.double(forKey: Keys.editorLineSpacing).clamped(to: 1.0...2.5, default: EditorTypography.defaultLineSpacingMultiplier)
+        self.editorMaxWidth = defaults.double(forKey: Keys.editorMaxWidth).clamped(to: 400...1200, default: EditorTypography.defaultMaxWidth)
         self.pureDarkMode = defaults.object(forKey: Keys.pureDarkMode) as? Bool ?? false
         self.vibrantTransparency = defaults.object(forKey: Keys.vibrantTransparency) as? Bool ?? true
         self.accentColorHex = UInt(defaults.integer(forKey: Keys.accentColorHex)).clamped(to: 1...0xFFFFFF, default: 0xF2994A)
@@ -178,7 +178,7 @@ public final class AppearanceManager {
     private static func loadFontFamily(from defaults: UserDefaults) -> EditorFontFamily {
         guard let raw = defaults.string(forKey: Keys.editorFontFamily),
               let family = EditorFontFamily(rawValue: raw) else {
-            return .system
+            return EditorTypography.defaultFontFamily
         }
         return family
     }

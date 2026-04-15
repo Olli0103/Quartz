@@ -67,6 +67,17 @@
         "Avoid full storage rewrites on routine edits"
       ],
       "stop": "Editor performance budgets green"
+    },
+    {
+      "id": "editor_host_ui_automation_disabled",
+      "signal": "Automation Mode is disabled|requires user authentication to enable Automation Mode|Timed out while enabling automation mode",
+      "action": "Verify macOS host automation setup before rerunning XCUITests",
+      "resolution": [
+        "Run sudo automationmodetool enable-automationmode-without-authentication once in an unlocked local session",
+        "Relaunch the macOS UI test gate after host automation is enabled",
+        "Keep host-setup failures distinct from editor regressions in CI reports"
+      ],
+      "stop": "macOS editor shell UI coverage launches without automation-mode timeouts"
     }
   ]
 }

@@ -729,6 +729,8 @@ public final class EditorSession {
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
+        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
+        lastRenderPlan = EditorRenderPlan(spans: spans)
 
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
@@ -741,34 +743,20 @@ public final class EditorSession {
         let savedSelection = textView.selectedRange
 
         let baseFontSize = highlighterBaseFontSize
-        let defaultFont = UIFont.systemFont(ofSize: baseFontSize)
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let defaultColor: UIColor = .label
-
-        var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
-        let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
-
-        var lastEnd = 0
-        for span in primarySpans {
-            let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-            if r.location > lastEnd {
-                segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
-                                [.font: defaultFont, .foregroundColor: defaultColor]))
+        let segments = lastRenderPlan.primarySegments(
+            for: semanticDocument,
+            defaultFont: defaultFont,
+            defaultColor: defaultColor,
+            defaultParagraphStyle: { [highlighterLineSpacing] block in
+                EditorTypography.paragraphStyle(
+                    for: block?.kind,
+                    baseFontSize: baseFontSize,
+                    lineSpacingMultiplier: highlighterLineSpacing
+                )
             }
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: span.font, .foregroundColor: span.color ?? defaultColor,
-                .backgroundColor: span.backgroundColor ?? UIColor.clear,
-                .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]
-            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
-            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
-            segments.append((r, attrs))
-            lastEnd = r.location + r.length
-        }
-        if lastEnd < storageLength {
-            segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd),
-                            [.font: defaultFont, .foregroundColor: defaultColor]))
-        }
+        ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should NOT pollute the undo stack
         textView.undoManager?.disableUndoRegistration()
@@ -776,11 +764,11 @@ public final class EditorSession {
 
         storage.beginEditing()
         // NO DIFF — force set all attributes unconditionally
-        for (range, targetAttrs) in segments {
-            guard range.length > 0 else { continue }
-            storage.setAttributes(targetAttrs, range: range)
+        for segment in segments {
+            guard segment.range.length > 0 else { continue }
+            storage.setAttributes(segment.attributes, range: segment.range)
         }
-        for span in spans where span.isOverlay {
+        for span in lastRenderPlan.overlaySpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
@@ -799,7 +787,7 @@ public final class EditorSession {
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
-        for span in spans where span.attachment != nil {
+        for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
@@ -826,34 +814,20 @@ public final class EditorSession {
         let savedSelection = textView.selectedRange()
 
         let baseFontSize = highlighterBaseFontSize
-        let defaultFont = NSFont.systemFont(ofSize: baseFontSize)
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let defaultColor: NSColor = .labelColor
-
-        var segments: [(NSRange, [NSAttributedString.Key: Any])] = []
-        let primarySpans = spans.filter { !$0.isOverlay }.sorted { $0.range.location < $1.range.location }
-
-        var lastEnd = 0
-        for span in primarySpans {
-            let r = span.range
-            guard r.location >= 0, r.location + r.length <= storageLength else { continue }
-            if r.location > lastEnd {
-                segments.append((NSRange(location: lastEnd, length: r.location - lastEnd),
-                                [.font: defaultFont, .foregroundColor: defaultColor]))
+        let segments = lastRenderPlan.primarySegments(
+            for: semanticDocument,
+            defaultFont: defaultFont,
+            defaultColor: defaultColor,
+            defaultParagraphStyle: { [highlighterLineSpacing] block in
+                EditorTypography.paragraphStyle(
+                    for: block?.kind,
+                    baseFontSize: baseFontSize,
+                    lineSpacingMultiplier: highlighterLineSpacing
+                )
             }
-            var attrs: [NSAttributedString.Key: Any] = [
-                .font: span.font, .foregroundColor: span.color ?? defaultColor,
-                .backgroundColor: span.backgroundColor ?? NSColor.clear,
-                .strikethroughStyle: span.strikethrough ? 1 : 0
-            ]
-            if let ps = span.paragraphStyle { attrs[.paragraphStyle] = ps }
-            if let trs = span.tableRowStyle { attrs[.quartzTableRowStyle] = trs.rawValue }
-            segments.append((r, attrs))
-            lastEnd = r.location + r.length
-        }
-        if lastEnd < storageLength {
-            segments.append((NSRange(location: lastEnd, length: storageLength - lastEnd),
-                            [.font: defaultFont, .foregroundColor: defaultColor]))
-        }
+        ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should NOT pollute the undo stack
         textView.undoManager?.disableUndoRegistration()
@@ -861,11 +835,11 @@ public final class EditorSession {
 
         storage.beginEditing()
         // NO DIFF — force set all attributes unconditionally
-        for (range, targetAttrs) in segments {
-            guard range.length > 0 else { continue }
-            storage.setAttributes(targetAttrs, range: range)
+        for segment in segments {
+            guard segment.range.length > 0 else { continue }
+            storage.setAttributes(segment.attributes, range: segment.range)
         }
-        for span in spans where span.isOverlay {
+        for span in lastRenderPlan.overlaySpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             if let color = span.color {
@@ -884,7 +858,7 @@ public final class EditorSession {
             }
         }
         // Apply inline image attachments — replace first char with U+FFFC
-        for span in spans where span.attachment != nil {
+        for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
@@ -1249,13 +1223,20 @@ public final class EditorSession {
         let savedSelection = textView.selectedRange
 
         let baseFontSize = highlighterBaseFontSize
-        let defaultFont = UIFont.systemFont(ofSize: baseFontSize)
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let defaultColor: UIColor = .label
 
         let segments = lastRenderPlan.primarySegments(
             for: semanticDocument,
             defaultFont: defaultFont,
-            defaultColor: defaultColor
+            defaultColor: defaultColor,
+            defaultParagraphStyle: { [highlighterLineSpacing] block in
+                EditorTypography.paragraphStyle(
+                    for: block?.kind,
+                    baseFontSize: baseFontSize,
+                    lineSpacingMultiplier: highlighterLineSpacing
+                )
+            }
         ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should not pollute the undo stack
@@ -1315,13 +1296,20 @@ public final class EditorSession {
         let savedSelection = textView.selectedRange()
 
         let baseFontSize = highlighterBaseFontSize
-        let defaultFont = NSFont.systemFont(ofSize: baseFontSize)
+        let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let defaultColor: NSColor = .labelColor
 
         let segments = lastRenderPlan.primarySegments(
             for: semanticDocument,
             defaultFont: defaultFont,
-            defaultColor: defaultColor
+            defaultColor: defaultColor,
+            defaultParagraphStyle: { [highlighterLineSpacing] block in
+                EditorTypography.paragraphStyle(
+                    for: block?.kind,
+                    baseFontSize: baseFontSize,
+                    lineSpacingMultiplier: highlighterLineSpacing
+                )
+            }
         ).filter { $0.range.location >= 0 && NSMaxRange($0.range) <= storageLength }
 
         // Disable undo registration — attribute styling should not pollute the undo stack
@@ -1375,11 +1363,6 @@ public final class EditorSession {
 
     // MARK: - Typing Attributes
 
-    /// Heading font scale factors — must match MarkdownASTHighlighter exactly.
-    private static let headingScales: [Int: CGFloat] = [
-        1: 1.7, 2: 1.45, 3: 1.25, 4: 1.12, 5: 1.05, 6: 1.05
-    ]
-
     /// Updates typing attributes based on the current line's markdown context.
     ///
     /// If the cursor is on a heading line (`# `, `## `, etc.), sets the typing font
@@ -1396,11 +1379,17 @@ public final class EditorSession {
         let loc = textView.selectedRange.location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let typingContext = semanticDocument.typingContext(at: loc)
+        let paragraphStyle = EditorTypography.paragraphStyle(
+            for: semanticDocument.block(containing: loc)?.kind,
+            baseFontSize: baseFontSize,
+            lineSpacingMultiplier: highlighterLineSpacing
+        )
 
         if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = UIColor.label
+            typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
         }
@@ -1409,6 +1398,7 @@ public final class EditorSession {
            let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .uiKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
+            typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
         }
@@ -1419,6 +1409,7 @@ public final class EditorSession {
         var typing = textView.typingAttributes
         if let font = attrs[.font] as? UIFont { typing[.font] = font }
         if let color = attrs[.foregroundColor] as? UIColor { typing[.foregroundColor] = color }
+        typing[.paragraphStyle] = paragraphStyle
         textView.typingAttributes = typing
 
         #elseif canImport(AppKit)
@@ -1427,11 +1418,17 @@ public final class EditorSession {
         let loc = textView.selectedRange().location
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
         let typingContext = semanticDocument.typingContext(at: loc)
+        let paragraphStyle = EditorTypography.paragraphStyle(
+            for: semanticDocument.block(containing: loc)?.kind,
+            baseFontSize: baseFontSize,
+            lineSpacingMultiplier: highlighterLineSpacing
+        )
 
         if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
             var typing = textView.typingAttributes
             typing[.font] = defaultFont
             typing[.foregroundColor] = NSColor.labelColor
+            typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
         }
@@ -1440,6 +1437,7 @@ public final class EditorSession {
            let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .appKit) {
             var typing = textView.typingAttributes
             typing[.font] = headingFont
+            typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
         }
@@ -1450,6 +1448,7 @@ public final class EditorSession {
         var typing = textView.typingAttributes
         if let font = attrs[.font] as? NSFont { typing[.font] = font }
         if let color = attrs[.foregroundColor] as? NSColor { typing[.foregroundColor] = color }
+        typing[.paragraphStyle] = paragraphStyle
         textView.typingAttributes = typing
         #endif
     }
@@ -1457,18 +1456,26 @@ public final class EditorSession {
     private enum Platform { case uiKit, appKit }
 
     private func headingFont(for level: Int, baseFontSize: CGFloat, platform: Platform) -> Any? {
-        let scale = Self.headingScales[level] ?? 1.05
+        let scale = EditorTypography.headingScale(for: level)
 
         switch platform {
         case .uiKit:
             #if canImport(UIKit)
-            return UIFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
+            return EditorFontFactory.makeFont(
+                family: highlighterFontFamily,
+                size: baseFontSize * scale,
+                weight: .bold
+            )
             #else
             return nil
             #endif
         case .appKit:
             #if canImport(AppKit)
-            return NSFont.systemFont(ofSize: baseFontSize * scale, weight: .bold)
+            return EditorFontFactory.makeFont(
+                family: highlighterFontFamily,
+                size: baseFontSize * scale,
+                weight: .bold
+            )
             #else
             return nil
             #endif

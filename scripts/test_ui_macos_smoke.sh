@@ -17,6 +17,10 @@ step "Running macOS UI smoke tests"
 echo "  Log: $LOG_PATH"
 echo "  Result bundle: $RESULT_BUNDLE"
 
+if ! ensure_macos_ui_automation_available "$LOG_PATH"; then
+    fail "macOS UI smoke tests are blocked by host UI automation setup"
+fi
+
 terminate_conflicting_macos_app_processes
 reset_result_bundle "$RESULT_BUNDLE"
 

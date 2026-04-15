@@ -20,6 +20,36 @@ reset_result_bundle() {
     fi
 }
 
+automation_mode_status() {
+    automationmodetool help 2>&1 || true
+}
+
+macos_ui_automation_requires_authentication() {
+    automation_mode_status | grep -q "requires user authentication to enable Automation Mode"
+}
+
+ensure_macos_ui_automation_available() {
+    local log_path="${1:-}"
+
+    if ! command -v automationmodetool >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if macos_ui_automation_requires_authentication; then
+        local message="macOS UI automation is disabled on this host and requires local user authentication: run 'sudo automationmodetool enable-automationmode-without-authentication' once in an unlocked session."
+        if [ -n "$log_path" ]; then
+            printf '%s\n' "$message" >"$log_path"
+            printf '%s\n' "$(automation_mode_status)" >>"$log_path"
+        else
+            printf '%s\n' "$message"
+            automation_mode_status
+        fi
+        return 1
+    fi
+
+    return 0
+}
+
 run_xcodebuild_to_log() {
     local log_path="$1"
     shift
@@ -30,6 +60,12 @@ run_xcodebuild_to_log() {
         if "$@" >"$log_path" 2>&1; then
             tail -n 20 "$log_path"
             return 0
+        fi
+
+        if [ "$attempt" -lt "$max_attempts" ] && result_bundle_exists_error_in_log "$log_path"; then
+            reset_result_bundle_from_log "$log_path"
+            attempt=$((attempt + 1))
+            continue
         fi
 
         if [ "$attempt" -lt "$max_attempts" ] && ui_automation_timeout_in_log "$log_path"; then
@@ -128,9 +164,29 @@ ui_automation_timeout_in_log() {
     grep -q "Timed out while enabling automation mode" "$log_path"
 }
 
+ui_automation_disabled_in_log() {
+    local log_path="$1"
+    grep -q "requires local user authentication" "$log_path"
+}
+
+result_bundle_exists_error_in_log() {
+    local log_path="$1"
+    grep -q 'Existing file at -resultBundlePath "' "$log_path"
+}
+
+reset_result_bundle_from_log() {
+    local log_path="$1"
+    local bundle_path=""
+    bundle_path="$(sed -nE 's/.*Existing file at -resultBundlePath "([^"]+)".*/\1/p' "$log_path" | tail -1)"
+    if [ -n "$bundle_path" ] && [ -e "$bundle_path" ]; then
+        rm -rf "$bundle_path"
+    fi
+}
+
 heal_ui_automation_timeout() {
     pkill -f "QuartzUITests-Runner" >/dev/null 2>&1 || true
     pkill -f "/Quartz.app/Contents/MacOS/Quartz" >/dev/null 2>&1 || true
     pkill -f "xcodebuild test -scheme Quartz" >/dev/null 2>&1 || true
+    rm -rf /tmp/QuartzEditorShell_*.xcresult /tmp/QuartzUITests_*.xcresult >/dev/null 2>&1 || true
     sleep 2
 }

@@ -148,9 +148,9 @@ final class EditorRealitySnapshotTests: XCTestCase {
             MarkdownEditorRepresentable(
                 session: session,
                 editorFontScale: 1.0,
-                editorFontFamily: .system,
-                editorLineSpacing: 1.5,
-                editorMaxWidth: 720,
+                editorFontFamily: EditorTypography.defaultFontFamily,
+                editorLineSpacing: EditorTypography.defaultLineSpacingMultiplier,
+                editorMaxWidth: EditorTypography.defaultMaxWidth,
                 syntaxVisibilityMode: syntaxVisibilityMode
             )
         }
