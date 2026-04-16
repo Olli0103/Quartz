@@ -5,13 +5,16 @@ import UIKit
 #endif
 
 /// Renders markdown as rich structured text using Textual.
-/// Used in preview mode for beautiful read-only display.
-public struct MarkdownPreviewView: View {
+/// Internal read-only renderer used by supporting flows such as version previews
+/// and snapshot coverage. It is not exposed as a live editor preview mode.
+struct MarkdownPreviewView: View {
+    static let isUserFacingEditorMode = false
+
     let markdown: String
     let baseURL: URL?
     let fontScale: CGFloat
 
-    public init(
+    init(
         markdown: String,
         baseURL: URL? = nil,
         fontScale: CGFloat = 1.0
@@ -21,7 +24,7 @@ public struct MarkdownPreviewView: View {
         self.fontScale = fontScale
     }
 
-    public var body: some View {
+    var body: some View {
         ScrollView {
             StructuredText(markdown: markdown, baseURL: baseURL, syntaxExtensions: [.math])
                 .textual.structuredTextStyle(.gitHub)

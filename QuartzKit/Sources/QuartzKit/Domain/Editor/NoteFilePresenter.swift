@@ -56,12 +56,12 @@ public final class NoteFilePresenter: NSObject, NSFilePresenter, @unchecked Send
     ///
     /// The presenter automatically registers with `NSFileCoordinator` on creation.
     public init(url: URL, delegate: NoteFilePresenterDelegate? = nil) {
-        self.presentedItemURL = url
+        self.presentedItemURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         self.delegate = delegate
 
         // Create a serial operation queue for presenter callbacks
         let queue = OperationQueue()
-        queue.name = "com.quartz.NoteFilePresenter.\(url.lastPathComponent)"
+        queue.name = "com.quartz.NoteFilePresenter.\(self.presentedItemURL?.lastPathComponent ?? url.lastPathComponent)"
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         self.presentedItemOperationQueue = queue
@@ -131,16 +131,17 @@ public final class NoteFilePresenter: NSObject, NSFilePresenter, @unchecked Send
     /// - Another app moving the file via NSFileCoordinator
     public func presentedItemDidMove(to newURL: URL) {
         let oldURL = presentedItemURL
+        let canonicalNewURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
 
         // Update our tracked URL
         stateLock.lock()
-        presentedItemURL = newURL
+        presentedItemURL = canonicalNewURL
         stateLock.unlock()
 
         guard let delegate = delegate else { return }
 
         Task { @MainActor in
-            delegate.filePresenter(self, didMoveFrom: oldURL, to: newURL)
+            delegate.filePresenter(self, didMoveFrom: oldURL, to: canonicalNewURL)
         }
     }
 

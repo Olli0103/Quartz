@@ -5,6 +5,8 @@ import SwiftUI
 /// On macOS, attached via `.inspector(isPresented:)`.
 /// On iOS/iPadOS, presented as a `.sheet` with detents.
 public struct InspectorSidebar: View {
+    static let surfacesBacklinksInInspector = true
+
     let store: InspectorStore
     let note: NoteDocument?
     let vaultRootURL: URL?
@@ -14,6 +16,8 @@ public struct InspectorSidebar: View {
 
     @Environment(\.appearanceManager) private var appearance
     @State private var newTagText: String = ""
+    @State private var backlinks: [Backlink] = []
+    @State private var isLoadingBacklinks: Bool = false
     @FocusState private var isTagFieldFocused: Bool
 
     public init(
@@ -53,6 +57,15 @@ public struct InspectorSidebar: View {
                         .padding(.bottom, 16)
                 }
 
+                if Self.shouldShowBacklinksExperience(
+                    note: note,
+                    vaultRootURL: vaultRootURL,
+                    onNavigateToNote: onNavigateToNote
+                ) {
+                    backlinksSection
+                        .padding(.bottom, 16)
+                }
+
                 if !store.relatedNotes.isEmpty {
                     relatedNotesSection
                         .padding(.bottom, 16)
@@ -74,6 +87,9 @@ public struct InspectorSidebar: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .task(id: backlinksTaskKey) {
+            await refreshBacklinksIfNeeded()
         }
     }
 
@@ -295,6 +311,19 @@ public struct InspectorSidebar: View {
         }
     }
 
+    // MARK: - Backlinks Section
+
+    private var backlinksSection: some View {
+        BacklinksPanel(
+            backlinks: backlinks,
+            isLoading: isLoadingBacklinks
+        ) { url in
+            QuartzFeedback.selection()
+            onNavigateToNote?(url)
+        }
+        .accessibilityIdentifier("editor-inspector-backlinks")
+    }
+
     // MARK: - AI Concepts Section
 
     private var aiConceptsSection: some View {
@@ -469,5 +498,59 @@ public struct InspectorSidebar: View {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let components = relative.split(separator: "/")
         return components.isEmpty ? note.fileURL.lastPathComponent : components.joined(separator: " / ")
+    }
+
+    private var backlinksTaskKey: String? {
+        guard let note, let vaultRootURL else { return nil }
+        return "\(note.id.description)|\(vaultRootURL.standardizedFileURL.path())"
+    }
+
+    static func shouldShowBacklinksExperience(
+        note: NoteDocument?,
+        vaultRootURL: URL?,
+        onNavigateToNote: ((URL) -> Void)?
+    ) -> Bool {
+        note != nil && vaultRootURL != nil && onNavigateToNote != nil && surfacesBacklinksInInspector
+    }
+
+    static func loadBacklinks(
+        for note: NoteDocument,
+        in vaultRootURL: URL,
+        vaultProvider: any VaultProviding
+    ) async throws -> [Backlink] {
+        try await BacklinkUseCase(vaultProvider: vaultProvider).findBacklinks(to: note.fileURL, in: vaultRootURL)
+    }
+
+    @MainActor
+    private func refreshBacklinksIfNeeded() async {
+        guard Self.shouldShowBacklinksExperience(
+            note: note,
+            vaultRootURL: vaultRootURL,
+            onNavigateToNote: onNavigateToNote
+        ), let note, let vaultRootURL else {
+            backlinks = []
+            isLoadingBacklinks = false
+            return
+        }
+
+        let noteIdentity = note.id
+        let vaultRootIdentity = vaultRootURL.standardizedFileURL
+        isLoadingBacklinks = true
+        defer { isLoadingBacklinks = false }
+
+        do {
+            let loadedBacklinks = try await Self.loadBacklinks(
+                for: note,
+                in: vaultRootURL,
+                vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
+            )
+            guard self.note?.id == noteIdentity,
+                  self.vaultRootURL?.standardizedFileURL == vaultRootIdentity else { return }
+            backlinks = loadedBacklinks
+        } catch {
+            guard self.note?.id == noteIdentity,
+                  self.vaultRootURL?.standardizedFileURL == vaultRootIdentity else { return }
+            backlinks = []
+        }
     }
 }

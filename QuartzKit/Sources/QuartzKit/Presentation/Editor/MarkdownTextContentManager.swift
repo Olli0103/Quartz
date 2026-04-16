@@ -15,6 +15,8 @@ import AppKit
 ///
 /// **Architecture:** Subclasses `NSTextContentStorage`; use `performMarkdownEdit` for
 /// attribute passes from `MarkdownASTHighlighter` instead of raw `beginEditing`/`endEditing`.
+/// Selection and first-responder ownership remain with the native text view and `EditorSession`;
+/// this content manager does not own cursor or focus state.
 public final class MarkdownTextContentManager: NSTextContentStorage {
 
     // MARK: - Configuration

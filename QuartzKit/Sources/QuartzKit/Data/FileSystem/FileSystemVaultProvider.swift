@@ -29,16 +29,17 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func readNote(at url: URL) async throws -> NoteDocument {
-        let data = try await coordinatedRead(at: url)
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let data = try await coordinatedRead(at: canonicalURL)
         guard let rawContent = String(data: data, encoding: .utf8) else {
-            throw FileSystemError.encodingFailed(url)
+            throw FileSystemError.encodingFailed(canonicalURL)
         }
 
         let (frontmatter, body) = try frontmatterParser.parse(from: rawContent)
-        let attributes = try fileManager.attributesOfItem(atPath: url.path(percentEncoded: false))
+        let attributes = try fileManager.attributesOfItem(atPath: canonicalURL.path(percentEncoded: false))
 
         return NoteDocument(
-            fileURL: url,
+            fileURL: canonicalURL,
             frontmatter: frontmatter,
             body: body,
             isDirty: false,
@@ -77,7 +78,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         }
 
         let fileName = "\(baseName).md"
-        let fileURL = folder.appending(path: fileName)
+        let fileURL = CanonicalNoteIdentity.canonicalFileURL(for: folder.appending(path: fileName))
 
         guard !fileManager.fileExists(atPath: fileURL.path(percentEncoded: false)) else {
             throw FileSystemError.fileAlreadyExists(fileURL)
@@ -114,10 +115,11 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func deleteNote(at url: URL) async throws {
-        let root = resolveVaultRoot(for: url)
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let root = resolveVaultRoot(for: canonicalURL)
         let trash = self.trashService
         try await Task.detached(priority: .userInitiated) {
-            try trash.moveItemToTrash(url, in: root)
+            try trash.moveItemToTrash(canonicalURL, in: root)
         }.value
     }
 
@@ -126,8 +128,9 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard !sanitized.isEmpty, !sanitized.hasPrefix("."), !sanitized.contains("/"), !sanitized.contains("\\") else {
             throw FileSystemError.invalidName(newName)
         }
-        let parent = url.deletingLastPathComponent()
-        let newURL = parent.appending(path: sanitized)
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let parent = canonicalURL.deletingLastPathComponent()
+        let newURL = CanonicalNoteIdentity.canonicalFileURL(for: parent.appending(path: sanitized))
         guard newURL.standardizedFileURL.path().hasPrefix(parent.standardizedFileURL.path()) else {
             throw FileSystemError.invalidName(newName)
         }
@@ -135,7 +138,7 @@ public actor FileSystemVaultProvider: VaultProviding {
             throw FileSystemError.fileAlreadyExists(newURL)
         }
         try await Task.detached(priority: .userInitiated) {
-            try CoordinatedFileWriter.shared.moveItem(from: url, to: newURL)
+            try CoordinatedFileWriter.shared.moveItem(from: canonicalURL, to: newURL)
         }.value
         return newURL
     }

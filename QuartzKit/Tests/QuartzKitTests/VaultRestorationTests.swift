@@ -69,4 +69,24 @@ struct VaultRestorationTests {
         #expect(Phase.indexWarm < Phase.restorationApplied)
         #expect(Phase.allCases.count == 5)
     }
+
+    @Test("ContentViewModel completes restoration phase only after index warm")
+    @MainActor func restorationAppliedWaitsForIndexWarm() async {
+        let viewModel = ContentViewModel(appState: AppState())
+        let coord = viewModel.startupCoordinator
+
+        #expect(coord.advance(to: .vaultResolved) == true)
+        #expect(coord.advance(to: .editorMounted) == true)
+
+        viewModel.completeStartupRestorationIfNeeded()
+        try? await Task.sleep(for: .milliseconds(10))
+
+        #expect(coord.currentPhase == .editorMounted)
+
+        #expect(coord.advance(to: .indexWarm) == true)
+        try? await Task.sleep(for: .milliseconds(10))
+
+        #expect(coord.currentPhase == .restorationApplied)
+        #expect(coord.isFullyStarted == true)
+    }
 }

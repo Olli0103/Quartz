@@ -76,6 +76,28 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testToolbarBoldActionAppliesMarkdownInline() throws {
+        launchApp()
+
+        guard createNewNote() else {
+            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForToolbarBoldInline")
+            XCTFail("New note action must succeed for macOS toolbar inline bold coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        let boldButton = element(matchingIdentifier: "editor-toolbar-bold")
+        XCTAssertTrue(boldButton.waitForExistence(timeout: 5),
+                      "Bold toolbar action must exist on macOS")
+
+        interact(with: boldButton)
+
+        let token = "macToolbarBold\(UUID().uuidString.prefix(6))"
+        editor.typeText(token)
+        assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
     func testToolbarCheckboxActionInsertsTaskPrefix() throws {
         launchApp()
 
@@ -101,15 +123,15 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarTableActionInsertsMarkdownTable() throws {
         launchApp()
 
-        guard createNewNote() else {
-            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForTable")
-            XCTFail("New note action must succeed for macOS table toolbar coverage")
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoFixtureForTable")
+            XCTFail("An existing fixture note must exist for macOS table toolbar coverage")
             return
         }
 
         let editor = focusEditor()
-        editor.typeText("This is a test note for UI testing.")
-        editor.typeText("\n")
+        app.typeKey("a", modifierFlags: .command)
+        editor.typeText("This is a test note for UI testing.\n")
         triggerOverflowFormattingAction("table", fallbackLabel: "Table")
         assertEditorContains("This is a test note for UI testing.")
         assertEditorContains("| Column 1 | Column 2 | Column 3 |")
@@ -121,15 +143,15 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarMermaidActionWrapsCurrentLineInFence() throws {
         launchApp()
 
-        guard createNewNote() else {
-            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForMermaid")
-            XCTFail("New note action must succeed for macOS mermaid toolbar coverage")
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoFixtureForMermaid")
+            XCTFail("An existing fixture note must exist for macOS mermaid toolbar coverage")
             return
         }
 
         let editor = focusEditor()
-        editor.typeText("This is a test note for UI testing.")
-        editor.typeText("\n")
+        app.typeKey("a", modifierFlags: .command)
+        editor.typeText("This is a test note for UI testing.\n")
         triggerOverflowFormattingAction("mermaid", fallbackLabel: "Mermaid Diagram")
         let token = "graph TD"
         editor.typeText(token)

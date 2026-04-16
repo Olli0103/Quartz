@@ -118,7 +118,9 @@ public struct EditorContainerView: View {
         }
         .overlay(alignment: .bottom) {
             IosEditorToolbar(
-                onFormatting: { action in session.applyToolbarFormatting(action) },
+                onFormatting: { action in
+                    session.handleFormattingAction(action, source: .toolbar)
+                },
                 onSave: { Task { await session.manualSave() } },
                 formattingState: session.formattingState,
                 isComposing: session.isComposing,
@@ -134,7 +136,9 @@ public struct EditorContainerView: View {
             #if os(macOS)
             ToolbarItemGroup(placement: .principal) {
                 MacEditorToolbar(
-                    onFormatting: { action in session.applyToolbarFormatting(action) },
+                    onFormatting: { action in
+                        session.handleFormattingAction(action, source: .toolbar)
+                    },
                     formattingState: session.formattingState,
                     isComposing: session.isComposing,
                     hasSelection: session.cursorPosition.length > 0,

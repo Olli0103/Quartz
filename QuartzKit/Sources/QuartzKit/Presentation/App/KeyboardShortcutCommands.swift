@@ -7,12 +7,20 @@ import SwiftUI
 /// Registers productivity-related key combinations:
 /// - ⌘N: New note
 /// - ⌘⇧N: New folder
-/// - ⌘F: Search
 /// - ⌘⇧F: Vault-wide search
 /// - ⌘/: Toggle sidebar
 /// - ⌘⇧D: Daily note
 /// - Format menu: Bold, Italic, Headings, Code, etc.
+///
+/// Format commands are UI dispatch only. Mutation authority lives in `EditorSession`.
 public struct KeyboardShortcutCommands: Commands {
+    /// Quartz currently exposes only vault-wide search from the custom command surface.
+    /// We intentionally do not claim a custom in-note find flow until the editor owns one.
+    static let exposesCustomInNoteFindCommand = false
+    static var vaultSearchCommandTitle: String {
+        String(localized: "Search Notes…", bundle: .module)
+    }
+
     let onNewNote: () -> Void
     let onNewFolder: () -> Void
     let onSearch: () -> Void
@@ -70,13 +78,9 @@ public struct KeyboardShortcutCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
-            // Cmd+F: On iOS, UITextView provides native Find — only register on macOS
-            #if os(macOS)
-            Button(String(localized: "Find in Note", bundle: .module)) { onSearch() }
-                .keyboardShortcut("f", modifiers: .command)
-            #endif
-
-            Button(String(localized: "Search All Notes", bundle: .module)) { onGlobalSearch() }
+            // Keep custom editor commands honest: Quartz does not yet provide its own in-note
+            // find flow, so the visible custom command surface only exposes vault-wide search.
+            Button(Self.vaultSearchCommandTitle) { onGlobalSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
         }
 

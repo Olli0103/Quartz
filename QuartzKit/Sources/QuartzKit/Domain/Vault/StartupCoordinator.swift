@@ -4,7 +4,7 @@ import os
 /// Coordinates app startup through a deterministic phase progression.
 ///
 /// Replaces timing heuristics with an explicit handshake:
-/// `initial → vaultResolved → indexWarm → editorMounted → restorationApplied`
+/// `initial → vaultResolved → editorMounted → indexWarm → restorationApplied`
 ///
 /// Each phase must be reached in order. Callers can `await` a target phase,
 /// and the coordinator resumes all waiters when the phase is reached.
@@ -20,11 +20,11 @@ public final class StartupCoordinator {
         case initial = 0
         /// Security-scoped bookmark restored, vault directory accessible.
         case vaultResolved = 1
-        /// EditorSession created and text view wrapper mounted.
+        /// EditorSession created and wired into the workspace lifecycle.
         case editorMounted = 2
         /// Search index + graph edges loaded (from cache or rebuilt).
         case indexWarm = 3
-        /// Route, scroll position, and cursor restored from last session.
+        /// Route, scroll position, and cursor restoration have been explicitly applied or skipped.
         case restorationApplied = 4
 
         public static func < (lhs: StartupPhase, rhs: StartupPhase) -> Bool {

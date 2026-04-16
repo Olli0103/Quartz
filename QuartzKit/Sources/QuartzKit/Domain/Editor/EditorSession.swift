@@ -22,6 +22,11 @@ import AppKit
 @Observable
 @MainActor
 public final class EditorSession {
+    public enum FormattingInvocationSource: String, Sendable {
+        case toolbar
+        case hardwareKeyboard
+        case commandMenu
+    }
 
     // MARK: - State (read by UI, never written back by SwiftUI)
 
@@ -32,13 +37,14 @@ public final class EditorSession {
     /// Updated only by delegate callbacks, never by SwiftUI bindings.
     public private(set) var currentText: String = ""
 
-    /// Current cursor/selection range — updated by delegate callbacks.
+    /// Last authoritative cursor/selection snapshot.
+    ///
+    /// Runtime ownership is explicit:
+    /// - while the mounted native text view is first responder, its live selection is authoritative
+    /// - otherwise this snapshot is the derived fallback used by formatting, restoration, and state persistence
+    ///
+    /// SwiftUI never writes this back directly.
     public private(set) var cursorPosition: NSRange = .init(location: 0, length: 0)
-
-    /// Last expanded selection before the editor temporarily collapsed it.
-    /// Used to recover toolbar actions that steal focus immediately after a text selection.
-    private var lastExpandedSelection: NSRange = .init(location: 0, length: 0)
-    private var lastExpandedSelectionDate: Date?
 
     /// Current scroll offset — updated by delegate callbacks.
     /// Used to restore scroll position after inspector toggle or layout changes.
@@ -68,6 +74,10 @@ public final class EditorSession {
     /// Set when an external modification is detected while the user has unsaved edits.
     public var externalModificationDetected: Bool = false
 
+    /// Canonical note identity for the pending external change, when local edits block auto-reload.
+    /// This stays nil during clean auto-reloads.
+    public private(set) var pendingExternalChangeIdentity: CanonicalNoteIdentity?
+
     /// The active mutation transaction, set during any text edit.
     /// Used by the undo system and incremental highlighter to determine policy.
     public private(set) var currentTransaction: MutationTransaction?
@@ -92,6 +102,10 @@ public final class EditorSession {
     /// Used for content-based echo suppression (replaces timing-based guard).
     private var lastSavedContentHash: SHA256Digest?
 
+    /// SHA-256 hash of the last disk revision successfully loaded or saved into this session.
+    /// Used to ignore duplicate file-presenter/file-watcher events for the same on-disk content.
+    private var lastKnownDiskContentHash: SHA256Digest?
+
     // MARK: - Restoration Readiness (F8 fix)
 
     /// True when the editor is ready for cursor/scroll restoration.
@@ -102,6 +116,21 @@ public final class EditorSession {
     /// Continuations waiting for restoration readiness.
     /// Multiple callers can await readiness; all are resumed when ready.
     private var readinessContinuations: [CheckedContinuation<Void, Never>] = []
+
+    /// True once the current note body has been loaded into session state.
+    private var hasLoadedCurrentNoteForRestoration = false
+
+    /// True while a native text view is mounted for this session.
+    private var hasMountedNativeEditor = false
+
+    /// Deferred cursor restoration applied once a mounted editor is available.
+    private var pendingRestoredSelection: NSRange?
+
+    /// Deferred scroll restoration applied once a mounted editor is available.
+    private var pendingRestoredScrollOffset: CGPoint?
+
+    /// Per-note transient editor state used when switching away and back within the same session.
+    private var noteViewStateByURL: [URL: EditorViewState] = [:]
 
     // MARK: - Active Text View (weak ref)
 
@@ -273,11 +302,18 @@ public final class EditorSession {
 
     // MARK: - Note Loading
 
+    private struct EditorViewState {
+        let selection: NSRange
+        let scrollOffset: CGPoint
+    }
+
     /// Loads a note from the file system into the existing session.
     /// Reuses the mounted text view — no view destruction.
     public func loadNote(at url: URL) async {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         // Reset readiness state for new note (F8 handshake)
         resetReadinessState()
+        saveViewStateForCurrentNote()
 
         // CRITICAL: Save dirty content before switching notes to prevent data loss
         if isDirty, note != nil {
@@ -302,45 +338,16 @@ public final class EditorSession {
         clearUndoStack()
 
         do {
-            let loaded = try await vaultProvider.readNote(at: url)
-            note = loaded
-            currentText = loaded.body
-            isDirty = false
-            errorMessage = nil
-            externalModificationDetected = false
-            wordCount = Self.countWords(in: loaded.body)
-
-            // Update the existing native text view (no view recreation)
-            #if canImport(UIKit)
-            activeTextView?.text = loaded.body
-            #elseif canImport(AppKit)
-            activeTextView?.string = loaded.body
-            #endif
-
-            // Clear undo stack again after text assignment (assignment may register undo)
-            clearUndoStack()
-
-            // Update highlighter with vault/note context for inline image resolution
-            Task {
-                await highlighter?.updateSettings(
-                    fontFamily: highlighterFontFamily,
-                    lineSpacing: highlighterLineSpacing,
-                    vaultRootURL: vaultRootURL,
-                    noteURL: url
-                )
-            }
-
-            // Trigger highlighting and analysis
-            highlightImmediately()
-            scheduleAnalysis()
-
-            // Refresh semantic links for the newly loaded note
-            Task { await refreshSemanticLinks() }
-
-            startFileWatching(for: url)
-
-            // Signal ready for restoration after all synchronous setup is complete (F8 handshake)
-            signalReadyForRestoration()
+            let loaded = try await vaultProvider.readNote(at: canonicalURL)
+            applyLoadedNoteState(
+                loaded,
+                requestedURL: canonicalURL,
+                restoredViewState: viewState(forLoadedNoteAt: canonicalURL),
+                restartFileWatching: true,
+                clearUndoHistory: true
+            )
+            hasLoadedCurrentNoteForRestoration = true
+            updateRestorationReadinessIfPossible()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription
                 ?? String(localized: "An unexpected error occurred.", bundle: .module)
@@ -355,6 +362,7 @@ public final class EditorSession {
     public func closeNote() {
         // Reset readiness state (F8 handshake)
         resetReadinessState()
+        saveViewStateForCurrentNote()
 
         // Save a final snapshot if there are unsaved changes
         if isDirty, let noteURL = note?.fileURL, let vaultRoot = vaultRootURL {
@@ -377,12 +385,17 @@ public final class EditorSession {
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
+        pendingExternalChangeIdentity = nil
         wordCount = 0
         formattingState = .empty
+        lastSavedContentHash = nil
+        lastKnownDiskContentHash = nil
 
         // Reset cursor and scroll state for clean restoration on next note open
         cursorPosition = NSRange(location: 0, length: 0)
         scrollOffset = .zero
+        pendingRestoredSelection = nil
+        pendingRestoredScrollOffset = nil
 
         #if canImport(UIKit)
         activeTextView?.text = ""
@@ -403,10 +416,34 @@ public final class EditorSession {
     }
 
     /// Reloads from disk, discarding local edits.
-    public func reloadFromDisk() async {
-        guard let url = note?.fileURL else { return }
-        externalModificationDetected = false
-        await loadNote(at: url)
+    public func reloadFromDisk(preservingViewState: Bool = true) async {
+        guard let currentIdentity = note?.id else { return }
+        let restoredViewState = preservingViewState ? clampedViewState(
+            EditorViewState(
+                selection: resolvedFormattingSelection(),
+                scrollOffset: scrollOffset
+            ),
+            for: currentText
+        ) : nil
+
+        cancelTransientTasksPreservingWatchers()
+
+        do {
+            let loaded = try await vaultProvider.readNote(at: currentIdentity.fileURL)
+            guard note?.id == currentIdentity else { return }
+            applyLoadedNoteState(
+                loaded,
+                requestedURL: currentIdentity.fileURL,
+                restoredViewState: restoredViewState,
+                restartFileWatching: false,
+                clearUndoHistory: true
+            )
+            hasLoadedCurrentNoteForRestoration = true
+            updateRestorationReadinessIfPossible()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? String(localized: "An unexpected error occurred.", bundle: .module)
+        }
     }
 
     /// Reloads from disk after a version restore.
@@ -461,12 +498,30 @@ public final class EditorSession {
 
     /// Called by the text view delegate when selection changes.
     public func selectionDidChange(_ range: NSRange) {
+        applySelectionSnapshot(range)
+    }
+
+    /// Captures the authoritative selection immediately before the native text view
+    /// resigns first responder, so toolbar/menu interactions can use the exact selection
+    /// that was active at the moment focus left the editor.
+    public func selectionOwnerWillResignFirstResponder(with range: NSRange) {
+        if range.length == 0, cursorPosition.length > 0 {
+            return
+        }
+        applySelectionSnapshot(range, force: true)
+    }
+
+    /// Captures the authoritative selection immediately after the native text view
+    /// becomes first responder.
+    public func selectionOwnerDidBecomeFirstResponder(with range: NSRange) {
+        applySelectionSnapshot(range, force: true)
+    }
+
+    private func applySelectionSnapshot(_ range: NSRange, force: Bool = false) {
+        guard shouldAcceptSelectionSnapshot(range, force: force) else { return }
+
         let previousRange = cursorPosition
         cursorPosition = range
-        if range.length > 0 {
-            lastExpandedSelection = range
-            lastExpandedSelectionDate = Date()
-        }
         updateTypingAttributes()
         formattingState = FormattingState.detect(
             in: currentText,
@@ -485,6 +540,13 @@ public final class EditorSession {
         }
 
         applyHighlightSpansForced(lastAppliedHighlightSpans)
+    }
+
+    private func shouldAcceptSelectionSnapshot(_ range: NSRange, force: Bool) -> Bool {
+        if force { return true }
+        if !hasMountedNativeEditor { return true }
+        if activeTextViewIsFirstResponder { return true }
+        return range.length > 0
     }
 
     /// Called by the text view delegate when scroll position changes.
@@ -532,18 +594,9 @@ public final class EditorSession {
         let clampedLength = min(length, textLength - clampedLocation)
         let range = NSRange(location: clampedLocation, length: clampedLength)
 
-        cursorPosition = range
-
-        // Apply to native text view
-        #if canImport(UIKit)
-        if let textView = activeTextView {
-            textView.selectedRange = range
-        }
-        #elseif canImport(AppKit)
-        if let textView = activeTextView {
-            textView.setSelectedRange(range)
-        }
-        #endif
+        pendingRestoredSelection = range
+        applySelectionSnapshot(range, force: true)
+        applyPendingRestorationStateIfPossible()
     }
 
     /// Restores scroll position after note reload.
@@ -552,17 +605,9 @@ public final class EditorSession {
     /// - Parameter y: The vertical scroll offset.
     public func restoreScroll(y: Double) {
         let newOffset = CGPoint(x: scrollOffset.x, y: y)
+        pendingRestoredScrollOffset = newOffset
         scrollOffset = newOffset
-
-        // Apply to native text view
-        #if canImport(UIKit)
-        activeTextView?.setContentOffset(newOffset, animated: false)
-        #elseif canImport(AppKit)
-        if let scrollView = activeTextView?.enclosingScrollView {
-            scrollView.contentView.scroll(to: newOffset)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-        #endif
+        applyPendingRestorationStateIfPossible()
     }
 
     /// Awaits until the editor is ready for cursor/scroll restoration.
@@ -578,8 +623,9 @@ public final class EditorSession {
     }
 
     /// Signals that the editor is ready for cursor/scroll restoration.
-    /// Called after `loadNote` completes and the text view is populated.
-    /// Resumes all waiting continuations.
+    /// Production code uses `updateRestorationReadinessIfPossible()` so readiness is only
+    /// published after both note content and a mounted native editor are available.
+    /// This explicit signal remains available for tests and controlled overrides.
     public func signalReadyForRestoration() {
         guard !isReadyForRestoration else { return }
         isReadyForRestoration = true
@@ -594,6 +640,7 @@ public final class EditorSession {
     /// Resets the readiness state (called before loading a new note).
     private func resetReadinessState() {
         isReadyForRestoration = false
+        hasLoadedCurrentNoteForRestoration = false
         // Any pending continuations are stale — resume them to unblock waiters
         for continuation in readinessContinuations {
             continuation.resume()
@@ -680,11 +727,19 @@ public final class EditorSession {
 
     // MARK: - Formatting Commands
 
+    /// Shared authoritative formatting entrypoint.
+    /// All user-facing formatting sources must resolve through this method before mutation.
+    public func handleFormattingAction(_ action: FormattingAction, source: FormattingInvocationSource) {
+        let selection = resolvedFormattingSelection(for: action, source: source)
+        prepareFormattingInvocation(selection, source: source)
+        applyFormatting(action, selectedRange: selection)
+        finalizeFormattingInvocation(source: source)
+    }
+
     /// Applies a formatting action surgically via `applyExternalEdit`.
     /// Guarded by IME composition check.
     public func applyFormatting(_ action: FormattingAction) {
-        let selection = resolvedFormattingSelection()
-        applyFormatting(action, selectedRange: selection)
+        handleFormattingAction(action, source: .commandMenu)
     }
 
     /// Applies a formatting action initiated from a toolbar button.
@@ -692,10 +747,7 @@ public final class EditorSession {
     /// from the editor's last known cursor snapshot, so we resolve a single command range
     /// and restore it onto the text view before mutating markdown.
     public func applyToolbarFormatting(_ action: FormattingAction) {
-        let selection = resolvedToolbarFormattingSelection(for: action)
-        synchronizeActiveSelectionForFormatting(selection)
-        applyFormatting(action, selectedRange: selection)
-        reassertToolbarSelectionAfterFormatting()
+        handleFormattingAction(action, source: .toolbar)
     }
 
     private func applyFormatting(_ action: FormattingAction, selectedRange: NSRange) {
@@ -822,51 +874,39 @@ public final class EditorSession {
     }
 
     private func resolvedFormattingSelection() -> NSRange {
-        let liveSelection = currentSelectedRangeFromActiveTextView()
-        if liveSelection.length > 0 || cursorPosition.length == 0 {
-            return liveSelection
+        if hasMountedNativeEditor, activeTextViewIsFirstResponder {
+            return currentSelectedRangeFromActiveTextView()
         }
         return cursorPosition
     }
 
-    private func resolvedToolbarFormattingSelection(for action: FormattingAction) -> NSRange {
-        let liveSelection = currentSelectedRangeFromActiveTextView()
-        switch (liveSelection.length > 0, cursorPosition.length > 0) {
-        case (true, _):
-            return liveSelection
-        case (false, true):
-            return cursorPosition
-        case (false, false):
-            return recoveredSelectionForToolbarAction(action, liveSelection: liveSelection) ?? liveSelection
+    private func resolvedFormattingSelection(
+        for action: FormattingAction,
+        source: FormattingInvocationSource
+    ) -> NSRange {
+        _ = action
+        _ = source
+        return resolvedFormattingSelection()
+    }
+
+    private func prepareFormattingInvocation(_ selection: NSRange, source: FormattingInvocationSource) {
+        switch source {
+        case .toolbar, .commandMenu:
+            synchronizeActiveSelectionForFormatting(selection)
+        case .hardwareKeyboard:
+            if cursorPosition != selection {
+                selectionDidChange(selection)
+            }
         }
     }
 
-    private func recoveredSelectionForToolbarAction(
-        _ action: FormattingAction,
-        liveSelection: NSRange
-    ) -> NSRange? {
-        guard action.prefersRecoveredExpandedSelection,
-              selectionLikelyCollapsedFromRecentExpandedSelection(liveSelection) else {
-            return nil
+    private func finalizeFormattingInvocation(source: FormattingInvocationSource) {
+        switch source {
+        case .toolbar:
+            reassertToolbarSelectionAfterFormatting()
+        case .hardwareKeyboard, .commandMenu:
+            break
         }
-        return recentExpandedSelectionForToolbarAction()
-    }
-
-    private func selectionLikelyCollapsedFromRecentExpandedSelection(_ liveSelection: NSRange) -> Bool {
-        guard liveSelection.length == 0 else { return false }
-        guard lastExpandedSelection.length > 0 else { return false }
-        let location = liveSelection.location
-        return location >= lastExpandedSelection.location && location <= NSMaxRange(lastExpandedSelection)
-    }
-
-    private func recentExpandedSelectionForToolbarAction() -> NSRange? {
-        guard lastExpandedSelection.length > 0,
-              !activeTextViewIsFirstResponder,
-              let lastExpandedSelectionDate,
-              Date().timeIntervalSince(lastExpandedSelectionDate) <= 1 else {
-            return nil
-        }
-        return lastExpandedSelection
     }
 
     private var activeTextViewIsFirstResponder: Bool {
@@ -912,6 +952,160 @@ public final class EditorSession {
             self.synchronizeActiveSelectionForFormatting(expectedSelection)
         }
         #endif
+    }
+
+    #if canImport(UIKit)
+    public func bindActiveTextView(_ textView: UITextView) {
+        activeTextView = textView
+        hasMountedNativeEditor = true
+        applyPendingRestorationStateIfPossible()
+        updateRestorationReadinessIfPossible()
+    }
+
+    public func unbindActiveTextView(_ textView: UITextView) {
+        guard activeTextView === textView else { return }
+        selectionOwnerWillResignFirstResponder(with: textView.selectedRange)
+        activeTextView = nil
+        hasMountedNativeEditor = false
+    }
+    #elseif canImport(AppKit)
+    public func bindActiveTextView(_ textView: NSTextView) {
+        activeTextView = textView
+        hasMountedNativeEditor = true
+        applyPendingRestorationStateIfPossible()
+        updateRestorationReadinessIfPossible()
+    }
+
+    public func unbindActiveTextView(_ textView: NSTextView) {
+        guard activeTextView === textView else { return }
+        selectionOwnerWillResignFirstResponder(with: textView.selectedRange())
+        activeTextView = nil
+        hasMountedNativeEditor = false
+    }
+    #endif
+
+    private func saveViewStateForCurrentNote() {
+        guard let noteURL = note?.fileURL else { return }
+        noteViewStateByURL[CanonicalNoteIdentity.canonicalFileURL(for: noteURL)] = EditorViewState(
+            selection: resolvedFormattingSelection(),
+            scrollOffset: scrollOffset
+        )
+    }
+
+    private func viewState(forLoadedNoteAt url: URL) -> EditorViewState? {
+        noteViewStateByURL[CanonicalNoteIdentity.canonicalFileURL(for: url)]
+    }
+
+    private func stageViewStateForLoadedNote(at url: URL) {
+        if let viewState = viewState(forLoadedNoteAt: url) {
+            pendingRestoredSelection = viewState.selection
+            pendingRestoredScrollOffset = viewState.scrollOffset
+            applySelectionSnapshot(viewState.selection, force: true)
+            scrollOffset = viewState.scrollOffset
+        } else {
+            pendingRestoredSelection = nil
+            pendingRestoredScrollOffset = nil
+            applySelectionSnapshot(NSRange(location: 0, length: 0), force: true)
+            scrollOffset = .zero
+        }
+    }
+
+    private func clampedViewState(_ viewState: EditorViewState, for text: String) -> EditorViewState {
+        let textLength = (text as NSString).length
+        let clampedLocation = min(max(0, viewState.selection.location), textLength)
+        let clampedLength = min(max(0, viewState.selection.length), textLength - clampedLocation)
+        return EditorViewState(
+            selection: NSRange(location: clampedLocation, length: clampedLength),
+            scrollOffset: viewState.scrollOffset
+        )
+    }
+
+    private func applyLoadedNoteState(
+        _ loaded: NoteDocument,
+        requestedURL: URL,
+        restoredViewState: EditorViewState?,
+        restartFileWatching: Bool,
+        clearUndoHistory: Bool
+    ) {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: requestedURL)
+        note = loaded
+        currentText = loaded.body
+        isDirty = false
+        errorMessage = nil
+        externalModificationDetected = false
+        pendingExternalChangeIdentity = nil
+        wordCount = Self.countWords(in: loaded.body)
+
+        if let restoredViewState {
+            let clampedState = clampedViewState(restoredViewState, for: loaded.body)
+            noteViewStateByURL[canonicalURL] = clampedState
+            pendingRestoredSelection = clampedState.selection
+            pendingRestoredScrollOffset = clampedState.scrollOffset
+            applySelectionSnapshot(clampedState.selection, force: true)
+            scrollOffset = clampedState.scrollOffset
+        } else {
+            stageViewStateForLoadedNote(at: canonicalURL)
+        }
+
+        #if canImport(UIKit)
+        activeTextView?.text = loaded.body
+        #elseif canImport(AppKit)
+        activeTextView?.string = loaded.body
+        #endif
+
+        applyPendingRestorationStateIfPossible()
+
+        if clearUndoHistory {
+            clearUndoStack()
+        }
+
+        updateKnownDiskContentHash(for: canonicalURL)
+
+        Task {
+            await highlighter?.updateSettings(
+                fontFamily: highlighterFontFamily,
+                lineSpacing: highlighterLineSpacing,
+                vaultRootURL: vaultRootURL,
+                noteURL: canonicalURL
+            )
+        }
+
+        highlightImmediately()
+        scheduleAnalysis()
+        Task { await refreshSemanticLinks() }
+
+        if restartFileWatching {
+            startFileWatching(for: canonicalURL)
+        }
+    }
+
+    private func applyPendingRestorationStateIfPossible() {
+        guard hasMountedNativeEditor else { return }
+
+        #if canImport(UIKit)
+        if let selection = pendingRestoredSelection, let textView = activeTextView, textView.selectedRange != selection {
+            textView.selectedRange = selection
+        }
+        if let offset = pendingRestoredScrollOffset {
+            activeTextView?.setContentOffset(offset, animated: false)
+        }
+        #elseif canImport(AppKit)
+        if let selection = pendingRestoredSelection, let textView = activeTextView, textView.selectedRange() != selection {
+            textView.setSelectedRange(selection)
+        }
+        if let offset = pendingRestoredScrollOffset, let scrollView = activeTextView?.enclosingScrollView {
+            scrollView.contentView.scroll(to: offset)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        #endif
+
+        pendingRestoredSelection = nil
+        pendingRestoredScrollOffset = nil
+    }
+
+    private func updateRestorationReadinessIfPossible() {
+        guard hasLoadedCurrentNoteForRestoration, hasMountedNativeEditor else { return }
+        signalReadyForRestoration()
     }
 
     private func systemPasteboardString() -> String? {
@@ -1268,6 +1462,7 @@ public final class EditorSession {
                     : "---\n\(yamlString)---\n\n\(textSnapshot)"
                 if let savedData = fullContent.data(using: .utf8) {
                     lastSavedContentHash = SHA256.hash(data: savedData)
+                    lastKnownDiskContentHash = lastSavedContentHash
                 }
             }
 
@@ -1735,6 +1930,52 @@ public final class EditorSession {
         return count
     }
 
+    private func cancelTransientTasksPreservingWatchers() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        highlightTask?.cancel()
+        highlightTask = nil
+        wordCountTask?.cancel()
+        wordCountTask = nil
+        analysisTask?.cancel()
+        analysisTask = nil
+        inlineAITask?.cancel()
+        inlineAITask = nil
+    }
+
+    private func currentDiskContentHash(for url: URL) -> SHA256Digest? {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        guard let data = try? Data(contentsOf: canonicalURL) else { return nil }
+        return SHA256.hash(data: data)
+    }
+
+    private func updateKnownDiskContentHash(for url: URL) {
+        lastKnownDiskContentHash = currentDiskContentHash(for: url)
+    }
+
+    private func handleDetectedExternalChange(at url: URL, diskHash: SHA256Digest?) {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        guard note?.fileURL == canonicalURL else { return }
+
+        if let diskHash {
+            if diskHash == lastKnownDiskContentHash {
+                return
+            }
+            if diskHash == lastSavedContentHash {
+                lastKnownDiskContentHash = diskHash
+                return
+            }
+        }
+
+        if isDirty {
+            pendingExternalChangeIdentity = note?.id
+            externalModificationDetected = true
+            return
+        }
+
+        Task { await reloadFromDisk(preservingViewState: true) }
+    }
+
     // MARK: - Analysis (Inspector Data)
 
     /// Schedules a debounced analysis pass for headings, stats, and link suggestions.
@@ -1798,20 +2039,21 @@ public final class EditorSession {
     // MARK: - File Watching
 
     private func startFileWatching(for url: URL) {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         stopFileWatching()
 
         // Start NSFilePresenter for iCloud-coordinated change detection.
         // This is the primary monitor — it receives all coordinated writes
         // from iCloud daemon, Finder, and other processes.
-        filePresenter = NoteFilePresenter(url: url, delegate: self)
+        filePresenter = NoteFilePresenter(url: canonicalURL, delegate: self)
 
         // Only use DispatchSource (FileWatcher) for non-iCloud vaults.
         // For iCloud vaults, NSFilePresenter is sufficient and avoids
         // dual-monitoring race conditions (double reload, echo after save).
-        let isICloudVault = url.path(percentEncoded: false).contains("Mobile Documents")
+        let isICloudVault = canonicalURL.path(percentEncoded: false).contains("Mobile Documents")
         guard !isICloudVault else { return }
 
-        let watcher = FileWatcher(url: url)
+        let watcher = FileWatcher(url: canonicalURL)
         fileWatchTask = Task { [weak self] in
             let stream = await watcher.startWatching()
             for await event in stream {
@@ -1838,23 +2080,11 @@ public final class EditorSession {
 
         switch event {
         case .modified:
-            // Content-hash echo suppression: read the file and compare hash.
-            // If it matches what we last wrote, this is our own save echoing back.
-            if let noteURL = note?.fileURL, let lastHash = lastSavedContentHash {
-                let diskData = try? Data(contentsOf: noteURL)
-                if let diskData {
-                    let diskHash = SHA256.hash(data: diskData)
-                    if diskHash == lastHash {
-                        return // Echo from our own save — ignore
-                    }
-                }
-            }
-
-            if isDirty {
-                externalModificationDetected = true
-            } else {
-                Task { await reloadFromDisk() }
-            }
+            guard let noteURL = note?.fileURL else { return }
+            handleDetectedExternalChange(
+                at: noteURL,
+                diskHash: currentDiskContentHash(for: noteURL)
+            )
         case .deleted:
             errorMessage = String(localized: "Note was deleted externally.", bundle: .module)
         case .created:
@@ -2029,11 +2259,11 @@ public final class EditorSession {
         #if canImport(UIKit)
         guard let textView = activeTextView else { return }
         currentText = textView.text ?? ""
-        cursorPosition = textView.selectedRange
+        applySelectionSnapshot(textView.selectedRange, force: true)
         #elseif canImport(AppKit)
         guard let textView = activeTextView else { return }
         currentText = textView.string
-        cursorPosition = textView.selectedRange()
+        applySelectionSnapshot(textView.selectedRange(), force: true)
         #endif
 
         synchronizeSemanticSnapshotFromCurrentText()
@@ -2209,48 +2439,40 @@ extension EditorSession: NoteFilePresenterDelegate {
         // Fast-path: ignore changes we triggered by saving
         guard !isSavingToFileSystem else { return }
 
-        // Content-hash echo suppression: if the on-disk content matches
-        // what we last wrote, this is our own save echoing through NSFilePresenter.
-        if let noteURL = presenter.presentedItemURL, let lastHash = lastSavedContentHash {
-            let diskData = try? Data(contentsOf: noteURL)
-            if let diskData {
-                let diskHash = SHA256.hash(data: diskData)
-                if diskHash == lastHash {
-                    return // Echo from our own save — ignore
-                }
-            }
-        }
-
         // Post notification so Intelligence Engine can re-index the file
         if let url = presenter.presentedItemURL {
             NotificationCenter.default.post(name: .quartzFilePresenterDidChange, object: url)
-        }
-
-        // Handle UI update
-        if isDirty {
-            externalModificationDetected = true
-        } else {
-            Task { await reloadFromDisk() }
+            handleDetectedExternalChange(at: url, diskHash: currentDiskContentHash(for: url))
         }
     }
 
     /// Called when the file has been moved or renamed.
     public func filePresenter(_ presenter: NoteFilePresenter, didMoveFrom oldURL: URL?, to newURL: URL) {
+        let canonicalOldURL = oldURL.map(CanonicalNoteIdentity.canonicalFileURL(for:))
+        let canonicalNewURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+
+        if let canonicalOldURL,
+           let viewState = noteViewStateByURL.removeValue(forKey: canonicalOldURL) {
+            noteViewStateByURL[canonicalNewURL] = viewState
+        }
+
+        if pendingExternalChangeIdentity?.fileURL == canonicalOldURL {
+            pendingExternalChangeIdentity = CanonicalNoteIdentity(fileURL: canonicalNewURL)
+        }
+
         // Update our note reference
         if var currentNote = note {
-            // Create a new NoteDocument with the updated URL
-            currentNote = NoteDocument(
-                fileURL: newURL,
-                frontmatter: currentNote.frontmatter,
-                body: currentNote.body
-            )
+            currentNote.fileURL = canonicalNewURL
             note = currentNote
         }
 
+        startFileWatching(for: canonicalNewURL)
+        updateKnownDiskContentHash(for: canonicalNewURL)
+
         // Publish via typed event bus (new pattern per CODEX.md F4)
-        if let oldURL {
+        if let canonicalOldURL {
             Task {
-                await DomainEventBus.shared.publish(.noteRelocated(from: oldURL, to: newURL))
+                await DomainEventBus.shared.publish(.noteRelocated(from: canonicalOldURL, to: canonicalNewURL))
             }
         }
 
@@ -2258,7 +2480,12 @@ extension EditorSession: NoteFilePresenterDelegate {
         NotificationCenter.default.post(
             name: .quartzFilePresenterDidMove,
             object: nil,
-            userInfo: ["oldURL": oldURL as Any, "newURL": newURL]
+            userInfo: ["oldURL": canonicalOldURL as Any, "newURL": canonicalNewURL]
+        )
+        NotificationCenter.default.post(
+            name: .quartzSpotlightNoteRelocated,
+            object: nil,
+            userInfo: ["old": canonicalOldURL as Any, "new": canonicalNewURL]
         )
     }
 
@@ -2316,6 +2543,7 @@ extension EditorSession: NoteFilePresenterDelegate {
 
         // Update echo suppression hash so file watcher ignores our own write
         lastSavedContentHash = SHA256.hash(data: data)
+        lastKnownDiskContentHash = lastSavedContentHash
 
         note = noteToSave
         if currentText == textSnapshot {

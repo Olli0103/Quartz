@@ -9,6 +9,7 @@ import AppKit
 
 /// Shared factory for building the TextKit 2 stack used by `MarkdownEditorRepresentable`.
 /// Creates a `MarkdownTextContentManager` and wires it to an `NSTextLayoutManager` + `NSTextContainer`.
+/// Selection ownership stays outside this stack with the native text view bridge and `EditorSession`.
 #if os(iOS) || os(macOS)
 @MainActor
 enum MarkdownTextKit2Stack {

@@ -19,12 +19,16 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .phone)
     }
 
+    func testFormattingInvocationSourcesProduceMatchingResultsForSharedShortcutActions() async throws {
+        try await assertFormattingInvocationSourcesProduceMatchingResults(for: .phone)
+    }
+
     func testToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot() async throws {
         try await assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(for: .phone)
     }
 
-    func testToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses() async throws {
-        try await assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for: .phone)
+    func testToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove() async throws {
+        try await assertToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove(for: .phone)
     }
 
     func testToolbarSelectionMatrixPreservesHeadingAcrossAllActions() async throws {
@@ -107,12 +111,16 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
         try await assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for: .pad)
     }
 
+    func testFormattingInvocationSourcesProduceMatchingResultsForSharedShortcutActions() async throws {
+        try await assertFormattingInvocationSourcesProduceMatchingResults(for: .pad)
+    }
+
     func testToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot() async throws {
         try await assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(for: .pad)
     }
 
-    func testToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses() async throws {
-        try await assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for: .pad)
+    func testToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove() async throws {
+        try await assertToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove(for: .pad)
     }
 
     func testToolbarSelectionMatrixPreservesHeadingAcrossAllActions() async throws {
@@ -290,6 +298,70 @@ private func assertMountedProgrammaticUndoRedoRoundTrip(for target: MobileEditor
 }
 
 @MainActor
+private func assertFormattingInvocationSourcesProduceMatchingResults(
+    for target: MobileEditorTargetDevice
+) async throws {
+    try requireMobileDevice(target)
+
+    let actions: [FormattingAction] = [.bold, .italic, .strikethrough, .heading2, .code, .codeBlock, .link, .blockquote]
+    let sources: [EditorSession.FormattingInvocationSource] = [.hardwareKeyboard, .toolbar]
+    let initialText = "Alpha Beta"
+    let staleSelection = NSRange(location: 0, length: 5)
+    let liveSelection = NSRange(location: 6, length: 4)
+
+    for action in actions {
+        var canonicalText: String?
+        var canonicalSelection: NSRange?
+        var canonicalCanUndo: Bool?
+
+        for source in sources {
+            let harness = try await makeMountedMobileHarness(
+                text: initialText,
+                target: target,
+                syntaxVisibilityMode: .hiddenUntilCaret
+            )
+            let session = harness.session
+            let textView = harness.textView
+
+            if source == .toolbar {
+                textView.selectedRange = staleSelection
+                session.selectionDidChange(staleSelection)
+            }
+
+            textView.selectedRange = liveSelection
+            session.selectionDidChange(liveSelection)
+
+            session.handleFormattingAction(action, source: source)
+            await pumpMobileHarness(harness)
+
+            let formattedText = session.currentText
+            let formattedSelection = session.cursorPosition
+            let canUndo = session.canUndo
+
+            if let canonicalText, let canonicalSelection, let canonicalCanUndo {
+                XCTAssertEqual(formattedText, canonicalText, "Action \(action.rawValue) must match for \(source.rawValue)")
+                XCTAssertEqual(formattedSelection, canonicalSelection, "Selection for \(action.rawValue) must match for \(source.rawValue)")
+                XCTAssertEqual(canUndo, canonicalCanUndo, "Undo availability for \(action.rawValue) must match for \(source.rawValue)")
+            } else {
+                canonicalText = formattedText
+                canonicalSelection = formattedSelection
+                canonicalCanUndo = canUndo
+            }
+
+            XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
+
+            session.undo()
+            try await waitForMobileSessionText(session, expected: initialText)
+            XCTAssertEqual(session.currentText, initialText)
+
+            session.redo()
+            try await waitForMobileSessionText(session, expected: formattedText)
+            XCTAssertEqual(session.currentText, formattedText)
+        }
+    }
+}
+
+@MainActor
 private func assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(for target: MobileEditorTargetDevice) async throws {
     try requireMobileDevice(target)
 
@@ -363,7 +435,7 @@ private func assertToolbarFormattingPrefersLiveSelectionOverStaleCursorSnapshot(
 }
 
 @MainActor
-private func assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectionCollapses(for target: MobileEditorTargetDevice) async throws {
+private func assertToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove(for target: MobileEditorTargetDevice) async throws {
     try requireMobileDevice(target)
 
     let text = "# Welcome to Quartz Notes\n\nHow are you?"
@@ -386,18 +458,16 @@ private func assertToolbarFormattingFallsBackToPreviousSelectionWhenLiveSelectio
     session.applyToolbarFormatting(.bold)
     await pumpMobileHarness(harness)
 
-    let expectedText = "# Welcome to Quartz Notes\n\n**How are you?**"
-    let expectedSelection = (expectedText as NSString).range(of: "How are you?")
-    XCTAssertEqual(textView.text, expectedText)
-    XCTAssertEqual(session.currentText, expectedText)
-    XCTAssertEqual(textView.selectedRange, expectedSelection)
-    XCTAssertEqual(session.cursorPosition, expectedSelection)
-    XCTAssertTrue(textView.isFirstResponder)
-
-    let boldFont = try XCTUnwrap(
-        textView.textStorage.attribute(.font, at: expectedSelection.location, effectiveRange: nil) as? UIFont
+    let expected = expectedMobileToolbarFormattingResult(
+        action: .bold,
+        text: text,
+        selection: collapsedSelection
     )
-    XCTAssertTrue(isBoldFont(boldFont))
+    XCTAssertEqual(textView.text, expected.text)
+    XCTAssertEqual(session.currentText, expected.text)
+    XCTAssertEqual(textView.selectedRange, expected.newSelection)
+    XCTAssertEqual(session.cursorPosition, expected.newSelection)
+    XCTAssertTrue(textView.isFirstResponder)
     assertVisibleTextUsesPrimaryColor(in: textView, substring: "Welcome to Quartz Notes")
 }
 

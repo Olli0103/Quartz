@@ -1,13 +1,19 @@
 import SwiftUI
 
 /// Panel that displays backlinks to the current note – Liquid Glass style.
-public struct BacklinksPanel: View {
+struct BacklinksPanel: View {
     let backlinks: [Backlink]
-    let onNavigate: @Sendable (URL) -> Void
+    let isLoading: Bool
+    let onNavigate: (URL) -> Void
     @State private var isExpanded: Bool = false
 
-    public init(backlinks: [Backlink], onNavigate: @escaping @Sendable (URL) -> Void) {
+    init(
+        backlinks: [Backlink],
+        isLoading: Bool = false,
+        onNavigate: @escaping (URL) -> Void
+    ) {
         self.backlinks = backlinks
+        self.isLoading = isLoading
         self.onNavigate = onNavigate
     }
 
@@ -50,11 +56,22 @@ public struct BacklinksPanel: View {
                 .quartzMaterialBackground(cornerRadius: 0)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("editor-backlinks-toggle")
             .accessibilityLabel(isExpanded ? String(localized: "Collapse backlinks", bundle: .module) : String(localized: "Expand backlinks", bundle: .module))
 
             // Content
             if isExpanded {
-                if backlinks.isEmpty {
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "Loading backlinks…", bundle: .module))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                } else if backlinks.isEmpty {
                     HStack {
                         Spacer()
                         Text(String(localized: "No other notes link here.", bundle: .module))

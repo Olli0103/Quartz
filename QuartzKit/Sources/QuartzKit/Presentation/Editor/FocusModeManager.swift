@@ -3,20 +3,21 @@ import SwiftUI
 /// Manages focus mode and typewriter mode.
 ///
 /// - **Focus Mode:** All UI elements (sidebar, toolbar, status bar) are hidden.
-/// - **Typewriter Mode:** The active line stays vertically centered,
-///   surrounding lines are dimmed.
+/// - **Typewriter Mode:** State storage is kept for future wiring, but the product
+///   surface does not expose it until live editor behavior exists.
 @Observable
 @MainActor
 public final class FocusModeManager {
     private static let focusKey = "quartz.editor.focusModeActive"
     private static let typewriterKey = "quartz.editor.typewriterModeActive"
+    public static let exposesTypewriterModeSetting = false
 
     /// Focus Mode: Hides all UI elements.
     public var isFocusModeActive: Bool = false {
         didSet { UserDefaults.standard.set(isFocusModeActive, forKey: Self.focusKey) }
     }
 
-    /// Typewriter Mode: Active line stays centered.
+    /// Reserved state for a future typewriter implementation.
     public var isTypewriterModeActive: Bool = false {
         didSet { UserDefaults.standard.set(isTypewriterModeActive, forKey: Self.typewriterKey) }
     }
@@ -42,7 +43,7 @@ public final class FocusModeManager {
         }
     }
 
-    /// Toggles typewriter mode.
+    /// Toggles the reserved typewriter mode state.
     public func toggleTypewriterMode() {
         withAnimation(QuartzAnimation.content) {
             isTypewriterModeActive.toggle()

@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// Source-neutral markdown formatting model.
+/// This file defines formatting actions and surgical edit generation only.
+/// Input-path-specific selection and responder recovery belong in `EditorSession`.
+
 /// Markdown formatting actions.
 public enum FormattingAction: String, CaseIterable, Sendable {
     case bold, italic, strikethrough, heading, bulletList, numberedList, checkbox
@@ -160,14 +164,15 @@ private var formatBarDividerHeight: CGFloat {
 }
 
 public struct FormattingToolbar: View {
-    let onAction: (FormattingAction) -> Void
-
-    private let primaryActions: [FormattingAction] = [
+    static let exposesFootnoteAction = false
+    static let primaryActions: [FormattingAction] = [
         .bold, .italic, .strikethrough, .heading, .bulletList, .checkbox, .code, .link
     ]
-    private let secondaryActions: [FormattingAction] = [
-        .numberedList, .codeBlock, .image, .blockquote, .highlight, .table, .math, .footnote, .mermaid
+    static let secondaryActions: [FormattingAction] = [
+        .numberedList, .codeBlock, .image, .blockquote, .highlight, .table, .math, .mermaid
     ]
+
+    let onAction: (FormattingAction) -> Void
 
     public init(onAction: @escaping (FormattingAction) -> Void) {
         self.onAction = onAction
@@ -176,7 +181,7 @@ public struct FormattingToolbar: View {
     public var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(primaryActions, id: \.self) { action in
+                ForEach(Self.primaryActions, id: \.self) { action in
                     FormatButton(action: action) {
                         onAction(action)
                     }
@@ -188,7 +193,7 @@ public struct FormattingToolbar: View {
                     .padding(.horizontal, 8)
 
                 Menu {
-                    ForEach(secondaryActions, id: \.self) { action in
+                    ForEach(Self.secondaryActions, id: \.self) { action in
                         Button { onAction(action) } label: {
                             Label(action.label, systemImage: action.icon)
                         }

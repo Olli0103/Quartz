@@ -261,6 +261,100 @@ final class EditorRenderingRegressionTests: XCTestCase {
         )
     }
 
+    func testRepeatedHighlightPassesKeepSemanticStylesScoped() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "# Heading\n\nParagraph with [Link](url), `code`, and $x^2$."
+        let nsText = text as NSString
+        let headingLocation = nsText.range(of: "Heading").location
+        let paragraphLocation = nsText.range(of: "Paragraph").location
+        let linkLocation = nsText.range(of: "Link").location
+        let codeRange = nsText.range(of: "`code`")
+        let mathContentRange = nsText.range(of: "x^2")
+
+        textView.string = text
+        session.activeTextView = textView
+        session.textDidChange(text)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+
+        for _ in 0..<4 {
+            let spans = await highlighter.parse(text)
+            session.applyHighlightSpansForTesting(spans)
+        }
+
+        let leakedRanges = nonClearBackgroundRanges(in: textView).filter { range in
+            ![codeRange, mathContentRange].contains(where: { allowed in
+                NSIntersectionRange(range, allowed).length == range.length
+            })
+        }
+
+        XCTAssertTrue(leakedRanges.isEmpty, "Unexpected background leakage after repeated highlight cycles: \(leakedRanges)")
+
+        let headingFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: headingLocation, effectiveRange: nil) as? NSFont
+        )
+        let paragraphFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: paragraphLocation, effectiveRange: nil) as? NSFont
+        )
+        let linkColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
+        )
+
+        XCTAssertTrue(NSFontManager.shared.traits(of: headingFont).contains(.boldFontMask))
+        XCTAssertFalse(NSFontManager.shared.traits(of: paragraphFont).contains(.boldFontMask))
+        XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
+    }
+
+    func testCloseAndReopenPreservesScopedSemanticRendering() async throws {
+        let provider = MockVaultProvider()
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-semantic-roundtrip.md")
+        let text = "# Heading\n\nParagraph with [Link](url), `code`, and $x^2$."
+        let nsText = text as NSString
+        let linkLocation = nsText.range(of: "Link").location
+        let codeRange = nsText.range(of: "`code`")
+        let mathContentRange = nsText.range(of: "x^2")
+
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Semantic Roundtrip"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: linkLocation)
+        session.closeNote()
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: linkLocation)
+
+        let leakedRanges = nonClearBackgroundRanges(in: textView).filter { range in
+            ![codeRange, mathContentRange].contains(where: { allowed in
+                NSIntersectionRange(range, allowed).length == range.length
+            })
+        }
+
+        XCTAssertTrue(leakedRanges.isEmpty, "Unexpected background leakage after reopen: \(leakedRanges)")
+
+        let linkColor = try XCTUnwrap(
+            textView.textStorage?.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
+        )
+        XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
+        XCTAssertEqual(session.currentText, text)
+    }
+
     func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
         let session = makeSession()
         let textView = makeTextView()

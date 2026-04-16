@@ -422,6 +422,22 @@ struct ContentView: View {
                 restoredSidebarSource = newFilter.rawValue
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterDidMove)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let oldURL = userInfo["oldURL"] as? URL,
+                  let newURL = userInfo["newURL"] as? URL,
+                  let currentURL = selectedNoteURL else { return }
+            if CanonicalNoteIdentity.canonicalFileURL(for: currentURL) == CanonicalNoteIdentity.canonicalFileURL(for: oldURL) {
+                selectedNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterWillDelete)) { notification in
+            guard let deletedURL = notification.object as? URL,
+                  let currentURL = selectedNoteURL else { return }
+            if CanonicalNoteIdentity.canonicalFileURL(for: currentURL) == CanonicalNoteIdentity.canonicalFileURL(for: deletedURL) {
+                selectedNoteURL = nil
+            }
+        }
         .onChange(of: appState.pendingCommand) { _, command in
             guard command != .none else { return }
             defer { appState.pendingCommand = .none }
@@ -806,10 +822,14 @@ struct ContentView: View {
 
         guard let vaultRoot = appState.currentVault?.rootURL,
               let relativePath = restoredNotePath,
-              !relativePath.isEmpty else { return }
+              !relativePath.isEmpty else {
+            viewModel?.completeStartupRestorationIfNeeded()
+            return
+        }
         let noteURL = vaultRoot.appending(path: relativePath)
         guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else {
             restoredNotePath = nil
+            viewModel?.completeStartupRestorationIfNeeded()
             return
         }
         selectedNoteURL = noteURL
@@ -819,6 +839,7 @@ struct ContentView: View {
         Task { @MainActor in
             await viewModel?.editorSession?.awaitReadiness()
             restoreEditorState()
+            viewModel?.completeStartupRestorationIfNeeded()
         }
     }
 

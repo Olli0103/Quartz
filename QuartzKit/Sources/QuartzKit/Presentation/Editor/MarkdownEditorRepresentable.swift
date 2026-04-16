@@ -20,6 +20,19 @@ final class MarkdownEditorUITextView: UITextView {
     weak var editorSession: EditorSession?
     var hidesInsertionPointForSnapshots = false
 
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        if becameFirstResponder {
+            editorSession?.selectionOwnerDidBecomeFirstResponder(with: selectedRange)
+        }
+        return becameFirstResponder
+    }
+
+    override func resignFirstResponder() -> Bool {
+        editorSession?.selectionOwnerWillResignFirstResponder(with: selectedRange)
+        return super.resignFirstResponder()
+    }
+
     override func caretRect(for position: UITextPosition) -> CGRect {
         if hidesInsertionPointForSnapshots {
             return .zero
@@ -68,7 +81,7 @@ final class MarkdownEditorUITextView: UITextView {
     private func apply(_ shortcut: EditorKeyboardShortcut) {
         switch shortcut {
         case .formatting(let action):
-            editorSession?.applyFormatting(action)
+            editorSession?.handleFormattingAction(action, source: .hardwareKeyboard)
         case .paste(let mode):
             editorSession?.paste(mode: mode)
         }
@@ -204,8 +217,8 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         tapGesture.delegate = context.coordinator
         textView.addGestureRecognizer(tapGesture)
 
-        // Wire session to text view (weak ref)
-        session.activeTextView = textView
+        // Wire session to text view (weak ref + restoration handshake)
+        session.bindActiveTextView(textView)
         session.contentManager = contentManager
         session.highlighter = MarkdownASTHighlighter(baseFontSize: baseFontSize)
         session.highlighterBaseFontSize = baseFontSize
@@ -224,6 +237,10 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         context.coordinator.lastFontFamily = editorFontFamily
         context.coordinator.lastLineSpacing = editorLineSpacing
         return textView
+    }
+
+    public static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
+        coordinator.session.unbindActiveTextView(uiView)
     }
 
     public func updateUIView(_ uiView: UITextView, context: Context) {
@@ -413,6 +430,19 @@ final class MarkdownEditorNSTextView: NSTextView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        if becameFirstResponder {
+            editorSession?.selectionOwnerDidBecomeFirstResponder(with: selectedRange())
+        }
+        return becameFirstResponder
+    }
+
+    override func resignFirstResponder() -> Bool {
+        editorSession?.selectionOwnerWillResignFirstResponder(with: selectedRange())
+        return super.resignFirstResponder()
     }
 
     // MARK: - Custom Table Background Drawing
@@ -773,8 +803,8 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         // One-time initial text load
         textView.string = session.currentText
 
-        // Wire session to text view (weak ref)
-        session.activeTextView = textView
+        // Wire session to text view (weak ref + restoration handshake)
+        session.bindActiveTextView(textView)
         session.contentManager = contentManager
         session.highlighter = MarkdownASTHighlighter(baseFontSize: baseFontSize)
         session.highlighterBaseFontSize = baseFontSize
@@ -809,6 +839,16 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         scrollView.contentView.postsBoundsChangedNotifications = true
 
         return scrollView
+    }
+
+    public static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        NotificationCenter.default.removeObserver(
+            coordinator,
+            name: NSView.boundsDidChangeNotification,
+            object: nsView.contentView
+        )
+        coordinator.session.unbindActiveTextView(textView)
     }
 
     public func updateNSView(_ nsView: NSScrollView, context: Context) {

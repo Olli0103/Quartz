@@ -6,13 +6,20 @@ import AppKit
 import UIKit
 #endif
 
-/// Share/export menu for the editor toolbar.
+/// Export/copy menu for the editor toolbar.
 ///
 /// Provides export to PDF, HTML, RTF, and Markdown via `.fileExporter`,
 /// plus copy-to-pasteboard for HTML and RTF.
 ///
 /// **Ref:** Phase H2 Spec — ShareMenuView
 public struct ShareMenuView: View {
+    static var toolbarAccessibilityLabelText: String {
+        String(localized: "Export note", bundle: .module)
+    }
+    static var toolbarHelpText: String {
+        String(localized: "Export or copy this note", bundle: .module)
+    }
+
     /// The raw markdown text to export.
     let markdownText: String
     /// The note's display title.
@@ -24,10 +31,6 @@ public struct ShareMenuView: View {
     @State private var exportedFileURL: URL?
     @State private var showFileExporter = false
     @State private var isExporting = false
-
-    @Environment(\.appearanceManager) private var appearance
-
-    private let exportService = NoteExportService()
 
     public init(markdownText: String, noteTitle: String, metadata: ExportMetadata? = nil) {
         self.markdownText = markdownText
@@ -72,8 +75,9 @@ public struct ShareMenuView: View {
             }
         }
         .tint(.primary)
-        .accessibilityLabel(String(localized: "Share note", bundle: .module))
-        .help(String(localized: "Export or share this note", bundle: .module))
+        .accessibilityIdentifier("editor-toolbar-export")
+        .accessibilityLabel(Self.toolbarAccessibilityLabelText)
+        .help(Self.toolbarHelpText)
         .fileExporter(
             isPresented: $showFileExporter,
             document: ExportFileDocument(data: exportedData, format: exportFormat ?? .markdown),

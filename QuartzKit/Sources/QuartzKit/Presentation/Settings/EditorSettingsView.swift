@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// Editor configuration: focus mode, typewriter mode, autosave.
+/// Editor configuration for currently shipped writing controls.
 public struct EditorSettingsView: View {
+    static let showsTypewriterModeControl = FocusModeManager.exposesTypewriterModeSetting
+
     @Environment(\.focusModeManager) private var focusMode
     @Environment(\.appearanceManager) private var appearance
 
@@ -25,15 +27,17 @@ public struct EditorSettingsView: View {
                     }
                 }
 
-                Toggle(isOn: Binding(
-                    get: { focusMode.isTypewriterModeActive },
-                    set: { _ in focusMode.toggleTypewriterMode() }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(String(localized: "Typewriter Mode", bundle: .module))
-                        Text(String(localized: "Keeps the active line centered vertically.", bundle: .module))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                if Self.showsTypewriterModeControl {
+                    Toggle(isOn: Binding(
+                        get: { focusMode.isTypewriterModeActive },
+                        set: { _ in focusMode.toggleTypewriterMode() }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(localized: "Typewriter Mode", bundle: .module))
+                            Text(String(localized: "Keeps the active line centered vertically.", bundle: .module))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             } header: {

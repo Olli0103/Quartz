@@ -50,6 +50,7 @@ public final class ContentViewModel {
     private var cloudSyncService: CloudSyncService?
     private var syncMonitoringTask: Task<Void, Never>?
     private var indexingTask: Task<Void, Never>?
+    private var restorationPhaseTask: Task<Void, Never>?
     private var currentVaultRootURL: URL?
     /// Debounced task for re-indexing embeddings after note saves.
     private var embeddingReindexTask: Task<Void, Never>?
@@ -81,6 +82,8 @@ public final class ContentViewModel {
         stopCloudSync()
         indexingTask?.cancel()
         indexingTask = nil
+        restorationPhaseTask?.cancel()
+        restorationPhaseTask = nil
         startupCoordinator.reset()
 
         currentVaultRootURL = vault.rootURL
@@ -336,16 +339,31 @@ public final class ContentViewModel {
             return
         }
 
-        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return }
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        guard FileManager.default.fileExists(atPath: canonicalURL.path(percentEncoded: false)) else { return }
 
         // Reuse existing session — just load the new note into it
         if let session = editorSession {
             session.fileTree = sidebarViewModel?.fileTree ?? []
-            Task { await session.loadNote(at: url) }
+            Task { await session.loadNote(at: canonicalURL) }
         }
 
         // Clear chat history — system prompt is document-specific
         documentChatSession?.clear()
+    }
+
+    // MARK: - Startup Restoration
+
+    /// Completes startup only after the asynchronous warm-up phase has finished and
+    /// the shell has either applied or intentionally skipped editor restoration.
+    public func completeStartupRestorationIfNeeded() {
+        restorationPhaseTask?.cancel()
+        restorationPhaseTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.startupCoordinator.awaitPhase(.indexWarm)
+            guard self.startupCoordinator.currentPhase == .indexWarm else { return }
+            _ = self.startupCoordinator.advance(to: .restorationApplied)
+        }
     }
 
     // MARK: - Daily Note
@@ -934,6 +952,6 @@ public final class ContentViewModel {
     }
 
     private func applyFormatting(_ action: FormattingAction) {
-        editorSession?.applyFormatting(action)
+        editorSession?.handleFormattingAction(action, source: .commandMenu)
     }
 }

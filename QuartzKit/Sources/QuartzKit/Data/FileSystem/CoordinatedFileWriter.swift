@@ -22,13 +22,14 @@ public struct CoordinatedFileWriter: Sendable {
     ///     Passing the presenter prevents the coordinator from sending
     ///     callbacks to our own presenter, which could cause a deadlock.
     public func read(from url: URL, filePresenter: NSFilePresenter? = nil) throws -> Data {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         var coordinatorError: NSError?
         var readError: NSError?
         var result: Data?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            readingItemAt: url,
+            readingItemAt: canonicalURL,
             options: [],
             error: &coordinatorError
         ) { actualURL in
@@ -73,6 +74,7 @@ public struct CoordinatedFileWriter: Sendable {
     ///     which would cause a self-coordination deadlock (Apple TN3151).
     public func write(_ data: Data, to url: URL, timeout: TimeInterval = defaultTimeout,
                       filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         var coordinatorError: NSError?
         var writeError: NSError?
         var didComplete = false
@@ -85,7 +87,7 @@ public struct CoordinatedFileWriter: Sendable {
         // Run coordination on a background queue
         DispatchQueue.global(qos: .userInitiated).async {
             coordinator.coordinate(
-                writingItemAt: url,
+                writingItemAt: canonicalURL,
                 options: .forReplacing,
                 error: &coordinatorError
             ) { actualURL in
@@ -105,7 +107,7 @@ public struct CoordinatedFileWriter: Sendable {
         if result == .timedOut {
             // Cancel the coordination if it's taking too long
             coordinator.cancel()
-            throw CoordinatedFileWriterError.timeout(url: url, timeout: timeout)
+            throw CoordinatedFileWriterError.timeout(url: canonicalURL, timeout: timeout)
         }
 
         if let error = coordinatorError ?? writeError {
@@ -113,19 +115,20 @@ public struct CoordinatedFileWriter: Sendable {
         }
 
         if !didComplete && coordinatorError == nil && writeError == nil {
-            throw CoordinatedFileWriterError.unknownFailure(url: url)
+            throw CoordinatedFileWriterError.unknownFailure(url: canonicalURL)
         }
     }
 
     /// Creates a directory in a coordinated manner.
     public func createDirectory(at url: URL, withIntermediateDirectories: Bool = true,
                                 filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         var coordinatorError: NSError?
         var writeError: NSError?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            writingItemAt: url,
+            writingItemAt: canonicalURL,
             options: .forReplacing,
             error: &coordinatorError
         ) { actualURL in
@@ -147,14 +150,16 @@ public struct CoordinatedFileWriter: Sendable {
     /// Moves a file or directory using coordinated access (iCloud-safe rename / trash moves).
     public func moveItem(from sourceURL: URL, to destinationURL: URL,
                          filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalSourceURL = CanonicalNoteIdentity.canonicalFileURL(for: sourceURL)
+        let canonicalDestinationURL = CanonicalNoteIdentity.canonicalFileURL(for: destinationURL)
         var coordinatorError: NSError?
         var moveError: NSError?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            readingItemAt: sourceURL,
+            readingItemAt: canonicalSourceURL,
             options: [],
-            writingItemAt: destinationURL,
+            writingItemAt: canonicalDestinationURL,
             options: .forReplacing,
             error: &coordinatorError
         ) { actualSource, actualDestination in
@@ -172,12 +177,13 @@ public struct CoordinatedFileWriter: Sendable {
 
     /// Moves an item to the system Trash using coordinated access (macOS / supported platforms).
     public func moveItemToTrash(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         var coordinatorError: NSError?
         var opError: NSError?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            writingItemAt: url,
+            writingItemAt: canonicalURL,
             options: [],
             error: &coordinatorError
         ) { actualURL in
@@ -196,14 +202,16 @@ public struct CoordinatedFileWriter: Sendable {
     /// Copies a file in a coordinated manner.
     public func copyItem(from sourceURL: URL, to destinationURL: URL,
                          filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalSourceURL = CanonicalNoteIdentity.canonicalFileURL(for: sourceURL)
+        let canonicalDestinationURL = CanonicalNoteIdentity.canonicalFileURL(for: destinationURL)
         var coordinatorError: NSError?
         var copyError: NSError?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            readingItemAt: sourceURL,
+            readingItemAt: canonicalSourceURL,
             options: [],
-            writingItemAt: destinationURL,
+            writingItemAt: canonicalDestinationURL,
             options: .forReplacing,
             error: &coordinatorError
         ) { actualSource, actualDestination in
@@ -221,12 +229,13 @@ public struct CoordinatedFileWriter: Sendable {
 
     /// Deletes a file in a coordinated manner.
     public func removeItem(at url: URL, filePresenter: NSFilePresenter? = nil) throws {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         var coordinatorError: NSError?
         var removeError: NSError?
 
         let coordinator = NSFileCoordinator(filePresenter: filePresenter)
         coordinator.coordinate(
-            writingItemAt: url,
+            writingItemAt: canonicalURL,
             options: .forDeleting,
             error: &coordinatorError
         ) { actualURL in

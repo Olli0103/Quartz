@@ -8,6 +8,149 @@ import AppKit
 @MainActor
 final class EditorLiveMutationRegressionTests: XCTestCase {
 
+    func testFormattingInvocationSourcesProduceMatchingResultsForSharedShortcutActions() async throws {
+        let actions: [FormattingAction] = [
+            .bold, .italic, .strikethrough, .heading2, .code, .codeBlock, .link, .blockquote
+        ]
+        let sources: [EditorSession.FormattingInvocationSource] = [
+            .commandMenu, .hardwareKeyboard, .toolbar
+        ]
+        let initialText = "Alpha Beta"
+        let staleSelection = NSRange(location: 0, length: 5)
+        let liveSelection = NSRange(location: 6, length: 4)
+
+        for action in actions {
+            var canonicalText: String?
+            var canonicalSelection: NSRange?
+            var canonicalCanUndo: Bool?
+
+            for source in sources {
+                let harness = try await makeMountedHarness(text: initialText)
+                let session = harness.session
+                let textView = harness.textView
+
+                if source == .toolbar {
+                    textView.setSelectedRange(staleSelection)
+                    session.selectionDidChange(staleSelection)
+                }
+
+                textView.setSelectedRange(liveSelection)
+                session.selectionDidChange(liveSelection)
+
+                session.handleFormattingAction(action, source: source)
+                await pumpMountedHarness(harness)
+
+                let formattedText = session.currentText
+                let formattedSelection = session.cursorPosition
+                let canUndo = session.canUndo
+
+                if let canonicalText, let canonicalSelection, let canonicalCanUndo {
+                    XCTAssertEqual(formattedText, canonicalText, "Action \(action.rawValue) must match for \(source.rawValue)")
+                    XCTAssertEqual(formattedSelection, canonicalSelection, "Selection for \(action.rawValue) must match for \(source.rawValue)")
+                    XCTAssertEqual(canUndo, canonicalCanUndo, "Undo availability for \(action.rawValue) must match for \(source.rawValue)")
+                } else {
+                    canonicalText = formattedText
+                    canonicalSelection = formattedSelection
+                    canonicalCanUndo = canUndo
+                }
+
+                XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
+
+                session.undo()
+                try await waitForSessionText(session, expected: initialText)
+                XCTAssertEqual(session.currentText, initialText)
+
+                session.redo()
+                try await waitForSessionText(session, expected: formattedText)
+                XCTAssertEqual(session.currentText, formattedText)
+            }
+        }
+    }
+
+    func testToolbarFormattingRestoresMacFirstResponderFromSelectionSnapshot() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        let window = harness.window
+        let selection = NSRange(location: 6, length: 4)
+
+        XCTAssertTrue(window.makeFirstResponder(textView))
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.selectionOwnerWillResignFirstResponder(with: selection)
+        window.makeFirstResponder(nil)
+
+        session.handleFormattingAction(.bold, source: .toolbar)
+        await pumpMountedHarness(harness)
+
+        XCTAssertTrue(window.firstResponder === textView, "Toolbar formatting must restore the editor as first responder on macOS")
+        XCTAssertEqual(textView.selectedRange(), session.cursorPosition, "Toolbar formatting must keep native selection and snapshot aligned")
+        XCTAssertEqual(session.currentText, "Alpha **Beta**")
+    }
+
+    func testCommandMenuFormattingKeepsMacFirstResponderAndSelectionStable() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        let window = harness.window
+        let selection = NSRange(location: 6, length: 4)
+
+        XCTAssertTrue(window.makeFirstResponder(textView))
+        textView.setSelectedRange(selection)
+        session.selectionDidChange(selection)
+
+        session.handleFormattingAction(.bold, source: .commandMenu)
+        await pumpMountedHarness(harness)
+
+        XCTAssertTrue(window.firstResponder === textView, "Command formatting must leave the editor as first responder on macOS")
+        XCTAssertEqual(textView.selectedRange(), session.cursorPosition, "Command formatting must keep native selection and snapshot aligned")
+        XCTAssertEqual(session.currentText, "Alpha **Beta**")
+    }
+
+    func testNoteSwitchingRestoresSelectionForPreviouslyVisitedNote() async throws {
+        let provider = MockVaultProvider()
+        let noteAURL = URL(fileURLWithPath: "/tmp/editor-live-mutation-note-a-\(UUID().uuidString).md")
+        let noteBURL = URL(fileURLWithPath: "/tmp/editor-live-mutation-note-b-\(UUID().uuidString).md")
+        await provider.addNote(NoteDocument(
+            fileURL: noteAURL,
+            frontmatter: Frontmatter(title: "A"),
+            body: "First note body",
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: noteBURL,
+            frontmatter: Frontmatter(title: "B"),
+            body: "Second note body",
+            isDirty: false
+        ))
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        await session.loadNote(at: noteAURL)
+
+        let harness = try await mountHarness(session: session, expectedText: "First note body")
+        let textView = harness.textView
+        let originalSelection = NSRange(location: 6, length: 4)
+
+        textView.setSelectedRange(originalSelection)
+        session.selectionDidChange(originalSelection)
+
+        await session.loadNote(at: noteBURL)
+        await pumpMountedHarness(harness)
+        XCTAssertEqual(session.currentText, "Second note body")
+
+        await session.loadNote(at: noteAURL)
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(session.currentText, "First note body")
+        XCTAssertEqual(textView.selectedRange(), originalSelection, "Switching back to a visited note must restore its previous selection")
+        XCTAssertEqual(session.cursorPosition, originalSelection)
+    }
+
     func testApplyExternalEditSynchronizesCursorSnapshotImmediately() async throws {
         let harness = try await makeMountedHarness(text: "Hello")
         let session = harness.session
@@ -301,7 +444,7 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         )
     }
 
-    func testToolbarFormattingFallsBackToCursorSnapshotWhenLiveSelectionCollapses() async throws {
+    func testToolbarFormattingUsesCollapsedSelectionAfterResponderCommitsCaretMove() async throws {
         let text = "# Welcome to Quartz Notes\n\nHow are you?"
         let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
         let session = harness.session
@@ -317,19 +460,16 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
 
         session.applyToolbarFormatting(.bold)
 
-        let expectedText = "# Welcome to Quartz Notes\n\n**How are you?**"
-        let expectedSelection = (expectedText as NSString).range(of: "How are you?")
-        XCTAssertEqual(textView.string, expectedText)
-        XCTAssertEqual(session.currentText, expectedText)
-        XCTAssertEqual(textView.selectedRange(), expectedSelection)
-        XCTAssertEqual(session.cursorPosition, expectedSelection)
-        XCTAssertTrue(harness.window.firstResponder === textView)
-
-        let boldLocation = expectedSelection.location
-        let boldFont = try XCTUnwrap(
-            textView.textStorage?.attribute(.font, at: boldLocation, effectiveRange: nil) as? NSFont
+        let expected = expectedToolbarFormattingResult(
+            action: .bold,
+            text: text,
+            selection: collapsedSelection
         )
-        XCTAssertTrue(NSFontManager.shared.traits(of: boldFont).contains(.boldFontMask))
+        XCTAssertEqual(textView.string, expected.text)
+        XCTAssertEqual(session.currentText, expected.text)
+        XCTAssertEqual(textView.selectedRange(), expected.newSelection)
+        XCTAssertEqual(session.cursorPosition, expected.newSelection)
+        XCTAssertTrue(harness.window.firstResponder === textView)
 
         assertVisibleTextUsesPrimaryColor(
             in: textView,
@@ -748,6 +888,18 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         )
         await session.loadNote(at: url)
 
+        return try await mountHarness(
+            session: session,
+            expectedText: text,
+            syntaxVisibilityMode: syntaxVisibilityMode
+        )
+    }
+
+    private func mountHarness(
+        session: EditorSession,
+        expectedText: String,
+        syntaxVisibilityMode: SyntaxVisibilityMode = .full
+    ) async throws -> EditorHarness {
         let canvasSize = CGSize(width: 640, height: 320)
         let rootView = AnyView(
             ZStack {
@@ -784,8 +936,10 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
 
             if let textView = session.activeTextView,
                textView.alphaValue == 1,
-               textView.string == text,
-               textView.textStorage?.length == (text as NSString).length {
+               textView.string == expectedText,
+               textView.textStorage?.length == (expectedText as NSString).length {
+                window.makeFirstResponder(textView)
+                session.selectionDidChange(textView.selectedRange())
                 return EditorHarness(
                     session: session,
                     textView: textView,

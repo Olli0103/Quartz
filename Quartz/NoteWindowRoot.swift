@@ -24,6 +24,8 @@ struct NoteWindowRoot: View {
     /// Balances `startAccessingSecurityScopedResource` for `windowVault`.
     @State private var windowVaultAccessing = false
     @State private var trackedNoteURL: URL?
+    @State private var windowID = UUID().uuidString
+    @State private var isFileRemoved = false
 
     /// Handoff element — only when the editor loaded successfully.
     private var handoffNoteElementURL: URL? {
@@ -36,7 +38,7 @@ struct NoteWindowRoot: View {
     }
 
     var body: some View {
-        Group {
+        let content = Group {
             if let err = loadError {
                 errorState(err)
             } else if let session = editorSession, session.note != nil {
@@ -57,6 +59,18 @@ struct NoteWindowRoot: View {
                     .foregroundStyle(.secondary)
             }
         }
+
+        Group {
+            if let noteURL {
+                content.handleFileRemoval(
+                    fileURL: CanonicalNoteIdentity.canonicalFileURL(for: noteURL),
+                    windowID: windowID,
+                    isRemoved: $isFileRemoved
+                )
+            } else {
+                content
+            }
+        }
         .frame(minWidth: 500, minHeight: 400)
         .quartzAmbientShellBackground()
         .userActivity(QuartzUserActivity.openNoteActivityType, element: handoffNoteElementURL) { activeFileURL, activity in
@@ -75,6 +89,16 @@ struct NoteWindowRoot: View {
         }
         .task(id: noteURL) {
             await loadEditorIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzFileMovedInWindow)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let notificationWindowID = userInfo["windowID"] as? String,
+                  notificationWindowID == windowID,
+                  let newURL = userInfo["newURL"] as? URL else { return }
+            let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+            trackedNoteURL = canonicalURL
+            noteURL = canonicalURL
+            isFileRemoved = false
         }
         .onDisappear {
             releaseWindowVaultAccessIfNeeded()
@@ -118,7 +142,7 @@ struct NoteWindowRoot: View {
             return
         }
 
-        let normalized = url.standardizedFileURL
+        let normalized = CanonicalNoteIdentity.canonicalFileURL(for: url)
         if trackedNoteURL != normalized {
             releaseWindowVaultAccessIfNeeded()
             windowVault = nil

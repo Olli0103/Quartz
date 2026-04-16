@@ -1,8 +1,17 @@
 import SwiftUI
 
 /// Spotlight-like full-text search across the entire vault.
+/// This is intentionally vault-wide, not an in-note find surface.
 /// Glassmorphism design with live results.
 public struct SearchView: View {
+    static let isVaultWideSearchSheet = true
+    static var navigationTitleText: String {
+        String(localized: "Search Notes", bundle: .module)
+    }
+    static var promptText: String {
+        String(localized: "Search all notes…", bundle: .module)
+    }
+
     @State private var query: String = ""
     @State private var results: [SearchResult] = []
     @State private var isSearching: Bool = false
@@ -45,12 +54,12 @@ public struct SearchView: View {
                     }
                 }
             }
-            .searchable(text: $query, isPresented: .constant(true), prompt: Text(String(localized: "Search all notes…", bundle: .module)))
+            .searchable(text: $query, isPresented: .constant(true), prompt: Text(Self.promptText))
             .onChange(of: query) { _, newQuery in
                 performSearch(newQuery)
             }
             .onDisappear { searchTask?.cancel() }
-            .navigationTitle(String(localized: "Search", bundle: .module))
+            .navigationTitle(Self.navigationTitleText)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
