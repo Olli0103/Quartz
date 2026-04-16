@@ -26,6 +26,7 @@ struct NoteWindowRoot: View {
     @State private var trackedNoteURL: URL?
     @State private var windowID = UUID().uuidString
     @State private var isFileRemoved = false
+    @State private var pendingNavigationRequest: WikiLinkNavigationRequest?
 
     /// Handoff element — only when the editor loaded successfully.
     private var handoffNoteElementURL: URL? {
@@ -42,7 +43,13 @@ struct NoteWindowRoot: View {
             if let err = loadError {
                 errorState(err)
             } else if let session = editorSession, session.note != nil {
-                EditorContainerView(session: session)
+                EditorContainerView(
+                    session: session,
+                    onNavigateToNoteRequest: { request in
+                        pendingNavigationRequest = request.canonicalized()
+                        noteURL = request.url
+                    }
+                )
                     .navigationTitle(session.note?.displayName ?? "Note")
             } else if noteURL != nil, loadError == nil, editorSession == nil {
                 if windowVault == nil, appState.currentVault == nil {
@@ -193,6 +200,13 @@ struct NoteWindowRoot: View {
 
         // Load the note
         await session.loadNote(at: normalized)
+        if let pendingNavigationRequest,
+           pendingNavigationRequest.url == normalized {
+            if let selectionRange = pendingNavigationRequest.selectionRange {
+                session.revealNavigationRange(selectionRange)
+            }
+            self.pendingNavigationRequest = nil
+        }
         editorSession = session
     }
 }

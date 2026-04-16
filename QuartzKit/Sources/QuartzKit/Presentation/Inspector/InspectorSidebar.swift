@@ -10,9 +10,12 @@ public struct InspectorSidebar: View {
     let store: InspectorStore
     let note: NoteDocument?
     let vaultRootURL: URL?
+    let graphEdgeStore: GraphEdgeStore?
     var onScrollToHeading: ((HeadingItem) -> Void)?
     var onUpdateTags: (([String]) -> Void)?
     var onNavigateToNote: ((URL) -> Void)?
+    var onNavigateToBacklink: ((Backlink) -> Void)?
+    var onLinkSuggestedMention: ((LinkSuggestionService.Suggestion) -> Void)?
 
     @Environment(\.appearanceManager) private var appearance
     @State private var newTagText: String = ""
@@ -24,16 +27,22 @@ public struct InspectorSidebar: View {
         store: InspectorStore,
         note: NoteDocument?,
         vaultRootURL: URL?,
+        graphEdgeStore: GraphEdgeStore? = nil,
         onScrollToHeading: ((HeadingItem) -> Void)? = nil,
         onUpdateTags: (([String]) -> Void)? = nil,
-        onNavigateToNote: ((URL) -> Void)? = nil
+        onNavigateToNote: ((URL) -> Void)? = nil,
+        onNavigateToBacklink: ((Backlink) -> Void)? = nil,
+        onLinkSuggestedMention: ((LinkSuggestionService.Suggestion) -> Void)? = nil
     ) {
         self.store = store
         self.note = note
         self.vaultRootURL = vaultRootURL
+        self.graphEdgeStore = graphEdgeStore
         self.onScrollToHeading = onScrollToHeading
         self.onUpdateTags = onUpdateTags
         self.onNavigateToNote = onNavigateToNote
+        self.onNavigateToBacklink = onNavigateToBacklink
+        self.onLinkSuggestedMention = onLinkSuggestedMention
     }
 
     public var body: some View {
@@ -57,10 +66,15 @@ public struct InspectorSidebar: View {
                         .padding(.bottom, 16)
                 }
 
+                if note != nil, onNavigateToNote != nil, !store.outgoingLinks.isEmpty {
+                    outgoingLinksSection
+                        .padding(.bottom, 16)
+                }
+
                 if Self.shouldShowBacklinksExperience(
                     note: note,
                     vaultRootURL: vaultRootURL,
-                    onNavigateToNote: onNavigateToNote
+                    onNavigateToBacklink: onNavigateToBacklink
                 ) {
                     backlinksSection
                         .padding(.bottom, 16)
@@ -90,6 +104,21 @@ public struct InspectorSidebar: View {
         }
         .task(id: backlinksTaskKey) {
             await refreshBacklinksIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzNoteSaved)) { notification in
+            guard Self.shouldRefreshBacklinks(
+                currentNote: note,
+                vaultRootURL: vaultRootURL,
+                forSavedNoteURL: notification.object as? URL
+            ) else { return }
+            Task { await refreshBacklinksIfNeeded() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzReferenceGraphDidChange)) { notification in
+            guard Self.shouldRefreshBacklinks(
+                currentNote: note,
+                forReferenceGraphChange: notification
+            ) else { return }
+            Task { await refreshBacklinksIfNeeded() }
         }
     }
 
@@ -317,11 +346,65 @@ public struct InspectorSidebar: View {
         BacklinksPanel(
             backlinks: backlinks,
             isLoading: isLoadingBacklinks
-        ) { url in
+        ) { backlink in
             QuartzFeedback.selection()
-            onNavigateToNote?(url)
+            onNavigateToBacklink?(backlink)
         }
         .accessibilityIdentifier("editor-inspector-backlinks")
+    }
+
+    // MARK: - Outgoing Links Section
+
+    private var outgoingLinksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("OUTGOING LINKS", icon: "arrow.up.right.square")
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(store.outgoingLinks) { outgoingLink in
+                    Button {
+                        QuartzFeedback.selection()
+                        onNavigateToNote?(outgoingLink.noteURL)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(QuartzColors.noteBlue)
+                                .frame(width: 16)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(outgoingLink.noteName)
+                                    .font(.callout.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                if outgoingLink.displayText.localizedCaseInsensitiveCompare(outgoingLink.noteName) != .orderedSame {
+                                    Text(outgoingLink.displayText)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                } else if !outgoingLink.context.isEmpty {
+                                    Text(outgoingLink.context)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "Open linked note \(outgoingLink.noteName)", bundle: .module))
+                }
+            }
+        }
     }
 
     // MARK: - AI Concepts Section
@@ -379,6 +462,16 @@ public struct InspectorSidebar: View {
                         }
 
                         Spacer()
+
+                        if let onLinkSuggestedMention {
+                            Button(String(localized: "Link", bundle: .module)) {
+                                QuartzFeedback.primaryAction()
+                                onLinkSuggestedMention(suggestion)
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.semibold))
+                            .accessibilityIdentifier("editor-inspector-link-suggestion-\(suggestion.noteName)")
+                        }
                     }
                     .padding(.vertical, 4)
                     .padding(.horizontal, 6)
@@ -508,17 +601,54 @@ public struct InspectorSidebar: View {
     static func shouldShowBacklinksExperience(
         note: NoteDocument?,
         vaultRootURL: URL?,
-        onNavigateToNote: ((URL) -> Void)?
+        onNavigateToBacklink: ((Backlink) -> Void)?
     ) -> Bool {
-        note != nil && vaultRootURL != nil && onNavigateToNote != nil && surfacesBacklinksInInspector
+        note != nil && vaultRootURL != nil && onNavigateToBacklink != nil && surfacesBacklinksInInspector
     }
 
     static func loadBacklinks(
         for note: NoteDocument,
         in vaultRootURL: URL,
-        vaultProvider: any VaultProviding
+        vaultProvider: any VaultProviding,
+        graphEdgeStore: GraphEdgeStore? = nil
     ) async throws -> [Backlink] {
-        try await BacklinkUseCase(vaultProvider: vaultProvider).findBacklinks(to: note.fileURL, in: vaultRootURL)
+        try await BacklinkUseCase(
+            vaultProvider: vaultProvider,
+            graphEdgeStore: graphEdgeStore
+        ).findBacklinks(to: note.fileURL, in: vaultRootURL)
+    }
+
+    static func shouldRefreshBacklinks(
+        currentNote: NoteDocument?,
+        vaultRootURL: URL?,
+        forSavedNoteURL savedNoteURL: URL?
+    ) -> Bool {
+        guard let currentNote,
+              let vaultRootURL,
+              let savedNoteURL else {
+            return false
+        }
+
+        let canonicalSavedURL = CanonicalNoteIdentity.canonicalFileURL(for: savedNoteURL)
+        let canonicalVaultRoot = vaultRootURL.standardizedFileURL
+        return canonicalSavedURL.path(percentEncoded: false)
+            .hasPrefix(canonicalVaultRoot.path(percentEncoded: false))
+            && canonicalSavedURL != currentNote.fileURL
+    }
+
+    static func shouldRefreshBacklinks(
+        currentNote: NoteDocument?,
+        forReferenceGraphChange notification: Notification
+    ) -> Bool {
+        guard let currentNote,
+              let targetURLs = notification.userInfo?["targetURLs"] as? [URL] else {
+            return false
+        }
+
+        let currentIdentity = currentNote.fileURL
+        return targetURLs
+            .map(CanonicalNoteIdentity.canonicalFileURL(for:))
+            .contains(currentIdentity)
     }
 
     @MainActor
@@ -526,7 +656,7 @@ public struct InspectorSidebar: View {
         guard Self.shouldShowBacklinksExperience(
             note: note,
             vaultRootURL: vaultRootURL,
-            onNavigateToNote: onNavigateToNote
+            onNavigateToBacklink: onNavigateToBacklink
         ), let note, let vaultRootURL else {
             backlinks = []
             isLoadingBacklinks = false
@@ -542,7 +672,8 @@ public struct InspectorSidebar: View {
             let loadedBacklinks = try await Self.loadBacklinks(
                 for: note,
                 in: vaultRootURL,
-                vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
+                vaultProvider: FileSystemVaultProvider(frontmatterParser: FrontmatterParser()),
+                graphEdgeStore: graphEdgeStore
             )
             guard self.note?.id == noteIdentity,
                   self.vaultRootURL?.standardizedFileURL == vaultRootIdentity else { return }

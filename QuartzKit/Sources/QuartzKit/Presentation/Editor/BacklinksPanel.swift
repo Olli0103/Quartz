@@ -4,13 +4,13 @@ import SwiftUI
 struct BacklinksPanel: View {
     let backlinks: [Backlink]
     let isLoading: Bool
-    let onNavigate: (URL) -> Void
+    let onNavigate: (Backlink) -> Void
     @State private var isExpanded: Bool = false
 
     init(
         backlinks: [Backlink],
         isLoading: Bool = false,
-        onNavigate: @escaping (URL) -> Void
+        onNavigate: @escaping (Backlink) -> Void
     ) {
         self.backlinks = backlinks
         self.isLoading = isLoading
@@ -84,7 +84,7 @@ struct BacklinksPanel: View {
                     VStack(spacing: 8) {
                         ForEach(backlinks) { backlink in
                             Button {
-                                onNavigate(backlink.sourceNoteURL)
+                                onNavigate(backlink)
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "doc.text.fill")
@@ -101,6 +101,13 @@ struct BacklinksPanel: View {
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(2)
+                                        }
+                                        if !backlink.referenceDisplayText.isEmpty,
+                                           backlink.referenceDisplayText.localizedCaseInsensitiveCompare(backlink.sourceNoteName) != .orderedSame {
+                                            Text(String(localized: "Reference: \(backlink.referenceDisplayText)", bundle: .module))
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                                .lineLimit(1)
                                         }
                                     }
 

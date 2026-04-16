@@ -10,82 +10,118 @@ public struct LinkSuggestionService: Sendable {
     public struct Suggestion: Identifiable, Sendable {
         public let noteURL: URL
         public let noteName: String
-        public let matchRange: Range<String.Index>
+        public let matchRange: NSRange
+        public let matchedText: String
         /// Short context excerpt around the match, for display in the inspector.
         public let matchContext: String
-        public var id: String { noteURL.absoluteString + "\(matchRange.lowerBound)" }
+        public var id: String { "\(noteURL.absoluteString)#\(matchRange.location)-\(matchRange.length)" }
     }
 
     /// Suggests links for note content based on other notes in the vault.
     public func suggestLinks(
         for content: String,
         currentNoteURL: URL,
-        allNotes: [FileNode]
-    ) -> [Suggestion] {
-        let notes = collectNotes(from: allNotes)
-            .filter { $0.url != currentNoteURL }
-
-        let existingLinks = extractExistingLinkTargets(from: content)
-        let lowerContent = content.lowercased()
+        allNotes: [FileNode],
+        graphEdgeStore: GraphEdgeStore? = nil
+    ) async -> [Suggestion] {
+        let catalog = NoteReferenceCatalog(allNotes: allNotes)
+        let explicitReferences = await catalog.resolvedExplicitReferences(
+            in: content,
+            graphEdgeStore: graphEdgeStore
+        )
+        let linkedNoteURLs = Set(explicitReferences.map(\.noteURL))
+        let explicitLinkRanges = explicitReferences.map(\.matchRange)
+        let nsContent = content as NSString
         var suggestions: [Suggestion] = []
-        var coveredRanges: [Range<String.Index>] = []
+        var coveredRanges: [NSRange] = []
+        var suggestedNoteURLs: Set<URL> = []
 
-        let sortedNotes = notes.sorted { a, b in
-            a.name.count > b.name.count
-        }
+        let sortedNotes = catalog
+            .linkInsertionSuggestions(matching: "", excluding: currentNoteURL)
+            .filter { !linkedNoteURLs.contains($0.noteURL) }
+            .sorted { a, b in
+                (a.searchTerms.map(\.count).max() ?? a.noteName.count)
+                    > (b.searchTerms.map(\.count).max() ?? b.noteName.count)
+            }
 
         for note in sortedNotes {
-            let displayName = note.name.replacingOccurrences(of: ".md", with: "")
-            guard displayName.count >= 3 else { continue }
-            guard !existingLinks.contains(displayName.lowercased()) else { continue }
+            guard !suggestedNoteURLs.contains(note.noteURL) else { continue }
 
-            let searchTerm = displayName.lowercased()
-            var searchStart = lowerContent.startIndex
+            let sortedTerms = note.searchTerms
+                .filter { $0.count >= 3 }
+                .sorted { $0.count > $1.count }
 
-            while let range = lowerContent.range(of: searchTerm, range: searchStart..<lowerContent.endIndex) {
-                let overlaps = coveredRanges.contains { existing in
-                    existing.overlaps(range)
+            for term in sortedTerms {
+                var searchRange = NSRange(location: 0, length: nsContent.length)
+
+                while searchRange.length > 0 {
+                    let foundRange = nsContent.range(
+                        of: term,
+                        options: [.caseInsensitive],
+                        range: searchRange
+                    )
+                    guard foundRange.location != NSNotFound,
+                          foundRange.length > 0 else {
+                        break
+                    }
+
+                    let overlapsExistingSuggestion = coveredRanges.contains { existing in
+                        NSIntersectionRange(existing, foundRange).length > 0
+                    }
+                    let overlapsExplicitLink = explicitLinkRanges.contains { explicitRange in
+                        NSIntersectionRange(explicitRange, foundRange).length > 0
+                    }
+
+                    if !overlapsExistingSuggestion
+                        && !overlapsExplicitLink
+                        && isWordBoundary(content: content, range: foundRange) {
+                        let contextRange = extractContextRange(in: content, around: foundRange)
+                        let context = String(content[contextRange])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .replacingOccurrences(of: "\n", with: " ")
+
+                        suggestions.append(Suggestion(
+                            noteURL: note.noteURL,
+                            noteName: note.noteName,
+                            matchRange: foundRange,
+                            matchedText: nsContent.substring(with: foundRange),
+                            matchContext: context
+                        ))
+                        coveredRanges.append(foundRange)
+                        suggestedNoteURLs.insert(note.noteURL)
+                        break
+                    }
+
+                    let nextLocation = foundRange.location + max(foundRange.length, 1)
+                    guard nextLocation <= nsContent.length else { break }
+                    searchRange = NSRange(location: nextLocation, length: nsContent.length - nextLocation)
                 }
-
-                if !overlaps && isWordBoundary(content: lowerContent, range: range) {
-                    // Extract a short context excerpt around the match
-                    let contextRange = extractContextRange(in: content, around: range)
-                    let context = String(content[contextRange])
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .replacingOccurrences(of: "\n", with: " ")
-
-                    suggestions.append(Suggestion(
-                        noteURL: note.url,
-                        noteName: displayName,
-                        matchRange: range,
-                        matchContext: context
-                    ))
-                    coveredRanges.append(range)
+                if suggestedNoteURLs.contains(note.noteURL) {
+                    break
                 }
-
-                searchStart = range.upperBound
             }
         }
 
         return suggestions.sorted { a, b in
-            a.matchRange.lowerBound < b.matchRange.lowerBound
+            a.matchRange.location < b.matchRange.location
         }
     }
 
-    private func isWordBoundary(content: String, range: Range<String.Index>) -> Bool {
+    private func isWordBoundary(content: String, range: NSRange) -> Bool {
+        let nsContent = content as NSString
         let beforeOK: Bool
-        if range.lowerBound == content.startIndex {
+        if range.location == 0 {
             beforeOK = true
         } else {
-            let before = content[content.index(before: range.lowerBound)]
+            let before = nsContent.substring(with: NSRange(location: range.location - 1, length: 1)).first ?? " "
             beforeOK = !before.isLetter && !before.isNumber
         }
 
         let afterOK: Bool
-        if range.upperBound == content.endIndex {
+        if NSMaxRange(range) >= nsContent.length {
             afterOK = true
         } else {
-            let after = content[range.upperBound]
+            let after = nsContent.substring(with: NSRange(location: NSMaxRange(range), length: 1)).first ?? " "
             afterOK = !after.isLetter && !after.isNumber
         }
 
@@ -93,10 +129,18 @@ public struct LinkSuggestionService: Sendable {
     }
 
     /// Extracts a ~60-char context window around a match range for display.
-    private func extractContextRange(in content: String, around range: Range<String.Index>) -> Range<String.Index> {
+    private func extractContextRange(in content: String, around range: NSRange) -> Range<String.Index> {
+        let nsContent = content as NSString
+        let clampedLocation = min(max(range.location, 0), nsContent.length)
+        let clampedEnd = min(max(NSMaxRange(range), clampedLocation), nsContent.length)
+        guard let lowerBound = Range(NSRange(location: clampedLocation, length: 0), in: content)?.lowerBound,
+              let upperBound = Range(NSRange(location: clampedEnd, length: 0), in: content)?.lowerBound else {
+            return content.startIndex..<content.startIndex
+        }
+
         let contextChars = 30
-        var start = range.lowerBound
-        var end = range.upperBound
+        var start = lowerBound
+        var end = upperBound
 
         for _ in 0..<contextChars {
             if start > content.startIndex {
@@ -112,31 +156,4 @@ public struct LinkSuggestionService: Sendable {
         return start..<end
     }
 
-    private func extractExistingLinkTargets(from content: String) -> Set<String> {
-        let pattern = #"\[\[([^\]]+)\]\]"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let nsContent = content as NSString
-        let matches = regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length))
-        var targets = Set<String>()
-        for match in matches {
-            if match.numberOfRanges > 1 {
-                let target = nsContent.substring(with: match.range(at: 1))
-                    .components(separatedBy: "|").first?
-                    .components(separatedBy: "#").first ?? ""
-                targets.insert(target.lowercased())
-            }
-        }
-        return targets
-    }
-
-    private func collectNotes(from nodes: [FileNode]) -> [FileNode] {
-        var result: [FileNode] = []
-        for node in nodes {
-            if node.isNote { result.append(node) }
-            if let children = node.children {
-                result.append(contentsOf: collectNotes(from: children))
-            }
-        }
-        return result
-    }
 }

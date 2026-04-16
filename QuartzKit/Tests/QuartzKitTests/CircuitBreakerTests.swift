@@ -12,7 +12,7 @@ struct CircuitBreakerTests {
 
     @MainActor
     private func freshBreaker() -> TextKitCircuitBreaker {
-        let breaker = TextKitCircuitBreaker.shared
+        let breaker = TextKitCircuitBreaker.isolatedForTesting()
         breaker.reset()
         return breaker
     }

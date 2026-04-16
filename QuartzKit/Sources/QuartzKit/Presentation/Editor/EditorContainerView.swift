@@ -20,6 +20,7 @@ public struct EditorContainerView: View {
     var isInTrash: Bool = false
     var onRestoreFromTrash: (() -> Void)?
     var onPermanentlyDelete: (() -> Void)?
+    var onNavigateToNoteRequest: ((WikiLinkNavigationRequest) -> Void)?
     @Environment(\.appearanceManager) private var appearance
     @Environment(\.focusModeManager) private var focusMode
     #if os(iOS)
@@ -54,7 +55,8 @@ public struct EditorContainerView: View {
         onResolveConflict: ((URL) -> Void)? = nil,
         isInTrash: Bool = false,
         onRestoreFromTrash: (() -> Void)? = nil,
-        onPermanentlyDelete: (() -> Void)? = nil
+        onPermanentlyDelete: (() -> Void)? = nil,
+        onNavigateToNoteRequest: ((WikiLinkNavigationRequest) -> Void)? = nil
     ) {
         self.session = session
         self.workspaceStore = workspaceStore
@@ -65,6 +67,7 @@ public struct EditorContainerView: View {
         self.isInTrash = isInTrash
         self.onRestoreFromTrash = onRestoreFromTrash
         self.onPermanentlyDelete = onPermanentlyDelete
+        self.onNavigateToNoteRequest = onNavigateToNoteRequest
     }
 
     public var body: some View {
@@ -75,6 +78,10 @@ public struct EditorContainerView: View {
 
             if session.note != nil, session.inNoteSearch.isPresented {
                 FindReplaceBar(session: session)
+            }
+
+            if session.note != nil, session.linkInsertion.isPresented {
+                NoteLinkPicker(session: session)
             }
 
             MarkdownEditorRepresentable(
@@ -622,6 +629,7 @@ public struct EditorContainerView: View {
             store: session.inspectorStore,
             note: session.note,
             vaultRootURL: session.vaultRootURL,
+            graphEdgeStore: session.graphEdgeStore,
             onScrollToHeading: { heading in
                 session.scrollToHeading(heading)
             },
@@ -629,16 +637,55 @@ public struct EditorContainerView: View {
                 session.updateTags(newTags)
             },
             onNavigateToNote: { url in
-                QuartzFeedback.primaryAction()
-                NotificationCenter.default.post(
-                    name: .quartzWikiLinkNavigation,
-                    object: nil,
-                    userInfo: [
-                        "url": url,
-                        "title": url.deletingPathExtension().lastPathComponent
-                    ]
+                navigateToInspectorNote(
+                    WikiLinkNavigationRequest(
+                        title: url.deletingPathExtension().lastPathComponent,
+                        url: url
+                    )
                 )
+            },
+            onNavigateToBacklink: { backlink in
+                navigateToInspectorNote(
+                    WikiLinkNavigationRequest(
+                        title: backlink.sourceNoteName,
+                        url: backlink.sourceNoteURL,
+                        selectionRange: backlink.referenceRange
+                    )
+                )
+            },
+            onLinkSuggestedMention: { suggestion in
+                session.linkSuggestedMention(suggestion)
             }
+        )
+    }
+
+    private func navigateToInspectorNote(_ request: WikiLinkNavigationRequest) {
+        QuartzFeedback.primaryAction()
+
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: request.url)
+        if CanonicalNoteIdentity.canonicalFileURL(for: session.note?.fileURL ?? canonicalURL) == canonicalURL {
+            if let selectionRange = request.selectionRange {
+                session.revealNavigationRange(selectionRange)
+            }
+            return
+        }
+
+        session.prepareNoteNavigation(request)
+
+        if let workspaceStore {
+            workspaceStore.selectedNoteURL = canonicalURL
+            return
+        }
+
+        if let onNavigateToNoteRequest {
+            onNavigateToNoteRequest(request)
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .quartzWikiLinkNavigation,
+            object: nil,
+            userInfo: request.notificationUserInfo
         )
     }
 }

@@ -70,6 +70,9 @@ final class MarkdownEditorUITextView: UITextView {
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if handleLinkInsertionPresses(presses) {
+            return
+        }
         if let shortcut = Self.shortcut(for: presses) {
             apply(shortcut)
             return
@@ -116,6 +119,29 @@ final class MarkdownEditorUITextView: UITextView {
             editorSession?.findNextInNote()
         case .previous:
             editorSession?.findPreviousInNote()
+        }
+    }
+
+    private func handleLinkInsertionPresses(_ presses: Set<UIPress>) -> Bool {
+        guard let editorSession,
+              editorSession.linkInsertion.isPresented,
+              presses.count == 1,
+              let key = presses.first?.key else {
+            return false
+        }
+
+        let input = key.charactersIgnoringModifiers
+        switch input {
+        case UIKeyCommand.inputUpArrow:
+            return editorSession.handleLinkInsertionMoveUp()
+        case UIKeyCommand.inputDownArrow:
+            return editorSession.handleLinkInsertionMoveDown()
+        case UIKeyCommand.inputEscape, "\u{1B}":
+            return editorSession.dismissLinkInsertion()
+        case "\r":
+            return editorSession.handleLinkInsertionConfirm()
+        default:
+            return false
         }
     }
 
@@ -648,6 +674,21 @@ final class MarkdownEditorNSTextView: NSTextView {
     private let tableNavigation = MarkdownTableNavigation()
 
     override func doCommand(by selector: Selector) {
+        if let editorSession, editorSession.linkInsertion.isPresented {
+            switch selector {
+            case #selector(moveUp(_:)):
+                if editorSession.handleLinkInsertionMoveUp() { return }
+            case #selector(moveDown(_:)):
+                if editorSession.handleLinkInsertionMoveDown() { return }
+            case #selector(insertNewline(_:)), #selector(insertNewlineIgnoringFieldEditor(_:)):
+                if editorSession.handleLinkInsertionConfirm() { return }
+            case #selector(cancelOperation(_:)):
+                if editorSession.dismissLinkInsertion() { return }
+            default:
+                break
+            }
+        }
+
         if selector == #selector(insertTab(_:)) || selector == #selector(insertBacktab(_:)) {
             let isShiftTab = selector == #selector(insertBacktab(_:))
             let cursor = selectedRange().location

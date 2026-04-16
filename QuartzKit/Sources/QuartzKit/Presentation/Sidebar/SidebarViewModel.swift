@@ -5,6 +5,9 @@ public extension Notification.Name {
     static let quartzReindexRequested = Notification.Name("quartzReindexRequested")
     /// Posted with `object` set to the saved note’s file `URL` (Core Spotlight incremental index).
     static let quartzNoteSaved = Notification.Name("quartzNoteSaved")
+    /// Posted after explicit wiki-link graph connections are updated.
+    /// `object` is the canonical source note URL and `userInfo["targetURLs"]` contains canonical target URLs.
+    static let quartzReferenceGraphDidChange = Notification.Name("quartzReferenceGraphDidChange")
     /// `userInfo["urls"]` is `[URL]` of markdown files removed from disk (Spotlight deletion).
     static let quartzSpotlightNotesRemoved = Notification.Name("quartzSpotlightNotesRemoved")
     /// `userInfo["old"]` and `["new"]` are file `URL`s after rename or move.

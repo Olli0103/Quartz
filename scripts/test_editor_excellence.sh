@@ -26,6 +26,46 @@ IPHONE_PREFERRED_SIMULATOR="${IPHONE_PREFERRED_SIMULATOR:-iPhone 17 Pro}"
 IPAD_PREFERRED_SIMULATOR="${IPAD_PREFERRED_SIMULATOR:-iPad Pro 13-inch (M5)}"
 EDITOR_FILTER="${EDITOR_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip|Snapshot)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
 RECORD_FLAG_PATH="${RECORD_FLAG_PATH:-/tmp/quartz_record_editor_snapshots.flag}"
+PACKAGE_SCHEME_TEST_ACTION_ERROR="Scheme QuartzKit is not currently configured for the test action."
+
+MACOS_EDITOR_SHELL_TESTS=(
+    "QuartzUITests/macOSEditorShellUITests/testEditorPreservesEditsAcrossNoteSwitching"
+    "QuartzUITests/macOSEditorShellUITests/testKeyboardBoldActionAppliesMarkdownInline"
+    "QuartzUITests/macOSEditorShellUITests/testCommandFindInNoteOpensEditorScopedFindBar"
+    "QuartzUITests/macOSEditorShellUITests/testCommandSearchNotesRemainsSeparateFromFindInNote"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarLinkActionInsertsMarkdownTemplate"
+    "QuartzUITests/macOSEditorShellUITests/testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarBoldActionAppliesMarkdownInline"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarCheckboxActionInsertsTaskPrefix"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarTableActionInsertsMarkdownTable"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarMermaidActionWrapsCurrentLineInFence"
+    "QuartzUITests/macOSEditorShellUITests/testToolbarBoldActionWrapsCurrentSelection"
+    "QuartzUITests/macOSEditorShellUITests/testPasteAndUndoRedoCommandsRoundTripEditorState"
+    "QuartzUITests/macOSEditorShellUITests/testEditorContextRestoresAcrossRelaunchWithoutReset"
+)
+
+IPHONE_EDITOR_SHELL_TESTS=(
+    "QuartzUITests/iPhoneEditorShellUITests/testEditingSurvivesBackgroundForeground"
+    "QuartzUITests/iPhoneEditorShellUITests/testCompactToolbarBoldActionAppliesMarkdownInline"
+    "QuartzUITests/iPhoneEditorShellUITests/testCompactToolbarLinkActionInsertsMarkdownTemplate"
+    "QuartzUITests/iPhoneEditorShellUITests/testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote"
+    "QuartzUITests/iPhoneEditorShellUITests/testCompactToolbarCheckboxActionInsertsTaskPrefix"
+    "QuartzUITests/iPhoneEditorShellUITests/testCompactToolbarTableActionInsertsMarkdownTable"
+    "QuartzUITests/iPhoneEditorShellUITests/testCompactToolbarMermaidActionWrapsCurrentLineInFence"
+    "QuartzUITests/iPhoneEditorShellUITests/testToolbarFindButtonOpensEditorScopedFindBar"
+)
+
+IPAD_EDITOR_SHELL_TESTS=(
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewEditingSurvivesNoteSwitching"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewToolbarBoldActionAppliesMarkdownInline"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewToolbarLinkActionInsertsMarkdownTemplate"
+    "QuartzUITests/iPadEditorShellUITests/testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewToolbarCheckboxActionInsertsTaskPrefix"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewToolbarTableActionInsertsMarkdownTable"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewToolbarMermaidActionWrapsCurrentLineInFence"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewHeadingMenuRoundTripAppliesAndRemovesHeadingSyntax"
+    "QuartzUITests/iPadEditorShellUITests/testSplitViewFindButtonOpensEditorScopedFindBar"
+)
 
 cleanup_record_flag() {
     if [ "${RECORD_FLAG_CREATED:-0}" = "1" ]; then
@@ -49,34 +89,36 @@ run_package_editor_matrix() {
     local live_suite="$5"
 
     reset_result_bundle "$result_bundle"
-    (
-        cd "$REPO_ROOT/$PACKAGE_PATH"
+    run_xcodebuild_to_log "$log_path" \
         xcodebuild test -quiet -scheme QuartzKit \
             -parallel-testing-enabled NO \
+            -destination-timeout 60 \
             -destination "platform=iOS Simulator,id=$simulator_id" \
             -resultBundlePath "$result_bundle" \
             -only-testing:"QuartzKitTests/$snapshot_suite" \
             -only-testing:"QuartzKitTests/$live_suite"
-    ) >"$log_path" 2>&1
-
-    local status=$?
-    tail -n 60 "$log_path"
-    return $status
 }
 
 run_editor_shell_ui_matrix() {
     local destination="$1"
     local log_path="$2"
     local result_bundle="$3"
-    local test_class="$4"
+    shift 3
+    local test_identifiers=("$@")
+    local xcodebuild_args=(
+        xcodebuild test -scheme Quartz
+            -parallel-testing-enabled NO
+            -destination-timeout 60
+            -destination "$destination"
+            -resultBundlePath "$result_bundle"
+    )
 
     reset_result_bundle "$result_bundle"
-    run_xcodebuild_to_log "$log_path" \
-        xcodebuild test -scheme Quartz \
-            -parallel-testing-enabled NO \
-            -destination "$destination" \
-            -resultBundlePath "$result_bundle" \
-            -only-testing:"QuartzUITests/$test_class"
+    for test_identifier in "${test_identifiers[@]}"; do
+        xcodebuild_args+=("-only-testing:$test_identifier")
+    done
+
+    run_xcodebuild_to_log "$log_path" "${xcodebuild_args[@]}"
 }
 
 step "Running editor excellence gate"
@@ -102,6 +144,8 @@ if run_package_editor_matrix \
     "EditorRealitySnapshotTests_iPhone" \
     "EditorLiveMutationRegressionTests_iOS"; then
     pass "iPhone editor parity passed"
+elif grep -q "$PACKAGE_SCHEME_TEST_ACTION_ERROR" "$IOS_LOG_PATH"; then
+    fail "iPhone editor parity blocked: QuartzKit scheme has no xcodebuild test action for simulator parity"
 else
     fail "iPhone editor parity failed"
 fi
@@ -119,6 +163,8 @@ if run_package_editor_matrix \
     "EditorRealitySnapshotTests_iPad" \
     "EditorLiveMutationRegressionTests_iPadOS"; then
     pass "iPad editor parity passed"
+elif grep -q "$PACKAGE_SCHEME_TEST_ACTION_ERROR" "$IPADOS_LOG_PATH"; then
+    fail "iPad editor parity blocked: QuartzKit scheme has no xcodebuild test action for simulator parity"
 else
     fail "iPad editor parity failed"
 fi
@@ -133,7 +179,7 @@ if run_editor_shell_ui_matrix \
     "platform=macOS" \
     "$MACOS_UI_LOG_PATH" \
     "$MACOS_UI_RESULT_BUNDLE" \
-    "macOSEditorShellUITests"; then
+    "${MACOS_EDITOR_SHELL_TESTS[@]}"; then
     pass "macOS editor shell UI coverage passed"
 else
     fail "macOS editor shell UI coverage failed"
@@ -144,7 +190,7 @@ if run_editor_shell_ui_matrix \
     "platform=iOS Simulator,id=$IPHONE_SIM_ID" \
     "$IOS_UI_LOG_PATH" \
     "$IOS_UI_RESULT_BUNDLE" \
-    "iPhoneEditorShellUITests"; then
+    "${IPHONE_EDITOR_SHELL_TESTS[@]}"; then
     pass "iPhone editor shell UI coverage passed"
 else
     fail "iPhone editor shell UI coverage failed"
@@ -155,7 +201,7 @@ if run_editor_shell_ui_matrix \
     "platform=iOS Simulator,id=$IPAD_SIM_ID" \
     "$IPADOS_UI_LOG_PATH" \
     "$IPADOS_UI_RESULT_BUNDLE" \
-    "iPadEditorShellUITests"; then
+    "${IPAD_EDITOR_SHELL_TESTS[@]}"; then
     pass "iPad editor shell UI coverage passed"
 else
     fail "iPad editor shell UI coverage failed"

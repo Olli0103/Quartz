@@ -87,6 +87,12 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
 
     private init() {}
 
+    /// Returns an isolated breaker instance for test code that needs deterministic state.
+    /// Production should continue to use `shared`.
+    static func isolatedForTesting() -> TextKitCircuitBreaker {
+        TextKitCircuitBreaker()
+    }
+
     // MARK: - Circuit State
 
     public enum CircuitState: String, Sendable {

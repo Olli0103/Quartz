@@ -978,25 +978,73 @@ public struct MarkdownFormatter: Sendable {
             length: max(lineRange.length - trailingLineBreakLength(in: text, lineRange: lineRange), 0)
         )
         let lineContent = text.substring(with: contentRange)
+        let lineIsBlank = lineContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        guard !lineContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let insertionRange: NSRange
+        let previousLineIsNonBlank: Bool
+        let nextLineIsNonBlank: Bool
 
-        let insertionLocation = NSMaxRange(lineRange)
-        let needsLeadingNewline = insertionLocation > 0
-            && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 10)
-            && (insertionLocation > text.length || text.character(at: insertionLocation - 1) != 13)
-        let replacement = (needsLeadingNewline ? "\n" : "") + raw
+        if lineIsBlank {
+            insertionRange = lineRange
+            if lineRange.location > 0 {
+                let previousLine = text.lineRange(for: NSRange(location: max(lineRange.location - 1, 0), length: 0))
+                let previousContentRange = NSRange(
+                    location: previousLine.location,
+                    length: max(previousLine.length - trailingLineBreakLength(in: text, lineRange: previousLine), 0)
+                )
+                previousLineIsNonBlank = !text.substring(with: previousContentRange)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+            } else {
+                previousLineIsNonBlank = false
+            }
+
+            let nextLineLocation = NSMaxRange(lineRange)
+            if nextLineLocation < text.length {
+                let nextLine = text.lineRange(for: NSRange(location: nextLineLocation, length: 0))
+                let nextContentRange = NSRange(
+                    location: nextLine.location,
+                    length: max(nextLine.length - trailingLineBreakLength(in: text, lineRange: nextLine), 0)
+                )
+                nextLineIsNonBlank = !text.substring(with: nextContentRange)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+            } else {
+                nextLineIsNonBlank = false
+            }
+        } else {
+            insertionRange = NSRange(location: NSMaxRange(lineRange), length: 0)
+            previousLineIsNonBlank = true
+
+            let nextLineLocation = NSMaxRange(lineRange)
+            if nextLineLocation < text.length {
+                let nextLine = text.lineRange(for: NSRange(location: nextLineLocation, length: 0))
+                let nextContentRange = NSRange(
+                    location: nextLine.location,
+                    length: max(nextLine.length - trailingLineBreakLength(in: text, lineRange: nextLine), 0)
+                )
+                nextLineIsNonBlank = !text.substring(with: nextContentRange)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+            } else {
+                nextLineIsNonBlank = false
+            }
+        }
+
+        let leadingSeparator = previousLineIsNonBlank ? "\n" : ""
+        let trailingSeparator = nextLineIsNonBlank ? "\n" : ""
+        let replacement = leadingSeparator + raw + trailingSeparator
         let replacementNSString = replacement as NSString
         let firstColumnRange = replacementNSString.range(of: "Column 1")
         let cursorLocation: Int
         if firstColumnRange.location != NSNotFound {
-            cursorLocation = insertionLocation + firstColumnRange.location
+            cursorLocation = insertionRange.location + firstColumnRange.location
         } else {
-            cursorLocation = insertionLocation + replacementNSString.length
+            cursorLocation = insertionRange.location + replacementNSString.length
         }
 
         return MarkdownFormatEdit(
-            range: NSRange(location: insertionLocation, length: 0),
+            range: insertionRange,
             replacement: replacement,
             cursorAfter: NSRange(location: cursorLocation, length: 0)
         )

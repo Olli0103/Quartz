@@ -69,11 +69,23 @@ public final class EditorSession {
     /// This never participates in vault-wide search.
     public let inNoteSearch = InNoteSearchState()
 
+    /// Editor-scoped wiki-link insertion state for the currently active note only.
+    /// Typing `[[` opens note suggestions without leaving the active editor.
+    public let linkInsertion = InEditorLinkInsertionState()
+
     /// Root URL of the current vault.
     public var vaultRootURL: URL?
 
     /// File tree snapshot for link suggestions.
     public var fileTree: [FileNode] = []
+
+    /// Last published explicit wiki-link target signature for the loaded note.
+    /// Prevents redundant live graph invalidations while keeping backlink state current.
+    private var lastPublishedExplicitLinkTargets: [String] = []
+
+    /// Pending cross-note navigation request that should be applied when the target
+    /// note becomes the loaded note in this session.
+    private var pendingNoteNavigationRequest: WikiLinkNavigationRequest?
 
     /// Set when an external modification is detected while the user has unsaved edits.
     public var externalModificationDetected: Bool = false
@@ -171,6 +183,9 @@ public final class EditorSession {
     /// Stored for deinit cleanup of background analysis.
     private var analysisTask: Task<Void, Never>?
 
+    /// Stored for deinit cleanup of current-note explicit-link inspector refreshes.
+    private var referenceInspectorTask: Task<Void, Never>?
+
     /// Delay before running analysis (longer than highlighting since ToC doesn't need keystroke-level updates).
     private let analysisDelay: Duration = .milliseconds(300)
 
@@ -214,6 +229,7 @@ public final class EditorSession {
             fileWatchTask?.cancel()
             wordCountTask?.cancel()
             analysisTask?.cancel()
+            referenceInspectorTask?.cancel()
             inlineAITask?.cancel()
 
             if let observer = semanticLinkObserver {
@@ -386,6 +402,11 @@ public final class EditorSession {
         lastRenderPlan = .empty
         lastAppliedHighlightSpans = []
         lastAppliedHighlightSourceText = ""
+        inspectorStore.setHeadings([])
+        inspectorStore.updateStats(.empty)
+        inspectorStore.suggestedLinks = []
+        inspectorStore.setOutgoingLinks([])
+        inspectorStore.activeHeadingID = nil
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
@@ -394,6 +415,8 @@ public final class EditorSession {
         formattingState = .empty
         lastSavedContentHash = nil
         lastKnownDiskContentHash = nil
+        lastPublishedExplicitLinkTargets = []
+        pendingNoteNavigationRequest = nil
 
         // Reset cursor and scroll state for clean restoration on next note open
         cursorPosition = NSRange(location: 0, length: 0)
@@ -401,6 +424,7 @@ public final class EditorSession {
         pendingRestoredSelection = nil
         pendingRestoredScrollOffset = nil
         inNoteSearch.dismiss()
+        linkInsertion.dismiss()
 
         #if canImport(UIKit)
         activeTextView?.text = ""
@@ -473,7 +497,10 @@ public final class EditorSession {
         currentText = newText
         synchronizeSemanticSnapshotFromCurrentText()
         refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
+        refreshLinkInsertionSuggestionsForCurrentEditorState()
+        scheduleOutgoingLinkRefresh()
         guard newText != previousText else { return }
+        refreshExplicitLinkGraphConnectionsIfNeeded()
 
         if isApplyingExternalEdit {
             updateTypingAttributes()
@@ -534,6 +561,7 @@ public final class EditorSession {
             semanticDocument: semanticDocument,
             at: range.location
         )
+        refreshLinkInsertionSuggestions(for: range)
 
         guard syntaxVisibilityMode == .hiddenUntilCaret,
               !isApplyingExternalEdit,
@@ -1036,11 +1064,13 @@ public final class EditorSession {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: requestedURL)
         note = loaded
         currentText = loaded.body
+        lastPublishedExplicitLinkTargets = []
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
         pendingExternalChangeIdentity = nil
         wordCount = Self.countWords(in: loaded.body)
+        linkInsertion.dismiss()
 
         if let restoredViewState {
             let clampedState = clampedViewState(restoredViewState, for: loaded.body)
@@ -1079,7 +1109,11 @@ public final class EditorSession {
 
         highlightImmediately()
         scheduleAnalysis()
+        scheduleOutgoingLinkRefresh()
+        refreshExplicitLinkGraphConnectionsIfNeeded(force: true)
         Task { await refreshSemanticLinks() }
+
+        applyPendingNoteNavigationIfNeeded(for: canonicalURL)
 
         if restartFileWatching {
             startFileWatching(for: canonicalURL)
@@ -1133,6 +1167,7 @@ public final class EditorSession {
         lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
             semanticDocument: semanticDocument,
@@ -1486,6 +1521,12 @@ public final class EditorSession {
             // Legacy NotificationCenter for backward compatibility
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
 
+            refreshExplicitLinkGraphConnectionsIfNeeded(
+                force: true,
+                sourceURL: savedURL,
+                content: textSnapshot
+            )
+
             // Save version snapshot only if 5+ minutes since last snapshot
             if let vaultRoot = vaultRootURL, shouldSaveVersionSnapshot() {
                 lastSnapshotDate = Date()
@@ -1625,6 +1666,7 @@ public final class EditorSession {
         lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
             semanticDocument: semanticDocument,
@@ -1949,6 +1991,8 @@ public final class EditorSession {
         wordCountTask = nil
         analysisTask?.cancel()
         analysisTask = nil
+        referenceInspectorTask?.cancel()
+        referenceInspectorTask = nil
         inlineAITask?.cancel()
         inlineAITask = nil
     }
@@ -2008,14 +2052,20 @@ public final class EditorSession {
             var suggestions: [LinkSuggestionService.Suggestion] = []
             if let noteURL {
                 let suggestionService = LinkSuggestionService()
+                let graphEdgeStore = self.graphEdgeStore
                 suggestions = await Task.detached(priority: .utility) {
-                    suggestionService.suggestLinks(for: text, currentNoteURL: noteURL, allNotes: tree)
+                    await suggestionService.suggestLinks(
+                        for: text,
+                        currentNoteURL: noteURL,
+                        allNotes: tree,
+                        graphEdgeStore: graphEdgeStore
+                    )
                 }.value
             }
 
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
-                self?.inspectorStore.update(with: analysis)
+                self?.inspectorStore.updateStats(analysis.stats)
                 self?.inspectorStore.suggestedLinks = suggestions
             }
         }
@@ -2031,19 +2081,21 @@ public final class EditorSession {
 
     /// Scrolls the editor to a specific heading (called when user taps ToC item).
     public func scrollToHeading(_ heading: HeadingItem) {
-        let range = NSRange(location: heading.characterOffset, length: 0)
+        let targetRange = resolvedHeadingNavigationRange(for: heading)
+            ?? lineRange(containing: heading.characterOffset)
+            ?? NSRange(location: heading.characterOffset, length: 0)
 
-        #if canImport(UIKit)
-        guard let textView = activeTextView else { return }
-        textView.scrollRangeToVisible(range)
-        if let pos = textView.position(from: textView.beginningOfDocument, offset: heading.characterOffset) {
-            textView.selectedTextRange = textView.textRange(from: pos, to: pos)
-        }
-        #elseif canImport(AppKit)
-        guard let textView = activeTextView else { return }
-        textView.scrollRangeToVisible(range)
-        textView.setSelectedRange(range)
-        #endif
+        inspectorStore.activeHeadingID = heading.id
+        selectAndRevealEditorRange(targetRange, focusEditor: true)
+    }
+
+    /// Reveals a resolved note-local navigation range in the mounted editor.
+    /// Used by inspector backlinks and other cross-note navigation requests.
+    public func revealNavigationRange(_ range: NSRange, focusEditor: Bool = true) {
+        let textLength = (currentText as NSString).length
+        let location = min(max(0, range.location), textLength)
+        let length = min(max(0, range.length), max(0, textLength - location))
+        selectAndRevealEditorRange(NSRange(location: location, length: length), focusEditor: focusEditor)
     }
 
     // MARK: - File Watching
@@ -2138,13 +2190,18 @@ public final class EditorSession {
                 errorMessage = String(localized: "Note \"\(title)\" not found in vault.", bundle: .module)
                 return
             }
-            wikiLinkNavigationRequest = WikiLinkNavigationRequest(title: title, url: url)
+            let request = WikiLinkNavigationRequest(title: title, url: url)
+            wikiLinkNavigationRequest = request
             NotificationCenter.default.post(
                 name: .quartzWikiLinkNavigation,
                 object: nil,
-                userInfo: ["url": url, "title": title]
+                userInfo: request.notificationUserInfo
             )
         }
+    }
+
+    public func prepareNoteNavigation(_ request: WikiLinkNavigationRequest) {
+        pendingNoteNavigationRequest = request.canonicalized()
     }
 
     private func findNoteURL(matching target: String, in node: FileNode) -> URL? {
@@ -2160,6 +2217,17 @@ public final class EditorSession {
         return nil
     }
 
+    private func applyPendingNoteNavigationIfNeeded(for loadedURL: URL) {
+        guard let request = pendingNoteNavigationRequest?.canonicalized(),
+              request.url == CanonicalNoteIdentity.canonicalFileURL(for: loadedURL) else {
+            return
+        }
+
+        pendingNoteNavigationRequest = nil
+        guard let selectionRange = request.selectionRange else { return }
+        revealNavigationRange(selectionRange)
+    }
+
     // MARK: - Cleanup
 
     public func cancelAllTasks() {
@@ -2168,6 +2236,7 @@ public final class EditorSession {
         fileWatchTask?.cancel()
         wordCountTask?.cancel()
         analysisTask?.cancel()
+        referenceInspectorTask?.cancel()
         inlineAITask?.cancel()
     }
 
@@ -2256,6 +2325,94 @@ public final class EditorSession {
                 location: range.location + (newText as NSString).length,
                 length: 0
             )
+        )
+    }
+
+    // MARK: - Wiki-Link Insertion
+
+    public func handleLinkInsertionMoveUp() -> Bool {
+        guard linkInsertion.isPresented else { return false }
+        linkInsertion.moveSelection(delta: -1)
+        return true
+    }
+
+    public func handleLinkInsertionMoveDown() -> Bool {
+        guard linkInsertion.isPresented else { return false }
+        linkInsertion.moveSelection(delta: 1)
+        return true
+    }
+
+    public func handleLinkInsertionConfirm() -> Bool {
+        guard linkInsertion.isPresented else { return false }
+        guard let suggestion = linkInsertion.selectedSuggestion else {
+            return dismissLinkInsertion()
+        }
+        insertWikiLinkSuggestion(suggestion)
+        return true
+    }
+
+    public func dismissLinkInsertion() -> Bool {
+        guard linkInsertion.isPresented else { return false }
+        let shouldRestoreEditorFocus = linkInsertion.shouldRestoreEditorFocusOnDismiss
+        linkInsertion.dismiss()
+        if shouldRestoreEditorFocus {
+            focusActiveTextViewPreservingSelection()
+        }
+        return true
+    }
+
+    public func insertWikiLinkSuggestion(_ suggestion: InEditorLinkInsertionState.Suggestion) {
+        guard let triggerRange = linkInsertion.triggerRange else { return }
+        let replacement = "[[\(suggestion.insertableTarget)]]"
+        let cursorAfter = NSRange(location: triggerRange.location + (replacement as NSString).length, length: 0)
+        let shouldRestoreEditorFocus = linkInsertion.shouldRestoreEditorFocusOnDismiss
+        linkInsertion.dismiss()
+
+        applyExternalEdit(
+            replacement: replacement,
+            range: triggerRange,
+            cursorAfter: cursorAfter,
+            origin: .formatting
+        )
+
+        if shouldRestoreEditorFocus {
+            focusActiveTextViewPreservingSelection()
+        }
+    }
+
+    public func linkSuggestedMention(_ suggestion: LinkSuggestionService.Suggestion) {
+        guard note != nil else { return }
+
+        let nsText = currentText as NSString
+        guard suggestion.matchRange.location >= 0,
+              NSMaxRange(suggestion.matchRange) <= nsText.length else {
+            return
+        }
+
+        let catalog = NoteReferenceCatalog(allNotes: fileTree)
+        guard let target = catalog.suggestion(for: suggestion.noteURL) else { return }
+
+        let currentMentionText = nsText.substring(with: suggestion.matchRange)
+        let replacement: String
+        if currentMentionText.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            == target.insertableTarget.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) {
+            replacement = "[[\(target.insertableTarget)]]"
+        } else {
+            replacement = "[[\(target.insertableTarget)|\(currentMentionText)]]"
+        }
+
+        let replacementLength = (replacement as NSString).length
+        let remappedSelection = selectionAfterReplacingRange(
+            suggestion.matchRange,
+            replacementLength: replacementLength,
+            preserving: resolvedFormattingSelection()
+        )
+
+        applyExternalEdit(
+            replacement: replacement,
+            range: suggestion.matchRange,
+            cursorAfter: remappedSelection,
+            origin: .formatting
         )
     }
 
@@ -2579,6 +2736,246 @@ public final class EditorSession {
         return max(0, originalLocation + delta)
     }
 
+    private func selectionAfterReplacingRange(
+        _ replacedRange: NSRange,
+        replacementLength: Int,
+        preserving selection: NSRange
+    ) -> NSRange {
+        let replacementRange = NSRange(location: replacedRange.location, length: replacementLength)
+
+        if NSIntersectionRange(selection, replacedRange).length > 0 {
+            return NSRange(location: NSMaxRange(replacementRange), length: 0)
+        }
+
+        if selection.location >= NSMaxRange(replacedRange) {
+            let delta = replacementLength - replacedRange.length
+            return NSRange(location: max(0, selection.location + delta), length: selection.length)
+        }
+
+        return selection
+    }
+
+    private struct ActiveWikiLinkTriggerContext {
+        let triggerRange: NSRange
+        let query: String
+    }
+
+    private func refreshLinkInsertionSuggestionsForCurrentEditorState() {
+        refreshLinkInsertionSuggestions(for: currentSelectedRangeFromActiveTextView())
+    }
+
+    private func refreshLinkInsertionSuggestions(for selection: NSRange) {
+        guard note != nil else {
+            linkInsertion.dismiss()
+            return
+        }
+
+        guard let trigger = activeWikiLinkTriggerContext(for: selection) else {
+            if linkInsertion.isPresented {
+                linkInsertion.dismiss()
+            }
+            return
+        }
+
+        let catalog = NoteReferenceCatalog(allNotes: fileTree)
+        let suggestions = catalog
+            .linkInsertionSuggestions(matching: trigger.query, excluding: note?.fileURL)
+            .prefix(8)
+            .map {
+                InEditorLinkInsertionState.Suggestion(
+                    noteURL: $0.noteURL,
+                    noteName: $0.noteName,
+                    insertableTarget: $0.insertableTarget
+                )
+            }
+
+        linkInsertion.presentOrUpdate(
+            triggerRange: trigger.triggerRange,
+            query: trigger.query,
+            suggestions: Array(suggestions),
+            shouldRestoreEditorFocusOnDismiss: activeTextViewIsFirstResponder
+        )
+    }
+
+    private func activeWikiLinkTriggerContext(for selection: NSRange) -> ActiveWikiLinkTriggerContext? {
+        guard selection.length == 0 else { return nil }
+
+        let nsText = currentText as NSString
+        let cursorLocation = min(max(0, selection.location), nsText.length)
+        guard cursorLocation <= nsText.length else { return nil }
+
+        let lineRange = nsText.lineRange(for: NSRange(location: cursorLocation, length: 0))
+        let linePrefixLength = cursorLocation - lineRange.location
+        guard linePrefixLength >= 2 else { return nil }
+
+        let linePrefixRange = NSRange(location: lineRange.location, length: linePrefixLength)
+        let linePrefix = nsText.substring(with: linePrefixRange)
+        guard let trigger = linePrefix.range(of: "[[", options: .backwards) else { return nil }
+
+        let queryStartInLine = trigger.upperBound.utf16Offset(in: linePrefix)
+        let queryLength = linePrefixRange.length - queryStartInLine
+        guard queryLength >= 0 else { return nil }
+
+        let query = nsText.substring(with: NSRange(
+            location: lineRange.location + queryStartInLine,
+            length: queryLength
+        ))
+        guard !query.contains("]]"),
+              !query.contains("\n"),
+              !query.contains("\r"),
+              !query.contains("|"),
+              !query.contains("#") else {
+            return nil
+        }
+
+        let triggerLocation = lineRange.location + trigger.lowerBound.utf16Offset(in: linePrefix)
+        return ActiveWikiLinkTriggerContext(
+            triggerRange: NSRange(location: triggerLocation, length: cursorLocation - triggerLocation),
+            query: query
+        )
+    }
+
+    private func refreshExplicitLinkGraphConnectionsIfNeeded(
+        force: Bool = false,
+        sourceURL: URL? = nil,
+        content: String? = nil
+    ) {
+        let effectiveContent = content ?? currentText
+        let linkedTitles = explicitLinkTargets(in: effectiveContent)
+        guard force || linkedTitles != lastPublishedExplicitLinkTargets else { return }
+        lastPublishedExplicitLinkTargets = linkedTitles
+        refreshExplicitLinkGraphConnections(for: sourceURL ?? note?.fileURL, linkedTitles: linkedTitles)
+    }
+
+    private func explicitLinkTargets(in content: String) -> [String] {
+        Array(Set(WikiLinkExtractor().extractLinks(from: content).map(\.target))).sorted()
+    }
+
+    private func scheduleOutgoingLinkRefresh() {
+        referenceInspectorTask?.cancel()
+
+        guard note != nil else {
+            inspectorStore.setOutgoingLinks([])
+            return
+        }
+
+        let noteIdentity = note?.id
+        let textSnapshot = currentText
+        let treeSnapshot = fileTree
+        let edgeStore = graphEdgeStore
+
+        referenceInspectorTask = Task { [weak self] in
+            let catalog = NoteReferenceCatalog(allNotes: treeSnapshot)
+            let references = await catalog.resolvedExplicitReferences(
+                in: textSnapshot,
+                graphEdgeStore: edgeStore
+            )
+            guard !Task.isCancelled else { return }
+
+            var seen: Set<URL> = []
+            let outgoingLinks = references.compactMap { reference -> InspectorStore.OutgoingLinkItem? in
+                guard !seen.contains(reference.noteURL) else { return nil }
+                seen.insert(reference.noteURL)
+                return InspectorStore.OutgoingLinkItem(
+                    noteURL: reference.noteURL,
+                    noteName: reference.noteName,
+                    displayText: reference.displayText,
+                    context: reference.context
+                )
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.note?.id == noteIdentity,
+                      self.currentText == textSnapshot else { return }
+                self.inspectorStore.setOutgoingLinks(outgoingLinks)
+            }
+        }
+    }
+
+    private func refreshExplicitLinkGraphConnections(for url: URL?, linkedTitles: [String]) {
+        guard let url, let graphEdgeStore, !fileTree.isEmpty else { return }
+        let sourceURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let catalog = NoteReferenceCatalog(allNotes: fileTree)
+        let allVaultURLs = catalog.allNoteURLs
+        guard !allVaultURLs.isEmpty else { return }
+
+        Task {
+            await graphEdgeStore.updateConnections(
+                for: sourceURL,
+                linkedTitles: linkedTitles,
+                allVaultURLs: allVaultURLs
+            )
+
+            var resolvedTargets: [URL] = []
+            for title in linkedTitles {
+                if let targetURL = await catalog.resolveExplicitLinkTarget(title, graphEdgeStore: graphEdgeStore) {
+                    resolvedTargets.append(CanonicalNoteIdentity.canonicalFileURL(for: targetURL))
+                }
+            }
+
+            NotificationCenter.default.post(
+                name: .quartzReferenceGraphDidChange,
+                object: sourceURL,
+                userInfo: ["targetURLs": Array(Set(resolvedTargets))]
+            )
+        }
+    }
+
+    private func resolvedHeadingNavigationRange(for heading: HeadingItem) -> NSRange? {
+        semanticDocument.blocks.first { block in
+            guard case let .heading(level) = block.kind else { return false }
+            return level == heading.level && block.range.location == heading.characterOffset
+        }.map { block in
+            let contentRange = headingContentRange(for: block)
+            return contentRange.length > 0 ? contentRange : block.range
+        }
+    }
+
+    private func authoritativeHeadingItems() -> [HeadingItem] {
+        let nsText = currentText as NSString
+        return semanticDocument.blocks.compactMap { block in
+            guard case let .heading(level) = block.kind else { return nil }
+
+            let contentRange = headingContentRange(for: block)
+            guard contentRange.length > 0,
+                  NSMaxRange(contentRange) <= nsText.length else {
+                return nil
+            }
+
+            let headingText = nsText.substring(with: contentRange)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !headingText.isEmpty else { return nil }
+
+            return HeadingItem(
+                id: "\(level)-\(headingText)-\(block.range.location)",
+                level: level,
+                text: headingText,
+                characterOffset: block.range.location
+            )
+        }
+    }
+
+    private func headingContentRange(for block: EditorBlockNode) -> NSRange {
+        guard case .heading = block.kind else { return block.contentRange }
+        guard let syntaxRange = block.syntaxRange else { return block.contentRange }
+
+        let contentStart = min(NSMaxRange(syntaxRange), NSMaxRange(block.contentRange))
+        let contentLength = max(0, NSMaxRange(block.contentRange) - contentStart)
+        if contentLength > 0 {
+            return NSRange(location: contentStart, length: contentLength)
+        }
+
+        return block.contentRange
+    }
+
+    private func lineRange(containing location: Int) -> NSRange? {
+        let nsText = currentText as NSString
+        guard nsText.length > 0 else { return nil }
+        let safeLocation = min(max(0, location), max(0, nsText.length - 1))
+        return nsText.lineRange(for: NSRange(location: safeLocation, length: 0))
+    }
+
     private func overlayVisibilitySignature(for selection: NSRange) -> [String] {
         semanticDocument.revealedInlineTokenIDs(for: selection)
     }
@@ -2748,6 +3145,28 @@ public struct WikiLinkNavigationRequest: Identifiable, Equatable {
     public let id = UUID()
     public let title: String
     public let url: URL
+    public let selectionRange: NSRange?
+
+    public init(title: String, url: URL, selectionRange: NSRange? = nil) {
+        self.title = title
+        self.url = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        self.selectionRange = selectionRange
+    }
+
+    public func canonicalized() -> WikiLinkNavigationRequest {
+        WikiLinkNavigationRequest(title: title, url: url, selectionRange: selectionRange)
+    }
+
+    public var notificationUserInfo: [AnyHashable: Any] {
+        var userInfo: [AnyHashable: Any] = [
+            "url": url,
+            "title": title
+        ]
+        if let selectionRange {
+            userInfo["selectionRange"] = NSStringFromRange(selectionRange)
+        }
+        return userInfo
+    }
 }
 
 public extension Notification.Name {

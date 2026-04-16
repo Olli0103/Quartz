@@ -49,21 +49,21 @@ struct EditorProductTruthfulnessTests {
             InspectorSidebar.shouldShowBacklinksExperience(
                 note: note,
                 vaultRootURL: root,
-                onNavigateToNote: { _ in }
+                onNavigateToBacklink: { _ in }
             )
         )
         #expect(
             InspectorSidebar.shouldShowBacklinksExperience(
                 note: nil,
                 vaultRootURL: root,
-                onNavigateToNote: { _ in }
+                onNavigateToBacklink: { _ in }
             ) == false
         )
         #expect(
             InspectorSidebar.shouldShowBacklinksExperience(
                 note: note,
                 vaultRootURL: nil,
-                onNavigateToNote: { _ in }
+                onNavigateToBacklink: { _ in }
             ) == false
         )
     }

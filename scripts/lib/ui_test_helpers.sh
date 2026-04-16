@@ -20,6 +20,69 @@ reset_result_bundle() {
     fi
 }
 
+xcodebuild_timeout_in_log() {
+    local log_path="$1"
+    grep -q "\\[ui_test_helpers\\] Command timed out after" "$log_path"
+}
+
+xcodebuild_executed_zero_tests_in_log() {
+    local log_path="$1"
+    grep -q "Executed 0 tests" "$log_path"
+}
+
+run_command_with_timeout_to_log() {
+    local log_path="$1"
+    local timeout_seconds="$2"
+    shift 2
+
+    python3 - "$log_path" "$timeout_seconds" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+log_path = sys.argv[1]
+timeout_seconds = float(sys.argv[2])
+command = sys.argv[3:]
+
+with open(log_path, "w", buffering=1) as log_file:
+    process = subprocess.Popen(
+        command,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        preexec_fn=os.setsid,
+        text=True,
+    )
+
+    start = time.monotonic()
+
+    while True:
+        return_code = process.poll()
+        if return_code is not None:
+            sys.exit(return_code)
+
+        if time.monotonic() - start >= timeout_seconds:
+            log_file.write(
+                f"\n[ui_test_helpers] Command timed out after {int(timeout_seconds)}s: {' '.join(command)}\n"
+            )
+            log_file.flush()
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            time.sleep(5)
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            sys.exit(124)
+
+        time.sleep(1)
+PY
+}
+
 automation_mode_status() {
     automationmodetool help 2>&1 || true
 }
@@ -55,9 +118,15 @@ run_xcodebuild_to_log() {
     shift
     local attempt=1
     local max_attempts=2
+    local timeout_seconds="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-900}"
 
     while [ "$attempt" -le "$max_attempts" ]; do
-        if "$@" >"$log_path" 2>&1; then
+        if run_command_with_timeout_to_log "$log_path" "$timeout_seconds" "$@"; then
+            if xcodebuild_executed_zero_tests_in_log "$log_path"; then
+                echo "[ui_test_helpers] xcodebuild completed but executed 0 tests; treating as a harness failure." >>"$log_path"
+                tail -n 40 "$log_path"
+                return 1
+            fi
             tail -n 20 "$log_path"
             return 0
         fi
@@ -70,6 +139,13 @@ run_xcodebuild_to_log() {
 
         if [ "$attempt" -lt "$max_attempts" ] && ui_automation_timeout_in_log "$log_path"; then
             echo "UI automation mode timed out; healing and retrying once..." >>"$log_path"
+            heal_ui_automation_timeout
+            attempt=$((attempt + 1))
+            continue
+        fi
+
+        if [ "$attempt" -lt "$max_attempts" ] && xcodebuild_timeout_in_log "$log_path"; then
+            echo "xcodebuild timed out after ${timeout_seconds}s; resetting simulator/UI harness and retrying once..." >>"$log_path"
             heal_ui_automation_timeout
             attempt=$((attempt + 1))
             continue
@@ -187,6 +263,8 @@ heal_ui_automation_timeout() {
     pkill -f "QuartzUITests-Runner" >/dev/null 2>&1 || true
     pkill -f "/Quartz.app/Contents/MacOS/Quartz" >/dev/null 2>&1 || true
     pkill -f "xcodebuild test -scheme Quartz" >/dev/null 2>&1 || true
+    pkill -f "xcodebuild test -quiet -scheme QuartzKit" >/dev/null 2>&1 || true
     rm -rf /tmp/QuartzEditorShell_*.xcresult /tmp/QuartzUITests_*.xcresult >/dev/null 2>&1 || true
+    xcrun simctl shutdown all >/dev/null 2>&1 || true
     sleep 2
 }

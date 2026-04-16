@@ -180,6 +180,379 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(textView.selectedRange(), second)
     }
 
+    func testTypingWikiLinkTriggerPresentsSuggestionsAndConfirmInsertsLinkThatSurvivesSaveAndRefreshesGraph() async throws {
+        let provider = MockVaultProvider()
+        let vaultRoot = URL(fileURLWithPath: "/tmp/quartz-linking-regression-\(UUID().uuidString)", isDirectory: true)
+        let sourceURL = vaultRoot.appendingPathComponent("Welcome.md")
+        let targetURL = vaultRoot.appendingPathComponent("Todo.md")
+        let tree = [
+            FileNode(name: "Welcome.md", url: sourceURL, nodeType: .note),
+            FileNode(name: "Todo.md", url: targetURL, nodeType: .note)
+        ]
+
+        await provider.addNote(NoteDocument(
+            fileURL: sourceURL,
+            frontmatter: Frontmatter(title: "Welcome"),
+            body: "Welcome ",
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: targetURL,
+            frontmatter: Frontmatter(title: "Todo"),
+            body: "# Todo\n\n- [ ] Ship linking",
+            isDirty: false
+        ))
+        await provider.setFileTree(tree)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let graphEdgeStore = GraphEdgeStore()
+        session.fileTree = tree
+        session.graphEdgeStore = graphEdgeStore
+        session.vaultRootURL = vaultRoot
+        await session.loadNote(at: sourceURL)
+
+        let harness = try await mountHarness(session: session, expectedText: "Welcome ")
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: (session.currentText as NSString).length, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyExternalEdit(
+            replacement: "[[To",
+            range: insertionPoint,
+            cursorAfter: NSRange(location: insertionPoint.location + 4, length: 0),
+            origin: .pasteOrDrop
+        )
+        try await waitForSessionText(session, expected: "Welcome [[To")
+        await pumpMountedHarness(harness)
+
+        XCTAssertTrue(session.linkInsertion.isPresented, "Typing [[ in the active editor must open note suggestions")
+        XCTAssertEqual(session.linkInsertion.query, "To")
+        XCTAssertEqual(session.linkInsertion.suggestions.map(\.noteName), ["Todo"])
+
+        XCTAssertTrue(session.handleLinkInsertionConfirm(), "Confirming the selected suggestion must insert a wiki link")
+        try await waitForSessionText(session, expected: "Welcome [[Todo]]")
+        await pumpMountedHarness(harness)
+
+        XCTAssertFalse(session.linkInsertion.isPresented)
+        XCTAssertTrue(harness.window.firstResponder === textView, "Confirming a note link suggestion must preserve editor focus on macOS")
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: ("Welcome [[Todo]]" as NSString).length, length: 0))
+
+        try await waitForGraphBacklink(
+            in: graphEdgeStore,
+            targetURL: targetURL,
+            sourceURL: sourceURL
+        )
+
+        let liveSuggestions = await LinkSuggestionService().suggestLinks(
+            for: session.currentText,
+            currentNoteURL: sourceURL,
+            allNotes: tree,
+            graphEdgeStore: graphEdgeStore
+        )
+        XCTAssertTrue(liveSuggestions.isEmpty, "An explicitly linked note must disappear from unlinked mentions immediately after insertion")
+
+        let liveBacklinks = try await BacklinkUseCase(
+            vaultProvider: provider,
+            graphEdgeStore: graphEdgeStore
+        ).findBacklinks(to: targetURL, in: vaultRoot)
+        XCTAssertEqual(liveBacklinks.map(\.sourceNoteURL), [sourceURL], "Live backlink resolution must update before save/reopen")
+
+        await session.manualSave()
+        let saved = try await provider.readNote(at: sourceURL)
+        XCTAssertEqual(saved.body, "Welcome [[Todo]]")
+
+        try await waitForGraphBacklink(
+            in: graphEdgeStore,
+            targetURL: targetURL,
+            sourceURL: sourceURL
+        )
+
+        let suggestions = await LinkSuggestionService().suggestLinks(
+            for: saved.body,
+            currentNoteURL: sourceURL,
+            allNotes: tree,
+            graphEdgeStore: graphEdgeStore
+        )
+        XCTAssertTrue(suggestions.isEmpty, "An explicitly linked note must not also appear as an unlinked mention suggestion")
+
+        let backlinks = try await BacklinkUseCase(
+            vaultProvider: provider,
+            graphEdgeStore: graphEdgeStore
+        ).findBacklinks(to: targetURL, in: vaultRoot)
+        XCTAssertEqual(backlinks.map(\.sourceNoteURL), [sourceURL])
+
+        await session.loadNote(at: sourceURL)
+        await pumpMountedHarness(harness)
+        XCTAssertEqual(session.currentText, "Welcome [[Todo]]", "Inserted wiki links must survive reopen")
+    }
+
+    func testDismissingWikiLinkPickerRestoresStableEditorUsageWithoutMutatingText() async throws {
+        let provider = MockVaultProvider()
+        let sourceURL = URL(fileURLWithPath: "/tmp/quartz-link-dismiss-\(UUID().uuidString).md")
+        let targetURL = URL(fileURLWithPath: "/tmp/quartz-link-dismiss-target-\(UUID().uuidString).md")
+        let tree = [
+            FileNode(name: "Welcome.md", url: sourceURL, nodeType: .note),
+            FileNode(name: "Todo.md", url: targetURL, nodeType: .note)
+        ]
+
+        await provider.addNote(NoteDocument(
+            fileURL: sourceURL,
+            frontmatter: Frontmatter(title: "Welcome"),
+            body: "Welcome ",
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: targetURL,
+            frontmatter: Frontmatter(title: "Todo"),
+            body: "Todo",
+            isDirty: false
+        ))
+        await provider.setFileTree(tree)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.fileTree = tree
+        await session.loadNote(at: sourceURL)
+
+        let harness = try await mountHarness(session: session, expectedText: "Welcome ")
+        let textView = harness.textView
+        let insertionPoint = NSRange(location: (session.currentText as NSString).length, length: 0)
+        textView.setSelectedRange(insertionPoint)
+        session.selectionDidChange(insertionPoint)
+
+        session.applyExternalEdit(
+            replacement: "[[",
+            range: insertionPoint,
+            cursorAfter: NSRange(location: insertionPoint.location + 2, length: 0),
+            origin: .pasteOrDrop
+        )
+        try await waitForSessionText(session, expected: "Welcome [[")
+        await pumpMountedHarness(harness)
+
+        XCTAssertTrue(session.linkInsertion.isPresented)
+        XCTAssertTrue(session.dismissLinkInsertion(), "Escape-style dismissal must close the picker without mutating the note")
+        await pumpMountedHarness(harness)
+
+        XCTAssertFalse(session.linkInsertion.isPresented)
+        XCTAssertEqual(session.currentText, "Welcome [[")
+        XCTAssertTrue(harness.window.firstResponder === textView)
+        XCTAssertEqual(session.cursorPosition, textView.selectedRange())
+    }
+
+    func testInspectorHeadingNavigationRevealsAuthoritativeHeadingRangesAcrossReopenAndRepeatedClicks() async throws {
+        let provider = MockVaultProvider()
+        let sourceURL = URL(fileURLWithPath: "/tmp/quartz-heading-nav-\(UUID().uuidString).md")
+        let otherURL = URL(fileURLWithPath: "/tmp/quartz-heading-nav-other-\(UUID().uuidString).md")
+        let text = try EditorRealityFixture.existingLongHeadingRender.load()
+
+        await provider.addNote(NoteDocument(
+            fileURL: sourceURL,
+            frontmatter: Frontmatter(title: "Long Note"),
+            body: text,
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: otherURL,
+            frontmatter: Frontmatter(title: "Other"),
+            body: "# Other\n\nBody",
+            isDirty: false
+        ))
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        await session.loadNote(at: sourceURL)
+
+        let harness = try await mountHarness(session: session, expectedText: text)
+        let textView = harness.textView
+
+        try await waitForInspectorHeadings(session.inspectorStore, minimumCount: 6)
+        let heading = try XCTUnwrap(session.inspectorStore.headings.first { $0.text == "Product Quality" })
+
+        session.scrollToHeading(heading)
+        await pumpMountedHarness(harness)
+        XCTAssertEqual(selectedString(in: textView), "Product Quality")
+        XCTAssertEqual(session.cursorPosition, textView.selectedRange())
+
+        session.scrollToHeading(heading)
+        await pumpMountedHarness(harness)
+        XCTAssertEqual(selectedString(in: textView), "Product Quality", "Repeated heading clicks must remain accurate")
+
+        await session.loadNote(at: otherURL)
+        await pumpMountedHarness(harness)
+        await session.loadNote(at: sourceURL)
+        await pumpMountedHarness(harness)
+
+        try await waitForInspectorHeadings(session.inspectorStore, minimumCount: 6)
+        let reopenedHeading = try XCTUnwrap(session.inspectorStore.headings.first { $0.text == "Product Quality" })
+        session.scrollToHeading(reopenedHeading)
+        await pumpMountedHarness(harness)
+
+        XCTAssertEqual(selectedString(in: textView), "Product Quality", "Heading navigation must work after reopen without editing first")
+        XCTAssertEqual(session.cursorPosition, textView.selectedRange())
+    }
+
+    func testLinkingSuggestedMentionCreatesExplicitLinkAndUpdatesInspectorRelationships() async throws {
+        let provider = MockVaultProvider()
+        let vaultRoot = URL(fileURLWithPath: "/tmp/quartz-mention-link-\(UUID().uuidString)", isDirectory: true)
+        let sourceURL = vaultRoot.appendingPathComponent("Daily.md")
+        let targetURL = vaultRoot.appendingPathComponent("Erika.md")
+        let sourceBody = "Discuss Erika follow-up items today."
+        let linkedBody = "Discuss [[Erika]] follow-up items today."
+        let tree = [
+            FileNode(name: "Daily.md", url: sourceURL, nodeType: .note),
+            FileNode(name: "Erika.md", url: targetURL, nodeType: .note)
+        ]
+
+        await provider.addNote(NoteDocument(
+            fileURL: sourceURL,
+            frontmatter: Frontmatter(title: "Daily"),
+            body: sourceBody,
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: targetURL,
+            frontmatter: Frontmatter(title: "Erika"),
+            body: "# Erika",
+            isDirty: false
+        ))
+        await provider.setFileTree(tree)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let graphEdgeStore = GraphEdgeStore()
+        session.fileTree = tree
+        session.graphEdgeStore = graphEdgeStore
+        session.vaultRootURL = vaultRoot
+        await session.loadNote(at: sourceURL)
+
+        let harness = try await mountHarness(session: session, expectedText: sourceBody)
+        try await waitForSuggestedLinkNames(session.inspectorStore, expected: ["Erika"])
+
+        let suggestion = try XCTUnwrap(session.inspectorStore.suggestedLinks.first { $0.noteURL == targetURL })
+        session.linkSuggestedMention(suggestion)
+        try await waitForSessionText(session, expected: linkedBody)
+        await pumpMountedHarness(harness)
+
+        try await waitForOutgoingLinkURLs(session.inspectorStore, expected: [targetURL])
+        try await waitForSuggestedLinkNames(session.inspectorStore, expected: [])
+        try await waitForGraphBacklink(
+            in: graphEdgeStore,
+            targetURL: targetURL,
+            sourceURL: sourceURL
+        )
+
+        XCTAssertEqual(session.inspectorStore.outgoingLinks.map(\.noteURL), [targetURL])
+        XCTAssertEqual(session.inspectorStore.outgoingLinks.map(\.noteName), ["Erika"])
+        XCTAssertTrue(session.inspectorStore.suggestedLinks.isEmpty)
+
+        let backlinks = try await BacklinkUseCase(
+            vaultProvider: provider,
+            graphEdgeStore: graphEdgeStore
+        ).findBacklinks(to: targetURL, in: vaultRoot)
+        XCTAssertEqual(backlinks.map(\.sourceNoteURL), [sourceURL])
+
+        await session.manualSave()
+        let saved = try await provider.readNote(at: sourceURL)
+        XCTAssertEqual(saved.body, linkedBody)
+
+        await session.loadNote(at: sourceURL)
+        try await waitForSessionText(session, expected: linkedBody)
+        await pumpMountedHarness(harness)
+        try await waitForOutgoingLinkURLs(session.inspectorStore, expected: [targetURL])
+        try await waitForSuggestedLinkNames(session.inspectorStore, expected: [])
+
+        XCTAssertEqual(session.currentText, linkedBody)
+        XCTAssertEqual(session.inspectorStore.outgoingLinks.map(\.noteURL), [targetURL])
+        XCTAssertTrue(session.inspectorStore.suggestedLinks.isEmpty)
+    }
+
+    func testBacklinkNavigationRequestRevealsReferenceRangeAcrossNoteSwitchAndReopen() async throws {
+        let provider = MockVaultProvider()
+        let vaultRoot = URL(fileURLWithPath: "/tmp/quartz-backlink-nav-\(UUID().uuidString)", isDirectory: true)
+        let sourceURL = vaultRoot.appendingPathComponent("Roadmap.md")
+        let targetURL = vaultRoot.appendingPathComponent("Erika.md")
+        let sourceBody = """
+        # Roadmap
+
+        See [[Erika]] in the staffing plan.
+
+        Tail context.
+        """
+        let targetBody = "# Erika\n\nProfile"
+        let tree = [
+            FileNode(name: "Roadmap.md", url: sourceURL, nodeType: .note),
+            FileNode(name: "Erika.md", url: targetURL, nodeType: .note)
+        ]
+
+        await provider.addNote(NoteDocument(
+            fileURL: sourceURL,
+            frontmatter: Frontmatter(title: "Roadmap"),
+            body: sourceBody,
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: targetURL,
+            frontmatter: Frontmatter(title: "Erika"),
+            body: targetBody,
+            isDirty: false
+        ))
+        await provider.setFileTree(tree)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.fileTree = tree
+        await session.loadNote(at: targetURL)
+
+        let harness = try await mountHarness(session: session, expectedText: targetBody)
+        let backlinks = try await BacklinkUseCase(vaultProvider: provider).findBacklinks(
+            to: targetURL,
+            in: vaultRoot
+        )
+        let backlink = try XCTUnwrap(backlinks.first)
+        let referenceRange = try XCTUnwrap(backlink.referenceRange)
+
+        for _ in 0..<2 {
+            session.prepareNoteNavigation(
+                WikiLinkNavigationRequest(
+                    title: backlink.sourceNoteName,
+                    url: backlink.sourceNoteURL,
+                    selectionRange: referenceRange
+                )
+            )
+            await session.loadNote(at: sourceURL)
+            try await waitForSessionText(session, expected: sourceBody)
+            await pumpMountedHarness(harness)
+
+            XCTAssertEqual(
+                CanonicalNoteIdentity.canonicalFileURL(for: session.note?.fileURL ?? sourceURL),
+                CanonicalNoteIdentity.canonicalFileURL(for: sourceURL)
+            )
+            XCTAssertEqual(selectedString(in: harness.textView), "[[Erika]]")
+            XCTAssertEqual(session.cursorPosition, harness.textView.selectedRange())
+
+            await session.loadNote(at: targetURL)
+            try await waitForSessionText(session, expected: targetBody)
+            await pumpMountedHarness(harness)
+        }
+    }
+
     func testInNoteReplaceCurrentUndoRedoRoundTripsContent() async throws {
         let harness = try await makeMountedHarness(text: "Alpha Beta Alpha")
         let session = harness.session
@@ -1132,6 +1505,72 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
             harness.hostingView.layoutSubtreeIfNeeded()
             try? await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func waitForInspectorHeadings(
+        _ store: InspectorStore,
+        minimumCount: Int
+    ) async throws {
+        for _ in 0..<80 {
+            if store.headings.count >= minimumCount {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for inspector headings to populate")
+    }
+
+    private func waitForSuggestedLinkNames(
+        _ store: InspectorStore,
+        expected: [String]
+    ) async throws {
+        let expectedSorted = expected.sorted()
+        for _ in 0..<80 {
+            if store.suggestedLinks.map(\.noteName).sorted() == expectedSorted {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for suggested links to become \(expectedSorted)")
+    }
+
+    private func waitForOutgoingLinkURLs(
+        _ store: InspectorStore,
+        expected: [URL]
+    ) async throws {
+        let expectedCanonical = expected
+            .map(CanonicalNoteIdentity.canonicalFileURL(for:))
+            .sorted { $0.absoluteString < $1.absoluteString }
+        for _ in 0..<80 {
+            let current = store.outgoingLinks
+                .map(\.noteURL)
+                .map(CanonicalNoteIdentity.canonicalFileURL(for:))
+                .sorted { $0.absoluteString < $1.absoluteString }
+            if current == expectedCanonical {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for outgoing links to become \(expectedCanonical)")
+    }
+
+    private func waitForGraphBacklink(
+        in store: GraphEdgeStore,
+        targetURL: URL,
+        sourceURL: URL
+    ) async throws {
+        for _ in 0..<80 {
+            let backlinks = await store.backlinks(for: targetURL)
+            if backlinks.contains(sourceURL) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for graph edge store to publish backlink \(sourceURL.lastPathComponent) -> \(targetURL.lastPathComponent)")
     }
 
     private func selectedString(in textView: NSTextView) -> String {

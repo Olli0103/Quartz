@@ -113,6 +113,31 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForWikiLink")
+            XCTFail("Welcome note must exist for wiki-link insertion coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n[[To")
+
+        let picker = element(matchingIdentifier: "editor-link-picker")
+        XCTAssertTrue(picker.waitForExistence(timeout: 5),
+                      "Typing [[ in the active editor must open note-link suggestions")
+
+        let suggestion = element(matchingIdentifier: "editor-link-suggestion-0")
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5),
+                      "A matching note suggestion must be visible for keyboard-friendly linking")
+
+        interact(with: suggestion)
+        assertEditorContains("[[Todo]]")
+    }
+
+    @MainActor
     func testToolbarBoldActionAppliesMarkdownInline() throws {
         launchApp()
 
@@ -348,6 +373,31 @@ final class iPhoneEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForWikiLink")
+            XCTFail("Welcome note must exist for iPhone wiki-link insertion coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n[[To")
+
+        let picker = element(matchingIdentifier: "editor-link-picker")
+        XCTAssertTrue(picker.waitForExistence(timeout: 5),
+                      "Typing [[ on iPhone must open note-link suggestions")
+
+        let suggestion = element(matchingIdentifier: "editor-link-suggestion-0")
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5),
+                      "A matching note suggestion must be visible on iPhone")
+
+        interact(with: suggestion)
+        assertEditorContains("[[Todo]]")
+    }
+
+    @MainActor
     func testCompactToolbarCheckboxActionInsertsTaskPrefix() throws {
         launchApp()
 
@@ -511,6 +561,31 @@ final class iPadEditorShellUITests: QuartzUITestCase {
         let token = "ipadLink\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("[\(token)](url)")
+    }
+
+    @MainActor
+    func testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForWikiLink")
+            XCTFail("Welcome note must exist for iPad wiki-link insertion coverage")
+            return
+        }
+
+        let editor = focusEditor()
+        editor.typeText("\n[[To")
+
+        let picker = element(matchingIdentifier: "editor-link-picker")
+        XCTAssertTrue(picker.waitForExistence(timeout: 5),
+                      "Typing [[ on iPad must open note-link suggestions")
+
+        let suggestion = element(matchingIdentifier: "editor-link-suggestion-0")
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5),
+                      "A matching note suggestion must be visible on iPad")
+
+        interact(with: suggestion)
+        assertEditorContains("[[Todo]]")
     }
 
     @MainActor

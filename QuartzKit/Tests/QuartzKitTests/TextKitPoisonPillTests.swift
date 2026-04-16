@@ -14,14 +14,19 @@ import Foundation
 /// - Circuit breaker trips correctly on failures
 @Suite("TextKit Poison Pill Fuzz Tests")
 struct TextKitPoisonPillTests {
+    @MainActor
+    private func freshBreaker() -> TextKitCircuitBreaker {
+        let breaker = TextKitCircuitBreaker.isolatedForTesting()
+        breaker.reset()
+        return breaker
+    }
 
     // MARK: - Zero-Width Character Floods
 
     @Test("Detects zero-width joiner flood")
     @MainActor
     func testZeroWidthJoinerFlood() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Create a string with 150 zero-width joiners
         let zwj = "\u{200D}" // Zero-width joiner
@@ -44,8 +49,7 @@ struct TextKitPoisonPillTests {
     @Test("Detects zero-width space flood")
     @MainActor
     func testZeroWidthSpaceFlood() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Mix of zero-width space and zero-width non-joiner
         let zwsp = "\u{200B}"
@@ -69,8 +73,7 @@ struct TextKitPoisonPillTests {
     @Test("Allows normal text with occasional zero-width chars")
     @MainActor
     func testNormalTextWithZeroWidth() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Normal text with a few zero-width chars (common in emoji sequences)
         let text = "Hello \u{200D} world \u{200D} test"
@@ -85,8 +88,7 @@ struct TextKitPoisonPillTests {
     @Test("Detects large base64 blob")
     @MainActor
     func testLargeBase64Blob() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Generate 200KB of base64-like content
         let base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
@@ -117,8 +119,7 @@ struct TextKitPoisonPillTests {
     @Test("Degrades on oversized document")
     @MainActor
     func testOversizedDocument() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Create a 600KB document (over 500KB limit)
         let text = String(repeating: "Hello world. ", count: 50_000)
@@ -140,8 +141,7 @@ struct TextKitPoisonPillTests {
     @Test("Allows document under size limit")
     @MainActor
     func testNormalSizedDocument() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Create a ~100KB document with reasonable line lengths (under limits)
         let line = "Test content for a normal document line.\n"
@@ -157,8 +157,7 @@ struct TextKitPoisonPillTests {
     @Test("Degrades on extremely long line")
     @MainActor
     func testExtremeLongLine() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Create a line with 15,000 characters (over 10,000 limit)
         let longLine = String(repeating: "x", count: 15_000)
@@ -182,8 +181,7 @@ struct TextKitPoisonPillTests {
     @Test("Detects control character flood")
     @MainActor
     func testControlCharFlood() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Create text with many soft hyphens (ignorable code point)
         let softHyphen = "\u{00AD}"
@@ -209,8 +207,7 @@ struct TextKitPoisonPillTests {
     @Test("Circuit trips after repeated failures")
     @MainActor
     func testCircuitTripping() async {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Simulate parsing timeout using async sleep
         let result1 = await circuitBreaker.timedParse(timeout: .milliseconds(10)) {
@@ -236,8 +233,7 @@ struct TextKitPoisonPillTests {
     @Test("Circuit recovers after success")
     @MainActor
     func testCircuitRecovery() async {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // Trip the circuit
         _ = await circuitBreaker.timedParse(timeout: .milliseconds(10)) {
@@ -267,8 +263,7 @@ struct TextKitPoisonPillTests {
     @Test("Handles empty string")
     @MainActor
     func testEmptyString() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         let validation = circuitBreaker.validateInput("")
 
@@ -278,8 +273,7 @@ struct TextKitPoisonPillTests {
     @Test("Handles single character")
     @MainActor
     func testSingleCharacter() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         let validation = circuitBreaker.validateInput("a")
 
@@ -289,8 +283,7 @@ struct TextKitPoisonPillTests {
     @Test("Handles normal markdown")
     @MainActor
     func testNormalMarkdown() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         let markdown = """
         # Heading
@@ -317,8 +310,7 @@ struct TextKitPoisonPillTests {
     @Test("Validation is fast for normal documents")
     @MainActor
     func testValidationPerformance() {
-        let circuitBreaker = TextKitCircuitBreaker.shared
-        circuitBreaker.reset()
+        let circuitBreaker = freshBreaker()
 
         // 50KB of normal text
         let text = String(repeating: "Normal text content. ", count: 2_500)

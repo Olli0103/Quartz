@@ -478,6 +478,101 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertEqual(reopenedAfterEditH3, initialH3)
     }
 
+    func testTableToolbarInsertionKeepsLongExistingFormattingStableAboveInsertedTableAcrossReopen() async throws {
+        let provider = MockVaultProvider()
+        let seed = try EditorRealityFixture.existingLongHeadingRender.load()
+        let text = makeLongExistingDocument(from: seed, minimumLength: 90_000)
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-long-existing-table.md")
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Existing Long Table Insert"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        let headingLine = "## Writing Workflow"
+        let bodyLine = "This paragraph is deliberately long so the text system has to lay out a realistic amount of content before it reaches the next heading. The bug this fixture protects against was not about tiny synthetic notes. It showed up when a previously authored note reopened and only part of the heading line visually carried the correct font and color while the rest of the line looked like body text until the user touched it."
+        let monitoredLocation = try headingContentRange(
+            matchingLine: headingLine,
+            in: text
+        ).location
+
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let initialHeading = try uniformHeadingContentSignature(
+            matchingLine: headingLine,
+            in: text,
+            textView: textView
+        )
+        let initialBody = try uniformLineContentSignature(
+            matchingLine: bodyLine,
+            in: text,
+            textView: textView
+        )
+
+        let insertionLocation = try lineContentRange(matchingLine: bodyLine, in: text).location + 24
+        let insertionSelection = NSRange(location: insertionLocation, length: 0)
+        textView.setSelectedRange(insertionSelection)
+        session.selectionDidChange(insertionSelection)
+
+        session.applyToolbarFormatting(.table)
+
+        for _ in 0..<80 {
+            if session.currentText.contains("| Column 1 | Column 2 | Column 3 |") {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(session.currentText.contains("| Column 1 | Column 2 | Column 3 |"))
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let postInsertHeading = try uniformHeadingContentSignature(
+            matchingLine: headingLine,
+            in: text,
+            textView: textView
+        )
+        let postInsertBody = try uniformLineContentSignature(
+            matchingLine: bodyLine,
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(postInsertHeading, initialHeading)
+        XCTAssertEqual(postInsertBody, initialBody)
+
+        await session.manualSave()
+        session.closeNote()
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let reopenedHeading = try uniformHeadingContentSignature(
+            matchingLine: headingLine,
+            in: text,
+            textView: textView
+        )
+        let reopenedBody = try uniformLineContentSignature(
+            matchingLine: bodyLine,
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(reopenedHeading, initialHeading)
+        XCTAssertEqual(reopenedBody, initialBody)
+        XCTAssertTrue(session.currentText.contains("| Column 1 | Column 2 | Column 3 |"))
+    }
+
     func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
         let session = makeSession()
         let textView = makeTextView()
@@ -766,6 +861,16 @@ final class EditorRenderingRegressionTests: XCTestCase {
         )
     }
 
+    private func lineContentRange(
+        matchingLine line: String,
+        in text: String
+    ) throws -> NSRange {
+        let nsText = text as NSString
+        let lineRange = nsText.range(of: line)
+        XCTAssertNotEqual(lineRange.location, NSNotFound, "Fixture must contain line '\(line)'")
+        return lineRange
+    }
+
     private func uniformHeadingContentSignature(
         matchingLine line: String,
         in text: String,
@@ -802,6 +907,48 @@ final class EditorRenderingRegressionTests: XCTestCase {
 
         XCTAssertTrue(NSFontManager.shared.traits(of: expectedFont).contains(.boldFontMask))
         XCTAssertGreaterThan(expectedFont.pointSize, CGFloat(14))
+
+        return HeadingContentSignature(
+            fontName: expectedFont.fontName,
+            pointSize: expectedFont.pointSize,
+            color: expectedColor,
+            paragraphStyleDescription: expectedParagraphStyle?.debugDescription ?? ""
+        )
+    }
+
+    private func uniformLineContentSignature(
+        matchingLine line: String,
+        in text: String,
+        textView: NSTextView
+    ) throws -> HeadingContentSignature {
+        let contentRange = try lineContentRange(matchingLine: line, in: text)
+        let storage = try XCTUnwrap(textView.textStorage)
+        let expectedFont = try XCTUnwrap(
+            storage.attribute(.font, at: contentRange.location, effectiveRange: nil) as? NSFont
+        )
+        let expectedColor = try XCTUnwrap(
+            storage.attribute(.foregroundColor, at: contentRange.location, effectiveRange: nil) as? NSColor
+        )
+        let expectedParagraphStyle = storage.attribute(.paragraphStyle, at: contentRange.location, effectiveRange: nil) as? NSParagraphStyle
+
+        var location = contentRange.location
+        while location < NSMaxRange(contentRange) {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let font = try XCTUnwrap(
+                storage.attribute(.font, at: location, effectiveRange: &effectiveRange) as? NSFont
+            )
+            let color = try XCTUnwrap(
+                storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+            )
+            let paragraphStyle = storage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
+
+            XCTAssertEqual(font.fontName, expectedFont.fontName, "Line '\(line)' should use one consistent font across the content run")
+            XCTAssertEqual(font.pointSize, expectedFont.pointSize, accuracy: 0.01, "Line '\(line)' should use one consistent point size across the content run")
+            XCTAssertEqual(color, expectedColor, "Line '\(line)' should use one consistent color across the content run")
+            XCTAssertEqual(paragraphStyle?.debugDescription, expectedParagraphStyle?.debugDescription, "Line '\(line)' should keep one paragraph style across the content run")
+
+            location = min(NSMaxRange(effectiveRange), NSMaxRange(contentRange))
+        }
 
         return HeadingContentSignature(
             fontName: expectedFont.fontName,

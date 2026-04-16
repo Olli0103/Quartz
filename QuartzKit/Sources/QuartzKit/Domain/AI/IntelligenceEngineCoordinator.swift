@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+public final class IntelligenceEngineNotificationSource: @unchecked Sendable {}
+
 /// Unified coordinator for the Intelligence Engine subsystems.
 ///
 /// Bridges file system events (NSFilePresenter, iCloud sync) to all AI services:
@@ -26,6 +28,11 @@ public actor IntelligenceEngineCoordinator {
 
     /// Current status of the Intelligence Engine (observable by UI).
     public private(set) var status: IntelligenceEngineStatus = .idle
+
+    /// Stable notification sender for coordinator-specific observers.
+    /// UI can continue observing all status changes with `object: nil`;
+    /// tests can use this to avoid cross-coordinator noise.
+    public nonisolated let statusNotificationSource = IntelligenceEngineNotificationSource()
 
     /// Detailed progress for each subsystem.
     public private(set) var subsystemProgress: SubsystemProgress = .init()
@@ -265,10 +272,11 @@ public actor IntelligenceEngineCoordinator {
     /// Posts a status update notification for UI observers.
     private func postStatusUpdate() async {
         let currentStatus = status
+        let notificationSource = statusNotificationSource
         await MainActor.run {
             NotificationCenter.default.post(
                 name: .quartzIntelligenceEngineStatusChanged,
-                object: nil,
+                object: notificationSource,
                 userInfo: ["status": currentStatus]
             )
         }

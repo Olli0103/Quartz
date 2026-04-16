@@ -9,6 +9,21 @@ import SwiftUI
 @Observable
 @MainActor
 public final class InspectorStore {
+    public struct OutgoingLinkItem: Identifiable, Sendable, Equatable {
+        public let noteURL: URL
+        public let noteName: String
+        public let displayText: String
+        public let context: String
+
+        public var id: URL { noteURL }
+
+        public init(noteURL: URL, noteName: String, displayText: String, context: String) {
+            self.noteURL = noteURL
+            self.noteName = noteName
+            self.displayText = displayText
+            self.context = context
+        }
+    }
 
     // MARK: - Published State
 
@@ -25,6 +40,10 @@ public final class InspectorStore {
     /// Unlinked mention suggestions from LinkSuggestionService.
     /// Updated by EditorSession's debounced analysis pass.
     public var suggestedLinks: [LinkSuggestionService.Suggestion] = []
+
+    /// Explicit wiki-link targets for the current note.
+    /// Updated from the editor's authoritative current-note reference model.
+    public var outgoingLinks: [OutgoingLinkItem] = []
 
     /// AI-extracted concepts for the current note (from KnowledgeExtractionService).
     public var aiConcepts: [String] = []
@@ -101,11 +120,32 @@ public final class InspectorStore {
     /// Called when the analysis service produces new results.
     /// Only mutates if data actually changed, avoiding unnecessary SwiftUI diffs.
     public func update(with analysis: NoteAnalysis) {
-        if headings.map(\.id) != analysis.headings.map(\.id) {
-            headings = analysis.headings
+        setHeadings(analysis.headings)
+        updateStats(analysis.stats)
+    }
+
+    /// Updates the inspector headings from the editor's authoritative semantic model.
+    /// This keeps ToC navigation aligned with the exact block ranges used for rendering.
+    public func setHeadings(_ headings: [HeadingItem]) {
+        if self.headings.map(\.id) != headings.map(\.id) {
+            self.headings = headings
         }
-        if stats != analysis.stats {
-            stats = analysis.stats
+
+        if let activeHeadingID, headings.contains(where: { $0.id == activeHeadingID }) == false {
+            self.activeHeadingID = nil
+        }
+    }
+
+    /// Updates document statistics without mutating heading/navigation state.
+    public func updateStats(_ stats: NoteStats) {
+        if self.stats != stats {
+            self.stats = stats
+        }
+    }
+
+    public func setOutgoingLinks(_ outgoingLinks: [OutgoingLinkItem]) {
+        if self.outgoingLinks != outgoingLinks {
+            self.outgoingLinks = outgoingLinks
         }
     }
 
