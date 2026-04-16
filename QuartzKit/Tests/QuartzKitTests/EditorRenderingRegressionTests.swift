@@ -355,6 +355,129 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertEqual(session.currentText, text)
     }
 
+    func testLongExistingNoteOpenReopenAndPostEditKeepHeadingContentUniform() async throws {
+        let provider = MockVaultProvider()
+        let seed = try EditorRealityFixture.existingLongHeadingRender.load()
+        let text = makeLongExistingDocument(from: seed, minimumLength: 130_000)
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-long-existing-heading.md")
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Existing Long Heading Render"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        let monitoredLocation = try headingContentRange(
+            matchingLine: "## Architecture Overview",
+            in: text
+        ).location
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let initialH1 = try uniformHeadingContentSignature(
+            matchingLine: "# Release Notes",
+            in: text,
+            textView: textView
+        )
+        let initialH2 = try uniformHeadingContentSignature(
+            matchingLine: "## Architecture Overview",
+            in: text,
+            textView: textView
+        )
+        let initialH3 = try uniformHeadingContentSignature(
+            matchingLine: "### Rendering Goals",
+            in: text,
+            textView: textView
+        )
+
+        session.closeNote()
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let reopenedH1 = try uniformHeadingContentSignature(
+            matchingLine: "# Release Notes",
+            in: text,
+            textView: textView
+        )
+        let reopenedH2 = try uniformHeadingContentSignature(
+            matchingLine: "## Architecture Overview",
+            in: text,
+            textView: textView
+        )
+        let reopenedH3 = try uniformHeadingContentSignature(
+            matchingLine: "### Rendering Goals",
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(reopenedH1, initialH1)
+        XCTAssertEqual(reopenedH2, initialH2)
+        XCTAssertEqual(reopenedH3, initialH3)
+
+        try await performHealingEdit(
+            on: session,
+            headingLine: "## Architecture Overview",
+            expectedRestoredText: text,
+            monitoredLocation: monitoredLocation,
+            textView: textView
+        )
+
+        let postEditH1 = try uniformHeadingContentSignature(
+            matchingLine: "# Release Notes",
+            in: text,
+            textView: textView
+        )
+        let postEditH2 = try uniformHeadingContentSignature(
+            matchingLine: "## Architecture Overview",
+            in: text,
+            textView: textView
+        )
+        let postEditH3 = try uniformHeadingContentSignature(
+            matchingLine: "### Rendering Goals",
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(postEditH1, initialH1)
+        XCTAssertEqual(postEditH2, initialH2)
+        XCTAssertEqual(postEditH3, initialH3)
+
+        session.closeNote()
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let reopenedAfterEditH1 = try uniformHeadingContentSignature(
+            matchingLine: "# Release Notes",
+            in: text,
+            textView: textView
+        )
+        let reopenedAfterEditH2 = try uniformHeadingContentSignature(
+            matchingLine: "## Architecture Overview",
+            in: text,
+            textView: textView
+        )
+        let reopenedAfterEditH3 = try uniformHeadingContentSignature(
+            matchingLine: "### Rendering Goals",
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(reopenedAfterEditH1, initialH1)
+        XCTAssertEqual(reopenedAfterEditH2, initialH2)
+        XCTAssertEqual(reopenedAfterEditH3, initialH3)
+    }
+
     func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
         let session = makeSession()
         let textView = makeTextView()
@@ -604,6 +727,131 @@ final class EditorRenderingRegressionTests: XCTestCase {
 
     private func isEffectivelyClear(_ color: NSColor) -> Bool {
         alphaComponent(of: color) <= 0.001
+    }
+
+    private struct HeadingContentSignature: Equatable {
+        let fontName: String
+        let pointSize: CGFloat
+        let color: NSColor
+        let paragraphStyleDescription: String
+    }
+
+    private func makeLongExistingDocument(from seed: String, minimumLength: Int) -> String {
+        var sections: [String] = []
+        var counter = 1
+        while sections.joined(separator: "\n\n").count < minimumLength {
+            sections.append(
+                seed.replacingOccurrences(
+                    of: "Release Notes",
+                    with: "Release Notes \(counter)"
+                )
+            )
+            counter += 1
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func headingContentRange(
+        matchingLine line: String,
+        in text: String
+    ) throws -> NSRange {
+        let nsText = text as NSString
+        let lineRange = nsText.range(of: line)
+        XCTAssertNotEqual(lineRange.location, NSNotFound, "Fixture must contain heading line '\(line)'")
+        let lineText = nsText.substring(with: lineRange)
+        let contentPrefixLength = lineText.prefix { $0 == "#" || $0 == " " || $0 == "\t" }.count
+        return NSRange(
+            location: lineRange.location + contentPrefixLength,
+            length: lineRange.length - contentPrefixLength
+        )
+    }
+
+    private func uniformHeadingContentSignature(
+        matchingLine line: String,
+        in text: String,
+        textView: NSTextView
+    ) throws -> HeadingContentSignature {
+        let contentRange = try headingContentRange(matchingLine: line, in: text)
+        let storage = try XCTUnwrap(textView.textStorage)
+        let expectedFont = try XCTUnwrap(
+            storage.attribute(.font, at: contentRange.location, effectiveRange: nil) as? NSFont
+        )
+        let expectedColor = try XCTUnwrap(
+            storage.attribute(.foregroundColor, at: contentRange.location, effectiveRange: nil) as? NSColor
+        )
+        let expectedParagraphStyle = storage.attribute(.paragraphStyle, at: contentRange.location, effectiveRange: nil) as? NSParagraphStyle
+
+        var location = contentRange.location
+        while location < NSMaxRange(contentRange) {
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let font = try XCTUnwrap(
+                storage.attribute(.font, at: location, effectiveRange: &effectiveRange) as? NSFont
+            )
+            let color = try XCTUnwrap(
+                storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+            )
+            let paragraphStyle = storage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle
+
+            XCTAssertEqual(font.fontName, expectedFont.fontName, "Heading line '\(line)' should use one consistent font across the content run")
+            XCTAssertEqual(font.pointSize, expectedFont.pointSize, accuracy: 0.01, "Heading line '\(line)' should use one consistent point size across the content run")
+            XCTAssertEqual(color, expectedColor, "Heading line '\(line)' should use one consistent color across the content run")
+            XCTAssertEqual(paragraphStyle?.debugDescription, expectedParagraphStyle?.debugDescription, "Heading line '\(line)' should keep one paragraph style across the content run")
+
+            location = min(NSMaxRange(effectiveRange), NSMaxRange(contentRange))
+        }
+
+        XCTAssertTrue(NSFontManager.shared.traits(of: expectedFont).contains(.boldFontMask))
+        XCTAssertGreaterThan(expectedFont.pointSize, CGFloat(14))
+
+        return HeadingContentSignature(
+            fontName: expectedFont.fontName,
+            pointSize: expectedFont.pointSize,
+            color: expectedColor,
+            paragraphStyleDescription: expectedParagraphStyle?.debugDescription ?? ""
+        )
+    }
+
+    private func performHealingEdit(
+        on session: EditorSession,
+        headingLine: String,
+        expectedRestoredText: String,
+        monitoredLocation: Int,
+        textView: NSTextView
+    ) async throws {
+        let nsText = expectedRestoredText as NSString
+        let headingRange = nsText.range(of: headingLine)
+        XCTAssertNotEqual(headingRange.location, NSNotFound, "Fixture must contain heading line '\(headingLine)'")
+
+        let insertionLocation = NSMaxRange(headingRange)
+        let insertedText = nsText.replacingCharacters(in: NSRange(location: insertionLocation, length: 0), with: " ")
+
+        session.applyExternalEdit(
+            replacement: " ",
+            range: NSRange(location: insertionLocation, length: 0),
+            cursorAfter: NSRange(location: insertionLocation + 1, length: 0),
+            origin: .formatting
+        )
+        try await waitForSessionText(session, expected: insertedText)
+
+        session.applyExternalEdit(
+            replacement: "",
+            range: NSRange(location: insertionLocation, length: 1),
+            cursorAfter: NSRange(location: insertionLocation, length: 0),
+            origin: .formatting
+        )
+        try await waitForSessionText(session, expected: expectedRestoredText)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+    }
+
+    private func waitForSessionText(_ session: EditorSession, expected: String) async throws {
+        for _ in 0..<80 {
+            if session.currentText == expected {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for session text to become expected content")
     }
 }
 #endif

@@ -6,9 +6,10 @@ import Testing
 @MainActor
 struct EditorProductTruthfulnessTests {
 
-    @Test("Custom command surface only exposes vault-wide note search")
+    @Test("Command surface separates in-note find from vault-wide note search")
     func searchCommandTruthfulness() {
-        #expect(KeyboardShortcutCommands.exposesCustomInNoteFindCommand == false)
+        #expect(KeyboardShortcutCommands.exposesCustomInNoteFindCommand == true)
+        #expect(KeyboardShortcutCommands.inNoteFindCommandTitle == "Find in Note…")
         #expect(KeyboardShortcutCommands.vaultSearchCommandTitle == "Search Notes…")
         #expect(SearchView.isVaultWideSearchSheet == true)
         #expect(SearchView.navigationTitleText == "Search Notes")

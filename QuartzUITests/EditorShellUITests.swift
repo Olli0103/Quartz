@@ -54,6 +54,43 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testCommandFindInNoteOpensEditorScopedFindBar() throws {
+        launchApp()
+
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForFind")
+            XCTFail("An existing fixture note must exist for in-note find coverage")
+            return
+        }
+
+        _ = focusEditor()
+        app.typeKey("f", modifierFlags: .command)
+
+        let findField = element(matchingIdentifier: "editor-find-query")
+        XCTAssertTrue(findField.waitForExistence(timeout: 5),
+                      "Command-F must open the editor-scoped find bar on macOS")
+    }
+
+    @MainActor
+    func testCommandSearchNotesRemainsSeparateFromFindInNote() throws {
+        launchApp()
+
+        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForSearchNotes")
+            XCTFail("An existing fixture note must exist for search-notes coverage")
+            return
+        }
+
+        _ = focusEditor()
+        app.typeKey("f", modifierFlags: [.command, .shift])
+
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 5),
+                      "Command-Shift-F must keep opening the vault-wide Search Notes sheet")
+        XCTAssertFalse(element(matchingIdentifier: "editor-find-query").exists,
+                       "Vault-wide search must remain separate from the editor-scoped find bar")
+    }
+
+    @MainActor
     func testToolbarLinkActionInsertsMarkdownTemplate() throws {
         launchApp()
 
@@ -370,6 +407,25 @@ final class iPhoneEditorShellUITests: QuartzUITestCase {
         assertEditorNotContains("```mermaid\nThis is a test note for UI testing.")
         assertEditorContains("```mermaid\n\(token)\n```")
     }
+
+    @MainActor
+    func testToolbarFindButtonOpensEditorScopedFindBar() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPhone_EditorShell_NoWelcomeForFind")
+            XCTFail("Welcome note must exist for iPhone in-note find coverage")
+            return
+        }
+
+        let findButton = element(matchingIdentifier: "editor-find-button")
+        XCTAssertTrue(findButton.waitForExistence(timeout: 5),
+                      "iPhone must expose a real Find in Note affordance")
+
+        interact(with: findButton)
+        XCTAssertTrue(element(matchingIdentifier: "editor-find-query").waitForExistence(timeout: 5),
+                      "Tapping the iPhone find affordance must open the editor-scoped find UI")
+    }
 }
 
 final class iPadEditorShellUITests: QuartzUITestCase {
@@ -543,6 +599,25 @@ final class iPadEditorShellUITests: QuartzUITestCase {
         interact(with: app.buttons["Paragraph"])
         assertEditorContains(token)
         assertEditorNotContains("## \(token)")
+    }
+
+    @MainActor
+    func testSplitViewFindButtonOpensEditorScopedFindBar() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "iPad_EditorShell_NoWelcomeForFind")
+            XCTFail("Welcome note must exist for iPad in-note find coverage")
+            return
+        }
+
+        let findButton = element(matchingIdentifier: "editor-find-button")
+        XCTAssertTrue(findButton.waitForExistence(timeout: 5),
+                      "iPad must expose a real Find in Note affordance")
+
+        interact(with: findButton)
+        XCTAssertTrue(element(matchingIdentifier: "editor-find-query").waitForExistence(timeout: 5),
+                      "Tapping the iPad find affordance must open the editor-scoped find UI")
     }
 
 }

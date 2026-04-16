@@ -151,6 +151,159 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
         XCTAssertEqual(session.cursorPosition, originalSelection)
     }
 
+    func testInNoteFindNavigationSelectsMatchesDeterministically() async throws {
+        let text = "Alpha Beta Alpha"
+        let harness = try await makeMountedHarness(text: text)
+        let session = harness.session
+        let textView = harness.textView
+
+        session.presentInNoteSearch()
+        session.setInNoteSearchQuery("Alpha")
+
+        let first = (text as NSString).range(of: "Alpha")
+        let second = (text as NSString).range(of: "Alpha", options: [], range: NSRange(location: 1, length: (text as NSString).length - 1))
+
+        XCTAssertEqual(session.inNoteSearch.matchCount, 2)
+        XCTAssertEqual(session.inNoteSearch.currentMatchDisplayIndex, 1)
+        XCTAssertEqual(textView.selectedRange(), first)
+
+        session.findNextInNote()
+        XCTAssertEqual(session.inNoteSearch.currentMatchDisplayIndex, 2)
+        XCTAssertEqual(textView.selectedRange(), second)
+
+        session.findNextInNote()
+        XCTAssertEqual(session.inNoteSearch.currentMatchDisplayIndex, 1)
+        XCTAssertEqual(textView.selectedRange(), first)
+
+        session.findPreviousInNote()
+        XCTAssertEqual(session.inNoteSearch.currentMatchDisplayIndex, 2)
+        XCTAssertEqual(textView.selectedRange(), second)
+    }
+
+    func testInNoteReplaceCurrentUndoRedoRoundTripsContent() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta Alpha")
+        let session = harness.session
+        let textView = harness.textView
+
+        session.presentInNoteSearch()
+        session.setInNoteSearchQuery("Alpha")
+        session.setInNoteReplaceText("Omega")
+        session.replaceCurrentInNote()
+
+        try await waitForSessionText(session, expected: "Omega Beta Alpha")
+        XCTAssertEqual(textView.string, "Omega Beta Alpha")
+        XCTAssertEqual(session.inNoteSearch.matchCount, 1)
+        XCTAssertEqual(session.inNoteSearch.currentMatchDisplayIndex, 1)
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: 11, length: 5))
+
+        session.undo()
+        try await waitForSessionText(session, expected: "Alpha Beta Alpha")
+        XCTAssertEqual(session.currentText, "Alpha Beta Alpha")
+
+        session.redo()
+        try await waitForSessionText(session, expected: "Omega Beta Alpha")
+        XCTAssertEqual(session.currentText, "Omega Beta Alpha")
+    }
+
+    func testInNoteReplaceAllUndoRedoRoundTripsContent() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta Alpha")
+        let session = harness.session
+
+        session.presentInNoteSearch()
+        session.setInNoteSearchQuery("Alpha")
+        session.setInNoteReplaceText("Omega")
+        session.replaceAllInNote()
+
+        try await waitForSessionText(session, expected: "Omega Beta Omega")
+        XCTAssertEqual(session.currentText, "Omega Beta Omega")
+        XCTAssertEqual(session.inNoteSearch.matchCount, 0)
+
+        session.undo()
+        try await waitForSessionText(session, expected: "Alpha Beta Alpha")
+        XCTAssertEqual(session.currentText, "Alpha Beta Alpha")
+
+        session.redo()
+        try await waitForSessionText(session, expected: "Omega Beta Omega")
+        XCTAssertEqual(session.currentText, "Omega Beta Omega")
+    }
+
+    func testInNoteSearchStaysScopedToActiveNoteWhileOpen() async throws {
+        let provider = MockVaultProvider()
+        let noteAURL = URL(fileURLWithPath: "/tmp/editor-search-scope-note-a-\(UUID().uuidString).md")
+        let noteBURL = URL(fileURLWithPath: "/tmp/editor-search-scope-note-b-\(UUID().uuidString).md")
+        await provider.addNote(NoteDocument(
+            fileURL: noteAURL,
+            frontmatter: Frontmatter(title: "A"),
+            body: "Alpha Beta Alpha",
+            isDirty: false
+        ))
+        await provider.addNote(NoteDocument(
+            fileURL: noteBURL,
+            frontmatter: Frontmatter(title: "B"),
+            body: "Gamma only",
+            isDirty: false
+        ))
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        await session.loadNote(at: noteAURL)
+
+        let harness = try await mountHarness(session: session, expectedText: "Alpha Beta Alpha")
+        session.presentInNoteSearch()
+        session.setInNoteSearchQuery("Alpha")
+        session.setInNoteReplaceText("Omega")
+        session.replaceAllInNote()
+
+        try await waitForSessionText(session, expected: "Omega Beta Omega")
+        await session.loadNote(at: noteBURL)
+        await pumpMountedHarness(harness)
+
+        XCTAssertTrue(session.inNoteSearch.isPresented)
+        XCTAssertEqual(session.currentText, "Gamma only")
+        XCTAssertEqual(session.inNoteSearch.matchCount, 0)
+
+        let noteB = try await provider.readNote(at: noteBURL)
+        XCTAssertEqual(noteB.body, "Gamma only", "Find/replace must not mutate notes other than the currently loaded note")
+
+        await session.loadNote(at: noteAURL)
+        await pumpMountedHarness(harness)
+        XCTAssertEqual(session.currentText, "Omega Beta Omega", "Active-note replace-all may persist the edited note, but it must stay scoped to that note only")
+    }
+
+    func testDismissingInNoteSearchRestoresMacEditorFirstResponder() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+        let textView = harness.textView
+        let window = harness.window
+
+        XCTAssertTrue(window.makeFirstResponder(textView))
+        session.presentInNoteSearch()
+        session.setInNoteSearchQuery("Beta")
+        session.dismissInNoteSearch()
+
+        XCTAssertTrue(window.firstResponder === textView)
+        XCTAssertEqual(session.cursorPosition, textView.selectedRange())
+    }
+
+    func testInNoteReplaceNoOpsWhenQueryIsEmptyOrNoMatchesExist() async throws {
+        let harness = try await makeMountedHarness(text: "Alpha Beta")
+        let session = harness.session
+
+        session.presentInNoteSearch()
+        session.setInNoteReplaceText("Omega")
+        session.replaceCurrentInNote()
+        XCTAssertEqual(session.currentText, "Alpha Beta")
+
+        session.setInNoteSearchQuery("Missing")
+        session.replaceCurrentInNote()
+        session.replaceAllInNote()
+        XCTAssertEqual(session.currentText, "Alpha Beta")
+        XCTAssertEqual(session.inNoteSearch.matchCount, 0)
+    }
+
     func testApplyExternalEditSynchronizesCursorSnapshotImmediately() async throws {
         let harness = try await makeMountedHarness(text: "Hello")
         let session = harness.session

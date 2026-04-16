@@ -94,6 +94,10 @@ final class EditorLiveMutationRegressionTests_iOS: XCTestCase {
     func testRawPastePreservesBytesAndCursorPlacement() async throws {
         try await assertRawPastePreservesBytesAndCursorPlacement(for: .phone)
     }
+
+    func testInNoteFindNavigationAndReplacePreserveSelectionStability() async throws {
+        try await assertInNoteFindNavigationAndReplace(for: .phone)
+    }
 }
 
 @MainActor
@@ -185,6 +189,10 @@ final class EditorLiveMutationRegressionTests_iPadOS: XCTestCase {
 
     func testRawPastePreservesBytesAndCursorPlacement() async throws {
         try await assertRawPastePreservesBytesAndCursorPlacement(for: .pad)
+    }
+
+    func testInNoteFindNavigationAndReplacePreserveSelectionStability() async throws {
+        try await assertInNoteFindNavigationAndReplace(for: .pad)
     }
 }
 
@@ -397,6 +405,37 @@ private func assertMountedBoldFormattingPreservesSelectionAcrossForcedHighlight(
         textView.textStorage.attribute(.font, at: attributeLocation, effectiveRange: nil) as? UIFont
     )
     XCTAssertTrue(isBoldFont(boldFont))
+}
+
+@MainActor
+private func assertInNoteFindNavigationAndReplace(for target: MobileEditorTargetDevice) async throws {
+    try requireMobileDevice(target)
+
+    let harness = try await makeMountedMobileHarness(
+        text: "Alpha Beta Alpha",
+        target: target,
+        syntaxVisibilityMode: .hiddenUntilCaret
+    )
+    let session = harness.session
+    let textView = harness.textView
+
+    session.presentInNoteSearch()
+    session.setInNoteSearchQuery("Alpha")
+
+    XCTAssertEqual(session.inNoteSearch.matchCount, 2)
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 0, length: 5))
+
+    session.findNextInNote()
+    XCTAssertEqual(textView.selectedRange, NSRange(location: 11, length: 5))
+
+    session.setInNoteReplaceText("Omega")
+    session.replaceCurrentInNote()
+
+    try await waitForMobileSessionText(session, expected: "Alpha Beta Omega")
+    await pumpMobileHarness(harness)
+
+    XCTAssertEqual(session.currentText, "Alpha Beta Omega")
+    XCTAssertEqual(session.cursorPosition, textView.selectedRange)
 }
 
 @MainActor

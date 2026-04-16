@@ -73,6 +73,10 @@ public struct EditorContainerView: View {
                 editorHeader(for: note)
             }
 
+            if session.note != nil, session.inNoteSearch.isPresented {
+                FindReplaceBar(session: session)
+            }
+
             MarkdownEditorRepresentable(
                 session: session,
                 editorFontScale: appearance.editorFontScale,
@@ -166,6 +170,14 @@ public struct EditorContainerView: View {
                             markdownText: session.currentText,
                             noteTitle: session.note?.displayName ?? "Note"
                         )
+
+                        Button {
+                            session.presentInNoteSearch()
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        .accessibilityIdentifier("editor-find-button")
+                        .accessibilityLabel(String(localized: "Find in Note", bundle: .module))
                     }
 
                     Button {

@@ -12,8 +12,8 @@ private enum QuartzUITestActivationCoordinator {
 
         for _ in 0..<80 {
             NSApp.setActivationPolicy(.regular)
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-            NSApp.activate(ignoringOtherApps: true)
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            NSApp.activate()
 
             if let window = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) ?? NSApp.windows.first {
                 window.makeKeyAndOrderFront(nil)

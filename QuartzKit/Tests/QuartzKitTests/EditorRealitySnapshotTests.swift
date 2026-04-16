@@ -44,6 +44,62 @@ final class EditorRealitySnapshotTests: XCTestCase {
         )
     }
 
+    func testExistingLongMarkdownSnapshotOnInitialOpen() async throws {
+        let session = try await makeLoadedSession(fixture: .existingLongHeadingRender)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .full,
+            canvasSize: CGSize(width: 900, height: 520)
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_ExistingLongHeading_Open_\(platformSuffix)"
+        )
+    }
+
+    func testExistingLongMarkdownSnapshotAfterReopen() async throws {
+        let session = try await makeLoadedSession(fixture: .existingLongHeadingRender)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .full,
+            preparation: { session in
+                guard let url = session.note?.fileURL else {
+                    XCTFail("Expected mounted session to keep an active note before reopen")
+                    return
+                }
+                session.closeNote()
+                await session.loadNote(at: url)
+            },
+            canvasSize: CGSize(width: 900, height: 520)
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_ExistingLongHeading_Reopen_\(platformSuffix)"
+        )
+    }
+
+    func testExistingLongMarkdownSnapshotAfterHealingEdit() async throws {
+        let session = try await makeLoadedSession(fixture: .existingLongHeadingRender)
+        let image = try await makeEditorSnapshotImage(
+            session: session,
+            syntaxVisibilityMode: .full,
+            preparation: { session in
+                try await self.performHealingEdit(on: session, headingLine: "## Architecture Overview")
+            },
+            canvasSize: CGSize(width: 900, height: 520)
+        )
+
+        assertSnapshot(
+            of: image,
+            as: .image,
+            named: "EditorReality_ExistingLongHeading_PostEdit_\(platformSuffix)"
+        )
+    }
+
     func testStateRoundtripFullSyntaxSnapshot() async throws {
         let session = try await makeLoadedSession(fixture: .editorStateRoundtrip)
         let image = try await makeEditorSnapshotImage(
@@ -178,7 +234,9 @@ final class EditorRealitySnapshotTests: XCTestCase {
         )
     }
 
-    private func makeLoadedSession(fixture: EditorRealityFixture) async throws -> EditorSession {
+    private func makeLoadedSession(
+        fixture: EditorRealityFixture
+    ) async throws -> EditorSession {
         let provider = MockVaultProvider()
         let text = try fixture.load()
         let url = URL(fileURLWithPath: "/tmp/\(fixture.rawValue)-snapshot.md")
@@ -203,7 +261,7 @@ final class EditorRealitySnapshotTests: XCTestCase {
         session: EditorSession,
         syntaxVisibilityMode: SyntaxVisibilityMode,
         selection: NSRange? = nil,
-        preparation: (@MainActor (EditorSession) -> Void)? = nil,
+        preparation: (@MainActor (EditorSession) async throws -> Void)? = nil,
         colorScheme: ColorScheme = .light,
         canvasSize: CGSize = CGSize(width: 820, height: 420)
     ) async throws -> NSImage {
@@ -254,13 +312,14 @@ final class EditorRealitySnapshotTests: XCTestCase {
         }
 
         if let preparation {
-            preparation(session)
+            try await preparation(session)
             for _ in 0..<20 {
                 window.displayIfNeeded()
                 container.layoutSubtreeIfNeeded()
                 hostingView.layoutSubtreeIfNeeded()
                 try await Task.sleep(for: .milliseconds(10))
             }
+            try await waitForEditorReady(session: session, window: window, container: container, hostingView: hostingView)
         }
 
         let bitmapRep = NSBitmapImageRep(
@@ -312,6 +371,43 @@ final class EditorRealitySnapshotTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for editor snapshot harness to render")
+    }
+
+    private func performHealingEdit(on session: EditorSession, headingLine: String) async throws {
+        let text = session.currentText
+        let nsText = text as NSString
+        let headingRange = nsText.range(of: headingLine)
+        XCTAssertNotEqual(headingRange.location, NSNotFound, "Fixture must contain heading line '\(headingLine)'")
+
+        let insertionLocation = NSMaxRange(headingRange)
+        let insertedText = nsText.replacingCharacters(in: NSRange(location: insertionLocation, length: 0), with: " ")
+
+        session.applyExternalEdit(
+            replacement: " ",
+            range: NSRange(location: insertionLocation, length: 0),
+            cursorAfter: NSRange(location: insertionLocation + 1, length: 0),
+            origin: .formatting
+        )
+        try await waitForSessionText(session, expected: insertedText)
+
+        session.applyExternalEdit(
+            replacement: "",
+            range: NSRange(location: insertionLocation, length: 1),
+            cursorAfter: NSRange(location: insertionLocation, length: 0),
+            origin: .formatting
+        )
+        try await waitForSessionText(session, expected: text)
+    }
+
+    private func waitForSessionText(_ session: EditorSession, expected: String) async throws {
+        for _ in 0..<80 {
+            if session.currentText == expected {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for editor snapshot session text to settle")
     }
 }
 #endif

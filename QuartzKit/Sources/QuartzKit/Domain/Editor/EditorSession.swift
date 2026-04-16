@@ -65,6 +65,10 @@ public final class EditorSession {
     /// Current formatting state at the cursor position (for toolbar active states).
     public private(set) var formattingState: FormattingState = .empty
 
+    /// Editor-scoped find/replace state for the currently active note only.
+    /// This never participates in vault-wide search.
+    public let inNoteSearch = InNoteSearchState()
+
     /// Root URL of the current vault.
     public var vaultRootURL: URL?
 
@@ -396,6 +400,7 @@ public final class EditorSession {
         scrollOffset = .zero
         pendingRestoredSelection = nil
         pendingRestoredScrollOffset = nil
+        inNoteSearch.dismiss()
 
         #if canImport(UIKit)
         activeTextView?.text = ""
@@ -467,6 +472,7 @@ public final class EditorSession {
         let previousText = currentText
         currentText = newText
         synchronizeSemanticSnapshotFromCurrentText()
+        refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
         guard newText != previousText else { return }
 
         if isApplyingExternalEdit {
@@ -1054,6 +1060,7 @@ public final class EditorSession {
         #endif
 
         applyPendingRestorationStateIfPossible()
+        refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
 
         if clearUndoHistory {
             clearUndoStack()
@@ -1581,7 +1588,10 @@ public final class EditorSession {
     public func highlightImmediately() {
         guard !isComposing else { return }
 
-        // Hide text view to prevent flash of unstyled text
+        // Hide text view to prevent flash of unstyled text. This path is used after
+        // wholesale text replacement on note load/reopen and native editor mount, so
+        // it must fully rewrite the attributed representation instead of relying on
+        // the incremental diffing applier.
         #if canImport(UIKit)
         activeTextView?.alpha = 0
         #elseif canImport(AppKit)
@@ -1595,7 +1605,7 @@ public final class EditorSession {
             let spans = await highlighter.parse(text)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
-                self?.applyHighlightSpans(spans)
+                self?.applyHighlightSpansForced(spans)
                 // Reveal text view after highlights are applied
                 #if canImport(UIKit)
                 self?.activeTextView?.alpha = 1
@@ -2249,7 +2259,325 @@ public final class EditorSession {
         )
     }
 
+    // MARK: - In-Note Find / Replace
+
+    /// Presents the editor-scoped find UI for the current note.
+    /// Search never escapes the active note/editor session.
+    public func presentInNoteSearch() {
+        guard note != nil else { return }
+        inNoteSearch.beginPresentation(
+            selection: resolvedFormattingSelection(),
+            shouldRestoreEditorFocusOnDismiss: activeTextViewIsFirstResponder
+        )
+        refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
+    }
+
+    /// Dismisses the editor-scoped find UI and restores editor usage if the
+    /// editor owned first responder before the find UI was presented.
+    public func dismissInNoteSearch() {
+        let restoreSelection = inNoteSearch.currentMatch == nil ? inNoteSearch.selectionBeforePresentation : nil
+        let shouldRestoreEditorFocus = inNoteSearch.shouldRestoreEditorFocusOnDismiss
+        inNoteSearch.dismiss()
+
+        if let restoreSelection {
+            selectAndRevealEditorRange(restoreSelection, focusEditor: shouldRestoreEditorFocus)
+        } else if shouldRestoreEditorFocus {
+            focusActiveTextViewPreservingSelection()
+        }
+    }
+
+    public func toggleInNoteReplaceControls() {
+        inNoteSearch.isReplaceVisible.toggle()
+    }
+
+    public func setInNoteSearchQuery(_ query: String) {
+        inNoteSearch.query = query
+
+        guard !query.isEmpty else {
+            inNoteSearch.clearMatches()
+            if let selectionBeforePresentation = inNoteSearch.selectionBeforePresentation {
+                selectAndRevealEditorRange(selectionBeforePresentation, focusEditor: false)
+            }
+            return
+        }
+
+        refreshInNoteSearchResults(
+            preferredRange: resolvedFormattingSelection(),
+            preferredLocation: resolvedFormattingSelection().location,
+            revealSelection: true,
+            focusEditor: false
+        )
+    }
+
+    public func setInNoteReplaceText(_ replacement: String) {
+        inNoteSearch.replacement = replacement
+    }
+
+    public func setInNoteSearchCaseSensitive(_ isCaseSensitive: Bool) {
+        inNoteSearch.isCaseSensitive = isCaseSensitive
+        refreshInNoteSearchResults(
+            preferredRange: resolvedFormattingSelection(),
+            preferredLocation: resolvedFormattingSelection().location,
+            revealSelection: inNoteSearch.hasQuery,
+            focusEditor: false
+        )
+    }
+
+    public func findNextInNote() {
+        guard let nextIndex = nextInNoteSearchMatchIndex(direction: .forward) else { return }
+        inNoteSearch.updateMatches(inNoteSearch.matches, currentMatchIndex: nextIndex)
+        selectAndRevealEditorRange(inNoteSearch.matches[nextIndex], focusEditor: true)
+    }
+
+    public func findPreviousInNote() {
+        guard let previousIndex = nextInNoteSearchMatchIndex(direction: .backward) else { return }
+        inNoteSearch.updateMatches(inNoteSearch.matches, currentMatchIndex: previousIndex)
+        selectAndRevealEditorRange(inNoteSearch.matches[previousIndex], focusEditor: true)
+    }
+
+    public func replaceCurrentInNote() {
+        guard !inNoteSearch.query.isEmpty else { return }
+
+        refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
+        guard let currentMatch = inNoteSearch.currentMatch else { return }
+
+        let replacement = inNoteSearch.replacement
+        let replacementLength = (replacement as NSString).length
+        let nextAnchor = currentMatch.location + replacementLength
+
+        applyExternalEdit(
+            replacement: replacement,
+            range: currentMatch,
+            cursorAfter: NSRange(location: nextAnchor, length: 0),
+            origin: .formatting
+        )
+
+        refreshInNoteSearchResults(
+            preferredRange: nil,
+            preferredLocation: nextAnchor,
+            revealSelection: true,
+            focusEditor: true
+        )
+    }
+
+    public func replaceAllInNote() {
+        guard !inNoteSearch.query.isEmpty else { return }
+
+        let matches = InNoteSearchState.computeMatches(
+            in: currentText,
+            query: inNoteSearch.query,
+            isCaseSensitive: inNoteSearch.isCaseSensitive
+        )
+        guard !matches.isEmpty else {
+            inNoteSearch.clearMatches()
+            return
+        }
+
+        let replacement = inNoteSearch.replacement
+        let replacementLength = (replacement as NSString).length
+        let previousSelection = resolvedFormattingSelection()
+        let rebuiltText = InNoteSearchState.replacingMatches(
+            in: currentText,
+            matches: matches,
+            replacement: replacement
+        )
+
+        guard rebuiltText != currentText else {
+            refreshInNoteSearchResults(
+                preferredRange: previousSelection,
+                preferredLocation: previousSelection.location,
+                revealSelection: true,
+                focusEditor: true
+            )
+            return
+        }
+
+        let remappedLocation = remappedSelectionLocation(
+            from: previousSelection.location,
+            replacingMatches: matches,
+            replacementLength: replacementLength
+        )
+
+        applyExternalEdit(
+            replacement: rebuiltText,
+            range: NSRange(location: 0, length: (currentText as NSString).length),
+            cursorAfter: NSRange(location: remappedLocation, length: 0),
+            origin: .formatting
+        )
+
+        refreshInNoteSearchResults(
+            preferredRange: nil,
+            preferredLocation: remappedLocation,
+            revealSelection: true,
+            focusEditor: true
+        )
+    }
+
     // MARK: - Helpers
+
+    private enum InNoteSearchDirection {
+        case forward
+        case backward
+    }
+
+    private func refreshInNoteSearchResultsForCurrentEditorState(
+        revealSelection: Bool,
+        focusEditor: Bool
+    ) {
+        guard inNoteSearch.isPresented else { return }
+        let selection = resolvedFormattingSelection()
+        refreshInNoteSearchResults(
+            preferredRange: selection,
+            preferredLocation: selection.location,
+            revealSelection: revealSelection,
+            focusEditor: focusEditor
+        )
+    }
+
+    private func refreshInNoteSearchResults(
+        preferredRange: NSRange?,
+        preferredLocation: Int?,
+        revealSelection: Bool,
+        focusEditor: Bool
+    ) {
+        let query = inNoteSearch.query
+        guard inNoteSearch.isPresented else { return }
+        guard !query.isEmpty else {
+            inNoteSearch.clearMatches()
+            return
+        }
+
+        let matches = InNoteSearchState.computeMatches(
+            in: currentText,
+            query: query,
+            isCaseSensitive: inNoteSearch.isCaseSensitive
+        )
+
+        let resolvedIndex = resolvedInNoteSearchMatchIndex(
+            matches: matches,
+            preferredRange: preferredRange,
+            preferredLocation: preferredLocation
+        )
+        inNoteSearch.updateMatches(matches, currentMatchIndex: resolvedIndex)
+
+        guard revealSelection,
+              let resolvedIndex,
+              matches.indices.contains(resolvedIndex) else { return }
+        selectAndRevealEditorRange(matches[resolvedIndex], focusEditor: focusEditor)
+    }
+
+    private func resolvedInNoteSearchMatchIndex(
+        matches: [NSRange],
+        preferredRange: NSRange?,
+        preferredLocation: Int?
+    ) -> Int? {
+        guard !matches.isEmpty else { return nil }
+
+        if let currentMatch = inNoteSearch.currentMatch,
+           let existingIndex = matches.firstIndex(where: { NSEqualRanges($0, currentMatch) }) {
+            return existingIndex
+        }
+
+        if let preferredRange,
+           let exactIndex = matches.firstIndex(where: { NSEqualRanges($0, preferredRange) }) {
+            return exactIndex
+        }
+
+        if let preferredRange,
+           let intersectingIndex = matches.firstIndex(where: { NSIntersectionRange($0, preferredRange).length > 0 }) {
+            return intersectingIndex
+        }
+
+        let anchor = preferredLocation ?? preferredRange?.location ?? cursorPosition.location
+
+        if let containingIndex = matches.firstIndex(where: { $0.location <= anchor && anchor < NSMaxRange($0) }) {
+            return containingIndex
+        }
+
+        if let followingIndex = matches.firstIndex(where: { $0.location >= anchor }) {
+            return followingIndex
+        }
+
+        return 0
+    }
+
+    private func nextInNoteSearchMatchIndex(direction: InNoteSearchDirection) -> Int? {
+        guard !inNoteSearch.query.isEmpty else { return nil }
+
+        if inNoteSearch.matches.isEmpty {
+            refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
+        }
+        guard !inNoteSearch.matches.isEmpty else { return nil }
+
+        let currentIndex = inNoteSearch.currentMatchIndex
+            ?? resolvedInNoteSearchMatchIndex(
+                matches: inNoteSearch.matches,
+                preferredRange: resolvedFormattingSelection(),
+                preferredLocation: resolvedFormattingSelection().location
+            )
+
+        switch direction {
+        case .forward:
+            return ((currentIndex ?? -1) + 1 + inNoteSearch.matches.count) % inNoteSearch.matches.count
+        case .backward:
+            return ((currentIndex ?? 0) - 1 + inNoteSearch.matches.count) % inNoteSearch.matches.count
+        }
+    }
+
+    private func selectAndRevealEditorRange(_ range: NSRange, focusEditor: Bool) {
+        applySelectionSnapshot(range, force: true)
+
+        #if canImport(UIKit)
+        guard let textView = activeTextView else {
+            pendingRestoredSelection = range
+            return
+        }
+        if focusEditor, !textView.isFirstResponder {
+            textView.becomeFirstResponder()
+        }
+        if textView.selectedRange != range {
+            textView.selectedRange = range
+        }
+        textView.scrollRangeToVisible(range)
+        #elseif canImport(AppKit)
+        guard let textView = activeTextView else {
+            pendingRestoredSelection = range
+            return
+        }
+        if focusEditor, textView.window?.firstResponder !== textView {
+            textView.window?.makeFirstResponder(textView)
+        }
+        if textView.selectedRange() != range {
+            textView.setSelectedRange(range)
+        }
+        textView.scrollRangeToVisible(range)
+        #endif
+    }
+
+    private func focusActiveTextViewPreservingSelection() {
+        #if canImport(UIKit)
+        if let textView = activeTextView, !textView.isFirstResponder {
+            textView.becomeFirstResponder()
+        }
+        #elseif canImport(AppKit)
+        if let textView = activeTextView, textView.window?.firstResponder !== textView {
+            textView.window?.makeFirstResponder(textView)
+        }
+        #endif
+    }
+
+    private func remappedSelectionLocation(
+        from originalLocation: Int,
+        replacingMatches matches: [NSRange],
+        replacementLength: Int
+    ) -> Int {
+        var delta = 0
+        for match in matches {
+            if match.location >= originalLocation { break }
+            delta += replacementLength - match.length
+        }
+        return max(0, originalLocation + delta)
+    }
 
     private func overlayVisibilitySignature(for selection: NSRange) -> [String] {
         semanticDocument.revealedInlineTokenIDs(for: selection)

@@ -495,6 +495,12 @@ public actor MarkdownASTHighlighter {
         let doc = Document(parsing: markdown)
         let resolver = SourceRangeResolver(source: markdown)
         collectSpans(from: doc, in: markdown, resolver: resolver, baseFontSize: baseFontSize, fontFamily: fontFamily, vaultRootURL: vaultRootURL, noteURL: noteURL, into: &spans)
+        appendHeadingSpans(
+            in: markdown,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            into: &spans
+        )
         let semanticScan = scanSemanticMarkdown(
             in: markdown,
             baseFontSize: baseFontSize,
@@ -521,6 +527,12 @@ public actor MarkdownASTHighlighter {
         noteURL: URL?
     ) -> [HighlightSpan] {
         var spans: [HighlightSpan] = []
+        appendHeadingSpans(
+            in: markdown,
+            baseFontSize: baseFontSize,
+            fontFamily: fontFamily,
+            into: &spans
+        )
         let semanticScan = scanSemanticMarkdown(
             in: markdown,
             baseFontSize: baseFontSize,
@@ -580,8 +592,10 @@ public actor MarkdownASTHighlighter {
     }
 
     /// Chunked parsing for large documents (100KB+).
-    /// Parses the document in segments, yielding between chunks to stay responsive.
-    /// This prevents blocking the thread for extended periods on massive files.
+    /// The previous top-level child walk reused subtree-local `SourceRange` values
+    /// against the full-document resolver, which corrupted heading ranges on long
+    /// existing notes after open/reopen. Until a document-global chunk walker exists,
+    /// large-note correctness must reuse the same authoritative full-document parse.
     private static func parseChunked(
         _ markdown: String,
         baseFontSize: CGFloat,
@@ -589,85 +603,25 @@ public actor MarkdownASTHighlighter {
         vaultRootURL: URL?,
         noteURL: URL?
     ) async -> [HighlightSpan] {
-        // For very large documents, we parse the FULL AST (swift-markdown is fast)
-        // but process the resulting tree in chunks with yield points.
-        let doc = Document(parsing: markdown)
-        let resolver = SourceRangeResolver(source: markdown)
-        var spans: [HighlightSpan] = []
-        var processedNodes = 0
-
-        // Process top-level blocks with cooperative cancellation
-        for child in doc.children {
-            guard !Task.isCancelled else { return spans }
-
-            collectSpans(
-                from: child,
-                in: markdown,
-                resolver: resolver,
-                baseFontSize: baseFontSize,
-                fontFamily: fontFamily,
-                vaultRootURL: vaultRootURL,
-                noteURL: noteURL,
-                into: &spans
-            )
-
-            processedNodes += 1
-
-            // Yield every 10 top-level blocks to stay responsive
-            if processedNodes % 10 == 0 {
-                await Task.yield()
-            }
-        }
-
-        // Check cancellation before the unified semantic scan.
-        guard !Task.isCancelled else { return spans }
-
-        let semanticScan = scanSemanticMarkdown(
-            in: markdown,
+        await Task.yield()
+        guard !Task.isCancelled else { return [] }
+        let spans = parseSync(
+            markdown,
             baseFontSize: baseFontSize,
             fontFamily: fontFamily,
             vaultRootURL: vaultRootURL,
             noteURL: noteURL
         )
-        spans.append(contentsOf: semanticScan.spans)
-        appendBlockquoteSpans(
-            in: markdown,
-            fencedCodeRanges: semanticScan.fencedCodeRanges,
-            baseFontSize: baseFontSize,
-            fontFamily: fontFamily,
-            into: &spans
-        )
-
-        guard !Task.isCancelled else { return spans }
-
-        return sortSpans(spans)
+        guard !Task.isCancelled else { return [] }
+        return spans
     }
 
     private static func collectSpans(from markup: any Markup, in source: String, resolver: SourceRangeResolver, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?, into spans: inout [HighlightSpan]) {
         if let range = markup.range, let nsRange = resolver.nsRange(for: range), nsRange.length > 0 {
-            if let heading = markup as? Heading {
-                let scale = EditorTypography.headingScale(for: heading.level)
-                let font = EditorFontFactory.makeFont(family: fontFamily, size: baseFontSize * scale, weight: .bold)
-                spans.append(HighlightSpan(range: nsRange, font: font, color: nil, traits: FontTraits(bold: true, italic: false), backgroundColor: nil, strikethrough: false, semanticRole: .heading(level: heading.level)))
-                if let prefixRange = headingPrefixRange(in: source, contentRange: nsRange) {
-                    let lineRange = (source as NSString).lineRange(for: prefixRange)
-                    let mutedColor: PlatformColor
-                    #if canImport(UIKit)
-                    mutedColor = UIColor.tertiaryLabel
-                    #elseif canImport(AppKit)
-                    mutedColor = NSColor.tertiaryLabelColor
-                    #endif
-                    spans.append(HighlightSpan(
-                        range: prefixRange,
-                        font: font,
-                        color: mutedColor,
-                        traits: FontTraits(bold: true, italic: false),
-                        backgroundColor: nil,
-                        strikethrough: false,
-                        isOverlay: true,
-                        overlayVisibilityBehavior: .concealWhenInactive(revealRange: lineRange)
-                    ))
-                }
+            if markup is Heading {
+                // Heading source ranges drift in existing multiline documents.
+                // A line-based pass injects canonical heading spans for load, reopen,
+                // and edit-time rendering.
                 return
             }
             if markup is Strong { return }
@@ -873,22 +827,96 @@ public actor MarkdownASTHighlighter {
         }
     }
 
-    private static func headingPrefixRange(in source: String, contentRange: NSRange) -> NSRange? {
+    private static func appendHeadingSpans(
+        in source: String,
+        baseFontSize: CGFloat,
+        fontFamily: AppearanceManager.EditorFontFamily,
+        into spans: inout [HighlightSpan]
+    ) {
         let nsSource = source as NSString
-        let lineRange = nsSource.lineRange(for: contentRange)
-        let lineText = nsSource.substring(with: lineRange)
+        guard nsSource.length > 0 else { return }
 
-        let contentPrefix = lineText.prefix { $0 == " " || $0 == "\t" }
-        let syntaxStart = contentPrefix.endIndex
-        let hashCount = lineText[syntaxStart...].prefix { $0 == "#" }.count
-        guard hashCount > 0 else { return nil }
+        let mutedColor: PlatformColor
+        #if canImport(UIKit)
+        mutedColor = UIColor.tertiaryLabel
+        #elseif canImport(AppKit)
+        mutedColor = NSColor.tertiaryLabelColor
+        #endif
 
-        let hashEnd = lineText.index(syntaxStart, offsetBy: hashCount)
-        guard hashEnd < lineText.endIndex, lineText[hashEnd] == " " else { return nil }
+        var cursor = 0
+        while cursor < nsSource.length {
+            let fullLineRange = nsSource.lineRange(for: NSRange(location: cursor, length: 0))
+            let contentRange = lineRangeWithoutNewlines(fullLineRange, in: nsSource)
+            let line = nsSource.substring(with: contentRange)
 
-        let prefixLength = lineText.distance(from: lineText.startIndex, to: hashEnd) + 1
-        guard prefixLength > 0 else { return nil }
-        return NSRange(location: lineRange.location, length: prefixLength)
+            if let level = headingLevel(in: line),
+               let syntaxRange = headingSyntaxRange(in: line, globalLocation: contentRange.location, level: level) {
+                let scale = EditorTypography.headingScale(for: level)
+                let font = EditorFontFactory.makeFont(
+                    family: fontFamily,
+                    size: baseFontSize * scale,
+                    weight: .bold
+                )
+
+                spans.append(HighlightSpan(
+                    range: contentRange,
+                    font: font,
+                    color: nil,
+                    traits: FontTraits(bold: true, italic: false),
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    semanticRole: .heading(level: level)
+                ))
+                spans.append(HighlightSpan(
+                    range: syntaxRange,
+                    font: font,
+                    color: mutedColor,
+                    traits: FontTraits(bold: true, italic: false),
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    isOverlay: true,
+                    overlayVisibilityBehavior: .concealWhenInactive(revealRange: fullLineRange)
+                ))
+            }
+
+            cursor = NSMaxRange(fullLineRange)
+        }
+    }
+
+    private static func headingLevel(in line: String) -> Int? {
+        let trimmedLeading = line.drop(while: { $0 == " " || $0 == "\t" })
+        var level = 0
+        for character in trimmedLeading {
+            if character == "#" {
+                level += 1
+            } else {
+                break
+            }
+        }
+        guard (1...6).contains(level) else { return nil }
+        let remainder = trimmedLeading.dropFirst(level)
+        guard remainder.isEmpty || remainder.first == " " else { return nil }
+        return level
+    }
+
+    private static func headingSyntaxRange(in line: String, globalLocation: Int, level: Int) -> NSRange? {
+        let leadingWhitespace = line.prefix { $0 == " " || $0 == "\t" }.utf16.count
+        let remainingLength = max(line.utf16.count - leadingWhitespace, 0)
+        guard remainingLength > 0 else { return nil }
+        return NSRange(location: globalLocation + leadingWhitespace, length: min(level + 1, remainingLength))
+    }
+
+    private static func lineRangeWithoutNewlines(_ range: NSRange, in text: NSString) -> NSRange {
+        var length = range.length
+        while length > 0 {
+            let scalar = text.character(at: range.location + length - 1)
+            if scalar == 0x0A || scalar == 0x0D {
+                length -= 1
+            } else {
+                break
+            }
+        }
+        return NSRange(location: range.location, length: length)
     }
 
     private static func expandedTableRange(in source: String, around range: NSRange) -> NSRange {

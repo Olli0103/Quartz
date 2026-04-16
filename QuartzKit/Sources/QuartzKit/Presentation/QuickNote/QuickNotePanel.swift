@@ -46,11 +46,7 @@ public final class QuickNotePanel: NSPanel {
     /// Shows the panel and brings it into focus.
     public func showPanel() {
         makeKeyAndOrderFront(nil)
-        if #available(macOS 14.0, *) {
-            NSApp.activate()
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        NSApp.activate()
         NSAccessibility.post(element: self, notification: .windowCreated)
     }
 }

@@ -54,12 +54,28 @@ final class MarkdownEditorUITextView: UITextView {
             }
             return command
         }
-        return baseCommands + editorCommands
+        let findCommands = Self.findShortcutCommands.map { shortcut in
+            let command = UIKeyCommand(
+                input: shortcut.input,
+                modifierFlags: shortcut.modifierFlags,
+                action: #selector(handleFindKeyCommand(_:))
+            )
+            command.discoverabilityTitle = shortcut.title
+            if #available(iOS 15.0, *) {
+                command.wantsPriorityOverSystemBehavior = true
+            }
+            return command
+        }
+        return baseCommands + editorCommands + findCommands
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if let shortcut = Self.shortcut(for: presses) {
             apply(shortcut)
+            return
+        }
+        if let action = Self.findAction(for: presses) {
+            apply(findAction: action)
             return
         }
         super.pressesBegan(presses, with: event)
@@ -78,12 +94,28 @@ final class MarkdownEditorUITextView: UITextView {
         apply(shortcut)
     }
 
+    @objc private func handleFindKeyCommand(_ sender: UIKeyCommand) {
+        guard let action = Self.findAction(for: sender) else { return }
+        apply(findAction: action)
+    }
+
     private func apply(_ shortcut: EditorKeyboardShortcut) {
         switch shortcut {
         case .formatting(let action):
             editorSession?.handleFormattingAction(action, source: .hardwareKeyboard)
         case .paste(let mode):
             editorSession?.paste(mode: mode)
+        }
+    }
+
+    private func apply(findAction: FindCommandAction) {
+        switch findAction {
+        case .open:
+            editorSession?.presentInNoteSearch()
+        case .next:
+            editorSession?.findNextInNote()
+        case .previous:
+            editorSession?.findPreviousInNote()
         }
     }
 
@@ -116,6 +148,56 @@ final class MarkdownEditorUITextView: UITextView {
             input: key.charactersIgnoringModifiers,
             modifiers: .init(uiKit: key.modifierFlags)
         )
+    }
+
+    private enum FindCommandAction {
+        case open
+        case next
+        case previous
+    }
+
+    private struct FindShortcutCommand {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: FindCommandAction
+        let title: String
+    }
+
+    private static let findShortcutCommands: [FindShortcutCommand] = [
+        .init(
+            input: "f",
+            modifierFlags: .command,
+            action: .open,
+            title: String(localized: "Find in Note", bundle: .module)
+        ),
+        .init(
+            input: "g",
+            modifierFlags: .command,
+            action: .next,
+            title: String(localized: "Find Next", bundle: .module)
+        ),
+        .init(
+            input: "g",
+            modifierFlags: [.command, .shift],
+            action: .previous,
+            title: String(localized: "Find Previous", bundle: .module)
+        )
+    ]
+
+    private static func findAction(for command: UIKeyCommand) -> FindCommandAction? {
+        guard let input = command.input?.lowercased() else { return nil }
+        return findShortcutCommands.first {
+            $0.input == input && $0.modifierFlags == command.modifierFlags.intersection([.command, .shift])
+        }?.action
+    }
+
+    private static func findAction(for presses: Set<UIPress>) -> FindCommandAction? {
+        guard presses.count == 1,
+              let key = presses.first?.key else { return nil }
+        let modifiers = key.modifierFlags.intersection([.command, .shift])
+        return findShortcutCommands.first {
+            $0.input == key.charactersIgnoringModifiers.lowercased() && $0.modifierFlags == modifiers
+        }?.action
     }
 
     private struct EditorShortcutCommand {

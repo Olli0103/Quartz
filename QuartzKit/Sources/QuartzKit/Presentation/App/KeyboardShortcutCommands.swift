@@ -7,6 +7,7 @@ import SwiftUI
 /// Registers productivity-related key combinations:
 /// - ⌘N: New note
 /// - ⌘⇧N: New folder
+/// - ⌘F: In-note find for the active editor
 /// - ⌘⇧F: Vault-wide search
 /// - ⌘/: Toggle sidebar
 /// - ⌘⇧D: Daily note
@@ -14,9 +15,11 @@ import SwiftUI
 ///
 /// Format commands are UI dispatch only. Mutation authority lives in `EditorSession`.
 public struct KeyboardShortcutCommands: Commands {
-    /// Quartz currently exposes only vault-wide search from the custom command surface.
-    /// We intentionally do not claim a custom in-note find flow until the editor owns one.
-    static let exposesCustomInNoteFindCommand = false
+    /// Quartz now exposes a real editor-scoped find flow distinct from vault-wide search.
+    static let exposesCustomInNoteFindCommand = true
+    static var inNoteFindCommandTitle: String {
+        String(localized: "Find in Note…", bundle: .module)
+    }
     static var vaultSearchCommandTitle: String {
         String(localized: "Search Notes…", bundle: .module)
     }
@@ -78,8 +81,9 @@ public struct KeyboardShortcutCommands: Commands {
         }
 
         CommandGroup(after: .textEditing) {
-            // Keep custom editor commands honest: Quartz does not yet provide its own in-note
-            // find flow, so the visible custom command surface only exposes vault-wide search.
+            Button(Self.inNoteFindCommandTitle) { onSearch() }
+                .keyboardShortcut("f", modifiers: .command)
+
             Button(Self.vaultSearchCommandTitle) { onGlobalSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
         }

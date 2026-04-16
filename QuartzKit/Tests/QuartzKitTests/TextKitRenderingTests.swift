@@ -24,11 +24,14 @@ final class LivePreviewASTTests: XCTestCase {
         let boldSpans = spans.filter { $0.traits.bold }
         XCTAssertFalse(boldSpans.isEmpty, "Should detect bold text")
 
-        // The bold span should cover "bold"
-        if let firstBold = boldSpans.first {
-            let boldText = (text as NSString).substring(with: firstBold.range)
-            XCTAssertTrue(boldText.contains("bold"), "Bold span should cover the word 'bold'")
+        // The authoritative semantic span pipeline may emit multiple bold segments
+        // across the markdown token and its content. At least one bold span must
+        // still cover the content-bearing range for "bold".
+        let boldTextCovered = boldSpans.contains { span in
+            let boldText = (text as NSString).substring(with: span.range)
+            return boldText.contains("bold")
         }
+        XCTAssertTrue(boldTextCovered, "A bold span should cover the word 'bold'")
     }
 
     /// Italic text should be detected and styled.

@@ -933,7 +933,9 @@ public final class ContentViewModel {
             if let root = sidebarViewModel?.vaultRootURL {
                 coordinator.presentNewFolder(in: root)
             }
-        case .search, .globalSearch:
+        case .search:
+            editorSession?.presentInNoteSearch()
+        case .globalSearch:
             coordinator.activeSheet = .search
         case .toggleSidebar:
             withAnimation(QuartzAnimation.content) {
