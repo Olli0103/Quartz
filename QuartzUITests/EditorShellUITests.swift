@@ -3,6 +3,7 @@ import XCTest
 #if os(macOS)
 final class macOSEditorShellUITests: QuartzUITestCase {
     private let preferredExistingNoteTitles = ["Welcome", "Todo"]
+    private let longFixtureNoteTitle = "Release Notes"
 
     @MainActor
     func testEditorPreservesEditsAcrossNoteSwitching() throws {
@@ -141,9 +142,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarBoldActionAppliesMarkdownInline() throws {
         launchApp()
 
-        guard createNewNote() else {
-            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForToolbarBoldInline")
-            XCTFail("New note action must succeed for macOS toolbar inline bold coverage")
+        guard openMockVaultNote(named: "Welcome") != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForToolbarBoldInline")
+            XCTFail("A deterministic fixture note must exist for macOS toolbar inline bold coverage")
             return
         }
 
@@ -157,6 +158,27 @@ final class macOSEditorShellUITests: QuartzUITestCase {
         let token = "macToolbarBold\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
+    func testToolbarTableActionOnLongFixtureKeepsContextAndInsertsMarkdownTable() throws {
+        launchApp()
+
+        guard openMockVaultNote(named: longFixtureNoteTitle) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoLongFixtureForTable")
+            XCTFail("The long release-notes fixture must exist for macOS table toolbar coverage")
+            return
+        }
+
+        _ = focusEditor()
+        triggerOverflowFormattingAction("table", fallbackLabel: "Table")
+
+        assertEditorContains("# Release Notes")
+        assertEditorContains("## Writing Workflow")
+        assertEditorContains("### Formatting Guarantees")
+        assertEditorContains("| Column 1 | Column 2 | Column 3 |")
+        assertEditorContains("| --- | --- | --- |")
+        assertEditorContains("| Cell 1 | Cell 2 | Cell 3 |")
     }
 
     @MainActor

@@ -43,6 +43,9 @@ enum UITestFixtureVault {
         try writeFixture("# Project A\n\nProject details and notes go here.\n",
                          to: projectsDir.appending(path: "Project A.md"))
 
+        try writeFixture(makeReleaseNotesFixture(),
+                         to: baseDir.appending(path: "Release Notes.md"))
+
         return VaultConfig(name: "UI Test Vault", rootURL: baseDir)
     }
 
@@ -58,5 +61,26 @@ enum UITestFixtureVault {
     /// for production vault I/O where iCloud conflict avoidance matters.
     private static func writeFixture(_ content: String, to url: URL) throws {
         try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private static func makeReleaseNotesFixture() -> String {
+        let repeatedSection = """
+        ## Writing Workflow
+
+        This paragraph is deliberately long so UI coverage exercises a realistic existing note instead of a tiny synthetic fixture. The release notes note is meant to behave like a user-authored markdown document with headings, paragraphs, and enough structure for formatting regressions to show up around inserted blocks.
+
+        ### Formatting Guarantees
+
+        Quartz should preserve heading styling, body text layout, and list rendering even when the user inserts structural markdown like tables into an already-authored note.
+
+        """
+
+        return """
+        # Release Notes
+
+        This note exists specifically for shell-level formatting coverage.
+
+        \(String(repeating: repeatedSection + "\n", count: 12))
+        """
     }
 }

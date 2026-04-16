@@ -573,6 +573,75 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertTrue(session.currentText.contains("| Column 1 | Column 2 | Column 3 |"))
     }
 
+    func testTableToolbarInsertionImmediatelyKeepsLongExistingFormattingStableAboveInsertion() async throws {
+        let provider = MockVaultProvider()
+        let seed = try EditorRealityFixture.existingLongHeadingRender.load()
+        let text = makeLongExistingDocument(from: seed, minimumLength: 90_000)
+        let url = URL(fileURLWithPath: "/tmp/editor-rendering-long-existing-table-immediate.md")
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Existing Long Table Insert Immediate"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.activeTextView = textView
+        session.highlighter = highlighter
+
+        let headingLine = "## Writing Workflow"
+        let bodyLine = "This paragraph is deliberately long so the text system has to lay out a realistic amount of content before it reaches the next heading. The bug this fixture protects against was not about tiny synthetic notes. It showed up when a previously authored note reopened and only part of the heading line visually carried the correct font and color while the rest of the line looked like body text until the user touched it."
+        let monitoredLocation = try headingContentRange(
+            matchingLine: headingLine,
+            in: text
+        ).location
+
+        await session.loadNote(at: url)
+        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+
+        let initialHeading = try uniformHeadingContentSignature(
+            matchingLine: headingLine,
+            in: text,
+            textView: textView
+        )
+        let initialBody = try uniformLineContentSignature(
+            matchingLine: bodyLine,
+            in: text,
+            textView: textView
+        )
+
+        let insertionLocation = try lineContentRange(matchingLine: bodyLine, in: text).location + 24
+        let insertionSelection = NSRange(location: insertionLocation, length: 0)
+        textView.setSelectedRange(insertionSelection)
+        session.selectionDidChange(insertionSelection)
+
+        session.applyToolbarFormatting(.table)
+
+        XCTAssertTrue(session.currentText.contains("| Column 1 | Column 2 | Column 3 |"))
+        XCTAssertTrue(hasRenderedTableRowStyles(in: textView), "Table formatting must rebuild table row styles immediately for long notes")
+
+        let immediateHeading = try uniformHeadingContentSignature(
+            matchingLine: headingLine,
+            in: text,
+            textView: textView
+        )
+        let immediateBody = try uniformLineContentSignature(
+            matchingLine: bodyLine,
+            in: text,
+            textView: textView
+        )
+
+        XCTAssertEqual(immediateHeading, initialHeading)
+        XCTAssertEqual(immediateBody, initialBody)
+    }
+
     func testHiddenUntilCaretHidesOverlayWhenCaretIsOnDifferentLine() async throws {
         let session = makeSession()
         let textView = makeTextView()
@@ -758,7 +827,10 @@ final class EditorRenderingRegressionTests: XCTestCase {
     }
 
     private func waitForHighlightPass(on textView: NSTextView, monitoredLocation: Int) async throws {
-        for _ in 0..<50 {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(3)
+
+        while clock.now < deadline {
             if textView.alphaValue == 1,
                let textStorage = textView.textStorage,
                monitoredLocation < textStorage.length,
@@ -768,7 +840,9 @@ final class EditorRenderingRegressionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
 
+        struct HighlightPassTimeout: Error {}
         XCTFail("Timed out waiting for highlight pass to complete")
+        throw HighlightPassTimeout()
     }
 
     private func makeHiddenUntilCaretTextView(
@@ -999,6 +1073,16 @@ final class EditorRenderingRegressionTests: XCTestCase {
         }
 
         XCTFail("Timed out waiting for session text to become expected content")
+    }
+
+    private func hasRenderedTableRowStyles(in textView: NSTextView) -> Bool {
+        guard let storage = textView.textStorage else { return false }
+        for location in 0..<storage.length {
+            if storage.attribute(.quartzTableRowStyle, at: location, effectiveRange: nil) != nil {
+                return true
+            }
+        }
+        return false
     }
 }
 #endif

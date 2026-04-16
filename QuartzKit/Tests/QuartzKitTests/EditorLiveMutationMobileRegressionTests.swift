@@ -311,7 +311,11 @@ private func assertFormattingInvocationSourcesProduceMatchingResults(
 ) async throws {
     try requireMobileDevice(target)
 
-    let actions: [FormattingAction] = [.bold, .italic, .strikethrough, .heading2, .code, .codeBlock, .link, .blockquote]
+    let actions: [FormattingAction] = [
+        .bold, .italic, .strikethrough,
+        .paragraph, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6,
+        .code, .codeBlock, .link, .blockquote
+    ]
     let sources: [EditorSession.FormattingInvocationSource] = [.hardwareKeyboard, .toolbar]
     let initialText = "Alpha Beta"
     let staleSelection = NSRange(location: 0, length: 5)
@@ -356,15 +360,19 @@ private func assertFormattingInvocationSourcesProduceMatchingResults(
                 canonicalCanUndo = canUndo
             }
 
-            XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
+            if formattedText != initialText {
+                XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
 
-            session.undo()
-            try await waitForMobileSessionText(session, expected: initialText)
-            XCTAssertEqual(session.currentText, initialText)
+                session.undo()
+                try await waitForMobileSessionText(session, expected: initialText)
+                XCTAssertEqual(session.currentText, initialText)
 
-            session.redo()
-            try await waitForMobileSessionText(session, expected: formattedText)
-            XCTAssertEqual(session.currentText, formattedText)
+                session.redo()
+                try await waitForMobileSessionText(session, expected: formattedText)
+                XCTAssertEqual(session.currentText, formattedText)
+            } else {
+                XCTAssertFalse(session.canUndo, "No-op formatting action \(action.rawValue) must not fabricate undo state for \(source.rawValue)")
+            }
         }
     }
 }

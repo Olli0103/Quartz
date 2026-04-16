@@ -10,7 +10,9 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
 
     func testFormattingInvocationSourcesProduceMatchingResultsForSharedShortcutActions() async throws {
         let actions: [FormattingAction] = [
-            .bold, .italic, .strikethrough, .heading2, .code, .codeBlock, .link, .blockquote
+            .bold, .italic, .strikethrough,
+            .paragraph, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6,
+            .code, .codeBlock, .link, .blockquote
         ]
         let sources: [EditorSession.FormattingInvocationSource] = [
             .commandMenu, .hardwareKeyboard, .toolbar
@@ -54,15 +56,154 @@ final class EditorLiveMutationRegressionTests: XCTestCase {
                     canonicalCanUndo = canUndo
                 }
 
+                if formattedText != initialText {
+                    XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
+
+                    session.undo()
+                    try await waitForSessionText(session, expected: initialText)
+                    XCTAssertEqual(session.currentText, initialText)
+
+                    session.redo()
+                    try await waitForSessionText(session, expected: formattedText)
+                    XCTAssertEqual(session.currentText, formattedText)
+                } else {
+                    XCTAssertFalse(session.canUndo, "No-op formatting action \(action.rawValue) must not fabricate undo state for \(source.rawValue)")
+                }
+            }
+        }
+    }
+
+    func testCommandMenuAndToolbarProduceMatchingResultsForAdditionalVisibleActions() async throws {
+        let actions: [FormattingAction] = [
+            .bulletList, .numberedList, .checkbox, .table
+        ]
+        let sources: [EditorSession.FormattingInvocationSource] = [
+            .commandMenu, .toolbar
+        ]
+        let initialText = "# Welcome to Quartz Notes\n\nHow are you?"
+        let staleSelection = (initialText as NSString).range(of: "Welcome")
+        let liveSelection = (initialText as NSString).range(of: "How are you?")
+
+        for action in actions {
+            var canonicalText: String?
+            var canonicalSelection: NSRange?
+            var canonicalCanUndo: Bool?
+
+            for source in sources {
+                let harness = try await makeMountedHarness(text: initialText, syntaxVisibilityMode: .hiddenUntilCaret)
+                let session = harness.session
+                let textView = harness.textView
+
+                if source == .toolbar {
+                    textView.setSelectedRange(staleSelection)
+                    session.selectionDidChange(staleSelection)
+                }
+
+                textView.setSelectedRange(liveSelection)
+                session.selectionDidChange(liveSelection)
+
+                session.handleFormattingAction(action, source: source)
+                try await waitForSessionText(session, expected: session.currentText)
+                await pumpMountedHarness(harness)
+
+                let formattedText = session.currentText
+                let formattedSelection = session.cursorPosition
+                let canUndo = session.canUndo
+
+                if let canonicalText, let canonicalSelection, let canonicalCanUndo {
+                    XCTAssertEqual(formattedText, canonicalText, "Action \(action.rawValue) must match for \(source.rawValue)")
+                    XCTAssertEqual(formattedSelection, canonicalSelection, "Selection for \(action.rawValue) must match for \(source.rawValue)")
+                    XCTAssertEqual(canUndo, canonicalCanUndo, "Undo availability for \(action.rawValue) must match for \(source.rawValue)")
+                } else {
+                    canonicalText = formattedText
+                    canonicalSelection = formattedSelection
+                    canonicalCanUndo = canUndo
+                }
+
                 XCTAssertTrue(session.canUndo, "Formatting action \(action.rawValue) must register undo for \(source.rawValue)")
+                if action == .table {
+                    assertTableRowStylesRendered(in: textView)
+                }
+            }
+        }
+    }
 
-                session.undo()
-                try await waitForSessionText(session, expected: initialText)
-                XCTAssertEqual(session.currentText, initialText)
+    func testVisibleFormattingActionMatrixRoundTripsAcrossSaveAndReopen() async throws {
+        let actions: [FormattingAction] = [
+            .bold, .italic, .strikethrough,
+            .paragraph, .heading1, .heading2, .heading3, .heading4, .heading5, .heading6,
+            .bulletList, .numberedList, .checkbox,
+            .code, .codeBlock, .link, .image, .blockquote, .table, .math, .mermaid
+        ]
+        let text = "# Welcome to Quartz Notes\n\nHow are you?"
+        let nsText = text as NSString
+        let expandedSelection = nsText.range(of: "How are you?")
+        let collapsedSelection = NSRange(location: expandedSelection.location + 2, length: 0)
+        let selections: [(label: String, range: NSRange)] = [
+            ("expanded", expandedSelection),
+            ("collapsed", collapsedSelection)
+        ]
 
-                session.redo()
-                try await waitForSessionText(session, expected: formattedText)
-                XCTAssertEqual(session.currentText, formattedText)
+        for action in actions {
+            for selection in selections {
+                let harness = try await makeMountedHarness(text: text, syntaxVisibilityMode: .hiddenUntilCaret)
+                let session = harness.session
+                let textView = harness.textView
+                let expected = expectedToolbarFormattingResult(
+                    action: action,
+                    text: text,
+                    selection: selection.range
+                )
+
+                textView.setSelectedRange(selection.range)
+                session.selectionDidChange(selection.range)
+
+                session.applyToolbarFormatting(action)
+                try await waitForSessionText(session, expected: expected.text)
+                await pumpMountedHarness(harness)
+
+                XCTAssertEqual(textView.string, expected.text, "Action \(action.rawValue) must mutate markdown correctly for \(selection.label) selection")
+                XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must keep session text in sync for \(selection.label) selection")
+                XCTAssertEqual(textView.selectedRange(), expected.newSelection, "Action \(action.rawValue) must keep native selection aligned for \(selection.label) selection")
+                XCTAssertEqual(session.cursorPosition, expected.newSelection, "Action \(action.rawValue) must keep selection snapshot aligned for \(selection.label) selection")
+                let didMutateText = expected.text != text
+                if didMutateText {
+                    XCTAssertTrue(session.canUndo, "Action \(action.rawValue) must register undo for \(selection.label) selection")
+                } else {
+                    XCTAssertFalse(session.canUndo, "No-op action \(action.rawValue) must not fabricate undo state for \(selection.label) selection")
+                }
+
+                if expected.text.contains("Welcome to Quartz Notes") {
+                    assertVisibleTextUsesPrimaryColor(
+                        in: textView,
+                        substring: "Welcome to Quartz Notes",
+                        context: "\(action.rawValue)-\(selection.label)"
+                    )
+                }
+                if action == .table {
+                    assertTableRowStylesRendered(in: textView)
+                }
+
+                let reopenedURL = try XCTUnwrap(session.note?.fileURL)
+                await session.manualSave()
+                session.closeNote()
+                await session.loadNote(at: reopenedURL)
+                try await waitForSessionText(session, expected: expected.text)
+                await pumpMountedHarness(harness)
+
+                XCTAssertEqual(session.currentText, expected.text, "Action \(action.rawValue) must survive save/reopen for \(selection.label) selection")
+                XCTAssertEqual(textView.string, expected.text, "Mounted editor text must survive save/reopen for \(action.rawValue) and \(selection.label) selection")
+
+                if expected.text.contains("Welcome to Quartz Notes") {
+                    assertVisibleTextUsesPrimaryColor(
+                        in: textView,
+                        substring: "Welcome to Quartz Notes",
+                        context: "\(action.rawValue)-\(selection.label)-reopen"
+                    )
+                }
+                if action == .table {
+                    assertTableRowStylesRendered(in: textView)
+                }
             }
         }
     }

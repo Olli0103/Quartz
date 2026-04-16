@@ -191,9 +191,11 @@ public final class EditorSession {
 
     private let autosaveDelay: Duration = .seconds(1)
     private let pasteNormalizer = EditorPasteNormalizer()
-    /// Small-note threshold where a synchronous formatting rehighlight is fast enough
-    /// to avoid visible markdown/style drift after toolbar actions.
-    private static let synchronousFormattingHighlightThreshold = 4_000
+    /// Formatting actions are explicit user commands, so they should pay the cost of
+    /// a synchronous authoritative rehighlight for every note size that the editor
+    /// still renders semantically. Only pathological documents beyond the highlighter's
+    /// own semantic-render ceiling remain on the async fallback path.
+    private static let synchronousFormattingHighlightThreshold = 500_000
 
     // MARK: - Version History Throttle
 
