@@ -19,13 +19,26 @@ struct EditorPerformanceBaselineTests {
             doc += "Paragraph \(i) with **bold**, *italic*, `code`, and [links](url). Some more words to fill the paragraph out a bit.\n\n"
         }
 
-        let highlighter = MarkdownASTHighlighter()
-        let start = Date()
-        let spans = await highlighter.parse(doc)
-        let elapsed = Date().timeIntervalSince(start)
+        // Separate one-time parser/bootstrap work from the steady-state regression
+        // signal we actually care about. The full suite runs many tests concurrently,
+        // so a single cold wall-clock sample is noisy and can over-report latency.
+        let bootstrapHighlighter = MarkdownASTHighlighter()
+        let bootstrapSpans = await bootstrapHighlighter.parse("# Warmup\n\nBootstrap")
+        #expect(!bootstrapSpans.isEmpty, "Warmup parse should produce spans")
 
-        #expect(!spans.isEmpty, "Should produce highlight spans")
-        #expect(elapsed < 0.2, "Full parse should complete within 200ms, took \(elapsed)s")
+        var samples: [TimeInterval] = []
+        for _ in 0..<3 {
+            let highlighter = MarkdownASTHighlighter()
+            let start = CFAbsoluteTimeGetCurrent()
+            let spans = await highlighter.parse(doc)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            samples.append(elapsed)
+            #expect(!spans.isEmpty, "Should produce highlight spans")
+        }
+
+        let median = samples.sorted()[samples.count / 2]
+        #expect(median < 0.2,
+            "Median full parse should complete within 200ms, got \(median)s. Samples: \(samples)s")
     }
 
     @Test("Incremental parse faster than full parse")

@@ -87,14 +87,13 @@ run_package_editor_matrix() {
     local result_bundle="$3"
     local snapshot_suite="$4"
     local live_suite="$5"
+    local package_root="$REPO_ROOT/$PACKAGE_PATH"
 
-    reset_result_bundle "$result_bundle"
-    run_xcodebuild_to_log "$log_path" \
-        xcodebuild test -quiet -scheme QuartzKit \
+    run_xcodebuild_in_workdir_to_log "$package_root" "$log_path" \
+        xcodebuild test -scheme QuartzKit \
             -parallel-testing-enabled NO \
             -destination-timeout 60 \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            -resultBundlePath "$result_bundle" \
             -only-testing:"QuartzKitTests/$snapshot_suite" \
             -only-testing:"QuartzKitTests/$live_suite"
 }

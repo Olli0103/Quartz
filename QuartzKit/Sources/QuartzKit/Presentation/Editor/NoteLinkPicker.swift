@@ -43,6 +43,7 @@ struct NoteLinkPicker: View {
                         .font(.caption)
                 }
                 .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("editor-link-picker-close")
                 .accessibilityLabel(String(localized: "Close note link suggestions", bundle: .module))
             }
@@ -84,6 +85,7 @@ struct NoteLinkPicker: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityElement(children: .ignore)
                         .accessibilityIdentifier("editor-link-suggestion-\(index)")
                         .accessibilityLabel(String(localized: "Insert link to \(suggestion.noteName)", bundle: .module))
                     }
@@ -99,6 +101,7 @@ struct NoteLinkPicker: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .transition(.move(edge: .top).combined(with: .opacity))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-link-picker")
     }
 }

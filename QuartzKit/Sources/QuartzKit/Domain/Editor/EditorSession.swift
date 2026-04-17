@@ -77,7 +77,17 @@ public final class EditorSession {
     public var vaultRootURL: URL?
 
     /// File tree snapshot for link suggestions.
-    public var fileTree: [FileNode] = []
+    ///
+    /// This must track the sidebar's authoritative note catalog, including late
+    /// async tree loads after the editor is already mounted. If the wiki-link
+    /// picker is open while the tree arrives, refresh suggestions immediately so
+    /// shell/UI flows do not show an empty picker for a valid `[[` trigger.
+    public var fileTree: [FileNode] = [] {
+        didSet {
+            guard fileTree != oldValue else { return }
+            refreshLinkInsertionSuggestionsForCurrentEditorState()
+        }
+    }
 
     /// Last published explicit wiki-link target signature for the loaded note.
     /// Prevents redundant live graph invalidations while keeping backlink state current.

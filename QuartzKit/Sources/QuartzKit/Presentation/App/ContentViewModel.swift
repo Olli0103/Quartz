@@ -166,6 +166,7 @@ public final class ContentViewModel {
             }
 
             await viewModel.loadTree(at: vault.rootURL)
+            session.fileTree = viewModel.fileTree
             // Run preview indexer alongside other indexers — it's the fastest (8KB reads)
             await previewIdx.indexAll(from: viewModel.fileTree)
 

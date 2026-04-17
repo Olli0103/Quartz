@@ -12,13 +12,15 @@ private enum QuartzUITestActivationCoordinator {
 
         for _ in 0..<80 {
             NSApp.setActivationPolicy(.regular)
-            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
             NSApp.activate()
 
             if let window = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) ?? NSApp.windows.first {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
-                return
+                if NSApp.isActive, window.isVisible, !window.isMiniaturized {
+                    return
+                }
             }
 
             try? await Task.sleep(for: .milliseconds(50))
@@ -26,10 +28,18 @@ private enum QuartzUITestActivationCoordinator {
     }
 }
 
+extension Notification.Name {
+    static let quartzApplicationWillTerminate = Notification.Name("quartzApplicationWillTerminate")
+}
+
 @MainActor
 private final class QuartzUITestAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await QuartzUITestActivationCoordinator.activateIfNeeded() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        NotificationCenter.default.post(name: .quartzApplicationWillTerminate, object: nil)
     }
 }
 #endif
@@ -87,6 +97,11 @@ struct QuartzApp: App {
         defaults.removeObject(forKey: fixtureVaultPathKey)
         defaults.removeObject(forKey: "quartz.appLockEnabled")
         defaults.removeObject(forKey: "quartz.lockTimeoutMinutes")
+        defaults.removeObject(forKey: "quartz.restoration.selectedNotePath")
+        defaults.removeObject(forKey: "quartz.restoration.cursorLocation")
+        defaults.removeObject(forKey: "quartz.restoration.cursorLength")
+        defaults.removeObject(forKey: "quartz.restoration.scrollOffset")
+        defaults.removeObject(forKey: "quartz.restoration.sidebarSource")
         defaults.synchronize()
     }
 

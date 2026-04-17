@@ -156,6 +156,22 @@ run_xcodebuild_to_log() {
     done
 }
 
+run_xcodebuild_in_workdir_to_log() {
+    local workdir="$1"
+    local log_path="$2"
+    shift 2
+
+    local absolute_log_path="$log_path"
+    if [[ "$absolute_log_path" != /* ]]; then
+        absolute_log_path="$(pwd)/$absolute_log_path"
+    fi
+
+    (
+        cd "$workdir"
+        run_xcodebuild_to_log "$absolute_log_path" "$@"
+    )
+}
+
 extract_simulator_id() {
     local line="$1"
     echo "$line" | sed -nE 's/.*\(([A-F0-9-]+)\) \((Booted|Shutdown)\)[[:space:]]*$/\1/p' | head -1 | xargs

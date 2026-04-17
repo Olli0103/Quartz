@@ -50,35 +50,77 @@ class QuartzUITestCase: XCTestCase {
     /// Call this at the start of each `@MainActor` test method.
     @MainActor
     func launchApp() {
-        launchApp(arguments: defaultLaunchArguments)
+        launchApp(arguments: defaultLaunchArguments, preserveExistingState: false)
     }
 
     @MainActor
     func relaunchAppPreservingState() {
-        launchApp(arguments: statePreservingLaunchArguments)
+        launchApp(arguments: statePreservingLaunchArguments, preserveExistingState: true)
     }
 
     /// Creates and launches the app with explicit launch arguments.
     @MainActor
-    func launchApp(arguments: [String]) {
-        _ = Self.terminateCurrentApp(app)
+    func launchApp(arguments: [String], preserveExistingState: Bool = false) {
+        _ = Self.terminateCurrentApp(app, preferGraceful: preserveExistingState)
         app = XCUIApplication()
         app.launchArguments += arguments
         app.launch()
         #if os(macOS)
-        if app.state == .runningBackground {
-            app.activate()
-        }
         XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 15),
+            waitForMacAppForeground(timeout: 15),
             "Quartz must reach the foreground on macOS before UI assertions run"
         )
         #endif
     }
 
+    #if os(macOS)
+    @MainActor
+    private func waitForMacAppForeground(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if app.state == .runningForeground {
+                return true
+            }
+
+            if let runningApp = NSRunningApplication
+                .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+                .first(where: { !$0.isTerminated }) {
+                if runningApp.isActive {
+                    return true
+                }
+
+                if runningApp.isFinishedLaunching {
+                    _ = runningApp.activate(options: [.activateAllWindows])
+                }
+            }
+
+            if app.state == .runningBackground {
+                app.activate()
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+
+        return app.state == .runningForeground
+            || NSRunningApplication
+                .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+                .contains(where: \.isActive)
+    }
+    #endif
+
     @discardableResult
     @MainActor
-    private static func terminateCurrentApp(_ currentApp: XCUIApplication?) -> Bool {
+    private static func terminateCurrentApp(_ currentApp: XCUIApplication?, preferGraceful: Bool = false) -> Bool {
+        let existingApp = currentApp ?? XCUIApplication()
+
+        if preferGraceful, existingApp.state != .notRunning {
+            existingApp.terminate()
+            if existingApp.wait(for: .notRunning, timeout: 5) {
+                return true
+            }
+        }
+
         #if os(macOS)
         let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
         var terminatedAny = false
@@ -99,7 +141,6 @@ class QuartzUITestCase: XCTestCase {
         }
         #endif
 
-        let existingApp = currentApp ?? XCUIApplication()
         guard existingApp.state != .notRunning else {
             return false
         }

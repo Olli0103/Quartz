@@ -47,6 +47,11 @@ struct ContentView: View {
     #endif
 
     private static let onboardingCompletedKey = "quartz.hasCompletedOnboarding"
+    private static let restorationSelectedNotePathKey = "quartz.restoration.selectedNotePath"
+    private static let restorationCursorLocationKey = "quartz.restoration.cursorLocation"
+    private static let restorationCursorLengthKey = "quartz.restoration.cursorLength"
+    private static let restorationScrollOffsetKey = "quartz.restoration.scrollOffset"
+    private static let restorationSidebarSourceKey = "quartz.restoration.sidebarSource"
 
     // MARK: - Layout
 
@@ -313,161 +318,67 @@ struct ContentView: View {
     // MARK: - Task & Event Layer
 
     private var bodyWithTask: some View {
-        mainLayout
-        .quartzAmbientShellBackground()
-        .userActivity(QuartzUserActivity.openNoteActivityType, element: selectedNoteURL) { noteURL, activity in
-            guard let vaultRoot = appState.currentVault?.rootURL else {
-                activity.isEligibleForHandoff = false
-                activity.isEligibleForSearch = false
-                return
-            }
-            let title = viewModel?.editorSession?.note?.displayName
-                ?? noteURL.deletingPathExtension().lastPathComponent
-            QuartzUserActivity.configureOpenNoteActivity(
-                activity,
-                noteURL: noteURL,
-                displayTitle: title,
-                vaultRoot: vaultRoot
-            )
-        }
-        .onContinueUserActivity(QuartzUserActivity.openNoteActivityType) { activity in
-            deepLinkCoordinator?.handleOpenNoteActivity(activity) { url in
-                selectedNoteURL = url
-            }
-        }
-        .task {
-            let defaults = UserDefaults.standard
-            if viewModel == nil {
-                viewModel = ContentViewModel(appState: appState)
-            }
-            if vaultCoordinator == nil {
-                vaultCoordinator = VaultCoordinator(appState: appState)
-            }
-            if deepLinkCoordinator == nil {
-                deepLinkCoordinator = DeepLinkCoordinator(appState: appState)
-            }
-            if appState.currentVault == nil {
-                if CommandLine.arguments.contains("--mock-vault"),
-                   let fixtureVaultPath = defaults.string(forKey: "quartz.uitest.fixtureVaultPath") {
-                    let fixtureURL = URL(fileURLWithPath: fixtureVaultPath, isDirectory: true)
-                    let fixtureName = defaults.string(forKey: "quartz.lastVault.name") ?? fixtureURL.lastPathComponent
-                    let fixtureVault = VaultConfig(name: fixtureName, rootURL: fixtureURL)
-                    vaultCoordinator?.openVault(
-                        fixtureVault,
-                        viewModel: viewModel,
-                        noteListStore: noteListStore,
-                        workspaceStore: workspaceStore
-                    ) { restoreSelectedNoteIfNeeded() }
-                } else if !defaults.bool(forKey: Self.onboardingCompletedKey) {
-                    coordinator.activeSheet = .onboarding
-                } else {
-                    vaultCoordinator?.restoreLastVault(
-                        viewModel: viewModel,
-                        noteListStore: noteListStore,
-                        workspaceStore: workspaceStore
-                    ) { restoreSelectedNoteIfNeeded() }
-                    // If restoration failed (deleted folder, stale bookmark), show onboarding
-                    if appState.currentVault == nil {
-                        coordinator.activeSheet = .onboarding
-                    }
-                }
-            }
-            // Respect the user's dashboard-on-launch preference.
-            // If a note was restored, showDashboard is already false (via didSet).
-            // If no note was restored and the preference is off, dismiss the dashboard.
-            if !appearance.showDashboardOnLaunch && workspaceStore.route == .dashboard {
-                workspaceStore.setRoute(.empty)
-            }
-            coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
-            deepLinkCoordinator?.consumePendingWidgetDeepLinks(
-                coordinator: coordinator,
-                workspaceStore: workspaceStore
-            ) { url in selectedNoteURL = url }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            securityOrchestrator.scenePhaseDidChange(to: phase)
-            if phase == .active {
-                deepLinkCoordinator?.consumePendingWidgetDeepLinks(
-                    coordinator: coordinator,
-                    workspaceStore: workspaceStore
-                ) { url in selectedNoteURL = url }
-            }
-            if phase == .background || phase == .inactive {
-                saveStateForRestoration()
-            }
-        }
-        .onChange(of: appState.pendingOpenDocumentScanner) { _, pending in
-            guard pending else { return }
-            appState.pendingOpenDocumentScanner = false
-            // TODO: Document scanner presentation should be handled via EditorSession
-            // or a dedicated coordinator, not via legacy editorViewModel.
-            // See CODEX.md F3 for architectural direction.
-            #if os(iOS)
-            // Scanner is now presented by EditorContainerView's @State showDocumentScanner.
-            // A proper fix would inject AppState into EditorContainerView and observe the flag there.
-            #endif
-        }
-        .onChange(of: workspaceStore.selectedNoteURL) { _, newURL in
-            viewModel?.openNote(at: newURL)
-            if let url = newURL, let vaultRoot = appState.currentVault?.rootURL {
-                let relativePath = url.path(percentEncoded: false)
-                    .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
-                restoredNotePath = relativePath
-            } else {
-                restoredNotePath = nil
-            }
-        }
-        .onChange(of: viewModel?.sidebarViewModel?.activeFilter) { _, newFilter in
-            if let newFilter {
-                restoredSidebarSource = newFilter.rawValue
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterDidMove)) { notification in
-            guard let userInfo = notification.userInfo,
-                  let oldURL = userInfo["oldURL"] as? URL,
-                  let newURL = userInfo["newURL"] as? URL,
-                  let currentURL = selectedNoteURL else { return }
-            if CanonicalNoteIdentity.canonicalFileURL(for: currentURL) == CanonicalNoteIdentity.canonicalFileURL(for: oldURL) {
-                selectedNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterWillDelete)) { notification in
-            guard let deletedURL = notification.object as? URL,
-                  let currentURL = selectedNoteURL else { return }
-            if CanonicalNoteIdentity.canonicalFileURL(for: currentURL) == CanonicalNoteIdentity.canonicalFileURL(for: deletedURL) {
-                selectedNoteURL = nil
-            }
-        }
-        .onChange(of: appState.pendingCommand) { _, command in
-            guard command != .none else { return }
-            defer { appState.pendingCommand = .none }
-
-            // Vault commands are handled here (they need ContentView's panel methods)
-            switch command {
-            case .openVault:
-                #if os(macOS)
-                presentOpenVaultFlow()
-                #else
-                coordinator.activeSheet = .vaultPicker
-                #endif
-                return
-            case .createVault:
-                #if os(macOS)
-                presentCreateVaultFlow()
-                #endif
-                return
-            default:
-                break
-            }
-
-            viewModel?.handleCommand(
-                command,
-                coordinator: coordinator,
-                workspaceStore: workspaceStore
-            )
-        }
+        bodyWithCommandHandling
         // Note: Notification handlers (.quartzNoteSaved, .quartzSpotlightNotesRemoved, etc.)
         // are now managed by ContentViewModel.startNoteLifecycleObservers() per CODEX.md F1.
+    }
+
+    private var bodyWithCommandHandling: some View {
+        let view = AnyView(bodyWithLifecycleObservers)
+        return AnyView(
+            view.onChange(of: appState.pendingCommand) { _, command in
+                handlePendingCommandChange(command)
+            }
+        )
+    }
+
+    private var bodyWithLifecycleObservers: some View {
+        var view = AnyView(bodyWithStartupTask)
+        view = AnyView(view.onChange(of: scenePhase) { _, phase in
+            handleScenePhaseChange(phase)
+        })
+        view = AnyView(view.onChange(of: appState.pendingOpenDocumentScanner) { _, pending in
+            handlePendingOpenDocumentScannerChange(pending)
+        })
+        view = AnyView(view.onChange(of: workspaceStore.selectedNoteURL) { _, newURL in
+            handleSelectedNoteChange(newURL)
+        })
+        view = AnyView(view.onChange(of: viewModel?.sidebarViewModel?.activeFilter) { _, newFilter in
+            handleSidebarFilterChange(newFilter)
+        })
+        view = AnyView(view.onChange(of: viewModel?.sidebarViewModel?.fileTree) { _, newTree in
+            handleSidebarFileTreeChange(newTree)
+        })
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("quartzApplicationWillTerminate"))) { _ in
+            saveStateForRestoration()
+        })
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterDidMove)) { notification in
+            handleFilePresenterMove(notification)
+        })
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .quartzFilePresenterWillDelete)) { notification in
+            handleFilePresenterDelete(notification)
+        })
+        return view
+    }
+
+    private var bodyWithStartupTask: some View {
+        bodyWithUserActivity
+            .task {
+                await runStartupTask()
+            }
+    }
+
+    private var bodyWithUserActivity: some View {
+        mainLayout
+            .quartzAmbientShellBackground()
+            .userActivity(QuartzUserActivity.openNoteActivityType, element: selectedNoteURL) { noteURL, activity in
+                configureOpenNoteActivity(noteURL, activity: activity)
+            }
+            .onContinueUserActivity(QuartzUserActivity.openNoteActivityType) { activity in
+                deepLinkCoordinator?.handleOpenNoteActivity(activity) { url in
+                    selectedNoteURL = url
+                }
+            }
     }
 
     // MARK: - Sheet Builders
@@ -807,14 +718,199 @@ struct ContentView: View {
 
     // MARK: - State Restoration
 
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        securityOrchestrator.scenePhaseDidChange(to: phase)
+
+        switch phase {
+        case .active:
+            consumePendingWidgetDeepLinks()
+        case .inactive, .background:
+            saveStateForRestoration()
+        @unknown default:
+            break
+        }
+    }
+
+    private func configureOpenNoteActivity(_ noteURL: URL, activity: NSUserActivity) {
+        guard let vaultRoot = appState.currentVault?.rootURL else {
+            activity.isEligibleForHandoff = false
+            activity.isEligibleForSearch = false
+            return
+        }
+
+        let title = viewModel?.editorSession?.note?.displayName
+            ?? noteURL.deletingPathExtension().lastPathComponent
+        QuartzUserActivity.configureOpenNoteActivity(
+            activity,
+            noteURL: noteURL,
+            displayTitle: title,
+            vaultRoot: vaultRoot
+        )
+    }
+
+    private func handlePendingOpenDocumentScannerChange(_ pending: Bool) {
+        guard pending else { return }
+        appState.pendingOpenDocumentScanner = false
+        // TODO: Document scanner presentation should be handled via EditorSession
+        // or a dedicated coordinator, not via legacy editorViewModel.
+        // See CODEX.md F3 for architectural direction.
+        #if os(iOS)
+        // Scanner is now presented by EditorContainerView's @State showDocumentScanner.
+        // A proper fix would inject AppState into EditorContainerView and observe the flag there.
+        #endif
+    }
+
+    private func handlePendingCommandChange(_ command: CommandAction) {
+        guard command != .none else { return }
+        defer { appState.pendingCommand = .none }
+
+        switch command {
+        case .openVault:
+            #if os(macOS)
+            presentOpenVaultFlow()
+            #else
+            coordinator.activeSheet = .vaultPicker
+            #endif
+        case .createVault:
+            #if os(macOS)
+            presentCreateVaultFlow()
+            #endif
+        default:
+            viewModel?.handleCommand(
+                command,
+                coordinator: coordinator,
+                workspaceStore: workspaceStore
+            )
+        }
+    }
+
+    private func runStartupTask() async {
+        let defaults = UserDefaults.standard
+        if viewModel == nil {
+            viewModel = ContentViewModel(appState: appState)
+        }
+        if vaultCoordinator == nil {
+            vaultCoordinator = VaultCoordinator(appState: appState)
+        }
+        if deepLinkCoordinator == nil {
+            deepLinkCoordinator = DeepLinkCoordinator(appState: appState)
+        }
+        if appState.currentVault == nil {
+            if CommandLine.arguments.contains("--mock-vault"),
+               let fixtureVaultPath = defaults.string(forKey: "quartz.uitest.fixtureVaultPath") {
+                let fixtureURL = URL(fileURLWithPath: fixtureVaultPath, isDirectory: true)
+                let fixtureName = defaults.string(forKey: "quartz.lastVault.name") ?? fixtureURL.lastPathComponent
+                let fixtureVault = VaultConfig(name: fixtureName, rootURL: fixtureURL)
+                vaultCoordinator?.openVault(
+                    fixtureVault,
+                    viewModel: viewModel,
+                    noteListStore: noteListStore,
+                    workspaceStore: workspaceStore
+                ) { restoreSelectedNoteIfNeeded() }
+            } else if !defaults.bool(forKey: Self.onboardingCompletedKey) {
+                coordinator.activeSheet = .onboarding
+            } else {
+                vaultCoordinator?.restoreLastVault(
+                    viewModel: viewModel,
+                    noteListStore: noteListStore,
+                    workspaceStore: workspaceStore
+                ) { restoreSelectedNoteIfNeeded() }
+                if appState.currentVault == nil {
+                    coordinator.activeSheet = .onboarding
+                }
+            }
+        }
+
+        if !appearance.showDashboardOnLaunch && workspaceStore.route == .dashboard {
+            workspaceStore.setRoute(.empty)
+        }
+
+        coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
+        deepLinkCoordinator?.consumePendingWidgetDeepLinks(
+            coordinator: coordinator,
+            workspaceStore: workspaceStore
+        ) { url in
+            selectedNoteURL = url
+        }
+    }
+
+    private func consumePendingWidgetDeepLinks() {
+        deepLinkCoordinator?.consumePendingWidgetDeepLinks(
+            coordinator: coordinator,
+            workspaceStore: workspaceStore
+        ) { url in
+            selectedNoteURL = url
+        }
+    }
+
+    private func handleSidebarFilterChange(_ newFilter: SidebarFilter?) {
+        guard let newFilter else { return }
+        restoredSidebarSource = newFilter.rawValue
+        UserDefaults.standard.set(newFilter.rawValue, forKey: Self.restorationSidebarSourceKey)
+    }
+
+    private func handleSelectedNoteChange(_ newURL: URL?) {
+        viewModel?.openNote(at: newURL)
+
+        guard let url = newURL, let vaultRoot = appState.currentVault?.rootURL else {
+            restoredNotePath = nil
+            persistSelectedNotePathFallback(nil)
+            return
+        }
+
+        let relativePath = url.path(percentEncoded: false)
+            .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
+        restoredNotePath = relativePath
+        persistSelectedNotePathFallback(relativePath)
+    }
+
+    private func handleSidebarFileTreeChange(_ newTree: [FileNode]?) {
+        guard let newTree else { return }
+        viewModel?.editorSession?.fileTree = newTree
+    }
+
+    private func handleFilePresenterMove(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let oldURL = userInfo["oldURL"] as? URL,
+              let newURL = userInfo["newURL"] as? URL,
+              let currentURL = selectedNoteURL else { return }
+
+        let canonicalCurrentURL = CanonicalNoteIdentity.canonicalFileURL(for: currentURL)
+        let canonicalOldURL = CanonicalNoteIdentity.canonicalFileURL(for: oldURL)
+        guard canonicalCurrentURL == canonicalOldURL else { return }
+
+        selectedNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+    }
+
+    private func handleFilePresenterDelete(_ notification: Notification) {
+        guard let deletedURL = notification.object as? URL,
+              let currentURL = selectedNoteURL else { return }
+
+        let canonicalCurrentURL = CanonicalNoteIdentity.canonicalFileURL(for: currentURL)
+        let canonicalDeletedURL = CanonicalNoteIdentity.canonicalFileURL(for: deletedURL)
+        guard canonicalCurrentURL == canonicalDeletedURL else { return }
+
+        selectedNoteURL = nil
+    }
+
     private func saveStateForRestoration() {
         guard let session = viewModel?.editorSession else { return }
         restoredCursorLocation = session.cursorPosition.location
         restoredCursorLength = session.cursorPosition.length
         restoredScrollOffset = session.scrollOffset.y
+        let defaults = UserDefaults.standard
+        defaults.set(restoredCursorLocation, forKey: Self.restorationCursorLocationKey)
+        defaults.set(restoredCursorLength, forKey: Self.restorationCursorLengthKey)
+        defaults.set(restoredScrollOffset, forKey: Self.restorationScrollOffsetKey)
+        defaults.set(restoredSidebarSource, forKey: Self.restorationSidebarSourceKey)
+        if let restoredNotePath, !restoredNotePath.isEmpty {
+            defaults.set(restoredNotePath, forKey: Self.restorationSelectedNotePathKey)
+        }
     }
 
     private func restoreSelectedNoteIfNeeded() {
+        hydrateRestorationFallbacksIfNeeded()
+
         // Restore sidebar source (All Notes / Favorites / Recent)
         if let filter = SidebarFilter(rawValue: restoredSidebarSource) {
             viewModel?.sidebarViewModel?.activeFilter = filter
@@ -857,6 +953,46 @@ struct ContentView: View {
         // Restore scroll position
         if restoredScrollOffset > 0 {
             session.restoreScroll(y: restoredScrollOffset)
+        }
+    }
+
+    private func persistSelectedNotePathFallback(_ path: String?) {
+        let defaults = UserDefaults.standard
+        if let path, !path.isEmpty {
+            defaults.set(path, forKey: Self.restorationSelectedNotePathKey)
+        } else {
+            defaults.removeObject(forKey: Self.restorationSelectedNotePathKey)
+        }
+    }
+
+    private func hydrateRestorationFallbacksIfNeeded() {
+        let defaults = UserDefaults.standard
+
+        if (restoredNotePath?.isEmpty ?? true),
+           let fallbackPath = defaults.string(forKey: Self.restorationSelectedNotePathKey),
+           !fallbackPath.isEmpty {
+            restoredNotePath = fallbackPath
+        }
+
+        if restoredCursorLocation == 0,
+           let fallbackCursorLocation = defaults.object(forKey: Self.restorationCursorLocationKey) as? Int {
+            restoredCursorLocation = fallbackCursorLocation
+        }
+
+        if restoredCursorLength == 0,
+           let fallbackCursorLength = defaults.object(forKey: Self.restorationCursorLengthKey) as? Int {
+            restoredCursorLength = fallbackCursorLength
+        }
+
+        if restoredScrollOffset == 0,
+           let fallbackScrollOffset = defaults.object(forKey: Self.restorationScrollOffsetKey) as? Double {
+            restoredScrollOffset = fallbackScrollOffset
+        }
+
+        if restoredSidebarSource == SidebarFilter.all.rawValue,
+           let fallbackSidebarSource = defaults.string(forKey: Self.restorationSidebarSourceKey),
+           !fallbackSidebarSource.isEmpty {
+            restoredSidebarSource = fallbackSidebarSource
         }
     }
 }
