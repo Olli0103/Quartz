@@ -12,6 +12,7 @@ mkdir -p reports
 
 PACKAGE_PATH="${PACKAGE_PATH:-QuartzKit}"
 LOG_PATH="${LOG_PATH:-reports/editor_excellence.log}"
+SNAPSHOT_LOG_PATH="${SNAPSHOT_LOG_PATH:-reports/editor_excellence_snapshots.log}"
 IOS_LOG_PATH="${IOS_LOG_PATH:-reports/editor_excellence_ios.log}"
 IPADOS_LOG_PATH="${IPADOS_LOG_PATH:-reports/editor_excellence_ipados.log}"
 MACOS_UI_LOG_PATH="${MACOS_UI_LOG_PATH:-reports/editor_excellence_ui_macos.log}"
@@ -25,6 +26,8 @@ IPADOS_UI_RESULT_BUNDLE="${IPADOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPad.
 IPHONE_PREFERRED_SIMULATOR="${IPHONE_PREFERRED_SIMULATOR:-iPhone 17 Pro}"
 IPAD_PREFERRED_SIMULATOR="${IPAD_PREFERRED_SIMULATOR:-iPad Pro 13-inch (M5)}"
 EDITOR_FILTER="${EDITOR_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip|Snapshot)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
+EDITOR_NON_SNAPSHOT_FILTER="${EDITOR_NON_SNAPSHOT_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
+EDITOR_SNAPSHOT_FILTER="${EDITOR_SNAPSHOT_FILTER:-EditorRealitySnapshotTests}"
 RECORD_FLAG_PATH="${RECORD_FLAG_PATH:-/tmp/quartz_record_editor_snapshots.flag}"
 PACKAGE_SCHEME_TEST_ACTION_ERROR="Scheme QuartzKit is not currently configured for the test action."
 
@@ -122,9 +125,15 @@ run_editor_shell_ui_matrix() {
 
 step "Running editor excellence gate"
 echo "  Log: $LOG_PATH"
+echo "  Snapshot log: $SNAPSHOT_LOG_PATH"
 echo "  Filter: $EDITOR_FILTER"
 
-if swift test --package-path "$PACKAGE_PATH" --filter "$EDITOR_FILTER" 2>&1 | tee "$LOG_PATH"; then
+if run_swift_test_with_serial_retry_to_log \
+    "$LOG_PATH" \
+    swift test --package-path "$PACKAGE_PATH" --filter "$EDITOR_NON_SNAPSHOT_FILTER" \
+    && run_swift_test_with_serial_retry_to_log \
+    "$SNAPSHOT_LOG_PATH" \
+    swift test --package-path "$PACKAGE_PATH" --filter "$EDITOR_SNAPSHOT_FILTER"; then
     pass "Editor excellence gate passed"
 else
     fail "Editor excellence gate failed"

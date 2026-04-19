@@ -3,20 +3,21 @@ import XCTest
 #if os(macOS)
 final class macOSEditorShellUITests: QuartzUITestCase {
     private let preferredExistingNoteTitles = ["Welcome", "Todo"]
+    private let preferredInlineFormattingNoteTitles = ["Welcome", "Release Notes", "Todo"]
     private let longFixtureNoteTitle = "Release Notes"
 
     @MainActor
     func testEditorPreservesEditsAcrossNoteSwitching() throws {
         launchApp()
 
-        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+        guard let originalNote = openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcome")
             XCTFail("An existing fixture note must exist in the mock vault")
             return
         }
 
-        let editor = focusEditor()
-        let marker = "\nmac-switch-\(UUID().uuidString.prefix(8))"
+        let editor = clearEditorText()
+        let marker = "mac-switch-\(UUID().uuidString.prefix(8))"
         editor.typeText(marker)
         assertEditorContains(marker)
 
@@ -26,7 +27,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        guard openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) != nil else {
+        if originalNote.waitForExistence(timeout: 10) {
+            interact(with: originalNote)
+        } else if openMockVaultNote(matchingAnyOf: preferredExistingNoteTitles) == nil {
             takeScreenshot(named: "macOS_EditorShell_WelcomeMissingAfterSwitch")
             XCTFail("A fixture note must remain selectable after switching away")
             return
@@ -46,7 +49,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = focusEditor()
+        let editor = replaceEditorText(with: "Keyboard bold baseline")
         editor.typeKey("b", modifierFlags: .command)
 
         let token = "macBold\(UUID().uuidString.prefix(6))"
@@ -101,7 +104,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = focusEditor()
+        let editor = replaceEditorText(with: "Toolbar link baseline")
         let linkButton = element(matchingIdentifier: "editor-toolbar-link")
         XCTAssertTrue(linkButton.waitForExistence(timeout: 5),
                       "Link toolbar action must exist on macOS")
@@ -117,9 +120,9 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
-            takeScreenshot(named: "macOS_EditorShell_NoWelcomeForWikiLink")
-            XCTFail("Welcome note must exist for wiki-link insertion coverage")
+        guard createNewNote() else {
+            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForWikiLink")
+            XCTFail("A fresh editor note must be creatable for wiki-link insertion coverage")
             return
         }
 
@@ -142,13 +145,13 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     func testToolbarBoldActionAppliesMarkdownInline() throws {
         launchApp()
 
-        guard openMockVaultNote(named: "Welcome") != nil else {
+        guard openMockVaultNote(matchingAnyOf: preferredInlineFormattingNoteTitles) != nil else {
             takeScreenshot(named: "macOS_EditorShell_NoWelcomeForToolbarBoldInline")
-            XCTFail("A deterministic fixture note must exist for macOS toolbar inline bold coverage")
+            XCTFail("A visible fixture note must exist for macOS toolbar inline bold coverage")
             return
         }
 
-        let editor = focusEditor()
+        let editor = replaceEditorText(with: "Toolbar bold baseline")
         let boldButton = element(matchingIdentifier: "editor-toolbar-bold")
         XCTAssertTrue(boldButton.waitForExistence(timeout: 5),
                       "Bold toolbar action must exist on macOS")
@@ -191,7 +194,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = focusEditor()
+        let editor = clearEditorText()
         let checkboxButton = element(matchingIdentifier: "editor-toolbar-checkbox")
         XCTAssertTrue(checkboxButton.waitForExistence(timeout: 5),
                       "Checkbox toolbar action must exist on macOS")
@@ -302,17 +305,19 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = focusEditor()
-        let marker = "\nmac-restore-\(UUID().uuidString.prefix(8))"
+        let editor = clearEditorText()
+        let marker = "mac-restore-\(UUID().uuidString.prefix(8))"
         editor.typeText(marker)
         assertEditorContains(marker)
 
         app.typeKey("s", modifierFlags: .command)
         relaunchAppPreservingState()
+        _ = focusEditor()
 
-        XCTAssertTrue(waitForEditorSurface(timeout: 10),
-                      "Editor must return after relaunch without state reset")
-        assertEditorContains(marker)
+        XCTAssertTrue(
+            waitForEditorToContain(marker, timeout: 15),
+            "Editor must return with restored note content after relaunch without state reset"
+        )
     }
 }
 #endif

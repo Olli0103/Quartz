@@ -34,7 +34,8 @@ public final class NoteListStore {
     }
 
     /// Stored for deinit cleanup of debounced search work.
-    private var searchDebounceTask: Task<Void, Never>?
+    /// Swift 6 runs `deinit` nonisolated, and `Task.cancel()` is safe there.
+    nonisolated(unsafe) private var searchDebounceTask: Task<Void, Never>?
     private static let searchDebounceDelay: Duration = .milliseconds(150)
 
     /// Current sort order. Persisted in UserDefaults.
@@ -60,7 +61,8 @@ public final class NoteListStore {
     public private(set) var vaultRoot: URL?
 
     /// Stored notification tokens removed during teardown.
-    private var observerTokens: [Any] = []
+    /// Removing NotificationCenter observers is safe from nonisolated `deinit`.
+    nonisolated(unsafe) private var observerTokens: [Any] = []
 
     private static let sortOrderKey = "quartz.noteListSortOrder"
     private static let recentLimit = 20
@@ -73,11 +75,9 @@ public final class NoteListStore {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            searchDebounceTask?.cancel()
-            for token in observerTokens {
-                NotificationCenter.default.removeObserver(token)
-            }
+        searchDebounceTask?.cancel()
+        for token in observerTokens {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 

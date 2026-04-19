@@ -50,15 +50,27 @@ public final class ContentViewModel {
     private var cloudSyncService: CloudSyncService?
     private var syncMonitoringTask: Task<Void, Never>?
     private var indexingTask: Task<Void, Never>?
+    private var vaultHydrationTask: Task<Void, Never>?
     private var restorationPhaseTask: Task<Void, Never>?
+    private var relationshipLifecycleTask: Task<Void, Never>?
+    private var explicitRelationshipRepairTask: Task<Void, Never>?
+    private var semanticSnapshotPersistTask: Task<Void, Never>?
     private var currentVaultRootURL: URL?
+    private var relationshipRuntimeGeneration: UInt64 = 0
     /// Debounced task for re-indexing embeddings after note saves.
     private var embeddingReindexTask: Task<Void, Never>?
     /// Observer token for `.quartzNoteSaved` notifications (embedding reindex).
     private var noteSavedObserver: Any?
     /// Observer tokens for note lifecycle notifications (spotlight, preview, search).
     private var noteLifecycleObservers: [Any] = []
-    /// Background semantic link discovery engine.
+    /// Whether the current vault has completed its authoritative explicit relationship hydration.
+    private var hasHydratedExplicitRelationships = false
+    /// Whether the pending repair task must refresh the sidebar tree before rebuilding.
+    private var explicitRelationshipRepairNeedsSidebarRefresh = false
+    /// Guards against file-tree callbacks re-scheduling the repair task while KG3
+    /// is already performing the authoritative refresh/rebuild sequence.
+    private var isPerformingExplicitRelationshipRepair = false
+    /// Background note-to-note related-note similarity engine.
     public var semanticLinkService: SemanticLinkService?
     /// Background AI concept extraction engine.
     public var knowledgeExtractionService: KnowledgeExtractionService?
@@ -78,13 +90,33 @@ public final class ContentViewModel {
     /// Loads a vault: creates sidebar VM, search index, builds the file tree, and indexes notes.
     /// Wires the `NoteListStore` with preview data after indexing completes.
     public func loadVault(_ vault: VaultConfig, noteListStore: NoteListStore? = nil) {
+        KnowledgeAnalysisSettings.migrateLegacyDefaultsIfNeeded()
+        let previousSemanticLinkService = semanticLinkService
+        let previousKnowledgeExtractionService = knowledgeExtractionService
+        let previousIntelligenceCoordinator = intelligenceCoordinator
+
         editorSession?.closeNote()
         stopCloudSync()
         indexingTask?.cancel()
         indexingTask = nil
+        vaultHydrationTask?.cancel()
+        vaultHydrationTask = nil
         restorationPhaseTask?.cancel()
         restorationPhaseTask = nil
+        relationshipLifecycleTask?.cancel()
+        relationshipLifecycleTask = nil
+        explicitRelationshipRepairTask?.cancel()
+        explicitRelationshipRepairTask = nil
+        semanticSnapshotPersistTask?.cancel()
+        semanticSnapshotPersistTask = nil
+        embeddingReindexTask?.cancel()
+        embeddingReindexTask = nil
+        hasHydratedExplicitRelationships = false
+        explicitRelationshipRepairNeedsSidebarRefresh = false
+        inspectorStore.aiScanProgress = nil
         startupCoordinator.reset()
+        relationshipRuntimeGeneration &+= 1
+        let loadGeneration = relationshipRuntimeGeneration
 
         currentVaultRootURL = vault.rootURL
 
@@ -94,6 +126,17 @@ public final class ContentViewModel {
         let provider = ServiceContainer.shared.resolveVaultProvider()
         vaultProvider = provider
         let viewModel = SidebarViewModel(vaultProvider: provider)
+        viewModel.onFileTreeDidChange = { [weak self] newTree in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL) else { return }
+                await self.syncRelationshipCatalog(to: newTree)
+                if self.hasHydratedExplicitRelationships, !self.isPerformingExplicitRelationshipRepair {
+                    self.scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: false)
+                }
+            }
+        }
         sidebarViewModel = viewModel
 
         let index = VaultSearchIndex(vaultProvider: provider)
@@ -104,7 +147,8 @@ public final class ContentViewModel {
         let embedding = VectorEmbeddingService(vaultURL: vault.rootURL)
         embeddingService = embedding
 
-        // Initialize background semantic link service
+        // Initialize background related-note similarity service.
+        // KG5 keeps this separate from AI concept extraction and from explicit links.
         semanticLinkService = SemanticLinkService(
             embeddingService: embedding,
             edgeStore: graphEdgeStore,
@@ -125,7 +169,6 @@ public final class ContentViewModel {
             vaultRootURL: vault.rootURL
         )
         intelligenceCoordinator = coordinator
-        Task { await coordinator.startObserving() }
 
         let frontmatterParser = ServiceContainer.shared.resolveFrontmatterParser()
         let previewRepo = NotePreviewRepository(vaultRoot: vault.rootURL)
@@ -148,6 +191,7 @@ public final class ContentViewModel {
         session.vaultRootURL = vault.rootURL
         session.graphEdgeStore = graphEdgeStore
         editorSession = session
+        startRelationshipLifecycleObserver(for: vault.rootURL)
 
         // Phase: editor mounted
         startupCoordinator.advance(to: StartupCoordinator.StartupPhase.editorMounted)
@@ -155,48 +199,115 @@ public final class ContentViewModel {
         // Create DocumentChatSession ONCE per vault — reuses the same EditorSession.
         documentChatSession = DocumentChatSession(editorSession: session)
 
-        Task {
+        vaultHydrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            await previousIntelligenceCoordinator?.stopObserving()
+            await previousSemanticLinkService?.invalidatePendingWork()
+            await previousKnowledgeExtractionService?.invalidateBackgroundWork()
+
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+
+            await coordinator.startObserving()
+            await self.graphEdgeStore.resetAllState()
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+
             // Load preview cache from disk first (instant middle column population)
             await previewRepo.loadCache()
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
 
             // Wire NoteListStore with cached data immediately (before full reindex)
             if let noteListStore {
                 noteListStore.configure(repository: previewRepo, vaultRoot: vault.rootURL)
                 await noteListStore.loadItems(for: .allNotes)
             }
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
 
             await viewModel.loadTree(at: vault.rootURL)
-            session.fileTree = viewModel.fileTree
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+            await self.syncRelationshipCatalog(to: viewModel.fileTree)
             // Run preview indexer alongside other indexers — it's the fastest (8KB reads)
             await previewIdx.indexAll(from: viewModel.fileTree)
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
 
             // Refresh note list after full reindex completes (picks up new/changed notes)
             if let noteListStore {
                 await noteListStore.refresh()
             }
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
 
             await index.indexFromPreloadedTree(viewModel.fileTree)
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
 
-            // Pre-populate graph edge store from cache for instant backlinks
+            // Hydrate authoritative explicit relationships from cache when valid.
+            // KG4 keeps persisted explicit relationship ownership with the same
+            // runtime owner that powers outgoing links, backlinks, and exclusions.
             let noteURLs = Self.collectNoteURLs(from: viewModel.fileTree)
             let graphCache = GraphCache(vaultRoot: vault.rootURL)
-            let graphFingerprint = graphCache.computeFingerprint(for: noteURLs)
-            if let cached = graphCache.loadIfValid(fingerprint: graphFingerprint) {
-                await self.graphEdgeStore.loadFromCache(cached, allVaultURLs: noteURLs)
+            let explicitFingerprint = graphCache.computeFingerprint(for: noteURLs)
+            if let snapshot = graphCache.loadExplicitRelationshipSnapshotIfValid(
+                fingerprint: explicitFingerprint
+            ) {
+                let affectedTargets = await self.graphEdgeStore.loadExplicitRelationshipSnapshot(snapshot)
+                NotificationCenter.default.post(
+                    name: .quartzReferenceGraphDidChange,
+                    object: nil,
+                    userInfo: ["targetURLs": Array(affectedTargets)]
+                )
+            } else {
+                await self.rebuildExplicitRelationshipState(from: viewModel.fileTree)
             }
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+
+            let semanticSnapshot = graphCache.loadSemanticRelationshipSnapshotIfValid(
+                fingerprint: explicitFingerprint
+            )
+            if let semanticSnapshot {
+                await self.graphEdgeStore.loadSemanticRelationshipSnapshot(semanticSnapshot)
+                NotificationCenter.default.post(
+                    name: .quartzRelatedNotesUpdated,
+                    object: nil,
+                    userInfo: ["vaultRootURL": vault.rootURL]
+                )
+            }
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+
+            await self.knowledgeExtractionService?.restorePersistedConcepts()
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+            self.hasHydratedExplicitRelationships = true
 
             // Phase: index warm (search + graph loaded)
             self.startupCoordinator.advance(to: StartupCoordinator.StartupPhase.indexWarm)
 
-            if let root = currentVaultRootURL {
+            if let root = self.currentVaultRootURL {
                 await spotlightIndexer?.removeAllInDomain()
                 await spotlightIndexer?.indexAllNotes(
                     urls: Self.collectNoteURLs(from: viewModel.fileTree),
                     vaultRoot: root
                 )
             }
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
             try? await embedding.loadIndex()
-            indexAllNotes(in: viewModel.fileTree, vaultRoot: vault.rootURL, embedding: embedding)
+            guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
+                  !Task.isCancelled else { return }
+            self.indexAllNotes(
+                in: viewModel.fileTree,
+                vaultRoot: vault.rootURL,
+                embedding: embedding,
+                generation: loadGeneration
+            )
 
             // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
             await knowledgeExtractionService?.startVaultScan()
@@ -277,6 +388,23 @@ public final class ContentViewModel {
         }
         noteLifecycleObservers.append(savedObserver)
 
+        // .quartzRelatedNotesUpdated — persist the canonical semantic similarity snapshot
+        let relatedNotesObserver = NotificationCenter.default.addObserver(
+            forName: .quartzRelatedNotesUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let updatedVaultRoot = notification.userInfo?["vaultRootURL"] as? URL
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.notificationBelongsToCurrentVault(updatedVaultRoot),
+                      let tree = self.sidebarViewModel?.fileTree else { return }
+                self.scheduleSemanticSnapshotPersistence(from: tree)
+            }
+        }
+        noteLifecycleObservers.append(relatedNotesObserver)
+
         // .quartzSpotlightNotesRemoved — remove spotlight and preview entries
         let removedObserver = NotificationCenter.default.addObserver(
             forName: .quartzSpotlightNotesRemoved,
@@ -327,6 +455,215 @@ public final class ContentViewModel {
             NotificationCenter.default.removeObserver(observer)
         }
         noteLifecycleObservers.removeAll()
+    }
+
+    // MARK: - Relationship Lifecycle Repair
+
+    private func startRelationshipLifecycleObserver(for vaultRoot: URL) {
+        relationshipLifecycleTask?.cancel()
+        relationshipLifecycleTask = Task { [weak self] in
+            let stream = await DomainEventBus.shared.subscribe()
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+                await self.handleRelationshipLifecycleEvent(event, vaultRoot: vaultRoot)
+            }
+        }
+    }
+
+    private func handleRelationshipLifecycleEvent(_ event: DomainEvent, vaultRoot: URL) async {
+        switch event {
+        case let .noteSaved(url, _):
+            guard hasHydratedExplicitRelationships,
+                  relationshipEventImpactsCurrentVault(urls: [url], vaultRoot: vaultRoot) else { return }
+            await refreshExplicitRelationshipsAfterSave(for: url)
+        case let .noteRelocated(from, to):
+            guard relationshipEventImpactsCurrentVault(urls: [from, to], vaultRoot: vaultRoot) else { return }
+            scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: true)
+        case let .noteDeleted(url):
+            guard relationshipEventImpactsCurrentVault(urls: [url], vaultRoot: vaultRoot) else { return }
+            scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: true)
+        default:
+            break
+        }
+    }
+
+    private func relationshipEventImpactsCurrentVault(urls: [URL], vaultRoot: URL) -> Bool {
+        let canonicalVaultRoot = vaultRoot.standardizedFileURL
+        return urls
+            .map(CanonicalNoteIdentity.canonicalFileURL(for:))
+            .contains { url in
+                url.path(percentEncoded: false).hasPrefix(canonicalVaultRoot.path(percentEncoded: false))
+            }
+    }
+
+    private func scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: Bool) {
+        guard hasHydratedExplicitRelationships,
+              let vaultRoot = currentVaultRootURL else { return }
+        let generation = relationshipRuntimeGeneration
+
+        explicitRelationshipRepairNeedsSidebarRefresh =
+            explicitRelationshipRepairNeedsSidebarRefresh || requiresSidebarRefresh
+
+        explicitRelationshipRepairTask?.cancel()
+        explicitRelationshipRepairTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let self,
+                  !Task.isCancelled,
+                  self.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot),
+                  self.currentVaultRootURL == vaultRoot else { return }
+
+            let needsSidebarRefresh = self.explicitRelationshipRepairNeedsSidebarRefresh
+            self.explicitRelationshipRepairNeedsSidebarRefresh = false
+            self.isPerformingExplicitRelationshipRepair = true
+            defer { self.isPerformingExplicitRelationshipRepair = false }
+
+            if needsSidebarRefresh {
+                await self.sidebarViewModel?.refresh()
+            }
+
+            let tree = self.sidebarViewModel?.fileTree ?? []
+            await self.syncRelationshipCatalog(to: tree)
+            await self.rebuildExplicitRelationshipState(from: tree)
+        }
+    }
+
+    private func syncRelationshipCatalog(to tree: [FileNode]) async {
+        await graphEdgeStore.configureCanonicalResolution(with: tree)
+        editorSession?.fileTree = tree
+    }
+
+    private func refreshExplicitRelationshipsAfterSave(for sourceURL: URL) async {
+        let canonicalSourceURL = CanonicalNoteIdentity.canonicalFileURL(for: sourceURL)
+        let tree = sidebarViewModel?.fileTree ?? []
+
+        guard let existingNode = Self.findFileNode(at: canonicalSourceURL, in: tree) else {
+            scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: true)
+            return
+        }
+
+        let provider = vaultProvider ?? ServiceContainer.shared.resolveVaultProvider()
+        guard let savedNote = try? await provider.readNote(at: canonicalSourceURL) else {
+            scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: true)
+            return
+        }
+
+        if Self.identityMetadataChanged(
+            from: existingNode.frontmatter,
+            to: savedNote.frontmatter
+        ) {
+            scheduleExplicitRelationshipLifecycleRepair(requiresSidebarRefresh: true)
+            return
+        }
+
+        await refreshExplicitRelationshipState(for: canonicalSourceURL, within: tree)
+    }
+
+    private func refreshExplicitRelationshipState(for sourceURL: URL, within tree: [FileNode]) async {
+        let provider = vaultProvider ?? ServiceContainer.shared.resolveVaultProvider()
+        let canonicalSourceURL = CanonicalNoteIdentity.canonicalFileURL(for: sourceURL)
+        let catalog = NoteReferenceCatalog(allNotes: tree)
+        let previousTargets = Set(await graphEdgeStore.explicitReferences(from: canonicalSourceURL).map(\.targetNoteURL))
+
+        let references: [ExplicitNoteReference]
+        if let note = try? await provider.readNote(at: canonicalSourceURL) {
+            references = await catalog.resolvedExplicitReferences(
+                in: note.body,
+                sourceNoteURL: canonicalSourceURL,
+                graphEdgeStore: nil
+            )
+        } else {
+            references = []
+        }
+
+        await graphEdgeStore.updateExplicitReferences(for: canonicalSourceURL, references: references)
+        let newTargets = Set(await graphEdgeStore.explicitReferences(from: canonicalSourceURL).map(\.targetNoteURL))
+        let affectedTargets = Array(previousTargets.union(newTargets))
+
+        NotificationCenter.default.post(
+            name: .quartzReferenceGraphDidChange,
+            object: nil,
+            userInfo: ["targetURLs": affectedTargets]
+        )
+
+        await persistExplicitRelationshipSnapshot(from: tree)
+    }
+
+    private func rebuildExplicitRelationshipState(from tree: [FileNode]) async {
+        let provider = vaultProvider ?? ServiceContainer.shared.resolveVaultProvider()
+        let catalog = NoteReferenceCatalog(allNotes: tree)
+        let noteURLs = Self.collectNoteURLs(from: tree)
+        var referencesBySource: [URL: [ExplicitNoteReference]] = [:]
+
+        for noteURL in noteURLs {
+            guard let note = try? await provider.readNote(at: noteURL) else { continue }
+            let references = await catalog.resolvedExplicitReferences(
+                in: note.body,
+                sourceNoteURL: noteURL,
+                graphEdgeStore: nil
+            )
+            if !references.isEmpty {
+                referencesBySource[CanonicalNoteIdentity.canonicalFileURL(for: noteURL)] = references
+            }
+        }
+
+        let affectedTargets = await graphEdgeStore.replaceExplicitRelationshipState(with: referencesBySource)
+        NotificationCenter.default.post(
+            name: .quartzReferenceGraphDidChange,
+            object: nil,
+            userInfo: ["targetURLs": Array(affectedTargets)]
+        )
+        await persistExplicitRelationshipSnapshot(from: tree)
+    }
+
+    private func persistExplicitRelationshipSnapshot(from tree: [FileNode]) async {
+        guard let vaultRoot = currentVaultRootURL else { return }
+        let noteURLs = Self.collectNoteURLs(from: tree)
+        let fingerprint = GraphCache(vaultRoot: vaultRoot).computeFingerprint(for: noteURLs)
+        let snapshot = await graphEdgeStore.exportExplicitRelationshipSnapshot(fingerprint: fingerprint)
+        do {
+            try GraphCache(vaultRoot: vaultRoot).saveExplicitRelationshipSnapshot(snapshot)
+        } catch {
+            assertionFailure("Failed to persist explicit relationship snapshot: \(error)")
+        }
+    }
+
+    private func persistSemanticRelationshipSnapshot(from tree: [FileNode]) async {
+        guard let vaultRoot = currentVaultRootURL else { return }
+        let noteURLs = Self.collectNoteURLs(from: tree)
+        let fingerprint = GraphCache(vaultRoot: vaultRoot).computeFingerprint(for: noteURLs)
+        let snapshot = await graphEdgeStore.exportSemanticRelationshipSnapshot(fingerprint: fingerprint)
+        do {
+            try GraphCache(vaultRoot: vaultRoot).saveSemanticRelationshipSnapshot(snapshot)
+        } catch {
+            assertionFailure("Failed to persist related-note similarity snapshot: \(error)")
+        }
+    }
+
+    private func scheduleSemanticSnapshotPersistence(from tree: [FileNode]) {
+        let generation = relationshipRuntimeGeneration
+        let treeSnapshot = tree
+
+        semanticSnapshotPersistTask?.cancel()
+        semanticSnapshotPersistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self,
+                  !Task.isCancelled,
+                  self.isCurrentRelationshipGeneration(generation) else { return }
+            await self.persistSemanticRelationshipSnapshot(from: treeSnapshot)
+        }
+    }
+
+    private func isCurrentRelationshipGeneration(_ generation: UInt64, vaultRoot: URL? = nil) -> Bool {
+        guard relationshipRuntimeGeneration == generation else { return false }
+        guard let vaultRoot else { return true }
+        return currentVaultRootURL?.standardizedFileURL == vaultRoot.standardizedFileURL
+    }
+
+    private func notificationBelongsToCurrentVault(_ updatedVaultRoot: URL?) -> Bool {
+        guard let updatedVaultRoot else { return true }
+        guard let currentVaultRootURL else { return false }
+        return updatedVaultRoot.standardizedFileURL == currentVaultRootURL.standardizedFileURL
     }
 
     // MARK: - Note Opening
@@ -470,7 +807,12 @@ public final class ContentViewModel {
         guard let tree = sidebarViewModel?.fileTree,
               let vaultRoot = currentVaultRootURL else { return }
         if let embedding = embeddingService {
-            indexAllNotes(in: tree, vaultRoot: vaultRoot, embedding: embedding)
+            indexAllNotes(
+                in: tree,
+                vaultRoot: vaultRoot,
+                embedding: embedding,
+                generation: relationshipRuntimeGeneration
+            )
         }
         Task {
             await spotlightIndexer?.removeAllInDomain()
@@ -567,6 +909,7 @@ public final class ContentViewModel {
     public func updateEmbeddingForNote(at url: URL) {
         guard let embedding = embeddingService,
               let vaultRoot = currentVaultRootURL else { return }
+        let generation = relationshipRuntimeGeneration
 
         // If this is the active note, use live text (avoids stale disk read)
         let liveText: String? = (editorSession?.note?.fileURL == url) ? editorSession?.currentText : nil
@@ -580,7 +923,11 @@ public final class ContentViewModel {
             if let content, !content.isEmpty {
                 try? await embedding.indexNote(noteID: stableID, content: content)
                 try? await embedding.saveIndex()
-                // Trigger background semantic link discovery after successful embedding update
+                let isCurrentGeneration = await MainActor.run { [weak self] in
+                    self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
+                }
+                guard isCurrentGeneration else { return }
+                // Trigger background related-note similarity analysis after successful embedding update
                 await semanticService?.scheduleAnalysis(for: url)
                 // Trigger AI concept extraction
                 await extractionService?.scheduleExtraction(for: url)
@@ -721,13 +1068,48 @@ public final class ContentViewModel {
         return urls
     }
 
+    private static func findFileNode(at url: URL, in nodes: [FileNode]) -> FileNode? {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        for node in nodes {
+            if CanonicalNoteIdentity.canonicalFileURL(for: node.url) == canonicalURL {
+                return node
+            }
+            if let children = node.children,
+               let found = findFileNode(at: canonicalURL, in: children) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private static func identityMetadataChanged(from oldFrontmatter: Frontmatter?, to newFrontmatter: Frontmatter) -> Bool {
+        normalizeIdentityMetadata(oldFrontmatter?.title) != normalizeIdentityMetadata(newFrontmatter.title)
+            || normalizeIdentityList(oldFrontmatter?.aliases ?? []) != normalizeIdentityList(newFrontmatter.aliases)
+    }
+
+    private static func normalizeIdentityMetadata(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func normalizeIdentityList(_ values: [String]) -> [String] {
+        values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
     /// Indexes all notes in the file tree via the embedding service.
     /// Runs file I/O and embedding generation on a background thread,
     /// hopping back to MainActor only for progress updates.
     private func indexAllNotes(
         in tree: [FileNode],
         vaultRoot: URL,
-        embedding: VectorEmbeddingService
+        embedding: VectorEmbeddingService,
+        generation: UInt64
     ) {
         indexingTask?.cancel()
 
@@ -741,6 +1123,10 @@ public final class ContentViewModel {
             let total = noteURLs.count
             for (i, url) in noteURLs.enumerated() {
                 guard !Task.isCancelled else { break }
+                let isCurrentGeneration = await MainActor.run { [weak self] in
+                    self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
+                }
+                guard isCurrentGeneration else { break }
 
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                 let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
@@ -768,6 +1154,10 @@ public final class ContentViewModel {
                 }
             }
 
+            let isCurrentGeneration = await MainActor.run { [weak self] in
+                self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
+            }
+            guard isCurrentGeneration else { return }
             try? await embedding.saveIndex()
             await MainActor.run { [weak self] in
                 self?.indexingProgress = nil

@@ -112,4 +112,34 @@ struct EditorProductTruthfulnessTests {
         #expect(backlinks[0].sourceNoteName == "Source")
         #expect(backlinks[0].context.contains("[[Target]]"))
     }
+
+    @Test("AI settings separate related notes similarity from AI concepts honestly")
+    func knowledgeRelationshipSettingsTruthfulness() {
+        #expect(AISettingsView.relatedNotesSectionTitle == "Related Notes Similarity")
+        #expect(AISettingsView.relatedNotesToggleTitle == "Discover related notes")
+        #expect(AISettingsView.relatedNotesFooterText.contains("Related Notes"))
+        #expect(AISettingsView.relatedNotesFooterText.contains("Graph View similarity"))
+        #expect(AISettingsView.relatedNotesFooterText.contains("same canonical related-note similarity state"))
+        #expect(!AISettingsView.relatedNotesFooterText.contains("still computes its own similarity snapshot"))
+        #expect(AISettingsView.relatedNotesFooterText.contains("explicit links"))
+        #expect(AISettingsView.relatedNotesFooterText.contains("unlinked mentions"))
+
+        #expect(AISettingsView.aiConceptsSectionTitle == "AI Concepts")
+        #expect(AISettingsView.aiConceptsToggleTitle == "Extract AI concepts")
+        #expect(AISettingsView.aiConceptsFooterText.contains("Graph View concept hubs"))
+        #expect(AISettingsView.aiConceptsFooterText.contains("same canonical AI concept state"))
+        #expect(AISettingsView.aiConceptsFooterText.contains("explicit links"))
+        #expect(AISettingsView.aiConceptsFooterText.contains("related-note similarity"))
+    }
+
+    @Test("Inspector and graph labels keep relationship types distinct")
+    func knowledgeRelationshipLabelsStayDistinct() {
+        #expect(InspectorSidebar.relatedNotesSectionTitle == "RELATED NOTES")
+        #expect(InspectorSidebar.unlinkedMentionsSectionTitle == "UNLINKED MENTIONS")
+        #expect(InspectorSidebar.aiConceptsSectionTitle == "AI CONCEPTS")
+        #expect(GraphViewModel.semanticEdgeLegendTitle == "Related-note similarity")
+        #expect(GraphViewModel.semanticEdgeCountSuffix == "related-note similarity links")
+        #expect(GraphViewModel.conceptEdgeLegendTitle == "AI concept links")
+        #expect(GraphViewModel.conceptEdgeCountSuffix == "AI concept links")
+    }
 }

@@ -1,12 +1,11 @@
 import Foundation
 import os
 
-/// Background service that discovers semantic relationships between notes
-/// using vector embeddings. Observes `.quartzNoteSaved` notifications and
-/// updates `GraphEdgeStore.semanticEdges` with high-confidence matches.
+/// Background service that discovers note-to-note related-note similarity
+/// using vector embeddings and updates `GraphEdgeStore.semanticEdges`.
 ///
 /// **Privacy-safe**: All processing happens on-device via `VectorEmbeddingService`.
-/// Never alters markdown files — semantic links are stored only in memory.
+/// Never alters markdown files — related-note similarity results are stored only in memory.
 ///
 /// **Non-blocking**: Runs all similarity searches on a background thread
 /// with debouncing to avoid saturating the CPU during rapid saves.
@@ -14,88 +13,150 @@ public actor SemanticLinkService {
     private let embeddingService: VectorEmbeddingService
     private let edgeStore: GraphEdgeStore
     private let vaultRootURL: URL
+    private let debounceInterval: Duration
+    private let similaritySearchOverride: (@Sendable (UUID, Int, Float) async -> [UUID])?
+    private let noteURLResolverOverride: (@Sendable ([UUID]) -> [URL])?
     private let logger = Logger(subsystem: "com.quartz", category: "SemanticLinkService")
 
-    /// Minimum similarity score to create a semantic link.
+    /// Minimum similarity score to create a related-note similarity edge.
     /// 0.82 is a high bar — only genuinely related notes will be linked.
     private let similarityThreshold: Float = 0.82
 
-    /// Maximum number of semantic links per note.
+    /// Maximum number of related notes per note.
     private let maxRelatedNotes = 5
 
-    /// AppStorage key for the user setting (shared with graph-time semantic linking).
-    private static let enabledKey = "semanticAutoLinkingEnabled"
-
-    /// Debounce tracking — URL of the most recently scheduled note.
-    private var pendingURL: URL?
+    /// Debounce tracking — all note URLs currently queued for analysis.
+    private var pendingURLs: Set<URL> = []
     private var debounceTask: Task<Void, Never>?
+    private var serviceGeneration: UInt64 = 0
+    private var requestedRevisionByURL: [URL: UInt64] = [:]
 
     public init(
         embeddingService: VectorEmbeddingService,
         edgeStore: GraphEdgeStore,
-        vaultRootURL: URL
+        vaultRootURL: URL,
+        debounceInterval: Duration = .seconds(3),
+        similaritySearchOverride: (@Sendable (UUID, Int, Float) async -> [UUID])? = nil,
+        noteURLResolverOverride: (@Sendable ([UUID]) -> [URL])? = nil
     ) {
         self.embeddingService = embeddingService
         self.edgeStore = edgeStore
         self.vaultRootURL = vaultRootURL
+        self.debounceInterval = debounceInterval
+        self.similaritySearchOverride = similaritySearchOverride
+        self.noteURLResolverOverride = noteURLResolverOverride
     }
 
     /// Schedules a background semantic analysis for the given note URL.
-    /// Debounces by 3 seconds — if another save comes in, the timer resets.
+    /// Debounces batched note updates and supersedes stale requests for the same note.
     public func scheduleAnalysis(for noteURL: URL) {
         guard isEnabled else { return }
 
-        pendingURL = noteURL
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        pendingURLs.insert(canonicalURL)
+        requestedRevisionByURL[canonicalURL, default: 0] &+= 1
         debounceTask?.cancel()
+        let generation = serviceGeneration
         debounceTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: self?.debounceInterval ?? .seconds(3))
             guard !Task.isCancelled else { return }
-            await self?.runAnalysis()
+            await self?.runPendingAnalyses(expectedGeneration: generation)
         }
     }
 
-    /// Runs the semantic similarity search for the pending note.
-    private func runAnalysis() async {
-        guard let noteURL = pendingURL else { return }
-        pendingURL = nil
+    /// Cancels queued work and prevents suspended older analyses from applying
+    /// after a vault switch or relaunch supersedes this service instance.
+    public func invalidatePendingWork() {
+        serviceGeneration &+= 1
+        pendingURLs.removeAll(keepingCapacity: false)
+        debounceTask?.cancel()
+        debounceTask = nil
+    }
+
+    private func runPendingAnalyses(expectedGeneration: UInt64) async {
+        guard serviceGeneration == expectedGeneration else { return }
+
+        let urls = pendingURLs.sorted(by: { $0.absoluteString < $1.absoluteString })
+        pendingURLs.removeAll(keepingCapacity: true)
+
+        for noteURL in urls {
+            guard serviceGeneration == expectedGeneration else { break }
+            let revision = requestedRevisionByURL[noteURL] ?? 0
+            await runAnalysis(for: noteURL, expectedGeneration: expectedGeneration, expectedRevision: revision)
+        }
+    }
+
+    /// Runs the semantic similarity search for one note if the request is still current.
+    private func runAnalysis(
+        for noteURL: URL,
+        expectedGeneration: UInt64,
+        expectedRevision: UInt64
+    ) async {
+        guard serviceGeneration == expectedGeneration,
+              currentRevision(for: noteURL) == expectedRevision else { return }
 
         let stableID = VectorEmbeddingService.stableNoteID(for: noteURL, vaultRoot: vaultRootURL)
 
-        logger.info("Running semantic analysis for \(noteURL.lastPathComponent)")
+        logger.info("Running related-note similarity analysis for \(noteURL.lastPathComponent)")
 
         // Find similar notes using the vector index (high threshold)
-        let similarIDs = await embeddingService.findSimilarNoteIDs(
-            for: stableID,
-            limit: maxRelatedNotes,
-            threshold: similarityThreshold
-        )
+        let similarIDs: [UUID]
+        if let similaritySearchOverride {
+            similarIDs = await similaritySearchOverride(stableID, maxRelatedNotes, similarityThreshold)
+        } else {
+            similarIDs = await embeddingService.findSimilarNoteIDs(
+                for: stableID,
+                limit: maxRelatedNotes,
+                threshold: similarityThreshold
+            )
+        }
+
+        guard serviceGeneration == expectedGeneration,
+              currentRevision(for: noteURL) == expectedRevision else { return }
 
         guard !similarIDs.isEmpty else {
-            logger.debug("No semantic matches above threshold \(self.similarityThreshold) for \(noteURL.lastPathComponent)")
+            logger.debug("No related-note similarity matches above threshold \(self.similarityThreshold) for \(noteURL.lastPathComponent)")
             // Clear any stale edges for this note
             await edgeStore.updateSemanticConnections(for: noteURL, related: [])
+            let notificationVaultRootURL = vaultRootURL
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .quartzRelatedNotesUpdated,
+                    object: noteURL,
+                    userInfo: ["vaultRootURL": notificationVaultRootURL]
+                )
+            }
             return
         }
 
         // Resolve UUIDs back to file URLs
         let resolvedURLs = resolveNoteURLs(from: similarIDs)
 
-        logger.info("Found \(resolvedURLs.count) semantic links for \(noteURL.lastPathComponent)")
+        guard serviceGeneration == expectedGeneration,
+              currentRevision(for: noteURL) == expectedRevision else { return }
+
+        logger.info("Found \(resolvedURLs.count) related notes for \(noteURL.lastPathComponent)")
 
         // Update the edge store
         await edgeStore.updateSemanticConnections(for: noteURL, related: resolvedURLs)
 
         // Post notification so the inspector can refresh
+        let notificationVaultRootURL = vaultRootURL
         await MainActor.run {
             NotificationCenter.default.post(
-                name: .quartzSemanticLinksUpdated,
-                object: noteURL
+                name: .quartzRelatedNotesUpdated,
+                object: noteURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
             )
         }
     }
 
     /// Resolves stable note UUIDs to file URLs by scanning the vault directory.
     private func resolveNoteURLs(from noteIDs: [UUID]) -> [URL] {
+        if let noteURLResolverOverride {
+            return noteURLResolverOverride(noteIDs)
+        }
+
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: vaultRootURL,
@@ -120,16 +181,22 @@ public actor SemanticLinkService {
         return noteIDs.compactMap { idToURL[$0] }
     }
 
+    private func currentRevision(for noteURL: URL) -> UInt64 {
+        requestedRevisionByURL[CanonicalNoteIdentity.canonicalFileURL(for: noteURL)] ?? 0
+    }
+
     /// Checks the user setting. Reads from UserDefaults (main-actor safe via synchronous read).
     private nonisolated var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.enabledKey)
+        KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
     }
 }
 
 // MARK: - Notification
 
 public extension Notification.Name {
-    /// Posted when semantic links are updated for a note.
+    /// Posted when related-note similarity is updated for a note.
     /// `object` is the note URL (`URL`).
-    static let quartzSemanticLinksUpdated = Notification.Name("quartzSemanticLinksUpdated")
+    static let quartzRelatedNotesUpdated = Notification.Name("quartzRelatedNotesUpdated")
+    /// Backwards-compatible alias kept while older tests and code paths transition.
+    static let quartzSemanticLinksUpdated = quartzRelatedNotesUpdated
 }

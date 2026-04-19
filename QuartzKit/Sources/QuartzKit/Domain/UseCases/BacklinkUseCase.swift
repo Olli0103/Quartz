@@ -2,8 +2,8 @@ import Foundation
 
 /// Use case: Finds all backlinks to a note.
 ///
-/// Scans all notes in the vault for `[[Note-Name]]` links
-/// that point to the given note.
+/// Scans all notes in the vault for explicit wiki-links that point to the given note,
+/// then overlays any newer in-memory explicit references from the live graph store.
 public struct BacklinkUseCase: Sendable {
     private let vaultProvider: any VaultProviding
     private let linkExtractor: WikiLinkExtractor
@@ -34,44 +34,49 @@ public struct BacklinkUseCase: Sendable {
         let catalog = NoteReferenceCatalog(allNotes: tree)
         let noteNodes = collectNotes(from: tree)
 
-        let scannedBacklinks = try await scanForBacklinks(
+        let scannedReferences = try await scanForBacklinkReferences(
             in: noteNodes,
             targetNoteURL: canonicalTargetNoteURL,
             catalog: catalog
         )
-        let graphBacklinks = try await liveGraphBacklinks(
-            from: noteNodes,
-            targetNoteURL: canonicalTargetNoteURL,
-            catalog: catalog
-        )
+        let liveReferences = await liveBacklinkReferences(targetNoteURL: canonicalTargetNoteURL)
 
-        var mergedBySource: [URL: Backlink] = [:]
-        for backlink in scannedBacklinks + graphBacklinks {
-            let sourceURL = CanonicalNoteIdentity.canonicalFileURL(for: backlink.sourceNoteURL)
-            if let existing = mergedBySource[sourceURL] {
-                let existingStrength = backlinkStrength(existing)
-                let candidateStrength = backlinkStrength(backlink)
-                if existingStrength >= candidateStrength {
-                    continue
-                }
+        let nodesByURL = Dictionary(uniqueKeysWithValues: noteNodes.map {
+            (CanonicalNoteIdentity.canonicalFileURL(for: $0.url), $0)
+        })
+
+        var mergedBySource: [URL: ExplicitNoteReference] = [:]
+        for reference in scannedReferences + liveReferences {
+            let sourceURL = reference.sourceNoteURL
+            if let existing = mergedBySource[sourceURL],
+               explicitReferenceStrength(existing) >= explicitReferenceStrength(reference) {
+                continue
             }
-            mergedBySource[sourceURL] = backlink
+            mergedBySource[sourceURL] = reference
         }
 
-        return mergedBySource.values.sorted { $0.sourceNoteName < $1.sourceNoteName }
+        let backlinks = mergedBySource.values.compactMap { reference -> Backlink? in
+            let sourceURL = reference.sourceNoteURL
+            let sourceNoteName = nodesByURL[sourceURL]?.name.replacingOccurrences(of: ".md", with: "")
+                ?? catalog.noteReference(for: sourceURL)?.noteName
+                ?? sourceURL.deletingPathExtension().lastPathComponent
+            return Backlink(reference: reference, sourceNoteName: sourceNoteName)
+        }
+
+        return backlinks.sorted { $0.sourceNoteName < $1.sourceNoteName }
     }
 
     /// Maximum concurrent file reads to avoid exceeding file descriptor limits.
     private static let maxConcurrentReads = 20
 
-    private func scanForBacklinks(
+    private func scanForBacklinkReferences(
         in noteNodes: [FileNode],
         targetNoteURL: URL,
         catalog: NoteReferenceCatalog
-    ) async throws -> [Backlink] {
-        return try await withThrowingTaskGroup(of: [Backlink].self) { group in
+    ) async throws -> [ExplicitNoteReference] {
+        return try await withThrowingTaskGroup(of: [ExplicitNoteReference].self) { group in
             var submitted = 0
-            var all: [Backlink] = []
+            var all: [ExplicitNoteReference] = []
 
             for node in noteNodes {
                 // Throttle: wait for a result before adding more tasks
@@ -85,22 +90,11 @@ public struct BacklinkUseCase: Sendable {
                     let note = try await self.vaultProvider.readNote(at: node.url)
                     let links = await catalog.resolvedExplicitReferences(
                         in: note.body,
+                        sourceNoteURL: node.url,
                         graphEdgeStore: self.graphEdgeStore,
                         using: self.linkExtractor
                     )
-                    var backlinks: [Backlink] = []
-                    for reference in links where reference.noteURL == targetNoteURL {
-                        backlinks.append(
-                            Backlink(
-                                sourceNoteURL: CanonicalNoteIdentity.canonicalFileURL(for: node.url),
-                                sourceNoteName: node.name.replacingOccurrences(of: ".md", with: ""),
-                                context: reference.context,
-                                referenceDisplayText: reference.displayText,
-                                referenceRange: reference.matchRange
-                            )
-                        )
-                    }
-                    return backlinks
+                    return links.filter { $0.targetNoteURL == targetNoteURL }
                 }
                 submitted += 1
             }
@@ -120,63 +114,19 @@ public struct BacklinkUseCase: Sendable {
         return result
     }
 
-    private func liveGraphBacklinks(
-        from noteNodes: [FileNode],
-        targetNoteURL: URL,
-        catalog: NoteReferenceCatalog
-    ) async throws -> [Backlink] {
+    private func liveBacklinkReferences(
+        targetNoteURL: URL
+    ) async -> [ExplicitNoteReference] {
         guard let graphEdgeStore else { return [] }
-
-        let liveSourceURLs = await graphEdgeStore.backlinks(for: targetNoteURL)
-            .map(CanonicalNoteIdentity.canonicalFileURL(for:))
-        guard !liveSourceURLs.isEmpty else { return [] }
-
-        let nodesByURL = Dictionary(uniqueKeysWithValues: noteNodes.map {
-            (CanonicalNoteIdentity.canonicalFileURL(for: $0.url), $0)
-        })
-
-        var backlinks: [Backlink] = []
-        for sourceURL in liveSourceURLs {
-            guard let node = nodesByURL[sourceURL] else { continue }
-            let note = try await vaultProvider.readNote(at: sourceURL)
-            let context = await liveBacklinkContext(in: note.body, targetNoteURL: targetNoteURL, catalog: catalog)
-
-            backlinks.append(
-                Backlink(
-                    sourceNoteURL: sourceURL,
-                    sourceNoteName: node.name.replacingOccurrences(of: ".md", with: ""),
-                    context: context.context,
-                    referenceDisplayText: context.displayText,
-                    referenceRange: context.range
-                )
-            )
-        }
-
-        return backlinks
+        let liveReferences = await graphEdgeStore.explicitBacklinks(to: targetNoteURL)
+        return liveReferences
     }
 
-    private func liveBacklinkContext(
-        in body: String,
-        targetNoteURL: URL,
-        catalog: NoteReferenceCatalog
-    ) async -> (context: String, displayText: String, range: NSRange?) {
-        let references = await catalog.resolvedExplicitReferences(
-            in: body,
-            graphEdgeStore: graphEdgeStore,
-            using: linkExtractor
-        )
-
-        if let reference = references.first(where: { $0.noteURL == targetNoteURL }) {
-            return (reference.context, reference.displayText, reference.matchRange)
-        }
-
-        return ("", "", nil)
-    }
-
-    private func backlinkStrength(_ backlink: Backlink) -> Int {
+    private func explicitReferenceStrength(_ reference: ExplicitNoteReference) -> Int {
         var score = 0
-        if backlink.referenceRange != nil { score += 2 }
-        if !backlink.context.isEmpty { score += 1 }
+        if reference.matchRange != nil { score += 2 }
+        if !reference.context.isEmpty { score += 1 }
+        if !reference.displayText.isEmpty { score += 1 }
         return score
     }
 }
@@ -188,6 +138,7 @@ public struct Backlink: Identifiable, Sendable {
     public let context: String
     public let referenceDisplayText: String
     public let referenceRange: NSRange?
+    public let headingFragment: String?
     public var id: String { "\(sourceNoteURL.absoluteString)#\(referenceRange?.location ?? -1)" }
 
     public init(
@@ -195,12 +146,25 @@ public struct Backlink: Identifiable, Sendable {
         sourceNoteName: String,
         context: String,
         referenceDisplayText: String = "",
-        referenceRange: NSRange? = nil
+        referenceRange: NSRange? = nil,
+        headingFragment: String? = nil
     ) {
         self.sourceNoteURL = sourceNoteURL
         self.sourceNoteName = sourceNoteName
         self.context = context
         self.referenceDisplayText = referenceDisplayText
         self.referenceRange = referenceRange
+        self.headingFragment = headingFragment
+    }
+
+    public init(reference: ExplicitNoteReference, sourceNoteName: String) {
+        self.init(
+            sourceNoteURL: reference.sourceNoteURL,
+            sourceNoteName: sourceNoteName,
+            context: reference.context,
+            referenceDisplayText: reference.displayText,
+            referenceRange: reference.matchRange,
+            headingFragment: reference.headingFragment
+        )
     }
 }

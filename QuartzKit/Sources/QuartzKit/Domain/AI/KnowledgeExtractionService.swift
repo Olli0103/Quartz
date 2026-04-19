@@ -32,6 +32,9 @@ public actor KnowledgeExtractionService {
     private let edgeStore: GraphEdgeStore
     private let vaultRootURL: URL
     private let executionPolicy: AIExecutionPolicy?
+    private let debounceInterval: Duration
+    private let scanInterval: Duration
+    private let extractionOverride: (@Sendable (String) async -> [String])?
     private let logger = Logger(subsystem: "com.quartz", category: "KnowledgeExtraction")
 
     // MARK: - Persisted State
@@ -44,8 +47,11 @@ public actor KnowledgeExtractionService {
 
     // MARK: - On-Save Debounce
 
-    private var pendingURL: URL?
+    private var pendingURLs: Set<URL> = []
     private var debounceTask: Task<Void, Never>?
+    private var serviceGeneration: UInt64 = 0
+    private var requestedRevisionByURL: [URL: UInt64] = [:]
+    private var hasRestoredPersistedConceptsForCurrentGeneration = false
 
     // MARK: - Vault Scan
 
@@ -60,10 +66,6 @@ public actor KnowledgeExtractionService {
         public let currentNote: String
     }
 
-    // MARK: - Settings
-
-    private static let enabledKey = "semanticAutoLinkingEnabled"
-
     private static let systemPrompt = """
     You are an ontology engine for a Second Brain note-taking app. \
     Read the note below and extract the 3-5 most critical underlying concepts. \
@@ -72,14 +74,22 @@ public actor KnowledgeExtractionService {
     Keep each concept concise (1-3 words). Do not include explanations.
     """
 
-    private let scanIntervalSeconds: Double = 2.0
-
     // MARK: - Init
 
-    public init(edgeStore: GraphEdgeStore, vaultRootURL: URL, executionPolicy: AIExecutionPolicy? = nil) {
+    public init(
+        edgeStore: GraphEdgeStore,
+        vaultRootURL: URL,
+        executionPolicy: AIExecutionPolicy? = nil,
+        debounceInterval: Duration = .seconds(5),
+        scanInterval: Duration = .seconds(2),
+        extractionOverride: (@Sendable (String) async -> [String])? = nil
+    ) {
         self.edgeStore = edgeStore
         self.vaultRootURL = vaultRootURL
         self.executionPolicy = executionPolicy
+        self.debounceInterval = debounceInterval
+        self.scanInterval = scanInterval
+        self.extractionOverride = extractionOverride
         self.state = Self.loadState(from: vaultRootURL)
     }
 
@@ -87,13 +97,15 @@ public actor KnowledgeExtractionService {
 
     public func scheduleExtraction(for noteURL: URL) {
         guard isEnabled else { return }
-        pendingURL = noteURL
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        pendingURLs.insert(canonicalURL)
+        requestedRevisionByURL[canonicalURL, default: 0] &+= 1
         debounceTask?.cancel()
+        let generation = serviceGeneration
         debounceTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: self?.debounceInterval ?? .seconds(5))
             guard !Task.isCancelled else { return }
-            await self?.extractConcepts(for: noteURL)
-            await self?.scheduleSave()
+            await self?.runPendingExtractions(expectedGeneration: generation)
         }
     }
 
@@ -103,9 +115,18 @@ public actor KnowledgeExtractionService {
         guard isEnabled else { return }
         guard !isScanRunning else { return }
         scanTask?.cancel()
+        let generation = serviceGeneration
         scanTask = Task(priority: .utility) { [weak self] in
-            await self?.runVaultScan()
+            await self?.runVaultScan(expectedGeneration: generation)
         }
+    }
+
+    /// Restores persisted AI concept assignments into the live edge store without
+    /// starting a new vault scan. Used by KG6 so graph and inspector consumers can
+    /// read the same canonical concept state immediately after vault load.
+    public func restorePersistedConcepts() async {
+        hasRestoredPersistedConceptsForCurrentGeneration = true
+        await restoreConceptEdgesFromState(expectedGeneration: serviceGeneration)
     }
 
     public func stopVaultScan() {
@@ -115,15 +136,59 @@ public actor KnowledgeExtractionService {
         scanProgress = nil
     }
 
-    private func runVaultScan() async {
-        isScanRunning = true
-        defer {
-            isScanRunning = false
-            scanProgress = nil
+    /// Cancels queued save/scan work and invalidates suspended older extractions so they
+    /// cannot overwrite newer concept state after a vault switch or relaunch.
+    public func invalidateBackgroundWork() {
+        serviceGeneration &+= 1
+        pendingURLs.removeAll(keepingCapacity: false)
+        debounceTask?.cancel()
+        debounceTask = nil
+        scanTask?.cancel()
+        scanTask = nil
+        saveDebouncTask?.cancel()
+        saveDebouncTask = nil
+        isScanRunning = false
+        scanProgress = nil
+        hasRestoredPersistedConceptsForCurrentGeneration = false
+    }
+
+    private func runPendingExtractions(expectedGeneration: UInt64) async {
+        guard serviceGeneration == expectedGeneration else { return }
+
+        let urls = pendingURLs.sorted(by: { $0.absoluteString < $1.absoluteString })
+        pendingURLs.removeAll(keepingCapacity: true)
+
+        for noteURL in urls {
+            guard serviceGeneration == expectedGeneration else { break }
+            let revision = currentRevision(for: noteURL)
+            await extractConcepts(
+                for: noteURL,
+                expectedGeneration: expectedGeneration,
+                expectedRevision: revision
+            )
         }
 
-        // Restore concepts from persisted state into the live edge store
-        await restoreConceptEdgesFromState()
+        guard serviceGeneration == expectedGeneration else { return }
+        scheduleSave()
+    }
+
+    private func runVaultScan(expectedGeneration: UInt64) async {
+        guard serviceGeneration == expectedGeneration else { return }
+        isScanRunning = true
+        defer {
+            if serviceGeneration == expectedGeneration {
+                isScanRunning = false
+                scanProgress = nil
+            }
+        }
+
+        // Restore concepts from persisted state into the live edge store once per generation.
+        if !hasRestoredPersistedConceptsForCurrentGeneration {
+            hasRestoredPersistedConceptsForCurrentGeneration = true
+            await restoreConceptEdgesFromState(expectedGeneration: expectedGeneration)
+        }
+
+        guard serviceGeneration == expectedGeneration else { return }
 
         let noteURLs = collectMarkdownFiles(in: vaultRootURL)
         guard !noteURLs.isEmpty else { return }
@@ -143,7 +208,7 @@ public actor KnowledgeExtractionService {
         logger.info("Vault scan: \(unprocessed.count)/\(noteURLs.count) need processing")
 
         for (index, noteURL) in unprocessed.enumerated() {
-            guard !Task.isCancelled else { break }
+            guard !Task.isCancelled, serviceGeneration == expectedGeneration else { break }
 
             scanProgress = ScanProgress(
                 current: index + 1,
@@ -160,18 +225,24 @@ public actor KnowledgeExtractionService {
                 )
             }
 
-            await extractConcepts(for: noteURL)
+            let revision = currentRevision(for: noteURL)
+            await extractConcepts(
+                for: noteURL,
+                expectedGeneration: expectedGeneration,
+                expectedRevision: revision
+            )
 
             // Save state every 5 notes (resilient to crashes mid-scan)
-            if (index + 1) % 5 == 0 {
+            if serviceGeneration == expectedGeneration, (index + 1) % 5 == 0 {
                 saveStateToDisk()
             }
 
-            if index < unprocessed.count - 1 {
-                try? await Task.sleep(for: .seconds(scanIntervalSeconds))
+            if serviceGeneration == expectedGeneration, index < unprocessed.count - 1 {
+                try? await Task.sleep(for: scanInterval)
             }
         }
 
+        guard serviceGeneration == expectedGeneration else { return }
         saveStateToDisk()
         logger.info("Vault scan complete")
 
@@ -182,18 +253,45 @@ public actor KnowledgeExtractionService {
 
     // MARK: - Core Extraction
 
-    private func extractConcepts(for noteURL: URL) async {
+    private func extractConcepts(
+        for noteURL: URL,
+        expectedGeneration: UInt64? = nil,
+        expectedRevision: UInt64? = nil
+    ) async {
+        let canonicalNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        guard generationAndRevisionAreCurrent(
+            for: canonicalNoteURL,
+            expectedGeneration: expectedGeneration,
+            expectedRevision: expectedRevision
+        ) else { return }
+
         let content: String
         // CRITICAL: Use coordinated read to prevent race with iCloud sync
-        do { content = try CoordinatedFileWriter.shared.readString(from: noteURL) } catch { return }
+        do { content = try CoordinatedFileWriter.shared.readString(from: canonicalNoteURL) } catch { return }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 50 else {
-            await updateConceptsAndState(for: noteURL, concepts: [])
+            await commitConceptUpdate(
+                for: canonicalNoteURL,
+                concepts: [],
+                expectedGeneration: expectedGeneration,
+                expectedRevision: expectedRevision
+            )
             return
         }
 
         let inputText = String(trimmed.prefix(3000))
+
+        if let extractionOverride {
+            let concepts = await extractionOverride(inputText)
+            await commitConceptUpdate(
+                for: canonicalNoteURL,
+                concepts: concepts,
+                expectedGeneration: expectedGeneration,
+                expectedRevision: expectedRevision
+            )
+            return
+        }
 
         // Per CODEX.md F9: Route through AIExecutionPolicy for consistent circuit breaker/fallback
         if let policy = executionPolicy {
@@ -202,15 +300,12 @@ public actor KnowledgeExtractionService {
                 model: nil,
                 systemPrompt: Self.systemPrompt
             )
-            await updateConceptsAndState(for: noteURL, concepts: concepts)
-
-            if !concepts.isEmpty {
-                logger.info("[\(noteURL.lastPathComponent)] \(concepts.joined(separator: ", "))")
-            }
-
-            await MainActor.run {
-                NotificationCenter.default.post(name: .quartzConceptsUpdated, object: noteURL)
-            }
+            await commitConceptUpdate(
+                for: canonicalNoteURL,
+                concepts: concepts,
+                expectedGeneration: expectedGeneration,
+                expectedRevision: expectedRevision
+            )
             return
         }
 
@@ -230,17 +325,42 @@ public actor KnowledgeExtractionService {
             )
 
             let concepts = parseConcepts(from: response.content)
-            await updateConceptsAndState(for: noteURL, concepts: concepts)
-
-            if !concepts.isEmpty {
-                logger.info("[\(noteURL.lastPathComponent)] \(concepts.joined(separator: ", "))")
-            }
-
-            await MainActor.run {
-                NotificationCenter.default.post(name: .quartzConceptsUpdated, object: noteURL)
-            }
+            await commitConceptUpdate(
+                for: canonicalNoteURL,
+                concepts: concepts,
+                expectedGeneration: expectedGeneration,
+                expectedRevision: expectedRevision
+            )
         } catch {
             logger.warning("Extraction failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func commitConceptUpdate(
+        for noteURL: URL,
+        concepts: [String],
+        expectedGeneration: UInt64?,
+        expectedRevision: UInt64?
+    ) async {
+        guard generationAndRevisionAreCurrent(
+            for: noteURL,
+            expectedGeneration: expectedGeneration,
+            expectedRevision: expectedRevision
+        ) else { return }
+
+        await updateConceptsAndState(for: noteURL, concepts: concepts)
+
+        if !concepts.isEmpty {
+            logger.info("[\(noteURL.lastPathComponent)] \(concepts.joined(separator: ", "))")
+        }
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzConceptsUpdated,
+                object: noteURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
         }
     }
 
@@ -266,8 +386,8 @@ public actor KnowledgeExtractionService {
 
     /// Restores concept edges from the persisted JSON into the live GraphEdgeStore.
     /// Called once at the start of each vault scan.
-    private func restoreConceptEdgesFromState() async {
-        guard !state.conceptEdges.isEmpty else { return }
+    private func restoreConceptEdgesFromState(expectedGeneration: UInt64) async {
+        guard serviceGeneration == expectedGeneration, !state.conceptEdges.isEmpty else { return }
         let fm = FileManager.default
         logger.info("Restoring \(self.state.conceptEdges.count) concepts from ai_index.json")
 
@@ -281,9 +401,18 @@ public actor KnowledgeExtractionService {
             }
         }
 
-        // Batch-update the live store
-        for (noteURL, concepts) in noteConcepts {
-            await edgeStore.updateConcepts(for: noteURL, concepts: concepts)
+        guard serviceGeneration == expectedGeneration else { return }
+
+        // Batch-replace the live store so startup restore order is deterministic.
+        await edgeStore.replaceConceptState(with: noteConcepts)
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzConceptsUpdated,
+                object: nil,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
         }
     }
 
@@ -361,8 +490,26 @@ public actor KnowledgeExtractionService {
         }
     }
 
+    private func currentRevision(for noteURL: URL) -> UInt64 {
+        requestedRevisionByURL[CanonicalNoteIdentity.canonicalFileURL(for: noteURL)] ?? 0
+    }
+
+    private func generationAndRevisionAreCurrent(
+        for noteURL: URL,
+        expectedGeneration: UInt64?,
+        expectedRevision: UInt64?
+    ) -> Bool {
+        if let expectedGeneration, serviceGeneration != expectedGeneration {
+            return false
+        }
+        if let expectedRevision, currentRevision(for: noteURL) != expectedRevision {
+            return false
+        }
+        return true
+    }
+
     private nonisolated var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: Self.enabledKey)
+        KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
     }
 }
 

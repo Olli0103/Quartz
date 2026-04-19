@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Graph Data Structures
 
-/// A node in the knowledge graph representing a note or an AI-discovered concept hub.
+/// A node in the knowledge graph representing a note or an AI-extracted concept hub.
 public struct GraphNode: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
@@ -64,7 +64,7 @@ public struct GraphEdge: Identifiable, Sendable, Equatable {
 public enum GraphLayoutPolicy: Sendable {
     /// Maximum notes included in one graph build (I/O + layout scale with this).
     public static let maxNodesPerGraph = 280
-    /// Skip semantic AI edges above this count (avoids O(n) embedding similarity work).
+    /// Skip graph-view similarity edges above this count (avoids O(n) embedding similarity work).
     public static let semanticLinkingMaxNodes = 200
 
     static func layoutIterations(forNodeCount n: Int) -> Int {
@@ -83,13 +83,16 @@ public final class GraphViewModel {
     public var isLoading = true
     public var currentNoteID: String?
     public var graphTruncationNote: String?
-    /// Optional reference to the shared edge store for reading concept data.
+    /// Optional reference to the shared canonical relationship store used by the
+    /// inspector and by graph-view convergence for explicit links, related notes,
+    /// and AI concepts.
     public var graphEdgeStore: GraphEdgeStore?
-
-    private let linkExtractor = WikiLinkExtractor()
     private var nodeIndex: [String: Int] = [:]
-    /// Identity resolver for robust wiki-link matching.
-    private let identityResolver = GraphIdentityResolver()
+
+    static let semanticEdgeLegendTitle = "Related-note similarity"
+    static let semanticEdgeCountSuffix = "related-note similarity links"
+    static let conceptEdgeLegendTitle = "AI concept links"
+    static let conceptEdgeCountSuffix = "AI concept links"
 
     /// Public read-only access to node index for O(1) canvas lookups.
     public var nodeIDToIndex: [String: Int] { nodeIndex }
@@ -183,7 +186,8 @@ public final class GraphViewModel {
             }
         }
 
-        // Attraction: stronger for hard wiki-links, softer for semantic AI links
+            // Attraction: stronger for explicit wiki-links, softer for similarity edges,
+            // with separate weight for AI concept hub edges.
         for edge in edges {
             guard let iFrom = nodeIndex[edge.from],
                   let iTo = nodeIndex[edge.to] else { continue }
@@ -216,16 +220,17 @@ public final class GraphViewModel {
         isSimulating = false
     }
 
-    /// Builds the graph from a file tree and the currently selected note.
-    /// Uses disk cache when notes haven't changed to avoid slow rebuilds.
-    /// When embeddingService is provided and semanticAutoLinkingEnabled, adds AI-assisted semantic links between similar notes.
+    /// Builds the graph from canonical relationship state plus cached layout positions.
+    /// KG6 keeps graph view as a consumer of authoritative explicit, related-note,
+    /// and AI-concept state rather than a competing parser/rebuilder.
     public func buildGraph(
         fileTree: [FileNode],
         currentNoteURL: URL?,
         vaultRootURL: URL?,
         vaultProvider: (any VaultProviding)?,
         embeddingService: VectorEmbeddingService? = nil,
-        semanticAutoLinkingEnabled: Bool = true
+        relatedNotesSimilarityEnabled: Bool = true,
+        aiConceptExtractionEnabled: Bool = true
     ) async {
         isLoading = true
         graphTruncationNote = nil
@@ -244,136 +249,92 @@ public final class GraphViewModel {
             )
         }
 
-        let noteURLs = allNotes.map(\.url)
+        let noteURLs = allNotes.map { CanonicalNoteIdentity.canonicalFileURL(for: $0.url) }
+        let fullVaultNoteURLs = collected.map { CanonicalNoteIdentity.canonicalFileURL(for: $0.url) }
 
-        // Try cache first (avoids reading 300+ files on every open)
-        if let root = vaultRootURL {
-            let cache = GraphCache(vaultRoot: root)
-            let fingerprint = cache.computeFingerprint(for: noteURLs)
-            if let cached = cache.loadIfValid(fingerprint: fingerprint) {
-                nodes = cached.nodes.map { n in
-                    GraphNode(
-                        id: n.id,
-                        title: n.title,
-                        url: n.url,
-                        tags: n.tags ?? [],
-                        x: n.x,
-                        y: n.y,
-                        vx: 0,
-                        vy: 0,
-                        connectionCount: n.connectionCount
+        let graphCache: GraphCache? = vaultRootURL.map { GraphCache(vaultRoot: $0) }
+        let graphViewFingerprint = graphCache?.computeFingerprint(for: noteURLs)
+        let relationshipFingerprint = graphCache?.computeFingerprint(for: fullVaultNoteURLs)
+        let cachedGraphView: GraphCache.CachedGraph.CachedGraphViewSnapshot?
+        if let graphCache, let graphViewFingerprint {
+            cachedGraphView = graphCache.loadGraphViewSnapshotIfValid(fingerprint: graphViewFingerprint)
+        } else {
+            cachedGraphView = nil
+        }
+        let cachedNodeLayouts = Dictionary(
+            uniqueKeysWithValues: (cachedGraphView?.nodes ?? []).map { ($0.id, $0) }
+        )
+
+        let fallbackExplicitReferences: [ExplicitNoteReference]
+        if let graphCache, let relationshipFingerprint {
+            fallbackExplicitReferences =
+                graphCache.loadExplicitRelationshipSnapshotIfValid(fingerprint: relationshipFingerprint)?.references
+                ?? []
+        } else {
+            fallbackExplicitReferences = []
+        }
+
+        let fallbackSemanticConnections: [URL: [URL]]
+        if let graphCache,
+           let relationshipFingerprint,
+           let snapshot = graphCache.loadSemanticRelationshipSnapshotIfValid(fingerprint: relationshipFingerprint) {
+            fallbackSemanticConnections = Dictionary(
+                uniqueKeysWithValues: snapshot.relations.map { relation in
+                    (
+                        CanonicalNoteIdentity.canonicalFileURL(for: relation.sourceURL),
+                        relation.targetURLs.map(CanonicalNoteIdentity.canonicalFileURL(for:))
                     )
                 }
-                edges = cached.edges.map { e in GraphEdge(from: e.from, to: e.to, isSemantic: e.isSemantic) }
-                currentNoteID = currentNoteURL?.absoluteString
-                rebuildNodeIndex()
-                isLoading = false
-                return
-            }
+            )
+        } else {
+            fallbackSemanticConnections = [:]
         }
 
         var builtNodes: [GraphNode] = []
         var builtEdges: [GraphEdge] = []
-        var urlToFrontmatter: [URL: Frontmatter] = [:]
-        var urlToLinks: [URL: [WikiLink]] = [:]
-
-        if let provider = vaultProvider {
-            await withTaskGroup(of: (URL, Frontmatter, [WikiLink]).self) { group in
-                for note in allNotes {
-                    group.addTask { [linkExtractor] in
-                        do {
-                            let doc = try await provider.readNote(at: note.url)
-                            let links = linkExtractor.extractLinks(from: doc.body)
-                            return (note.url, doc.frontmatter, links)
-                        } catch {
-                            return (note.url, Frontmatter(), [])
-                        }
-                    }
-                }
-                for await (url, frontmatter, links) in group {
-                    urlToFrontmatter[url] = frontmatter
-                    urlToLinks[url] = links
-                }
-            }
-        }
-
-        // Register all notes with the identity resolver for robust link matching
-        for note in allNotes {
-            let displayName = note.name.replacingOccurrences(of: ".md", with: "")
-            let frontmatter = urlToFrontmatter[note.url]
-            let identity = NoteIdentity(
-                url: note.url,
-                filename: displayName,
-                frontmatterTitle: frontmatter?.title,
-                aliases: frontmatter?.aliases ?? [],
-                tags: frontmatter?.tags ?? []
-            )
-            await identityResolver.register(identity)
-        }
+        var hasCompleteCachedLayout = cachedGraphView != nil
 
         for note in allNotes {
-            let nodeID = note.url.absoluteString
+            let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: note.url)
+            let nodeID = canonicalURL.absoluteString
             let displayName = note.name.replacingOccurrences(of: ".md", with: "")
+            let cachedNode = cachedNodeLayouts[nodeID]
             let randomX = CGFloat.random(in: -200...200)
             let randomY = CGFloat.random(in: -200...200)
-            let tags = urlToFrontmatter[note.url]?.tags ?? []
+            let tags = note.frontmatter?.tags ?? cachedNode?.tags ?? []
             builtNodes.append(GraphNode(
                 id: nodeID,
                 title: displayName,
-                url: note.url,
+                url: canonicalURL,
                 tags: tags,
-                x: randomX,
-                y: randomY
+                x: cachedNode?.x ?? randomX,
+                y: cachedNode?.y ?? randomY
             ))
-        }
-
-        if let currentURL = currentNoteURL {
-            currentNoteID = currentURL.absoluteString
-        }
-
-        var edgeSet = Set<String>()
-
-        if vaultProvider != nil {
-            for note in allNotes {
-                let sourceID = note.url.absoluteString
-                let links = urlToLinks[note.url] ?? []
-                for link in links {
-                    // Use identity resolver for robust matching (aliases, folder paths, normalization)
-                    if let targetURL = await identityResolver.resolve(link.target) {
-                        let targetID = targetURL.absoluteString
-                        let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
-                        if !edgeSet.contains(edgeKey) {
-                            edgeSet.insert(edgeKey)
-                            builtEdges.append(GraphEdge(from: sourceID, to: targetID))
-                        }
-                    }
-                }
+            if cachedNode == nil {
+                hasCompleteCachedLayout = false
             }
         }
 
-        // AI-assisted semantic linking: add edges between semantically similar notes (when enabled)
-        if semanticAutoLinkingEnabled,
-           allNotes.count <= GraphLayoutPolicy.semanticLinkingMaxNodes,
-           let embedding = embeddingService,
-           let root = vaultRootURL {
-            var stableIDToNodeID: [UUID: String] = [:]
-            for note in allNotes {
-                let sid = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
-                stableIDToNodeID[sid] = note.url.absoluteString
+        currentNoteID = currentNoteURL.map(CanonicalNoteIdentity.canonicalFileURL(for:))?.absoluteString
+
+        let validNodeIDs = Set(builtNodes.map(\.id))
+
+        let explicitReferences: [ExplicitNoteReference]
+        if let graphEdgeStore {
+            explicitReferences = await graphEdgeStore.allExplicitReferences()
+        } else {
+            explicitReferences = fallbackExplicitReferences
+        }
+        builtEdges.append(contentsOf: explicitGraphEdges(from: explicitReferences, validNodeIDs: validNodeIDs))
+
+        if relatedNotesSimilarityEnabled {
+            let semanticConnections: [URL: [URL]]
+            if let graphEdgeStore {
+                semanticConnections = await graphEdgeStore.allSemanticConnections()
+            } else {
+                semanticConnections = fallbackSemanticConnections
             }
-            for note in allNotes {
-                let stableID = VectorEmbeddingService.stableNoteID(for: note.url, vaultRoot: root)
-                let sourceID = note.url.absoluteString
-                let similarIDs = await embedding.findSimilarNoteIDs(for: stableID, limit: 5, threshold: 0.35)
-                for similarUUID in similarIDs {
-                    guard let targetID = stableIDToNodeID[similarUUID], targetID != sourceID else { continue }
-                    let edgeKey = [sourceID, targetID].sorted().joined(separator: "<->")
-                    if !edgeSet.contains(edgeKey) {
-                        edgeSet.insert(edgeKey)
-                        builtEdges.append(GraphEdge(from: sourceID, to: targetID, isSemantic: true))
-                    }
-                }
-            }
+            builtEdges.append(contentsOf: semanticGraphEdges(from: semanticConnections, validNodeIDs: validNodeIDs))
         }
 
         var connectionCounts: [String: Int] = [:]
@@ -387,19 +348,25 @@ public final class GraphViewModel {
 
         nodes = builtNodes
         edges = builtEdges
+        rebuildNodeIndex()
 
-        // Add concept hub nodes from the AI ontology engine
-        await addConceptHubNodes()
+        // Add concept hub nodes from the canonical AI concept store.
+        if aiConceptExtractionEnabled {
+            await addConceptHubNodes(cachedNodeLayouts: cachedNodeLayouts)
+        }
 
         rebuildNodeIndex()
-        layoutGraph() // Initial fast layout
-        startLiveSimulation() // Animate settling
+        if !hasCompleteCachedLayout {
+            layoutGraph()
+            startLiveSimulation()
+        } else {
+            stopSimulation()
+        }
 
-        // Persist to cache for next time
-        if let root = vaultRootURL {
-            let cache = GraphCache(vaultRoot: root)
-            let fingerprint = cache.computeFingerprint(for: noteURLs)
-            let cached = GraphCache.CachedGraph(
+        // Persist graph-view layout only; relationship truth stays in the shared store/cache owners.
+        if let cache = graphCache, let graphViewFingerprint {
+            let cached = GraphCache.CachedGraph.CachedGraphViewSnapshot(
+                fingerprint: graphViewFingerprint,
                 nodes: nodes.map { n in
                     GraphCache.CachedGraph.CachedNode(
                         id: n.id,
@@ -411,12 +378,10 @@ public final class GraphViewModel {
                         tags: n.tags.isEmpty ? nil : n.tags
                     )
                 },
-                edges: edges.map { e in
-                    GraphCache.CachedGraph.CachedEdge(from: e.from, to: e.to, isSemantic: e.isSemantic)
-                },
-                fingerprint: fingerprint
+                semanticEdges: [],
+                conceptEdges: []
             )
-            try? cache.save(cached)
+            try? cache.saveGraphViewSnapshot(cached)
         }
 
         isLoading = false
@@ -431,9 +396,11 @@ public final class GraphViewModel {
 
     // MARK: - Concept Hub Nodes
 
-    /// Reads significant concepts from the edge store and adds them as hub nodes + edges.
+    /// Reads significant concepts from the canonical edge store and adds them as hub nodes + edges.
     /// Concept nodes are positioned at the centroid of their connected note nodes.
-    private func addConceptHubNodes() async {
+    private func addConceptHubNodes(
+        cachedNodeLayouts: [String: GraphCache.CachedGraph.CachedNode] = [:]
+    ) async {
         guard let store = graphEdgeStore else { return }
         let significant = await store.significantConcepts(minNotes: 2)
         guard !significant.isEmpty else { return }
@@ -466,8 +433,9 @@ public final class GraphViewModel {
             guard !connectedNodeIDs.isEmpty else { continue }
 
             // Position at centroid with slight jitter
-            let posX = (count > 0 ? cx / count : 0) + CGFloat.random(in: -20...20)
-            let posY = (count > 0 ? cy / count : 0) + CGFloat.random(in: -20...20)
+            let cachedConceptNode = cachedNodeLayouts[conceptID]
+            let posX = cachedConceptNode?.x ?? ((count > 0 ? cx / count : 0) + CGFloat.random(in: -20...20))
+            let posY = cachedConceptNode?.y ?? ((count > 0 ? cy / count : 0) + CGFloat.random(in: -20...20))
 
             // Create the concept hub node
             let conceptNode = GraphNode(
@@ -541,7 +509,8 @@ public final class GraphViewModel {
                 }
             }
 
-            // Attraction along edges: stronger for hard wiki-links, softer for semantic AI links
+                // Attraction along edges: stronger for explicit wiki-links, softer for
+                // similarity edges, with separate weight for AI concept hub edges.
             for edge in edges {
                 guard let iFrom = nodeIndex[edge.from],
                       let iTo = nodeIndex[edge.to] else { continue }
@@ -655,6 +624,50 @@ public final class GraphViewModel {
         }
         return connected
     }
+
+    private func explicitGraphEdges(
+        from references: [ExplicitNoteReference],
+        validNodeIDs: Set<String>
+    ) -> [GraphEdge] {
+        var seen = Set<String>()
+        var edges: [GraphEdge] = []
+        for reference in references {
+            let sourceID = reference.sourceNoteURL.absoluteString
+            let targetID = reference.targetNoteURL.absoluteString
+            guard validNodeIDs.contains(sourceID), validNodeIDs.contains(targetID), sourceID != targetID else {
+                continue
+            }
+            let key = [sourceID, targetID].sorted().joined(separator: "<->")
+            guard seen.insert(key).inserted else { continue }
+            edges.append(GraphEdge(from: sourceID, to: targetID))
+        }
+        return edges
+    }
+
+    private func semanticGraphEdges(
+        from relationsBySource: [URL: [URL]],
+        validNodeIDs: Set<String>
+    ) -> [GraphEdge] {
+        var seen = Set<String>()
+        var edges: [GraphEdge] = []
+
+        for sourceURL in relationsBySource.keys.sorted(by: { $0.absoluteString < $1.absoluteString }) {
+            let sourceID = CanonicalNoteIdentity.canonicalFileURL(for: sourceURL).absoluteString
+            guard validNodeIDs.contains(sourceID) else { continue }
+
+            for targetURL in relationsBySource[sourceURL, default: []] {
+                let targetID = CanonicalNoteIdentity.canonicalFileURL(for: targetURL).absoluteString
+                guard validNodeIDs.contains(targetID), targetID != sourceID else { continue }
+
+                let key = [sourceID, targetID].sorted().joined(separator: "<->")
+                guard seen.insert(key).inserted else { continue }
+                edges.append(GraphEdge(from: sourceID, to: targetID, isSemantic: true))
+            }
+        }
+
+        return edges
+    }
+
 }
 
 // MARK: - Knowledge Graph View
@@ -688,7 +701,9 @@ public struct KnowledgeGraphView: View {
     @State private var searchText = ""
     @State private var activeFilter: GraphFilterOption = .all
     @State private var lastMagnification: CGFloat = 1.0
-    @AppStorage("semanticAutoLinkingEnabled") private var semanticAutoLinkingEnabled = true
+    @State private var relatedNotesSimilarityEnabled = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
+    @State private var aiConceptExtractionEnabled = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
+    @State private var relationshipRefreshToken = 0
 
     private let fileTree: [FileNode]
     private let currentNoteURL: URL?
@@ -781,7 +796,7 @@ public struct KnowledgeGraphView: View {
             searchText: $searchText,
             isEmbedded: isEmbedded
         ))
-        .task(id: semanticAutoLinkingEnabled) {
+        .task(id: "\(currentNoteURL?.absoluteString ?? "none")-\(fileTree.count)-\(relatedNotesSimilarityEnabled)-\(aiConceptExtractionEnabled)-\(relationshipRefreshToken)") {
             viewModel.graphEdgeStore = graphEdgeStoreRef
             await viewModel.buildGraph(
                 fileTree: fileTree,
@@ -789,8 +804,28 @@ public struct KnowledgeGraphView: View {
                 vaultRootURL: vaultRootURL,
                 vaultProvider: vaultProvider,
                 embeddingService: embeddingService,
-                semanticAutoLinkingEnabled: semanticAutoLinkingEnabled
+                relatedNotesSimilarityEnabled: relatedNotesSimilarityEnabled,
+                aiConceptExtractionEnabled: aiConceptExtractionEnabled
             )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzReferenceGraphDidChange)) { _ in
+            relationshipRefreshToken &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzRelatedNotesUpdated)) { _ in
+            relationshipRefreshToken &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quartzConceptsUpdated)) { _ in
+            relationshipRefreshToken &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let updatedRelatedNotesSetting = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
+            let updatedAIConceptSetting = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
+            if relatedNotesSimilarityEnabled != updatedRelatedNotesSetting {
+                relatedNotesSimilarityEnabled = updatedRelatedNotesSetting
+            }
+            if aiConceptExtractionEnabled != updatedAIConceptSetting {
+                aiConceptExtractionEnabled = updatedAIConceptSetting
+            }
         }
     }
 
@@ -813,14 +848,20 @@ public struct KnowledgeGraphView: View {
     // MARK: - Node Detail Card
 
     private func nodeDetailCard(for node: GraphNode) -> some View {
-        let hardLinks = viewModel.edges.filter { !$0.isSemantic && ($0.from == node.id || $0.to == node.id) }.count
+        let hardLinks = viewModel.edges.filter { !$0.isSemantic && !$0.isConcept && ($0.from == node.id || $0.to == node.id) }.count
         let semanticLinks = viewModel.edges.filter { $0.isSemantic && ($0.from == node.id || $0.to == node.id) }.count
+        let conceptLinks = viewModel.edges.filter { $0.isConcept && ($0.from == node.id || $0.to == node.id) }.count
 
         return VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "ACTIVE NODE", bundle: .module))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
+            if node.isConcept {
+                Text(String(localized: "AI concept", bundle: .module))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
             Text(node.title)
                 .font(.headline.weight(.bold))
 
@@ -841,12 +882,22 @@ public struct KnowledgeGraphView: View {
                         Circle()
                             .fill(QuartzColors.canvasPurple)
                             .frame(width: 6, height: 6)
-                        Text(String(localized: "\(semanticLinks) AI", bundle: .module))
+                        Text(String(localized: "\(semanticLinks) related", bundle: .module))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
-                if hardLinks == 0 && semanticLinks == 0 {
+                if conceptLinks > 0 {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(QuartzColors.folderYellow)
+                            .frame(width: 6, height: 6)
+                        Text(String(localized: "\(conceptLinks) AI concepts", bundle: .module))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if hardLinks == 0 && semanticLinks == 0 && conceptLinks == 0 {
                     Text(String(localized: "No connections", bundle: .module))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -865,19 +916,21 @@ public struct KnowledgeGraphView: View {
                     }
                 }
             }
-            Button {
-                navigateToNote(node)
-            } label: {
-                HStack {
-                    Text(String(localized: "Open Note", bundle: .module))
-                    Image(systemName: "arrow.right")
-                        .font(.caption2.weight(.semibold))
-                        .symbolRenderingMode(.hierarchical)
+            if !node.isConcept {
+                Button {
+                    navigateToNote(node)
+                } label: {
+                    HStack {
+                        Text(String(localized: "Open Note", bundle: .module))
+                        Image(systemName: "arrow.right")
+                            .font(.caption2.weight(.semibold))
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .foregroundStyle(QuartzColors.accent)
                 }
-                .foregroundStyle(QuartzColors.accent)
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "Open \(node.title)", bundle: .module))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Open \(node.title)", bundle: .module))
         }
         .padding(16)
         .frame(maxWidth: 200, alignment: .leading)
@@ -888,8 +941,16 @@ public struct KnowledgeGraphView: View {
         )
         .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(String(localized: "Selected note: \(node.title)", bundle: .module))
-        .accessibilityHint(String(localized: "\(hardLinks) wiki-links, \(semanticLinks) AI links. Double tap Open Note to view.", bundle: .module))
+        .accessibilityLabel(
+            node.isConcept
+                ? String(localized: "Selected AI concept: \(node.title)", bundle: .module)
+                : String(localized: "Selected note: \(node.title)", bundle: .module)
+        )
+        .accessibilityHint(
+            node.isConcept
+                ? String(localized: "\(conceptLinks) AI concept links.", bundle: .module)
+                : String(localized: "\(hardLinks) wiki-links, \(semanticLinks) related-note similarity links, \(conceptLinks) AI concept links. Double tap Open Note to view.", bundle: .module)
+        )
     }
 
     // MARK: - Filter Bar
@@ -973,8 +1034,9 @@ public struct KnowledgeGraphView: View {
     // MARK: - Edge Legend
 
     private var edgeLegend: some View {
-        let hardCount = viewModel.edges.filter { !$0.isSemantic }.count
+        let hardCount = viewModel.edges.filter { !$0.isSemantic && !$0.isConcept }.count
         let semanticCount = viewModel.edges.filter { $0.isSemantic }.count
+        let conceptCount = viewModel.edges.filter { $0.isConcept }.count
 
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -990,7 +1052,17 @@ public struct KnowledgeGraphView: View {
                     StrokeDash()
                         .stroke(QuartzColors.canvasPurple.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         .frame(width: 20, height: 1.5)
-                    Text(String(localized: "AI-discovered (\(semanticCount))", bundle: .module))
+                    Text(String(localized: "\(GraphViewModel.semanticEdgeLegendTitle) (\(semanticCount))", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if conceptCount > 0 {
+                HStack(spacing: 8) {
+                    Rectangle()
+                        .fill(QuartzColors.folderYellow.opacity(0.85))
+                        .frame(width: 20, height: 1.5)
+                    Text(String(localized: "\(GraphViewModel.conceptEdgeLegendTitle) (\(conceptCount))", bundle: .module))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -999,7 +1071,12 @@ public struct KnowledgeGraphView: View {
         .padding(10)
         .quartzFloatingUltraThinSurface(cornerRadius: 10)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(String(localized: "\(hardCount) wiki-links, \(semanticCount) AI-discovered links", bundle: .module))
+        .accessibilityLabel(
+            String(
+                localized: "\(hardCount) wiki-links, \(semanticCount) \(GraphViewModel.semanticEdgeCountSuffix), \(conceptCount) \(GraphViewModel.conceptEdgeCountSuffix)",
+                bundle: .module
+            )
+        )
     }
 
     // MARK: - Loading
@@ -1047,7 +1124,7 @@ public struct KnowledgeGraphView: View {
                 let nodeIndex = viewModel.nodeIDToIndex
                 let nodes = viewModel.nodes
 
-                // Draw edges — hard links first (behind), then semantic links (on top with glow)
+                // Draw edges — hard links first (behind), then related-note similarity edges (on top with glow)
                 for edge in viewModel.hardEdges {
                     // O(1) lookup instead of O(n) .first(where:)
                     guard let fromIdx = nodeIndex[edge.from],
@@ -1223,7 +1300,7 @@ public struct KnowledgeGraphView: View {
                 )
                 if let tapped = viewModel.nodeAt(point: adjustedInCanvasCoords, in: size, threshold: 20 / zoom) {
                     withAnimation(QuartzAnimation.standard) {
-                        if selectedNodeID == tapped.id {
+                        if selectedNodeID == tapped.id, !tapped.isConcept {
                             // Second tap on same node → navigate
                             navigateToNote(tapped)
                         } else {
@@ -1257,7 +1334,9 @@ public struct KnowledgeGraphView: View {
             List(viewModel.nodes) { node in
                 Button {
                     selectedNodeID = node.id
-                    navigateToNote(node)
+                    if !node.isConcept {
+                        navigateToNote(node)
+                    }
                 } label: {
                     VStack(alignment: .leading) {
                         Text(node.title)
@@ -1269,9 +1348,13 @@ public struct KnowledgeGraphView: View {
                     }
                 }
                 .accessibilityLabel(node.title)
-                .accessibilityHint(node.connectionCount > 0
-                    ? String(localized: "\(node.connectionCount) connections. Double tap to open.", bundle: .module)
-                    : String(localized: "No connections. Double tap to open.", bundle: .module))
+                .accessibilityHint(
+                    node.isConcept
+                        ? String(localized: "\(node.connectionCount) AI concept connections. Double tap to inspect.", bundle: .module)
+                        : (node.connectionCount > 0
+                            ? String(localized: "\(node.connectionCount) connections. Double tap to open.", bundle: .module)
+                            : String(localized: "No connections. Double tap to open.", bundle: .module))
+                )
             }
         }
     }
@@ -1281,6 +1364,7 @@ public struct KnowledgeGraphView: View {
     /// Navigates to a note via the onSelectNote callback AND the wiki-link notification system.
     /// This ensures both modal (sheet) and embedded (workspace) presentations route correctly.
     private func navigateToNote(_ node: GraphNode) {
+        guard !node.isConcept else { return }
         QuartzFeedback.primaryAction()
         onSelectNote?(node.url)
         // Also post the wiki-link navigation notification for embedded workspace routing
@@ -1292,14 +1376,23 @@ public struct KnowledgeGraphView: View {
     }
 
     private var graphAccessibilityLabel: String {
-        let nodeCount = viewModel.nodes.count
-        let edgeCount = viewModel.edges.count
+        let noteCount = viewModel.nodes.filter { !$0.isConcept }.count
+        let conceptCount = viewModel.nodes.filter(\.isConcept).count
+        let explicitEdgeCount = viewModel.edges.filter { !$0.isSemantic && !$0.isConcept }.count
+        let similarityEdgeCount = viewModel.edges.filter(\.isSemantic).count
+        let conceptEdgeCount = viewModel.edges.filter(\.isConcept).count
         if let currentID = viewModel.currentNoteID,
            let currentNode = viewModel.nodes.first(where: { $0.id == currentID }) {
             let connectedCount = viewModel.connectedNodeIDs.count
-            return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections. Current note: \(currentNode.title) with \(connectedCount) linked notes.", bundle: .module)
+            return String(
+                localized: "Knowledge graph with \(noteCount) notes, \(conceptCount) AI concepts, \(explicitEdgeCount) wiki-links, \(similarityEdgeCount) related-note similarity links, and \(conceptEdgeCount) AI concept links. Current note: \(currentNode.title) with \(connectedCount) directly connected notes.",
+                bundle: .module
+            )
         }
-        return String(localized: "Knowledge graph with \(nodeCount) notes and \(edgeCount) connections.", bundle: .module)
+        return String(
+            localized: "Knowledge graph with \(noteCount) notes, \(conceptCount) AI concepts, \(explicitEdgeCount) wiki-links, \(similarityEdgeCount) related-note similarity links, and \(conceptEdgeCount) AI concept links.",
+            bundle: .module
+        )
     }
 
     // MARK: - Embedded Header (macOS 26 toolbar crash workaround)

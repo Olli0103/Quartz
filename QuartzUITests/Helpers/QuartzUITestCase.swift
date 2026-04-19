@@ -62,14 +62,33 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     func launchApp(arguments: [String], preserveExistingState: Bool = false) {
         _ = Self.terminateCurrentApp(app, preferGraceful: preserveExistingState)
+        #if os(macOS)
+        XCTAssertTrue(
+            Self.waitForNoRunningMacApp(timeout: 10),
+            "Quartz must be fully terminated before launching the next macOS UI test instance"
+        )
+        app = XCUIApplication(bundleIdentifier: Self.macBundleIdentifier)
+        XCTAssertTrue(
+            Self.launchMacApp(arguments: arguments),
+            "Quartz must launch successfully through the macOS app bundle for UI automation"
+        )
+        #endif
+        #if !os(macOS)
         app = XCUIApplication()
         app.launchArguments += arguments
         app.launch()
+        #endif
         #if os(macOS)
         XCTAssertTrue(
             waitForMacAppForeground(timeout: 15),
             "Quartz must reach the foreground on macOS before UI assertions run"
         )
+        if arguments.contains("--mock-vault") {
+            XCTAssertTrue(
+                waitForMacWorkspaceSurface(timeout: 15),
+                "Quartz must load the mock-vault workspace before macOS UI assertions query fixture notes"
+            )
+        }
         #endif
     }
 
@@ -77,35 +96,128 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     private func waitForMacAppForeground(timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
+        var nextActivationAttempt = Date.distantPast
 
         while Date() < deadline {
-            if app.state == .runningForeground {
+            if app.state == .runningForeground, hasVisibleMacWindow() {
                 return true
             }
 
-            if let runningApp = NSRunningApplication
-                .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
-                .first(where: { !$0.isTerminated }) {
-                if runningApp.isActive {
-                    return true
+            if Date() >= nextActivationAttempt {
+                if let runningApp = NSRunningApplication
+                    .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+                    .first(where: { !$0.isTerminated }) {
+                    if runningApp.isActive, hasVisibleMacWindow() {
+                        return true
+                    }
+
+                    if runningApp.isFinishedLaunching {
+                        _ = runningApp.activate(options: [.activateAllWindows])
+                    }
                 }
 
-                if runningApp.isFinishedLaunching {
-                    _ = runningApp.activate(options: [.activateAllWindows])
+                if app.state == .runningBackground || app.state == .runningForeground {
+                    app.activate()
                 }
+
+                nextActivationAttempt = Date().addingTimeInterval(1)
             }
 
-            if app.state == .runningBackground {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+
+        return app.state == .runningForeground && hasVisibleMacWindow()
+    }
+
+    @MainActor
+    private func waitForMacWorkspaceSurface(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if hasMacWorkspaceSurface() {
+                return true
+            }
+
+            if app.state != .runningForeground {
                 app.activate()
             }
 
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
 
-        return app.state == .runningForeground
-            || NSRunningApplication
+        return hasMacWorkspaceSurface()
+    }
+
+    @MainActor
+    private func hasVisibleMacWindow() -> Bool {
+        if app.windows.firstMatch.exists {
+            return true
+        }
+
+        return app.descendants(matching: .window).firstMatch.exists
+    }
+
+    @MainActor
+    private func hasMacWorkspaceSurface() -> Bool {
+        if element(matchingIdentifier: "workspace-split-view").exists {
+            return true
+        }
+
+        if element(matchingIdentifier: "note-list-view").exists {
+            return true
+        }
+
+        if element(matchingIdentifier: "dashboard-view").exists {
+            return true
+        }
+
+        return element(matchingIdentifier: "editor-text-view").exists
+            || app.textViews.firstMatch.exists
+    }
+
+    @MainActor
+    private static func waitForNoRunningMacApp(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            let runningApps = NSRunningApplication
                 .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
-                .contains(where: \.isActive)
+                .filter { !$0.isTerminated }
+            if runningApps.isEmpty {
+                return true
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return NSRunningApplication
+            .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+            .allSatisfy(\.isTerminated)
+    }
+
+    private static func launchMacApp(arguments: [String]) -> Bool {
+        guard let appURL = macAppBundleURL() else { return false }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", appURL.path(percentEncoded: false), "--args"] + arguments
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    private static func macAppBundleURL() -> URL? {
+        let runnerProductsDirectory = Bundle.main.bundleURL.deletingLastPathComponent()
+        let candidate = runnerProductsDirectory.appending(path: "Quartz.app")
+        guard FileManager.default.fileExists(atPath: candidate.path(percentEncoded: false)) else {
+            return nil
+        }
+        return candidate
     }
     #endif
 
@@ -116,8 +228,15 @@ class QuartzUITestCase: XCTestCase {
 
         if preferGraceful, existingApp.state != .notRunning {
             existingApp.terminate()
-            if existingApp.wait(for: .notRunning, timeout: 5) {
+            let appExited = existingApp.wait(for: .notRunning, timeout: 5)
+            if appExited {
+                #if os(macOS)
+                if Self.waitForNoRunningMacApp(timeout: 5) {
+                    return true
+                }
+                #else
                 return true
+                #endif
             }
         }
 
@@ -137,7 +256,7 @@ class QuartzUITestCase: XCTestCase {
         }
 
         if terminatedAny {
-            return true
+            return Self.waitForNoRunningMacApp(timeout: 10)
         }
         #endif
 
@@ -147,7 +266,11 @@ class QuartzUITestCase: XCTestCase {
 
         existingApp.terminate()
         _ = existingApp.wait(for: .notRunning, timeout: 5)
+        #if os(macOS)
+        return Self.waitForNoRunningMacApp(timeout: 5)
+        #else
         return true
+        #endif
     }
 
     // MARK: - Helpers
@@ -232,17 +355,41 @@ class QuartzUITestCase: XCTestCase {
     }
 
     @MainActor
+    func replaceEditorText(
+        with text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let editor = focusEditor(file: file, line: line)
+        #if os(macOS)
+        app.typeKey("a", modifierFlags: .command)
+        #endif
+        editor.typeText(text)
+        assertEditorContains(text, file: file, line: line)
+        return editor
+    }
+
+    @MainActor
+    func clearEditorText(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let editor = focusEditor(file: file, line: line)
+        #if os(macOS)
+        app.typeKey("a", modifierFlags: .command)
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        #endif
+        return editor
+    }
+
+    @MainActor
     func editorTextValue(file: StaticString = #filePath, line: UInt = #line) -> String {
-        let editor = editorSurface(file: file, line: line)
-        if let text = editor.value as? String {
-            return text
-        }
-        if let value = editor.value {
-            return String(describing: value)
+        guard let text = editorTextValueIfAvailable() else {
+            XCTFail("Editor value must be readable as text", file: file, line: line)
+            return ""
         }
 
-        XCTFail("Editor value must be readable as text", file: file, line: line)
-        return ""
+        return text
     }
 
     @MainActor
@@ -266,6 +413,22 @@ class QuartzUITestCase: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    func waitForEditorToContain(
+        _ substring: String,
+        timeout: TimeInterval = 5
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let text = editorTextValueIfAvailable(), text.contains(substring) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return editorTextValueIfAvailable()?.contains(substring) == true
     }
 
     @MainActor
@@ -297,6 +460,37 @@ class QuartzUITestCase: XCTestCase {
     }
 
     @MainActor
+    private func editorTextValueIfAvailable() -> String? {
+        var candidateValues: [String] = []
+
+        let identifiedEditor = element(matchingIdentifier: "editor-text-view")
+        if identifiedEditor.exists {
+            if let text = identifiedEditor.value as? String {
+                candidateValues.append(text)
+            }
+            if let value = identifiedEditor.value {
+                candidateValues.append(String(describing: value))
+            }
+        }
+
+        let fallbackEditor = app.textViews.firstMatch
+        if fallbackEditor.exists {
+            if let text = fallbackEditor.value as? String {
+                candidateValues.append(text)
+            }
+            if let value = fallbackEditor.value {
+                candidateValues.append(String(describing: value))
+            }
+        }
+
+        if let nonEmpty = candidateValues.first(where: { !$0.isEmpty }) {
+            return nonEmpty
+        }
+
+        return candidateValues.first
+    }
+
+    @MainActor
     func openMockVaultNote(
         matchingAnyOf titles: [String],
         timeout: TimeInterval = 10
@@ -305,27 +499,51 @@ class QuartzUITestCase: XCTestCase {
         guard !filteredTitles.isEmpty else { return nil }
 
         let noteList = element(matchingIdentifier: "note-list-view")
-        _ = noteList.waitForExistence(timeout: timeout)
+        let noteListExists = noteList.waitForExistence(timeout: min(timeout, 2))
 
         let predicate = NSCompoundPredicate(
             orPredicateWithSubpredicates: filteredTitles.map {
                 NSPredicate(format: "label CONTAINS[c] %@", $0)
             }
         )
-        let scopedQueries: [XCUIElementQuery] = [
-            noteList.descendants(matching: .any),
+        var scopedQueries: [XCUIElementQuery] = [
             app.outlineRows,
             app.cells,
             app.staticTexts,
             app.buttons
         ]
+        var identifierQueries: [XCUIElementQuery] = [
+            app.outlineRows,
+            app.cells,
+            app.buttons,
+            app.staticTexts
+        ]
+        if noteListExists {
+            scopedQueries.insert(noteList.descendants(matching: .any), at: 0)
+            identifierQueries.insert(noteList.descendants(matching: .cell), at: 0)
+            identifierQueries.insert(noteList.descendants(matching: .button), at: 1)
+            identifierQueries.insert(noteList.descendants(matching: .staticText), at: 2)
+        }
 
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            for title in filteredTitles {
+                let identifier = "note-list-item-\(title)"
+                for query in identifierQueries {
+                    let match = query.matching(identifier: identifier).firstMatch
+                    if match.exists {
+                        interact(with: match)
+                        _ = waitForEditorSurface(timeout: min(timeout, 5))
+                        return match
+                    }
+                }
+            }
+
             for query in scopedQueries {
                 let match = query.matching(predicate).firstMatch
                 if match.exists {
                     interact(with: match)
+                    _ = waitForEditorSurface(timeout: min(timeout, 5))
                     return match
                 }
             }
@@ -337,6 +555,20 @@ class QuartzUITestCase: XCTestCase {
 
     @MainActor
     func createNewNote(timeout: TimeInterval = 10) -> Bool {
+        let uniqueToken = "UITest\(UUID().uuidString.prefix(8))"
+        let previousEditorText = waitForEditorSurface(timeout: 1) ? editorTextValue() : nil
+
+        #if os(macOS)
+        app.typeKey("n", modifierFlags: .command)
+        if finalizeNewNoteCreation(
+            uniqueToken: uniqueToken,
+            previousEditorText: previousEditorText,
+            timeout: timeout
+        ) {
+            return true
+        }
+        #endif
+
         let candidates = [
             element(matchingIdentifier: "note-list-new-note"),
             element(matchingIdentifier: "sidebar-new-note"),
@@ -346,11 +578,116 @@ class QuartzUITestCase: XCTestCase {
         for candidate in candidates {
             if candidate.waitForExistence(timeout: min(timeout, 3)) {
                 interact(with: candidate)
-                return waitForEditorSurface(timeout: timeout)
+                _ = selectNewTextNoteMenuItemIfNeeded(timeout: min(timeout, 2))
+                if finalizeNewNoteCreation(
+                    uniqueToken: uniqueToken,
+                    previousEditorText: previousEditorText,
+                    timeout: timeout
+                ) {
+                    return true
+                }
             }
         }
 
         return false
+    }
+
+    @MainActor
+    private func finalizeNewNoteCreation(
+        uniqueToken: String,
+        previousEditorText: String?,
+        timeout: TimeInterval
+    ) -> Bool {
+        guard completeNewNotePrompt(uniqueToken: uniqueToken, timeout: timeout) else {
+            return false
+        }
+
+        guard waitForEditorSurface(timeout: timeout) else {
+            return false
+        }
+
+        guard let previousEditorText else { return true }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if editorTextValue() != previousEditorText {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
+    }
+
+    @MainActor
+    private func selectNewTextNoteMenuItemIfNeeded(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let menuCandidates = [
+            app.buttons["New Text Note"],
+            app.menuItems["New Text Note"],
+            app.staticTexts["New Text Note"]
+        ]
+
+        while Date() < deadline {
+            for candidate in menuCandidates where candidate.exists {
+                interact(with: candidate)
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
+    }
+
+    @MainActor
+    private func completeNewNotePrompt(uniqueToken: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let createButtons = [
+            app.alerts.buttons["Create"],
+            app.dialogs.buttons["Create"],
+            app.sheets.buttons["Create"],
+            app.buttons.matching(NSPredicate(format: "label == %@", "Create")).firstMatch
+        ]
+
+        while Date() < deadline {
+            let textField = noteCreationTextField()
+            if textField.exists {
+                interact(with: textField)
+                textField.typeText(uniqueToken)
+
+                for createButton in createButtons where createButton.exists {
+                    interact(with: createButton)
+                    return true
+                }
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
+    }
+
+    @MainActor
+    private func noteCreationTextField() -> XCUIElement {
+        let predicate = NSPredicate(
+            format: "label == %@ OR placeholderValue == %@ OR value == %@",
+            "Note name",
+            "Note name",
+            "Note name"
+        )
+
+        let scopedCandidates = [
+            app.alerts.textFields.matching(predicate).firstMatch,
+            app.dialogs.textFields.matching(predicate).firstMatch,
+            app.sheets.textFields.matching(predicate).firstMatch,
+            app.textFields.matching(predicate).firstMatch
+        ]
+
+        for candidate in scopedCandidates where candidate.exists {
+            return candidate
+        }
+
+        return app.textFields.matching(predicate).firstMatch
     }
 
     @MainActor

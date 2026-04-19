@@ -3,7 +3,7 @@ import Foundation
 /// Shared interpretation of note references for editor suggestions, backlinks,
 /// and explicit wiki-link resolution.
 ///
-/// This keeps linked references and unlinked mentions on one semantic model:
+/// This keeps linked references and unlinked mentions on one explicit reference model:
 /// each textual reference resolves to a canonical note URL before the caller
 /// decides whether it is linked, unlinked, or navigable.
 public struct NoteReferenceCatalog: Sendable {
@@ -19,28 +19,14 @@ public struct NoteReferenceCatalog: Sendable {
         }
     }
 
-    public struct ResolvedExplicitReference: Identifiable, Sendable, Equatable {
-        public let noteURL: URL
-        public let noteName: String
-        public let insertableTarget: String
-        public let displayText: String
-        public let targetText: String
-        public let matchRange: NSRange
-        public let lineRange: NSRange
-        public let context: String
-
-        public var id: String {
-            "\(noteURL.absoluteString)#\(matchRange.location)-\(matchRange.length)"
-        }
-    }
-
     private let notes: [NoteReference]
     private let notesByURL: [URL: NoteReference]
     private let fallbackTargets: [String: URL]
 
     public init(allNotes: [FileNode]) {
         let collected = Self.collectNotes(from: allNotes).map(Self.makeReference(for:))
-        self.notes = collected.sorted {
+        let deduplicated = Self.deduplicateReferences(collected)
+        self.notes = deduplicated.sorted {
             $0.noteName.localizedCaseInsensitiveCompare($1.noteName) == .orderedAscending
         }
         self.notesByURL = Dictionary(uniqueKeysWithValues: notes.map { ($0.noteURL, $0) })
@@ -83,18 +69,25 @@ public struct NoteReferenceCatalog: Sendable {
 
     public func resolvedExplicitLinkTargets(
         in content: String,
+        sourceNoteURL: URL,
         graphEdgeStore: GraphEdgeStore?
     ) async -> Set<URL> {
-        Set(await resolvedExplicitReferences(in: content, graphEdgeStore: graphEdgeStore).map(\.noteURL))
+        Set(await resolvedExplicitReferences(
+            in: content,
+            sourceNoteURL: sourceNoteURL,
+            graphEdgeStore: graphEdgeStore
+        ).map(\.targetNoteURL))
     }
 
     public func resolvedExplicitReferences(
         in content: String,
+        sourceNoteURL: URL,
         graphEdgeStore: GraphEdgeStore?,
         using extractor: WikiLinkExtractor = WikiLinkExtractor()
-    ) async -> [ResolvedExplicitReference] {
+    ) async -> [ExplicitNoteReference] {
+        let canonicalSourceNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: sourceNoteURL)
         let nsContent = content as NSString
-        var references: [ResolvedExplicitReference] = []
+        var references: [ExplicitNoteReference] = []
         for (range, link) in extractor.linkRanges(in: content) {
             let nsRange = NSRange(range, in: content)
             guard let resolvedURL = await resolveExplicitLinkTarget(link.target, graphEdgeStore: graphEdgeStore) else {
@@ -110,12 +103,15 @@ public struct NoteReferenceCatalog: Sendable {
                 .replacingOccurrences(of: "\n", with: " ")
 
             references.append(
-                ResolvedExplicitReference(
-                    noteURL: noteReference.noteURL,
-                    noteName: noteReference.noteName,
+                ExplicitNoteReference(
+                    sourceNoteURL: canonicalSourceNoteURL,
+                    targetNoteURL: noteReference.noteURL,
+                    targetNoteName: noteReference.noteName,
                     insertableTarget: noteReference.insertableTarget,
+                    rawLinkText: link.raw,
+                    rawTargetText: link.target,
                     displayText: link.displayText,
-                    targetText: link.target,
+                    headingFragment: link.heading,
                     matchRange: nsRange,
                     lineRange: lineRange,
                     context: context
@@ -124,10 +120,12 @@ public struct NoteReferenceCatalog: Sendable {
         }
 
         return references.sorted { lhs, rhs in
-            if lhs.matchRange.location == rhs.matchRange.location {
-                return lhs.noteName.localizedCaseInsensitiveCompare(rhs.noteName) == .orderedAscending
+            let lhsLocation = lhs.matchRange?.location ?? Int.max
+            let rhsLocation = rhs.matchRange?.location ?? Int.max
+            if lhsLocation == rhsLocation {
+                return lhs.targetNoteName.localizedCaseInsensitiveCompare(rhs.targetNoteName) == .orderedAscending
             }
-            return lhs.matchRange.location < rhs.matchRange.location
+            return lhsLocation < rhsLocation
         }
     }
 
@@ -135,11 +133,14 @@ public struct NoteReferenceCatalog: Sendable {
         _ target: String,
         graphEdgeStore: GraphEdgeStore?
     ) async -> URL? {
+        if let resolved = fallbackResolve(target) {
+            return resolved
+        }
         if let graphEdgeStore,
            let resolved = await graphEdgeStore.resolveTitle(target) {
             return resolved
         }
-        return fallbackResolve(target)
+        return nil
     }
 
     public func noteReference(for url: URL) -> NoteReference? {
@@ -205,6 +206,31 @@ public struct NoteReferenceCatalog: Sendable {
         )
     }
 
+    private static func deduplicateReferences(_ references: [NoteReference]) -> [NoteReference] {
+        var mergedByURL: [URL: NoteReference] = [:]
+
+        for reference in references {
+            let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: reference.noteURL)
+            if let existing = mergedByURL[canonicalURL] {
+                let mergedTerms = Array(NSOrderedSet(array: existing.searchTerms + reference.searchTerms)) as? [String]
+                    ?? (existing.searchTerms + reference.searchTerms)
+                mergedByURL[canonicalURL] = NoteReference(
+                    noteURL: canonicalURL,
+                    noteName: existing.noteName,
+                    searchTerms: mergedTerms
+                )
+            } else {
+                mergedByURL[canonicalURL] = NoteReference(
+                    noteURL: canonicalURL,
+                    noteName: reference.noteName,
+                    searchTerms: reference.searchTerms
+                )
+            }
+        }
+
+        return Array(mergedByURL.values)
+    }
+
     private static func buildFallbackTargets(from notes: [NoteReference]) -> [String: URL] {
         var lookup: [String: URL] = [:]
 
@@ -231,15 +257,7 @@ public struct NoteReferenceCatalog: Sendable {
     }
 
     private static func normalize(_ text: String) -> String {
-        let folded = text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: ".md", with: "")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: ":", with: " ")
-        return folded
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
+        GraphIdentityResolver.normalize(text)
     }
 
     private func trimmedLineRange(containing range: NSRange, in text: NSString) -> NSRange {

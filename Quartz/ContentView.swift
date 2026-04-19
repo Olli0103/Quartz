@@ -420,7 +420,8 @@ struct ContentView: View {
                 onSelectNote: { url in
                     coordinator.activeSheet = nil
                     selectedNoteURL = url
-                }
+                },
+                graphEdgeStore: viewModel?.graphEdgeStore
             )
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -867,6 +868,14 @@ struct ContentView: View {
     private func handleSidebarFileTreeChange(_ newTree: [FileNode]?) {
         guard let newTree else { return }
         viewModel?.editorSession?.fileTree = newTree
+
+        guard let restoredNotePath, !restoredNotePath.isEmpty else { return }
+
+        let editorNeedsRestorationRetry = selectedNoteURL == nil
+            || viewModel?.editorSession?.note == nil
+        if editorNeedsRestorationRetry {
+            restoreSelectedNoteIfNeeded()
+        }
     }
 
     private func handleFilePresenterMove(_ notification: Notification) {
@@ -928,7 +937,16 @@ struct ContentView: View {
             viewModel?.completeStartupRestorationIfNeeded()
             return
         }
-        selectedNoteURL = noteURL
+        let canonicalNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        let selectionWasAlreadyRestored = selectedNoteURL.map(CanonicalNoteIdentity.canonicalFileURL(for:)) == canonicalNoteURL
+        selectedNoteURL = canonicalNoteURL
+
+        // Scene restoration can repopulate the selection before this callback runs.
+        // In that case `onChange(selectedNoteURL)` will not fire again, so reopen the
+        // note explicitly instead of leaving the editor mounted with an empty session.
+        if selectionWasAlreadyRestored {
+            viewModel?.openNote(at: canonicalNoteURL)
+        }
 
         // Await editor readiness before restoring cursor/scroll (F8 handshake)
         // Replaces timing-based Task.sleep(100ms) with explicit readiness signal

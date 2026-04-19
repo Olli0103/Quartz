@@ -187,6 +187,36 @@ final class LivePreviewASTTests: XCTestCase {
         let tableSpans = spans.filter { $0.tableRowStyle != nil }
         XCTAssertFalse(tableSpans.isEmpty, "Should detect table rows")
     }
+
+    func test_tableParsingConcurrentRequestsDoNotCrash() async {
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 16)
+        let texts = [
+            "| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |",
+            "| Left | Right |\n|------|-------|\n| One  | Two   |",
+            "| Name | Value |\n|------|-------|\n| Foo  | Bar   |"
+        ]
+
+        await withTaskGroup(of: [HighlightSpan].self) { group in
+            for text in texts {
+                group.addTask {
+                    await highlighter.parse(text)
+                }
+            }
+
+            var results: [[HighlightSpan]] = []
+            for await spans in group {
+                results.append(spans)
+            }
+
+            XCTAssertEqual(results.count, texts.count)
+            for spans in results {
+                XCTAssertFalse(
+                    spans.filter { $0.tableRowStyle != nil }.isEmpty,
+                    "Concurrent table parsing should still emit table row spans"
+                )
+            }
+        }
+    }
 }
 
 // MARK: - TextKit Rendering Stability Tests

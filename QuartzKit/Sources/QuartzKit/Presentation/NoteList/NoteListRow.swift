@@ -70,6 +70,7 @@ public struct NoteListRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("note-list-item-\(item.title)")
         .accessibilityLabel(accessibilityDescription)
         .accessibilityAddTraits(item.isFavorite ? [.isSelected] : [])
     }

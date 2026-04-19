@@ -48,7 +48,9 @@ struct NoteIdentityAndExternalChangeTests {
         session.filePresenterDidDetectChange(presenter)
         presenter.invalidate()
 
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil(timeout: .seconds(2)) {
+            session.currentText == "alpha beta gamma delta"
+        }
 
         #expect(session.note?.id == CanonicalNoteIdentity(fileURL: url))
         #expect(session.currentText == "alpha beta gamma delta")
@@ -184,7 +186,12 @@ struct NoteIdentityAndExternalChangeTests {
         sessionB.filePresenterDidDetectChange(presenter)
         presenter.invalidate()
 
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil(
+            timeout: .seconds(2),
+            pollInterval: .milliseconds(10)
+        ) {
+            sessionB.currentText == "Window A edit"
+        }
 
         #expect(sessionA.note?.id == sessionB.note?.id)
         #expect(sessionA.note?.id == CanonicalNoteIdentity(fileURL: url))
@@ -217,6 +224,25 @@ struct NoteIdentityAndExternalChangeTests {
         textView.string = session.currentText
         session.bindActiveTextView(textView)
         #endif
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: Duration,
+        pollInterval: Duration = .milliseconds(10),
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+
+        while clock.now < deadline {
+            if condition() {
+                return
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+
+        #expect(condition())
     }
 }
 

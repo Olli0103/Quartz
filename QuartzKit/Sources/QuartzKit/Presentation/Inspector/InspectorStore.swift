@@ -14,14 +14,36 @@ public final class InspectorStore {
         public let noteName: String
         public let displayText: String
         public let context: String
+        public let headingFragment: String?
+        public let referenceRange: NSRange?
 
         public var id: URL { noteURL }
 
-        public init(noteURL: URL, noteName: String, displayText: String, context: String) {
+        public init(
+            noteURL: URL,
+            noteName: String,
+            displayText: String,
+            context: String,
+            headingFragment: String? = nil,
+            referenceRange: NSRange? = nil
+        ) {
             self.noteURL = noteURL
             self.noteName = noteName
             self.displayText = displayText
             self.context = context
+            self.headingFragment = headingFragment
+            self.referenceRange = referenceRange
+        }
+
+        public init(reference: ExplicitNoteReference) {
+            self.init(
+                noteURL: reference.targetNoteURL,
+                noteName: reference.targetNoteName,
+                displayText: reference.displayText,
+                context: reference.context,
+                headingFragment: reference.headingFragment,
+                referenceRange: reference.matchRange
+            )
         }
     }
 
@@ -33,7 +55,8 @@ public final class InspectorStore {
     /// Document statistics (word count, char count, reading time).
     public private(set) var stats: NoteStats = .empty
 
-    /// Semantically related notes discovered by background AI analysis.
+    /// Embedding-based related notes discovered by background analysis.
+    /// This is separate from explicit links/backlinks and separate from AI concepts.
     /// Each entry is a (URL, display title) pair for rendering in the inspector.
     public var relatedNotes: [(url: URL, title: String)] = []
 
@@ -46,6 +69,7 @@ public final class InspectorStore {
     public var outgoingLinks: [OutgoingLinkItem] = []
 
     /// AI-extracted concepts for the current note (from KnowledgeExtractionService).
+    /// These are note annotations, not note-to-note links.
     public var aiConcepts: [String] = []
 
     /// AI vault scan progress — shown as a subtle status line in the inspector.
@@ -72,7 +96,9 @@ public final class InspectorStore {
     public var intelligenceStatus: IntelligenceEngineStatus = .idle
 
     /// Stored notification token removed during teardown.
-    private var statusObserver: Any?
+    /// Swift 6 runs `deinit` nonisolated, and removing NotificationCenter observers is
+    /// safe without forcing a MainActor precondition.
+    nonisolated(unsafe) private var statusObserver: Any?
 
     private static let visibilityKey = "quartz.inspectorVisible"
 
@@ -94,10 +120,8 @@ public final class InspectorStore {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            if let observer = statusObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        if let observer = statusObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

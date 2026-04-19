@@ -6,6 +6,9 @@ import SwiftUI
 /// On iOS/iPadOS, presented as a `.sheet` with detents.
 public struct InspectorSidebar: View {
     static let surfacesBacklinksInInspector = true
+    static let relatedNotesSectionTitle = "RELATED NOTES"
+    static let unlinkedMentionsSectionTitle = "UNLINKED MENTIONS"
+    static let aiConceptsSectionTitle = "AI CONCEPTS"
 
     let store: InspectorStore
     let note: NoteDocument?
@@ -293,11 +296,11 @@ public struct InspectorSidebar: View {
         onUpdateTags?(tags)
     }
 
-    // MARK: - Related Notes Section (Semantic AI)
+    // MARK: - Related Notes Section (Embedding Similarity)
 
     private var relatedNotesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("RELATED NOTES", icon: "sparkles")
+            sectionHeader(Self.relatedNotesSectionTitle, icon: "sparkles")
 
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(store.relatedNotes, id: \.url) { related in
@@ -356,62 +359,18 @@ public struct InspectorSidebar: View {
     // MARK: - Outgoing Links Section
 
     private var outgoingLinksSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("OUTGOING LINKS", icon: "arrow.up.right.square")
-
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(store.outgoingLinks) { outgoingLink in
-                    Button {
-                        QuartzFeedback.selection()
-                        onNavigateToNote?(outgoingLink.noteURL)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.up.right")
-                                .font(.caption)
-                                .foregroundStyle(QuartzColors.noteBlue)
-                                .frame(width: 16)
-
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(outgoingLink.noteName)
-                                    .font(.callout.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                if outgoingLink.displayText.localizedCaseInsensitiveCompare(outgoingLink.noteName) != .orderedSame {
-                                    Text(outgoingLink.displayText)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                } else if !outgoingLink.context.isEmpty {
-                                    Text(outgoingLink.context)
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(String(localized: "Open linked note \(outgoingLink.noteName)", bundle: .module))
-                }
-            }
+        OutgoingLinksPanel(outgoingLinks: store.outgoingLinks) { outgoingLink in
+            QuartzFeedback.selection()
+            onNavigateToNote?(outgoingLink.noteURL)
         }
+        .accessibilityIdentifier("editor-inspector-outgoing-links")
     }
 
     // MARK: - AI Concepts Section
 
     private var aiConceptsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("AI CONCEPTS", icon: "brain.head.profile")
+            sectionHeader(Self.aiConceptsSectionTitle, icon: "brain.head.profile")
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -440,7 +399,7 @@ public struct InspectorSidebar: View {
 
     private var suggestedLinksSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("UNLINKED MENTIONS", icon: "link.badge.plus")
+            sectionHeader(Self.unlinkedMentionsSectionTitle, icon: "link.badge.plus")
 
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(store.suggestedLinks.prefix(8)) { suggestion in

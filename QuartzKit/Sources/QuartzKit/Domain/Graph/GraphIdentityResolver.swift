@@ -19,11 +19,23 @@ public struct NoteIdentity: Hashable, Sendable {
         aliases: [String] = [],
         tags: [String] = []
     ) {
-        self.url = url
+        self.url = CanonicalNoteIdentity.canonicalFileURL(for: url)
         self.filename = filename
         self.frontmatterTitle = frontmatterTitle
         self.aliases = aliases
         self.tags = tags
+    }
+
+    /// Builds the canonical explicit-link identity for a note node in the vault tree.
+    /// KG1 uses the note's canonical file URL as the one explicit note-to-note identity.
+    public init(noteNode: FileNode) {
+        self.init(
+            url: noteNode.url,
+            filename: noteNode.name.replacingOccurrences(of: ".md", with: ""),
+            frontmatterTitle: noteNode.frontmatter?.title,
+            aliases: noteNode.frontmatter?.aliases ?? [],
+            tags: noteNode.frontmatter?.tags ?? []
+        )
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -285,7 +297,13 @@ public actor GraphIdentityResolver {
     /// 4. Collapse whitespace
     /// 5. Trim
     public static func normalize(_ text: String) -> String {
-        var result = text.lowercased()
+        var result = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+
+        if result.lowercased().hasSuffix(".md") {
+            result.removeLast(3)
+        }
 
         // Replace common punctuation with spaces
         result = result.replacingOccurrences(of: ":", with: " ")

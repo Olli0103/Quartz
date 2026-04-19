@@ -54,7 +54,7 @@ final class Phase3InspectorFocusRetentionTests: XCTestCase {
         XCTAssertEqual(inspector.aiConcepts, ["concept-9"])
     }
 
-    /// Verifies that semantic links update does not steal editor focus.
+    /// Verifies that related-note similarity updates do not steal editor focus.
     @MainActor
     func testSemanticLinkUpdatePreservesEditorFocus() async throws {
         let inspector = InspectorStore()

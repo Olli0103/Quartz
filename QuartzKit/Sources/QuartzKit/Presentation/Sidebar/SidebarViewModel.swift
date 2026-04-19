@@ -49,6 +49,7 @@ public final class SidebarViewModel {
         didSet {
             invalidateFilterCache()
             invalidateTagCache()
+            onFileTreeDidChange?(fileTree)
         }
     }
     public var searchText: String = "" {
@@ -119,6 +120,11 @@ public final class SidebarViewModel {
     private var _favoriteURLs: Set<String>?
     private var tagCacheValid: Bool = false
 
+    /// Hook for consumers that need immediate access to the authoritative catalog
+    /// after sidebar file mutations. KG3 uses this to keep relationship resolution
+    /// aligned without depending on view-layer `.onChange` fan-out.
+    public var onFileTreeDidChange: (([FileNode]) -> Void)?
+
     /// Public access to the vault root URL.
     public var vaultRootURL: URL? { vaultRoot }
 
@@ -147,8 +153,10 @@ public final class SidebarViewModel {
     }
 
     /// Stored notification tokens removed during teardown.
-    private var favoritesObserver: Any?
-    private var renameObserver: Any?
+    /// Swift 6 runs `deinit` nonisolated, and removing NotificationCenter observers is
+    /// safe there without forcing a MainActor precondition.
+    nonisolated(unsafe) private var favoritesObserver: Any?
+    nonisolated(unsafe) private var renameObserver: Any?
 
     public init(vaultProvider: any VaultProviding) {
         self.vaultProvider = vaultProvider
@@ -174,13 +182,11 @@ public final class SidebarViewModel {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            if let observer = favoritesObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = renameObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        if let observer = favoritesObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = renameObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -348,13 +354,31 @@ public final class SidebarViewModel {
     /// Renames an item.
     public func rename(at url: URL, to newName: String) async {
         do {
+            let proposedName: String
+            if url.pathExtension.lowercased() == "md" {
+                proposedName = newName.hasSuffix(".md") ? newName : "\(newName).md"
+            } else {
+                proposedName = newName
+            }
+            let relocatedNotes = relocatedMarkdownFileURLs(
+                from: url,
+                to: url.deletingLastPathComponent().appending(path: proposedName)
+            )
             let newURL = try await vaultProvider.rename(at: url, to: newName)
             await refresh()
             if newURL != url {
+                for relocation in relocatedNotesResolved(from: relocatedNotes, newRootURL: newURL, oldRootURL: url) {
+                    await DomainEventBus.shared.publish(.noteRelocated(from: relocation.oldURL, to: relocation.newURL))
+                }
                 NotificationCenter.default.post(
                     name: .quartzSpotlightNoteRelocated,
                     object: nil,
                     userInfo: ["old": url, "new": newURL]
+                )
+                NotificationCenter.default.post(
+                    name: .quartzNoteRenamed,
+                    object: nil,
+                    userInfo: ["oldURL": url, "newURL": newURL]
                 )
             }
         } catch {
@@ -368,11 +392,18 @@ public final class SidebarViewModel {
     public func move(at sourceURL: URL, to destinationFolder: URL) async -> Bool {
         print("[SidebarViewModel] move called: \(sourceURL.lastPathComponent) -> \(destinationFolder.lastPathComponent)")
         do {
+            let relocatedNotes = relocatedMarkdownFileURLs(
+                from: sourceURL,
+                to: destinationFolder.appending(path: sourceURL.lastPathComponent, directoryHint: sourceURL.hasDirectoryPath ? .isDirectory : .notDirectory)
+            )
             let folderUseCase = FolderManagementUseCase(vaultProvider: vaultProvider)
             let newURL = try await folderUseCase.move(at: sourceURL, to: destinationFolder)
             print("[SidebarViewModel] move succeeded: \(newURL.path)")
             await refresh()
             if newURL != sourceURL {
+                for relocation in relocatedNotesResolved(from: relocatedNotes, newRootURL: newURL, oldRootURL: sourceURL) {
+                    await DomainEventBus.shared.publish(.noteRelocated(from: relocation.oldURL, to: relocation.newURL))
+                }
                 NotificationCenter.default.post(
                     name: .quartzSpotlightNoteRelocated,
                     object: nil,
@@ -390,11 +421,14 @@ public final class SidebarViewModel {
     /// Deletes an item.
     public func delete(at url: URL) async {
         do {
-            let removed = Self.markdownFileURLsUnder(url)
+            let removed = markdownFileURLsUnder(url)
             try await vaultProvider.deleteNote(at: url)
             await refresh()
             refreshTrash()
             if !removed.isEmpty {
+                for removedURL in removed {
+                    await DomainEventBus.shared.publish(.noteDeleted(url: removedURL))
+                }
                 NotificationCenter.default.post(
                     name: .quartzSpotlightNotesRemoved,
                     object: nil,
@@ -457,13 +491,106 @@ public final class SidebarViewModel {
     }
 
     /// Markdown files affected by deleting `url` (single note or folder), before the delete runs.
-    private static func markdownFileURLsUnder(_ url: URL) -> [URL] {
+    private func markdownFileURLsUnder(_ url: URL) -> [URL] {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        if let node = Self.findNode(at: canonicalURL, in: fileTree) {
+            return Self.collectMarkdownNoteURLs(in: node)
+        }
+        return Self.markdownFileURLsOnDisk(under: canonicalURL)
+    }
+
+    private func relocatedMarkdownFileURLs(from oldRootURL: URL, to proposedNewRootURL: URL) -> [(oldURL: URL, newURL: URL)] {
+        let canonicalOldRootURL = CanonicalNoteIdentity.canonicalFileURL(for: oldRootURL)
+        let canonicalNewRootURL = CanonicalNoteIdentity.canonicalFileURL(for: proposedNewRootURL)
+        let oldNoteURLs = markdownFileURLsUnder(canonicalOldRootURL)
+
+        return oldNoteURLs.map { oldNoteURL in
+            let canonicalOldNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: oldNoteURL)
+            if canonicalOldNoteURL == canonicalOldRootURL {
+                return (oldURL: canonicalOldNoteURL, newURL: canonicalNewRootURL)
+            }
+
+            let oldRootPath = canonicalOldRootURL.path(percentEncoded: false)
+            let oldNotePath = canonicalOldNoteURL.path(percentEncoded: false)
+            let relativePath: String
+            if oldNotePath.hasPrefix(oldRootPath + "/") {
+                relativePath = String(oldNotePath.dropFirst(oldRootPath.count + 1))
+            } else {
+                relativePath = canonicalOldNoteURL.lastPathComponent
+            }
+
+            return (
+                oldURL: canonicalOldNoteURL,
+                newURL: CanonicalNoteIdentity.canonicalFileURL(
+                    for: canonicalNewRootURL.appending(path: relativePath)
+                )
+            )
+        }
+    }
+
+    private func relocatedNotesResolved(
+        from proposedRelocations: [(oldURL: URL, newURL: URL)],
+        newRootURL: URL,
+        oldRootURL: URL
+    ) -> [(oldURL: URL, newURL: URL)] {
+        let canonicalOldRootURL = CanonicalNoteIdentity.canonicalFileURL(for: oldRootURL)
+        let canonicalNewRootURL = CanonicalNoteIdentity.canonicalFileURL(for: newRootURL)
+
+        return proposedRelocations.map { relocation in
+            guard relocation.oldURL != canonicalOldRootURL else {
+                return (
+                    oldURL: CanonicalNoteIdentity.canonicalFileURL(for: relocation.oldURL),
+                    newURL: canonicalNewRootURL
+                )
+            }
+
+            let oldRootPath = canonicalOldRootURL.path(percentEncoded: false)
+            let oldNotePath = CanonicalNoteIdentity.canonicalFileURL(for: relocation.oldURL).path(percentEncoded: false)
+            let relativePath: String
+            if oldNotePath.hasPrefix(oldRootPath + "/") {
+                relativePath = String(oldNotePath.dropFirst(oldRootPath.count + 1))
+            } else {
+                relativePath = relocation.oldURL.lastPathComponent
+            }
+
+            return (
+                oldURL: CanonicalNoteIdentity.canonicalFileURL(for: relocation.oldURL),
+                newURL: CanonicalNoteIdentity.canonicalFileURL(for: canonicalNewRootURL.appending(path: relativePath))
+            )
+        }
+    }
+
+    private static func findNode(at url: URL, in nodes: [FileNode]) -> FileNode? {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        for node in nodes {
+            if CanonicalNoteIdentity.canonicalFileURL(for: node.url) == canonicalURL {
+                return node
+            }
+            if let children = node.children,
+               let match = findNode(at: canonicalURL, in: children) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    private static func collectMarkdownNoteURLs(in node: FileNode) -> [URL] {
+        if node.isNote {
+            return node.url.pathExtension.lowercased() == "md" ? [CanonicalNoteIdentity.canonicalFileURL(for: node.url)] : []
+        }
+
+        return (node.children ?? []).flatMap { child in
+            collectMarkdownNoteURLs(in: child)
+        }
+    }
+
+    private static func markdownFileURLsOnDisk(under url: URL) -> [URL] {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDir) else {
             return []
         }
         if !isDir.boolValue {
-            return url.pathExtension.lowercased() == "md" ? [url] : []
+            return url.pathExtension.lowercased() == "md" ? [CanonicalNoteIdentity.canonicalFileURL(for: url)] : []
         }
         var urls: [URL] = []
         if let enumerator = FileManager.default.enumerator(
@@ -473,7 +600,7 @@ public final class SidebarViewModel {
         ) {
             for case let fileURL as URL in enumerator {
                 if fileURL.pathExtension.lowercased() == "md" {
-                    urls.append(fileURL)
+                    urls.append(CanonicalNoteIdentity.canonicalFileURL(for: fileURL))
                 }
             }
         }

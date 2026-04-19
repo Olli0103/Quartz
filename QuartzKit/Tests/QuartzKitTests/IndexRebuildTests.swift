@@ -8,7 +8,7 @@ import CoreGraphics
 @Suite("IndexRebuild")
 struct IndexRebuildTests {
 
-    @Test("GraphCache save and load round-trip with fingerprint validation")
+    @Test("GraphCache saves and loads explicit and graph-view snapshots independently")
     func graphCacheRoundTrip() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("graph-rebuild-\(UUID().uuidString)")
@@ -19,30 +19,125 @@ struct IndexRebuildTests {
         let noteA = URL(fileURLWithPath: "/vault/a.md")
         let noteB = URL(fileURLWithPath: "/vault/b.md")
 
-        let graph = GraphCache.CachedGraph(
+        let explicitSnapshot = GraphCache.CachedGraph.CachedExplicitRelationshipSnapshot(
+            fingerprint: "explicit-fp",
+            references: [
+                ExplicitNoteReference(
+                    sourceNoteURL: noteA,
+                    targetNoteURL: noteB,
+                    targetNoteName: "B",
+                    insertableTarget: "B",
+                    rawLinkText: "B",
+                    rawTargetText: "B",
+                    displayText: "B",
+                    headingFragment: nil,
+                    matchRange: NSRange(location: 0, length: 5),
+                    lineRange: NSRange(location: 0, length: 5),
+                    context: "[[B]]"
+                )
+            ]
+        )
+        let semanticSnapshot = GraphCache.CachedGraph.CachedSemanticRelationshipSnapshot(
+            fingerprint: "semantic-fp",
+            relations: [
+                .init(sourceURL: noteA, targetURLs: [noteB])
+            ]
+        )
+        let graphViewSnapshot = GraphCache.CachedGraph.CachedGraphViewSnapshot(
+            fingerprint: "graph-fp",
             nodes: [
                 .init(id: "a", title: "A", url: noteA, x: 10, y: 20, connectionCount: 1, tags: ["test"]),
                 .init(id: "b", title: "B", url: noteB, x: 30, y: 40, connectionCount: 1, tags: nil)
             ],
-            edges: [
-                .init(from: "a", to: "b", isSemantic: false)
+            semanticEdges: [
+                .init(from: "a", to: "b", kind: .semanticSimilarity)
             ],
-            fingerprint: "test-fp-123"
+            conceptEdges: [
+                .init(from: "a", to: "concept:swift", kind: .aiConcept)
+            ]
         )
 
-        // Save
-        try cache.save(graph)
+        try cache.saveExplicitRelationshipSnapshot(explicitSnapshot)
+        try cache.saveSemanticRelationshipSnapshot(semanticSnapshot)
+        try cache.saveGraphViewSnapshot(graphViewSnapshot)
 
-        // Load with matching fingerprint
-        let loaded = cache.loadIfValid(fingerprint: "test-fp-123")
-        #expect(loaded != nil)
-        #expect(loaded?.nodes.count == 2)
-        #expect(loaded?.edges.count == 1)
-        #expect(loaded?.fingerprint == "test-fp-123")
+        let loadedExplicit = cache.loadExplicitRelationshipSnapshotIfValid(fingerprint: "explicit-fp")
+        #expect(loadedExplicit != nil)
+        #expect(loadedExplicit?.references.count == 1)
+        #expect(loadedExplicit?.references.first?.targetNoteURL == noteB)
 
-        // Load with mismatched fingerprint — cache rejected
-        let rejected = cache.loadIfValid(fingerprint: "wrong-fp")
-        #expect(rejected == nil)
+        let loadedSemantic = cache.loadSemanticRelationshipSnapshotIfValid(fingerprint: "semantic-fp")
+        #expect(loadedSemantic != nil)
+        #expect(loadedSemantic?.relations.count == 1)
+        #expect(loadedSemantic?.relations.first?.sourceURL == noteA)
+        #expect(loadedSemantic?.relations.first?.targetURLs == [noteB])
+
+        let loadedGraphView = cache.loadGraphViewSnapshotIfValid(fingerprint: "graph-fp")
+        #expect(loadedGraphView != nil)
+        #expect(loadedGraphView?.nodes.count == 2)
+        #expect(loadedGraphView?.semanticEdges.count == 1)
+        #expect(loadedGraphView?.semanticEdges.first?.kind == .semanticSimilarity)
+        #expect(loadedGraphView?.conceptEdges.count == 1)
+        #expect(loadedGraphView?.conceptEdges.first?.kind == .aiConcept)
+
+        #expect(cache.loadExplicitRelationshipSnapshotIfValid(fingerprint: "wrong-fp") == nil)
+        #expect(cache.loadSemanticRelationshipSnapshotIfValid(fingerprint: "wrong-fp") == nil)
+        #expect(cache.loadGraphViewSnapshotIfValid(fingerprint: "wrong-fp") == nil)
+    }
+
+    @Test("Saving graph-view snapshot preserves authoritative explicit and semantic snapshots")
+    func graphViewSavePreservesRelationshipSnapshots() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("graph-preserve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: ".quartz"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cache = GraphCache(vaultRoot: root)
+        let noteA = URL(fileURLWithPath: "/vault/a.md")
+        let noteB = URL(fileURLWithPath: "/vault/b.md")
+
+        try cache.saveExplicitRelationshipSnapshot(
+            .init(
+                fingerprint: "explicit-fp",
+                references: [
+                    ExplicitNoteReference(
+                        sourceNoteURL: noteA,
+                        targetNoteURL: noteB,
+                        targetNoteName: "B",
+                        insertableTarget: "B",
+                        rawLinkText: "B",
+                        rawTargetText: "B",
+                        displayText: "B",
+                        headingFragment: nil,
+                        matchRange: nil,
+                        lineRange: nil,
+                        context: "[[B]]"
+                    )
+                ]
+            )
+        )
+        try cache.saveSemanticRelationshipSnapshot(
+            .init(
+                fingerprint: "semantic-fp",
+                relations: [
+                    .init(sourceURL: noteA, targetURLs: [noteB])
+                ]
+            )
+        )
+
+        try cache.saveGraphViewSnapshot(
+            .init(
+                fingerprint: "graph-fp",
+                nodes: [],
+                semanticEdges: [],
+                conceptEdges: []
+            )
+        )
+
+        let loadedExplicit = cache.loadExplicitRelationshipSnapshotIfValid(fingerprint: "explicit-fp")
+        #expect(loadedExplicit?.references.count == 1)
+        let loadedSemantic = cache.loadSemanticRelationshipSnapshotIfValid(fingerprint: "semantic-fp")
+        #expect(loadedSemantic?.relations.count == 1)
     }
 
     @Test("Fingerprint changes when files are modified")

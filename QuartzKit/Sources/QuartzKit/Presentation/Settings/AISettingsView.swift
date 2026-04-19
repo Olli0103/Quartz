@@ -3,13 +3,15 @@ import SwiftUI
 import UIKit
 #endif
 
-/// Keys for app-wide settings.
-private enum AppSettingsKeys {
-    static let semanticAutoLinkingEnabled = "semanticAutoLinkingEnabled"
-}
-
 /// AI provider configuration: select providers, enter API keys, pick models.
 public struct AISettingsView: View {
+    static let relatedNotesSectionTitle = "Related Notes Similarity"
+    static let relatedNotesToggleTitle = "Discover related notes"
+    static let relatedNotesFooterText = "Controls embedding-based Related Notes in the inspector and Graph View similarity edges. Graph View now reads the same canonical related-note similarity state as the inspector. It does not change explicit links, outgoing links, backlinks, or unlinked mentions."
+    static let aiConceptsSectionTitle = "AI Concepts"
+    static let aiConceptsToggleTitle = "Extract AI concepts"
+    static let aiConceptsFooterText = "Controls AI concept extraction for the inspector and Graph View concept hubs. Graph View concept hubs read the same canonical AI concept state used by the inspector. It does not change explicit links, outgoing links, backlinks, unlinked mentions, or related-note similarity."
+
     @State private var registry = AIProviderRegistry.shared
     @State private var apiKeyInputs: [String: String] = [:]
     @State private var savingKey: String?
@@ -24,7 +26,8 @@ public struct AISettingsView: View {
     @State private var ollamaModelsFetched = false
     @State private var connectionTestResult: Bool?
     @State private var connectionTesting = false
-    @AppStorage(AppSettingsKeys.semanticAutoLinkingEnabled) private var semanticAutoLinkingEnabled = true
+    @State private var relatedNotesSimilarityEnabled = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
+    @State private var aiConceptExtractionEnabled = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
 
     public init() {}
 
@@ -43,11 +46,15 @@ public struct AISettingsView: View {
             modelSection
             connectionTestSection
             customModelSection
-            semanticAutoLinkingSection
+            relatedNotesSimilaritySection
+            aiConceptExtractionSection
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "AI", bundle: .module))
         .task {
+            KnowledgeAnalysisSettings.migrateLegacyDefaultsIfNeeded()
+            relatedNotesSimilarityEnabled = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
+            aiConceptExtractionEnabled = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
             await loadCustomModels()
             loadOllamaURLFromStorage()
             await probeOllamaReachabilityOnAppear()
@@ -541,18 +548,49 @@ public struct AISettingsView: View {
         }
     }
 
-    // MARK: - Semantic Auto-Linking Section
+    // MARK: - Related Notes Similarity
 
-    private var semanticAutoLinkingSection: some View {
+    private var relatedNotesSimilaritySection: some View {
         Section {
-            Toggle(isOn: $semanticAutoLinkingEnabled) {
-                Label(String(localized: "Auto-Discover Related Notes", bundle: .module), systemImage: "sparkles")
+            Toggle(
+                isOn: Binding(
+                    get: { relatedNotesSimilarityEnabled },
+                    set: { newValue in
+                        relatedNotesSimilarityEnabled = newValue
+                        KnowledgeAnalysisSettings.setRelatedNotesSimilarityEnabled(newValue)
+                    }
+                )
+            ) {
+                Label(Self.relatedNotesToggleTitle, systemImage: "sparkles")
             }
             .tint(QuartzColors.accent)
         } header: {
-            Text(String(localized: "Knowledge Graph", bundle: .module))
+            Text(Self.relatedNotesSectionTitle)
         } footer: {
-            Text(String(localized: "Uses on-device vector embeddings to discover hidden connections between your notes. Adds semantic links to the Knowledge Graph and Related Notes in the inspector. Privacy-safe: all processing happens locally and never alters your text files.", bundle: .module))
+            Text(Self.relatedNotesFooterText)
+        }
+    }
+
+    // MARK: - AI Concepts
+
+    private var aiConceptExtractionSection: some View {
+        Section {
+            Toggle(
+                isOn: Binding(
+                    get: { aiConceptExtractionEnabled },
+                    set: { newValue in
+                        aiConceptExtractionEnabled = newValue
+                        KnowledgeAnalysisSettings.setAIConceptExtractionEnabled(newValue)
+                    }
+                )
+            ) {
+                Label(Self.aiConceptsToggleTitle, systemImage: "brain")
+            }
+            .tint(QuartzColors.accent)
+        } header: {
+            Text(Self.aiConceptsSectionTitle)
+        } footer: {
+            Text(Self.aiConceptsFooterText)
         }
     }
 }

@@ -86,12 +86,15 @@ public final class EditorSession {
         didSet {
             guard fileTree != oldValue else { return }
             refreshLinkInsertionSuggestionsForCurrentEditorState()
+            guard note != nil else { return }
+            scheduleAnalysis()
+            scheduleExplicitRelationshipRefresh(forceGraphPublish: true)
         }
     }
 
-    /// Last published explicit wiki-link target signature for the loaded note.
-    /// Prevents redundant live graph invalidations while keeping backlink state current.
-    private var lastPublishedExplicitLinkTargets: [String] = []
+    /// Last published canonical explicit-reference payload for the loaded note.
+    /// Prevents redundant live graph invalidations while keeping explicit relationships coherent.
+    private var lastPublishedExplicitReferences: [ExplicitNoteReference] = []
 
     /// Pending cross-note navigation request that should be applied when the target
     /// note becomes the loaded note in this session.
@@ -172,9 +175,10 @@ public final class EditorSession {
     private let vaultProvider: any VaultProviding
     private let frontmatterParser: any FrontmatterParsing
     /// Stored for deinit cleanup of long-lived editor work items.
-    private var autosaveTask: Task<Void, Never>?
-    private var fileWatchTask: Task<Void, Never>?
-    private var wordCountTask: Task<Void, Never>?
+    /// Swift 6 runs `deinit` nonisolated, and `Task.cancel()` is safe there.
+    nonisolated(unsafe) private var autosaveTask: Task<Void, Never>?
+    nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
+    nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
 
     // MARK: - NSFilePresenter Integration
 
@@ -191,10 +195,10 @@ public final class EditorSession {
     public let inspectorStore: InspectorStore
 
     /// Stored for deinit cleanup of background analysis.
-    private var analysisTask: Task<Void, Never>?
+    nonisolated(unsafe) private var analysisTask: Task<Void, Never>?
 
     /// Stored for deinit cleanup of current-note explicit-link inspector refreshes.
-    private var referenceInspectorTask: Task<Void, Never>?
+    nonisolated(unsafe) private var referenceInspectorTask: Task<Void, Never>?
 
     /// Delay before running analysis (longer than highlighting since ToC doesn't need keystroke-level updates).
     private let analysisDelay: Duration = .milliseconds(300)
@@ -217,13 +221,15 @@ public final class EditorSession {
 
     // MARK: - Init
 
-    /// Graph edge store for resolving semantic links in the inspector.
+    /// Shared relationship store for explicit link edges, related-note similarity, and AI concepts.
     public var graphEdgeStore: GraphEdgeStore?
 
     /// Stored notification tokens removed during teardown.
-    private var semanticLinkObserver: Any?
-    private var conceptObserver: Any?
-    private var scanProgressObserver: Any?
+    /// Stored notification tokens removed during teardown.
+    /// Removing NotificationCenter observers is safe from nonisolated `deinit`.
+    nonisolated(unsafe) private var semanticLinkObserver: Any?
+    nonisolated(unsafe) private var conceptObserver: Any?
+    nonisolated(unsafe) private var scanProgressObserver: Any?
 
     public init(vaultProvider: any VaultProviding, frontmatterParser: any FrontmatterParsing, inspectorStore: InspectorStore) {
         self.vaultProvider = vaultProvider
@@ -235,38 +241,43 @@ public final class EditorSession {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            autosaveTask?.cancel()
-            highlightTask?.cancel()
-            fileWatchTask?.cancel()
-            wordCountTask?.cancel()
-            analysisTask?.cancel()
-            referenceInspectorTask?.cancel()
-            inlineAITask?.cancel()
+        autosaveTask?.cancel()
+        highlightTask?.cancel()
+        fileWatchTask?.cancel()
+        wordCountTask?.cancel()
+        analysisTask?.cancel()
+        referenceInspectorTask?.cancel()
+        inlineAITask?.cancel()
 
-            if let observer = semanticLinkObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = conceptObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = scanProgressObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        if let observer = semanticLinkObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = conceptObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = scanProgressObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
-    /// Listens for `.quartzSemanticLinksUpdated` and refreshes the inspector's related notes.
+    /// Listens for related-note similarity updates and refreshes the inspector's Related Notes.
     private func startSemanticLinkObserver() {
         semanticLinkObserver = NotificationCenter.default.addObserver(
-            forName: .quartzSemanticLinksUpdated,
+            forName: .quartzRelatedNotesUpdated,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let updatedURL = notification.object as? URL else { return }
+            let updatedURL = notification.object as? URL
+            let updatedVaultRoot = notification.userInfo?["vaultRootURL"] as? URL
             Task { @MainActor [weak self] in
-                guard let self, updatedURL == self.note?.fileURL else { return }
-                await self.refreshSemanticLinks()
+                guard let self,
+                      self.relationshipNotificationBelongsToCurrentVault(updatedVaultRoot) else { return }
+                if let updatedURL {
+                    guard updatedURL == self.note?.fileURL else { return }
+                } else if self.note == nil {
+                    return
+                }
+                await self.refreshRelatedNotes()
             }
         }
     }
@@ -278,10 +289,17 @@ public final class EditorSession {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let updatedURL = notification.object as? URL else { return }
+            let updatedURL = notification.object as? URL
+            let updatedVaultRoot = notification.userInfo?["vaultRootURL"] as? URL
             Task { @MainActor [weak self] in
-                guard let self, updatedURL == self.note?.fileURL else { return }
-                await self.refreshConcepts()
+                guard let self,
+                      self.relationshipNotificationBelongsToCurrentVault(updatedVaultRoot) else { return }
+                if let updatedURL {
+                    guard updatedURL == self.note?.fileURL else { return }
+                } else if self.note == nil {
+                    return
+                }
+                await self.refreshAIConcepts()
             }
         }
     }
@@ -307,9 +325,10 @@ public final class EditorSession {
         }
     }
 
-    /// Fetches semantic links from the edge store and updates the inspector.
-    public func refreshSemanticLinks() async {
-        guard let noteURL = note?.fileURL,
+    /// Fetches note-to-note related-note similarity from the edge store and updates the inspector.
+    public func refreshRelatedNotes() async {
+        guard KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled(),
+              let noteURL = note?.fileURL,
               let edgeStore = graphEdgeStore else {
             inspectorStore.relatedNotes = []
             return
@@ -318,18 +337,23 @@ public final class EditorSession {
         inspectorStore.relatedNotes = related.map { url in
             (url: url, title: url.deletingPathExtension().lastPathComponent)
         }
-        // Also refresh concepts while we're at it
-        await refreshConcepts()
     }
 
     /// Fetches AI concepts from the edge store and updates the inspector.
-    public func refreshConcepts() async {
-        guard let noteURL = note?.fileURL,
+    public func refreshAIConcepts() async {
+        guard KnowledgeAnalysisSettings.aiConceptExtractionEnabled(),
+              let noteURL = note?.fileURL,
               let edgeStore = graphEdgeStore else {
             inspectorStore.aiConcepts = []
             return
         }
         inspectorStore.aiConcepts = await edgeStore.concepts(for: noteURL)
+    }
+
+    private func relationshipNotificationBelongsToCurrentVault(_ updatedVaultRoot: URL?) -> Bool {
+        guard let updatedVaultRoot else { return true }
+        guard let vaultRootURL else { return false }
+        return updatedVaultRoot.standardizedFileURL == vaultRootURL.standardizedFileURL
     }
 
     // MARK: - Note Loading
@@ -427,7 +451,7 @@ public final class EditorSession {
         formattingState = .empty
         lastSavedContentHash = nil
         lastKnownDiskContentHash = nil
-        lastPublishedExplicitLinkTargets = []
+        lastPublishedExplicitReferences = []
         pendingNoteNavigationRequest = nil
 
         // Reset cursor and scroll state for clean restoration on next note open
@@ -510,9 +534,9 @@ public final class EditorSession {
         synchronizeSemanticSnapshotFromCurrentText()
         refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
         refreshLinkInsertionSuggestionsForCurrentEditorState()
-        scheduleOutgoingLinkRefresh()
-        guard newText != previousText else { return }
-        refreshExplicitLinkGraphConnectionsIfNeeded()
+        let contentChanged = newText != previousText
+        scheduleExplicitRelationshipRefresh(forceGraphPublish: contentChanged)
+        guard contentChanged else { return }
 
         if isApplyingExternalEdit {
             updateTypingAttributes()
@@ -1076,7 +1100,7 @@ public final class EditorSession {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: requestedURL)
         note = loaded
         currentText = loaded.body
-        lastPublishedExplicitLinkTargets = []
+        lastPublishedExplicitReferences = []
         isDirty = false
         errorMessage = nil
         externalModificationDetected = false
@@ -1121,9 +1145,11 @@ public final class EditorSession {
 
         highlightImmediately()
         scheduleAnalysis()
-        scheduleOutgoingLinkRefresh()
-        refreshExplicitLinkGraphConnectionsIfNeeded(force: true)
-        Task { await refreshSemanticLinks() }
+        scheduleExplicitRelationshipRefresh(forceGraphPublish: true)
+        Task {
+            await refreshRelatedNotes()
+            await refreshAIConcepts()
+        }
 
         applyPendingNoteNavigationIfNeeded(for: canonicalURL)
 
@@ -1533,8 +1559,8 @@ public final class EditorSession {
             // Legacy NotificationCenter for backward compatibility
             NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
 
-            refreshExplicitLinkGraphConnectionsIfNeeded(
-                force: true,
+            scheduleExplicitRelationshipRefresh(
+                forceGraphPublish: true,
                 sourceURL: savedURL,
                 content: textSnapshot
             )
@@ -1592,7 +1618,7 @@ public final class EditorSession {
     /// Semantic editor model derived from the latest markdown parse.
     public private(set) var semanticDocument: EditorSemanticDocument = .empty
     /// Stored for deinit cleanup of debounced highlight work.
-    private var highlightTask: Task<Void, Never>?
+    nonisolated(unsafe) private var highlightTask: Task<Void, Never>?
     /// Reused when selection-only changes should refresh concealment without reparsing.
     private var lastAppliedHighlightSpans: [HighlightSpan] = []
     /// Source text for the cached highlight spans.
@@ -2255,7 +2281,7 @@ public final class EditorSession {
     // MARK: - Inline AI
 
     /// Stored for deinit cleanup of inline AI work.
-    private var inlineAITask: Task<Void, Never>?
+    nonisolated(unsafe) private var inlineAITask: Task<Void, Never>?
 
     /// State for the inline AI operation — observed by the UI for loading/error display.
     public private(set) var isInlineAIProcessing: Bool = false
@@ -2847,90 +2873,68 @@ public final class EditorSession {
         )
     }
 
-    private func refreshExplicitLinkGraphConnectionsIfNeeded(
-        force: Bool = false,
+    private func scheduleExplicitRelationshipRefresh(
+        forceGraphPublish: Bool = false,
         sourceURL: URL? = nil,
         content: String? = nil
     ) {
-        let effectiveContent = content ?? currentText
-        let linkedTitles = explicitLinkTargets(in: effectiveContent)
-        guard force || linkedTitles != lastPublishedExplicitLinkTargets else { return }
-        lastPublishedExplicitLinkTargets = linkedTitles
-        refreshExplicitLinkGraphConnections(for: sourceURL ?? note?.fileURL, linkedTitles: linkedTitles)
-    }
-
-    private func explicitLinkTargets(in content: String) -> [String] {
-        Array(Set(WikiLinkExtractor().extractLinks(from: content).map(\.target))).sorted()
-    }
-
-    private func scheduleOutgoingLinkRefresh() {
         referenceInspectorTask?.cancel()
 
-        guard note != nil else {
+        guard let resolvedSourceURL = sourceURL ?? note?.fileURL else {
             inspectorStore.setOutgoingLinks([])
             return
         }
 
         let noteIdentity = note?.id
-        let textSnapshot = currentText
+        let canonicalSourceURL = CanonicalNoteIdentity.canonicalFileURL(for: resolvedSourceURL)
+        let textSnapshot = content ?? currentText
         let treeSnapshot = fileTree
         let edgeStore = graphEdgeStore
 
         referenceInspectorTask = Task { [weak self] in
+            guard let self else { return }
             let catalog = NoteReferenceCatalog(allNotes: treeSnapshot)
             let references = await catalog.resolvedExplicitReferences(
                 in: textSnapshot,
+                sourceNoteURL: canonicalSourceURL,
                 graphEdgeStore: edgeStore
             )
             guard !Task.isCancelled else { return }
 
-            var seen: Set<URL> = []
-            let outgoingLinks = references.compactMap { reference -> InspectorStore.OutgoingLinkItem? in
-                guard !seen.contains(reference.noteURL) else { return nil }
-                seen.insert(reference.noteURL)
-                return InspectorStore.OutgoingLinkItem(
-                    noteURL: reference.noteURL,
-                    noteName: reference.noteName,
-                    displayText: reference.displayText,
-                    context: reference.context
-                )
-            }
+            let outgoingLinks = self.outgoingLinkItems(from: references)
+            var shouldPublishGraph = false
 
             await MainActor.run { [weak self] in
                 guard let self,
                       self.note?.id == noteIdentity,
                       self.currentText == textSnapshot else { return }
                 self.inspectorStore.setOutgoingLinks(outgoingLinks)
-            }
-        }
-    }
-
-    private func refreshExplicitLinkGraphConnections(for url: URL?, linkedTitles: [String]) {
-        guard let url, let graphEdgeStore, !fileTree.isEmpty else { return }
-        let sourceURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
-        let catalog = NoteReferenceCatalog(allNotes: fileTree)
-        let allVaultURLs = catalog.allNoteURLs
-        guard !allVaultURLs.isEmpty else { return }
-
-        Task {
-            await graphEdgeStore.updateConnections(
-                for: sourceURL,
-                linkedTitles: linkedTitles,
-                allVaultURLs: allVaultURLs
-            )
-
-            var resolvedTargets: [URL] = []
-            for title in linkedTitles {
-                if let targetURL = await catalog.resolveExplicitLinkTarget(title, graphEdgeStore: graphEdgeStore) {
-                    resolvedTargets.append(CanonicalNoteIdentity.canonicalFileURL(for: targetURL))
+                if forceGraphPublish || self.lastPublishedExplicitReferences != references {
+                    self.lastPublishedExplicitReferences = references
+                    shouldPublishGraph = true
                 }
             }
 
+            guard shouldPublishGraph, let edgeStore else { return }
+            await edgeStore.updateExplicitReferences(
+                for: canonicalSourceURL,
+                references: references
+            )
+
+            let resolvedTargets = Array(Set(references.map(\.targetNoteURL)))
             NotificationCenter.default.post(
                 name: .quartzReferenceGraphDidChange,
-                object: sourceURL,
-                userInfo: ["targetURLs": Array(Set(resolvedTargets))]
+                object: canonicalSourceURL,
+                userInfo: ["targetURLs": resolvedTargets]
             )
+        }
+    }
+
+    private func outgoingLinkItems(from references: [ExplicitNoteReference]) -> [InspectorStore.OutgoingLinkItem] {
+        var seen: Set<URL> = []
+        return references.compactMap { reference in
+            guard seen.insert(reference.targetNoteURL).inserted else { return nil }
+            return InspectorStore.OutgoingLinkItem(reference: reference)
         }
     }
 

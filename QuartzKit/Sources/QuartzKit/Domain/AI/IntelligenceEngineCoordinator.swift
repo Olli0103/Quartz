@@ -40,6 +40,7 @@ public actor IntelligenceEngineCoordinator {
     /// nonisolated(unsafe) for deinit access — Swift 6 deinit is nonisolated.
     /// Safe: @MainActor @Observable class; observers only removed in deinit.
     nonisolated(unsafe) private var observerTokens: [Any] = []
+    nonisolated(unsafe) private var domainEventTask: Task<Void, Never>?
 
     // MARK: - Debouncing
 
@@ -67,6 +68,7 @@ public actor IntelligenceEngineCoordinator {
     }
 
     deinit {
+        domainEventTask?.cancel()
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -77,6 +79,8 @@ public actor IntelligenceEngineCoordinator {
     /// Starts observing file system events. Call once after initialization.
     public func startObserving() {
         // Remove any existing observers
+        domainEventTask?.cancel()
+        domainEventTask = nil
         for token in observerTokens {
             NotificationCenter.default.removeObserver(token)
         }
@@ -93,40 +97,13 @@ public actor IntelligenceEngineCoordinator {
         }
         observerTokens.append(presenterToken)
 
-        // 2. NSFilePresenter move events
-        let moveToken = NotificationCenter.default.addObserver(
-            forName: .quartzFilePresenterDidMove,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard let userInfo = notification.userInfo,
-                  let oldURL = userInfo["oldURL"] as? URL,
-                  let newURL = userInfo["newURL"] as? URL else { return }
-            Task { await self?.handleFileMove(from: oldURL, to: newURL) }
+        domainEventTask = Task { [weak self] in
+            let stream = await DomainEventBus.shared.subscribe()
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                await self?.handleDomainEvent(event)
+            }
         }
-        observerTokens.append(moveToken)
-
-        // 3. NSFilePresenter delete events
-        let deleteToken = NotificationCenter.default.addObserver(
-            forName: .quartzFilePresenterWillDelete,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard let url = notification.object as? URL else { return }
-            Task { await self?.handleFileDeletion(at: url) }
-        }
-        observerTokens.append(deleteToken)
-
-        // 4. Editor saves (legacy path, still needed for immediate updates)
-        let saveToken = NotificationCenter.default.addObserver(
-            forName: .quartzNoteSaved,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard let url = notification.object as? URL else { return }
-            Task { await self?.handleFileChange(at: url, source: .editorSave) }
-        }
-        observerTokens.append(saveToken)
 
         logger.info("IntelligenceEngineCoordinator started observing file events")
     }
@@ -135,6 +112,8 @@ public actor IntelligenceEngineCoordinator {
     public func stopObserving() {
         debounceTask?.cancel()
         debounceTask = nil
+        domainEventTask?.cancel()
+        domainEventTask = nil
         pendingURLs.removeAll()
 
         for token in observerTokens {
@@ -143,6 +122,30 @@ public actor IntelligenceEngineCoordinator {
         observerTokens.removeAll()
 
         status = .idle
+    }
+
+    private func handleDomainEvent(_ event: DomainEvent) async {
+        switch event {
+        case let .noteSaved(url, _):
+            guard isMarkdownNoteWithinCurrentVault(url) else { return }
+            handleFileChange(at: url, source: .editorSave)
+        case let .noteRelocated(from, to):
+            guard isMarkdownNoteWithinCurrentVault(from) || isMarkdownNoteWithinCurrentVault(to) else { return }
+            handleFileMove(from: from, to: to)
+        case let .noteDeleted(url):
+            guard isMarkdownNoteWithinCurrentVault(url) else { return }
+            handleFileDeletion(at: url)
+        default:
+            break
+        }
+    }
+
+    private func isMarkdownNoteWithinCurrentVault(_ url: URL) -> Bool {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        guard canonicalURL.pathExtension.lowercased() == "md" else { return false }
+        let canonicalVaultRoot = vaultRootURL.standardizedFileURL
+        return canonicalURL.path(percentEncoded: false)
+            .hasPrefix(canonicalVaultRoot.path(percentEncoded: false))
     }
 
     // MARK: - Event Handlers
@@ -343,9 +346,9 @@ public enum IntelligenceEngineStatus: Sendable, Equatable {
         case .indexing(let progress, let total):
             return String(localized: "Indexing \(progress)/\(total) notes…", bundle: .module)
         case .analyzing:
-            return String(localized: "Discovering relationships…", bundle: .module)
+            return String(localized: "Discovering related notes…", bundle: .module)
         case .extracting(let progress, let total, _):
-            return String(localized: "Extracting concepts \(progress)/\(total)…", bundle: .module)
+            return String(localized: "Extracting AI concepts \(progress)/\(total)…", bundle: .module)
         case .complete:
             return String(localized: "Intelligence up to date", bundle: .module)
         case .error(let message):

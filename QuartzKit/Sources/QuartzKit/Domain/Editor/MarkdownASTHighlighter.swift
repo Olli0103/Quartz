@@ -1,5 +1,8 @@
 import Foundation
 import Markdown
+#if canImport(CoreText)
+import CoreText
+#endif
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -646,10 +649,7 @@ public actor MarkdownASTHighlighter {
                 // Header is distinguished by background color only (via drawBackground).
 
                 // Monospaced character width — all chars are the same width
-                let monoCharWidth: CGFloat = {
-                    let attrs: [NSAttributedString.Key: Any] = [.font: monoFont]
-                    return ("M" as NSString).size(withAttributes: attrs).width
-                }()
+                let monoCharWidth = monospacedCharacterWidth(for: monoFont)
 
                 let mutedColor: PlatformColor
                 let clearColor: PlatformColor
@@ -881,6 +881,28 @@ public actor MarkdownASTHighlighter {
 
             cursor = NSMaxRange(fullLineRange)
         }
+    }
+
+    private static func monospacedCharacterWidth(for font: PlatformFont) -> CGFloat {
+        let ctFont = font as CTFont
+        var character: UniChar = 77 // "M"
+        var glyph: CGGlyph = 0
+
+        if CTFontGetGlyphsForCharacters(ctFont, &character, &glyph, 1) {
+            var advance = CGSize.zero
+            CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
+            if advance.width.isFinite, advance.width > 0 {
+                return advance.width
+            }
+        }
+
+        #if canImport(AppKit)
+        let fallbackWidth = font.maximumAdvancement.width
+        #else
+        let fallbackWidth = font.pointSize * 0.6
+        #endif
+
+        return max(fallbackWidth, 1)
     }
 
     private static func headingLevel(in line: String) -> Int? {

@@ -27,10 +27,11 @@ public struct LinkSuggestionService: Sendable {
         let catalog = NoteReferenceCatalog(allNotes: allNotes)
         let explicitReferences = await catalog.resolvedExplicitReferences(
             in: content,
+            sourceNoteURL: currentNoteURL,
             graphEdgeStore: graphEdgeStore
         )
-        let linkedNoteURLs = Set(explicitReferences.map(\.noteURL))
-        let explicitLinkRanges = explicitReferences.map(\.matchRange)
+        let linkedNoteURLs = Set(explicitReferences.map(\.targetNoteURL))
+        let explicitLinkRanges = explicitReferences.compactMap(\.matchRange)
         let nsContent = content as NSString
         var suggestions: [Suggestion] = []
         var coveredRanges: [NSRange] = []

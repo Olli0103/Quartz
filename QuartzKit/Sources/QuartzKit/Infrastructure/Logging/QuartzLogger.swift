@@ -35,7 +35,7 @@ public enum QuartzLogger {
     /// File system operations: vault loading, note save/load, iCloud coordination.
     public static let fileSystem = Logger(subsystem: subsystem, category: "fileSystem")
 
-    /// Intelligence Engine: embeddings, semantic links, concept extraction, graph building.
+    /// Intelligence Engine: related-note similarity, concept extraction, embeddings, graph building.
     public static let intelligence = Logger(subsystem: subsystem, category: "intelligence")
 
     /// UI Performance: frame drops, rendering latency, animation timing.

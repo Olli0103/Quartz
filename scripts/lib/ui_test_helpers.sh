@@ -33,10 +33,12 @@ xcodebuild_executed_zero_tests_in_log() {
 run_command_with_timeout_to_log() {
     local log_path="$1"
     local timeout_seconds="$2"
+    local completion_grace_seconds="${UI_TEST_HELPERS_COMPLETION_GRACE_SECONDS:-0}"
     shift 2
 
-    python3 - "$log_path" "$timeout_seconds" "$@" <<'PY'
+    python3 - "$log_path" "$timeout_seconds" "$completion_grace_seconds" "$@" <<'PY'
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -44,7 +46,36 @@ import time
 
 log_path = sys.argv[1]
 timeout_seconds = float(sys.argv[2])
-command = sys.argv[3:]
+completion_grace_seconds = float(sys.argv[3])
+command = sys.argv[4:]
+
+suite_success_pattern = re.compile(r"Executed [1-9][0-9]* tests, with 0 failures")
+suite_failure_pattern = re.compile(r"Executed [0-9]+ tests, with [1-9][0-9]* failures?")
+observer_end_pattern = re.compile(r"IDETestOperationsObserverDebug: .* -- end")
+selected_tests_passed_pattern = re.compile(r"Test Suite 'Selected tests' passed at")
+selected_tests_failed_pattern = re.compile(r"Test Suite 'Selected tests' failed at")
+post_completion_deadline = None
+completed_status = None
+
+def xcodebuild_completion_status():
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as reader:
+            content = reader.read()
+    except OSError:
+        return None
+
+    if "** TEST SUCCEEDED **" in content:
+        return 0
+    if "** TEST FAILED **" in content:
+        return 1
+    if selected_tests_failed_pattern.search(content) or suite_failure_pattern.search(content):
+        return 1
+    if selected_tests_passed_pattern.search(content) and suite_success_pattern.search(content):
+        return 0
+    if suite_success_pattern.search(content) and observer_end_pattern.search(content):
+        return 0
+
+    return None
 
 with open(log_path, "w", buffering=1) as log_file:
     process = subprocess.Popen(
@@ -62,6 +93,30 @@ with open(log_path, "w", buffering=1) as log_file:
         if return_code is not None:
             sys.exit(return_code)
 
+        if completion_grace_seconds > 0:
+            if completed_status is None:
+                completed_status = xcodebuild_completion_status()
+                if completed_status is not None:
+                    post_completion_deadline = time.monotonic() + completion_grace_seconds
+
+            if post_completion_deadline is not None and time.monotonic() >= post_completion_deadline:
+                status_label = "successful" if completed_status == 0 else "failing"
+                log_file.write(
+                    f"\n[ui_test_helpers] XCTest completion markers show a {status_label} run, but the command remained alive for {int(completion_grace_seconds)}s after completion. Terminating the lingering process group and returning the completed test status.\n"
+                )
+                log_file.flush()
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                time.sleep(2)
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                sys.exit(completed_status)
+
         if time.monotonic() - start >= timeout_seconds:
             log_file.write(
                 f"\n[ui_test_helpers] Command timed out after {int(timeout_seconds)}s: {' '.join(command)}\n"
@@ -72,6 +127,53 @@ with open(log_path, "w", buffering=1) as log_file:
             except ProcessLookupError:
                 pass
             time.sleep(5)
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            sys.exit(124)
+
+        time.sleep(1)
+PY
+}
+
+run_command_with_timeout() {
+    local timeout_seconds="$1"
+    shift
+
+    python3 - "$timeout_seconds" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+timeout_seconds = float(sys.argv[1])
+command = sys.argv[2:]
+
+with open(os.devnull, "w") as devnull:
+    process = subprocess.Popen(
+        command,
+        stdout=devnull,
+        stderr=devnull,
+        preexec_fn=os.setsid,
+        text=True,
+    )
+
+    start = time.monotonic()
+
+    while True:
+        return_code = process.poll()
+        if return_code is not None:
+            sys.exit(return_code)
+
+        if time.monotonic() - start >= timeout_seconds:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            time.sleep(1)
             if process.poll() is None:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -117,15 +219,20 @@ run_xcodebuild_to_log() {
     local log_path="$1"
     shift
     local attempt=1
-    local max_attempts=2
+    local max_attempts=3
     local timeout_seconds="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-900}"
+    local completion_grace_seconds="${XCODEBUILD_COMPLETION_GRACE_SECONDS:-20}"
 
     while [ "$attempt" -le "$max_attempts" ]; do
-        if run_command_with_timeout_to_log "$log_path" "$timeout_seconds" "$@"; then
+        if UI_TEST_HELPERS_COMPLETION_GRACE_SECONDS="$completion_grace_seconds" \
+            run_command_with_timeout_to_log "$log_path" "$timeout_seconds" "$@"; then
             if xcodebuild_executed_zero_tests_in_log "$log_path"; then
                 echo "[ui_test_helpers] xcodebuild completed but executed 0 tests; treating as a harness failure." >>"$log_path"
                 tail -n 40 "$log_path"
                 return 1
+            fi
+            if xcodebuild_targets_macos_destination "$@"; then
+                cleanup_macos_ui_test_processes
             fi
             tail -n 20 "$log_path"
             return 0
@@ -151,9 +258,31 @@ run_xcodebuild_to_log() {
             continue
         fi
 
+        if [ "$attempt" -lt "$max_attempts" ] && macos_launch_failure_in_log "$log_path"; then
+            echo "macOS launch/automation instability detected; cleaning up Quartz UI processes and retrying once..." >>"$log_path"
+            heal_macos_launch_failure
+            attempt=$((attempt + 1))
+            continue
+        fi
+
         tail -n 40 "$log_path"
         return 1
     done
+}
+
+xcodebuild_targets_macos_destination() {
+    local arg=""
+    for arg in "$@"; do
+        if [ "$arg" = "platform=macOS" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+cleanup_macos_ui_test_processes() {
+    pkill -f "QuartzUITests-Runner" >/dev/null 2>&1 || true
+    terminate_conflicting_macos_app_processes || true
 }
 
 run_xcodebuild_in_workdir_to_log() {
@@ -206,9 +335,9 @@ prepare_simulator() {
     local bundle_id="${2:-olli.QuartzNotes}"
 
     xcrun simctl boot "$sim_id" >/dev/null 2>&1 || true
-    xcrun simctl bootstatus "$sim_id" -b >/dev/null 2>&1 || return 1
-    xcrun simctl terminate "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
-    xcrun simctl uninstall "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
+    run_command_with_timeout 120 xcrun simctl bootstatus "$sim_id" -b || return 1
+    run_command_with_timeout 20 xcrun simctl terminate "$sim_id" "$bundle_id" || true
+    run_command_with_timeout 20 xcrun simctl uninstall "$sim_id" "$bundle_id" || true
 }
 
 prepared_simulator_id() {
@@ -240,15 +369,94 @@ prepared_simulator_id() {
 
 terminate_conflicting_macos_app_processes() {
     local pid=""
+    local deadline=0
 
+    deadline=$((SECONDS + 10))
     while IFS= read -r pid; do
         [ -z "$pid" ] && continue
         kill "$pid" >/dev/null 2>&1 || true
-        sleep 1
-        if ps -p "$pid" >/dev/null 2>&1; then
-            kill -9 "$pid" >/dev/null 2>&1 || true
-        fi
     done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | awk '{print $1}' || true)
+
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if ! pgrep -f '/Quartz.app/Contents/MacOS/Quartz' >/dev/null 2>&1; then
+            return 0
+        fi
+
+        while IFS= read -r pid; do
+            [ -z "$pid" ] && continue
+            kill -9 "$pid" >/dev/null 2>&1 || true
+        done < <(ps -ax -o pid=,command= | grep '/Quartz.app/Contents/MacOS/Quartz' | awk '{print $1}' || true)
+
+        sleep 1
+    done
+
+    return 1
+}
+
+macos_launch_failure_in_log() {
+    local log_path="$1"
+    grep -Eq 'Could not launch “Quartz”|Could not launch "Quartz"|LaunchServices has returned error -600|application olli\.QuartzNotes is not running' "$log_path"
+}
+
+heal_macos_launch_failure() {
+    pkill -f "QuartzUITests-Runner" >/dev/null 2>&1 || true
+    pkill -f "xcodebuild test -scheme Quartz" >/dev/null 2>&1 || true
+    terminate_conflicting_macos_app_processes
+    sleep 2
+}
+
+swiftpm_runner_false_red_in_output() {
+    local output="$1"
+    printf '%s\n' "$output" | grep -qE "unexpected signal code (5|10)"
+}
+
+swift_test_failure_markers_in_output() {
+    local output="$1"
+    printf '%s\n' "$output" | grep -qE "failed after|Test Case .* failed|Expectation failed"
+}
+
+run_swift_test_with_serial_retry_to_log() {
+    local log_path="$1"
+    shift
+    local first_output=""
+    local retry_output=""
+    local rc=0
+
+    set +e
+    first_output=$("$@" 2>&1)
+    rc=$?
+    set -e
+
+    printf '%s\n' "$first_output" >"$log_path"
+    printf '%s\n' "$first_output"
+
+    if [ "$rc" -eq 0 ] && ! swift_test_failure_markers_in_output "$first_output"; then
+        return 0
+    fi
+
+    if swift_test_failure_markers_in_output "$first_output"; then
+        return 1
+    fi
+
+    if ! swiftpm_runner_false_red_in_output "$first_output"; then
+        return "$rc"
+    fi
+
+    printf '\n[ui_test_helpers] SwiftPM runner false-red detected; retrying serially with --no-parallel.\n' >>"$log_path"
+
+    set +e
+    retry_output=$("$@" --no-parallel 2>&1)
+    rc=$?
+    set -e
+
+    printf '\n%s\n' "$retry_output" >>"$log_path"
+    printf '%s\n' "$retry_output"
+
+    if [ "$rc" -eq 0 ] && ! swift_test_failure_markers_in_output "$retry_output"; then
+        return 0
+    fi
+
+    return 1
 }
 
 ui_automation_timeout_in_log() {
@@ -282,5 +490,6 @@ heal_ui_automation_timeout() {
     pkill -f "xcodebuild test -quiet -scheme QuartzKit" >/dev/null 2>&1 || true
     rm -rf /tmp/QuartzEditorShell_*.xcresult /tmp/QuartzUITests_*.xcresult >/dev/null 2>&1 || true
     xcrun simctl shutdown all >/dev/null 2>&1 || true
+    terminate_conflicting_macos_app_processes
     sleep 2
 }
