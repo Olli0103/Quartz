@@ -363,7 +363,8 @@ final class EditorRealitySnapshotTests: XCTestCase {
             if let textView = session.activeTextView,
                textView.alphaValue == 1,
                textView.string == session.currentText,
-               textView.textStorage?.length == (session.currentText as NSString).length {
+               textView.textStorage?.length == (session.currentText as NSString).length,
+               session.semanticDocument.textLength == (session.currentText as NSString).length {
                 return
             }
 

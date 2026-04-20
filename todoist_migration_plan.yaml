@@ -1,0 +1,328 @@
+{
+  "version": 1,
+  "settings": {
+    "root_project_name": "📤 SAP",
+    "legacy_label_policy": "replace_with_minimal_set",
+    "ambiguous_policy": "leave_in_place_and_report",
+    "archive_after_actionable_moves": true,
+    "keep_root_name": true
+  },
+  "scope": {
+    "included_projects": [
+      "📤 SAP",
+      "Inbox"
+    ],
+    "excluded_projects": [
+      "🕵️‍♀️ Private",
+      "Haus",
+      "🔄 regularly",
+      "🎊Feier",
+      "🎁 presents",
+      "Testberichte",
+      "Notizen",
+      "Team-Eingang",
+      "Clollibot"
+    ],
+    "private_labels": [
+      "@health",
+      "@lifestyle",
+      "@growth",
+      "@focus",
+      "@productivity"
+    ]
+  },
+  "allowed_verbs": [
+    "act",
+    "align",
+    "ask",
+    "capture",
+    "clarify",
+    "close",
+    "confirm",
+    "create",
+    "decide",
+    "define",
+    "delegate",
+    "document",
+    "draft",
+    "email",
+    "escalate",
+    "follow",
+    "prepare",
+    "review",
+    "schedule",
+    "send",
+    "share",
+    "summarize",
+    "update",
+    "validate"
+  ],
+  "legacy_labels_to_replace": [
+    "CALM",
+    "iRPA",
+    "ESP",
+    "Unicorn"
+  ],
+  "project_routes": [
+    {
+      "source_project_names": [
+        "1:1",
+        "Hiring",
+        "People"
+      ],
+      "target_project": "People",
+      "target_section": "follow-ups"
+    },
+    {
+      "source_project_names": [
+        "Leadership",
+        "Premium Supplier",
+        "Team Meeting",
+        "Management",
+        "Operations"
+      ],
+      "target_project": "Operations",
+      "target_section": "admin"
+    },
+    {
+      "source_project_names": [
+        "AI",
+        "Automation",
+        "Reporting",
+        "Tool",
+        "UNICORN",
+        "TCO Reduction",
+        "E2E Delivery",
+        "ISD Hub",
+        "EPA",
+        "ESX",
+        "Projects"
+      ],
+      "target_project": "Projects",
+      "target_section": "other active"
+    },
+    {
+      "source_project_names": [
+        "ATLAS",
+        "IBM",
+        "General",
+        "Council",
+        "AppOps",
+        "BDC",
+        "CAS for CERP",
+        "SNOW Integration",
+        "Cloud ALM",
+        "CAS FRUN",
+        "ESP",
+        "JIRA",
+        "Services"
+      ],
+      "target_project": "Services",
+      "target_section": "General"
+    },
+    {
+      "source_project_names": [
+        "Waiting"
+      ],
+      "target_project": "Waiting",
+      "target_section": "",
+      "target_labels": [
+        "@waiting"
+      ]
+    }
+  ],
+  "keyword_routes": [
+    {
+      "keywords": [
+        "appops",
+        "application operations",
+        "operations dashboard",
+        "cockpit"
+      ],
+      "target_project": "Services",
+      "target_section": "AppOps"
+    },
+    {
+      "keywords": [
+        "security",
+        "secure"
+      ],
+      "target_project": "Operations",
+      "target_section": "security"
+    },
+    {
+      "keywords": [
+        "supplier",
+        "vendor"
+      ],
+      "target_project": "Operations",
+      "target_section": "supplier / vendor"
+    },
+    {
+      "keywords": [
+        "leadership"
+      ],
+      "target_project": "Operations",
+      "target_section": "leadership"
+    },
+    {
+      "keywords": [
+        "team meeting",
+        "meeting",
+        "j4c"
+      ],
+      "target_project": "Operations",
+      "target_section": "admin"
+    },
+    {
+      "keywords": [
+        "hiring",
+        "candidate",
+        "consultant"
+      ],
+      "target_project": "People",
+      "target_section": "hiring"
+    },
+    {
+      "keywords": [
+        "reporting"
+      ],
+      "target_project": "Projects",
+      "target_section": "Reporting"
+    },
+    {
+      "keywords": [
+        "tool",
+        "isd hub"
+      ],
+      "target_project": "Projects",
+      "target_section": "Tooling / ISD Hub"
+    },
+    {
+      "keywords": [
+        "e2e",
+        "tco",
+        "unicorn"
+      ],
+      "target_project": "Projects",
+      "target_section": "E2E / TCO"
+    },
+    {
+      "keywords": [
+        "ai",
+        "automation"
+      ],
+      "target_project": "Projects",
+      "target_section": "AI / Automation"
+    },
+    {
+      "keywords": [
+        "atlas",
+        "ibm"
+      ],
+      "target_project": "Services",
+      "target_section": "ATLAS / IBM"
+    },
+    {
+      "keywords": [
+        "cloud alm",
+        "calm"
+      ],
+      "target_project": "Services",
+      "target_section": "Cloud ALM"
+    },
+    {
+      "keywords": [
+        "cas frun",
+        "esp"
+      ],
+      "target_project": "Services",
+      "target_section": "CAS FRUN / ESP"
+    },
+    {
+      "keywords": [
+        "bdc",
+        "snow",
+        "jira"
+      ],
+      "target_project": "Services",
+      "target_section": "BDC / SNOW / JIRA"
+    }
+  ],
+  "title_overrides": [
+    {
+      "match": "J4C Expert?",
+      "rename_to": "Decide J4C expert approach",
+      "target_project": "Operations",
+      "target_section": "admin",
+      "target_labels": [
+        "@decision"
+      ]
+    },
+    {
+      "match": "Rollout Abhijit AI",
+      "rename_to": "[Abhijit] Clarify AI rollout next step",
+      "target_project": "Projects",
+      "target_section": "AI / Automation"
+    },
+    {
+      "match": "Security Concept anpassen mit Ralf 0900",
+      "rename_to": "Update security concept with Ralf",
+      "target_project": "Operations",
+      "target_section": "security"
+    },
+    {
+      "match": "application operations dashboard rollout stuff?",
+      "rename_to": "Define AppOps dashboard rollout next steps",
+      "target_project": "Services",
+      "target_section": "AppOps"
+    },
+    {
+      "match": "Demo Landschaft restriktiv (appops cockpit)",
+      "rename_to": "Clarify demo landscape restrictions for AppOps cockpit",
+      "target_project": "Services",
+      "target_section": "AppOps"
+    },
+    {
+      "match": "J4C prep",
+      "rename_to": "Prepare J4C meeting",
+      "target_project": "Operations",
+      "target_section": "admin"
+    },
+    {
+      "match": "AI Project",
+      "rename_to": "Review AI project status",
+      "target_project": "Projects",
+      "target_section": "AI / Automation"
+    },
+    {
+      "match": "Reporting Project",
+      "rename_to": "Review reporting project status",
+      "target_project": "Projects",
+      "target_section": "Reporting"
+    },
+    {
+      "match": "Proposal E2E Delivery",
+      "rename_to": "Review E2E delivery proposal",
+      "target_project": "Projects",
+      "target_section": "E2E / TCO"
+    }
+  ],
+  "manual_review": {
+    "exact_titles": [
+      "IT Ops Model https://lucid.app/lucidchart/a0d9e526-d1f3-42d2-b8da-e3dd5bf2b89d/edit?invitationId=inv_f2f6eea7-89ea-467c-828f-49238b2069f8&page=0_0#",
+      "Reifen",
+      "Andreas Krueckendorf",
+      "External Roadmap",
+      "Service Desk Service --> including AI/Automation"
+    ],
+    "regex_patterns": [
+      "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.-]+( [A-ZÄÖÜ][A-Za-zÄÖÜäöüß.-]+){0,2}$",
+      "^https?://"
+    ]
+  },
+  "archive_candidates": [
+    "Security Notes",
+    "Processes"
+  ]
+}

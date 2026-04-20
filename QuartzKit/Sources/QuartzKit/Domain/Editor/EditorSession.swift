@@ -28,6 +28,16 @@ public final class EditorSession {
         case commandMenu
     }
 
+    /// Captures the user-visible note-open path so startup stays measurable while
+    /// non-critical enrichment work is deferred behind first editability.
+    public struct EditorLoadMetrics: Sendable, Equatable {
+        public let noteURL: URL
+        public let bodyLength: Int
+        public let readSeconds: Double
+        public let applyStateSeconds: Double
+        public let totalVisibleSeconds: Double
+    }
+
     // MARK: - State (read by UI, never written back by SwiftUI)
 
     /// The note currently loaded in this session.
@@ -61,6 +71,9 @@ public final class EditorSession {
 
     /// Cached word count, updated on content change.
     public private(set) var wordCount: Int = 0
+
+    /// Most recent note-open timing captured for diagnostics and tests.
+    public private(set) var lastLoadMetrics: EditorLoadMetrics?
 
     /// Current formatting state at the cursor position (for toolbar active states).
     public private(set) var formattingState: FormattingState = .empty
@@ -179,6 +192,8 @@ public final class EditorSession {
     nonisolated(unsafe) private var autosaveTask: Task<Void, Never>?
     nonisolated(unsafe) private var fileWatchTask: Task<Void, Never>?
     nonisolated(unsafe) private var wordCountTask: Task<Void, Never>?
+    nonisolated(unsafe) private var diskHashRefreshTask: Task<Void, Never>?
+    nonisolated(unsafe) private var postLoadTask: Task<Void, Never>?
 
     // MARK: - NSFilePresenter Integration
 
@@ -248,6 +263,8 @@ public final class EditorSession {
         analysisTask?.cancel()
         referenceInspectorTask?.cancel()
         inlineAITask?.cancel()
+        diskHashRefreshTask?.cancel()
+        postLoadTask?.cancel()
 
         if let observer = semanticLinkObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -366,6 +383,7 @@ public final class EditorSession {
     /// Loads a note from the file system into the existing session.
     /// Reuses the mounted text view — no view destruction.
     public func loadNote(at url: URL) async {
+        let loadStart = CFAbsoluteTimeGetCurrent()
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         // Reset readiness state for new note (F8 handshake)
         resetReadinessState()
@@ -394,13 +412,24 @@ public final class EditorSession {
         clearUndoStack()
 
         do {
+            let readStart = CFAbsoluteTimeGetCurrent()
             let loaded = try await vaultProvider.readNote(at: canonicalURL)
+            let readSeconds = CFAbsoluteTimeGetCurrent() - readStart
+            let applyStart = CFAbsoluteTimeGetCurrent()
             applyLoadedNoteState(
                 loaded,
                 requestedURL: canonicalURL,
                 restoredViewState: viewState(forLoadedNoteAt: canonicalURL),
                 restartFileWatching: true,
                 clearUndoHistory: true
+            )
+            let applyStateSeconds = CFAbsoluteTimeGetCurrent() - applyStart
+            lastLoadMetrics = EditorLoadMetrics(
+                noteURL: canonicalURL,
+                bodyLength: (loaded.body as NSString).length,
+                readSeconds: readSeconds,
+                applyStateSeconds: applyStateSeconds,
+                totalVisibleSeconds: CFAbsoluteTimeGetCurrent() - loadStart
             )
             hasLoadedCurrentNoteForRestoration = true
             updateRestorationReadinessIfPossible()
@@ -823,6 +852,8 @@ public final class EditorSession {
     private func applyFormatting(_ action: FormattingAction, selectedRange: NSRange) {
         guard !isComposing else { return }
 
+        ensureSemanticDocumentReadyForFormatting()
+
         let formatter = MarkdownFormatter()
         guard let edit = formatter.surgicalEdit(
             action,
@@ -877,6 +908,23 @@ public final class EditorSession {
                 self?.applyHighlightSpansForced(spans)
             }
         }
+    }
+
+    private func ensureSemanticDocumentReadyForFormatting() {
+        let currentLength = (currentText as NSString).length
+        guard !currentText.isEmpty else { return }
+        guard lastAppliedHighlightSourceText != currentText || semanticDocument.textLength != currentLength else {
+            return
+        }
+
+        let spans = MarkdownASTHighlighter.parseImmediately(
+            currentText,
+            baseFontSize: highlighterBaseFontSize,
+            fontFamily: highlighterFontFamily,
+            vaultRootURL: vaultRootURL,
+            noteURL: note?.fileURL
+        )
+        applyHighlightSpansForced(spans)
     }
 
     private func applyOptimisticFormattingPreview(action: FormattingAction, edit: MarkdownFormatEdit) {
@@ -1132,29 +1180,37 @@ public final class EditorSession {
             clearUndoStack()
         }
 
-        updateKnownDiskContentHash(for: canonicalURL)
-
-        Task {
-            await highlighter?.updateSettings(
-                fontFamily: highlighterFontFamily,
-                lineSpacing: highlighterLineSpacing,
-                vaultRootURL: vaultRootURL,
-                noteURL: canonicalURL
-            )
-        }
-
-        highlightImmediately()
-        scheduleAnalysis()
-        scheduleExplicitRelationshipRefresh(forceGraphPublish: true)
-        Task {
-            await refreshRelatedNotes()
-            await refreshAIConcepts()
-        }
+        lastKnownDiskContentHash = nil
+        scheduleDeferredPostLoadWork(for: canonicalURL, restartFileWatching: restartFileWatching)
 
         applyPendingNoteNavigationIfNeeded(for: canonicalURL)
+    }
 
-        if restartFileWatching {
-            startFileWatching(for: canonicalURL)
+    private func scheduleDeferredPostLoadWork(for canonicalURL: URL, restartFileWatching: Bool) {
+        postLoadTask?.cancel()
+        postLoadTask = Task(priority: .utility) { @MainActor [weak self] in
+            guard let self, self.note?.fileURL == canonicalURL else { return }
+
+            self.refreshKnownDiskContentHashAsync(for: canonicalURL)
+
+            await self.highlighter?.updateSettings(
+                fontFamily: self.highlighterFontFamily,
+                lineSpacing: self.highlighterLineSpacing,
+                vaultRootURL: self.vaultRootURL,
+                noteURL: canonicalURL
+            )
+
+            guard self.note?.fileURL == canonicalURL else { return }
+            self.highlightImmediately(priority: .utility)
+            self.scheduleAnalysis()
+            self.scheduleExplicitRelationshipRefresh(forceGraphPublish: true)
+            await self.refreshRelatedNotes()
+            await self.refreshAIConcepts()
+
+            guard self.note?.fileURL == canonicalURL else { return }
+            if restartFileWatching {
+                self.startFileWatching(for: canonicalURL)
+            }
         }
     }
 
@@ -1664,33 +1720,17 @@ public final class EditorSession {
     }
 
     /// Immediate (non-debounced) highlight for initial load. No 80ms wait.
-    public func highlightImmediately() {
+    public func highlightImmediately(priority: TaskPriority = .utility) {
         guard !isComposing else { return }
 
-        // Hide text view to prevent flash of unstyled text. This path is used after
-        // wholesale text replacement on note load/reopen and native editor mount, so
-        // it must fully rewrite the attributed representation instead of relying on
-        // the incremental diffing applier.
-        #if canImport(UIKit)
-        activeTextView?.alpha = 0
-        #elseif canImport(AppKit)
-        activeTextView?.alphaValue = 0
-        #endif
-
         highlightTask?.cancel()
-        highlightTask = Task(priority: .high) { [weak self] in
+        highlightTask = Task(priority: priority) { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
             let spans = await highlighter.parse(text)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpansForced(spans)
-                // Reveal text view after highlights are applied
-                #if canImport(UIKit)
-                self?.activeTextView?.alpha = 1
-                #elseif canImport(AppKit)
-                self?.activeTextView?.alphaValue = 1
-                #endif
             }
         }
     }
@@ -2033,9 +2073,11 @@ public final class EditorSession {
         referenceInspectorTask = nil
         inlineAITask?.cancel()
         inlineAITask = nil
+        postLoadTask?.cancel()
+        postLoadTask = nil
     }
 
-    private func currentDiskContentHash(for url: URL) -> SHA256Digest? {
+    nonisolated private func currentDiskContentHash(for url: URL) -> SHA256Digest? {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         guard let data = try? Data(contentsOf: canonicalURL) else { return nil }
         return SHA256.hash(data: data)
@@ -2043,6 +2085,19 @@ public final class EditorSession {
 
     private func updateKnownDiskContentHash(for url: URL) {
         lastKnownDiskContentHash = currentDiskContentHash(for: url)
+    }
+
+    private func refreshKnownDiskContentHashAsync(for url: URL) {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        diskHashRefreshTask?.cancel()
+        diskHashRefreshTask = Task.detached(priority: .utility) { [weak self] in
+            let hash = self?.currentDiskContentHash(for: canonicalURL)
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.note?.fileURL == canonicalURL else { return }
+                self.lastKnownDiskContentHash = hash
+            }
+        }
     }
 
     private func handleDetectedExternalChange(at url: URL, diskHash: SHA256Digest?) {
@@ -2276,6 +2331,8 @@ public final class EditorSession {
         analysisTask?.cancel()
         referenceInspectorTask?.cancel()
         inlineAITask?.cancel()
+        diskHashRefreshTask?.cancel()
+        postLoadTask?.cancel()
     }
 
     // MARK: - Inline AI

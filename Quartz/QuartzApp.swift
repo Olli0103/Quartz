@@ -7,15 +7,21 @@ import AppKit
 #if os(macOS)
 @MainActor
 private enum QuartzUITestActivationCoordinator {
+    private static func visibleWindow() -> NSWindow? {
+        NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) ?? NSApp.windows.first
+    }
+
     static func activateIfNeeded() async {
         guard CommandLine.arguments.contains("--uitesting") else { return }
 
-        for _ in 0..<80 {
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
             NSApp.setActivationPolicy(.regular)
+            NSApp.unhide(nil)
             _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
 
-            if let window = NSApp.windows.first(where: { $0.isVisible && !$0.isMiniaturized }) ?? NSApp.windows.first {
+            if let window = visibleWindow() {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
                 if NSApp.isActive, window.isVisible, !window.isMiniaturized {
@@ -23,7 +29,7 @@ private enum QuartzUITestActivationCoordinator {
                 }
             }
 
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 }
@@ -34,11 +40,43 @@ extension Notification.Name {
 
 @MainActor
 private final class QuartzUITestAppDelegate: NSObject, NSApplicationDelegate {
+    private var activationObservers: [NSObjectProtocol] = []
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard CommandLine.arguments.contains("--uitesting") else { return }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await QuartzUITestActivationCoordinator.activateIfNeeded() }
+
+        guard CommandLine.arguments.contains("--uitesting") else { return }
+        let center = NotificationCenter.default
+        activationObservers.append(
+            center.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { await QuartzUITestActivationCoordinator.activateIfNeeded() }
+            }
+        )
+        activationObservers.append(
+            center.addObserver(
+                forName: NSWindow.didBecomeMainNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { await QuartzUITestActivationCoordinator.activateIfNeeded() }
+            }
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        activationObservers.forEach(NotificationCenter.default.removeObserver)
+        activationObservers.removeAll()
         NotificationCenter.default.post(name: .quartzApplicationWillTerminate, object: nil)
     }
 }

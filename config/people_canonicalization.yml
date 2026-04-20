@@ -1,0 +1,38 @@
+keep_as_direct:
+  - Abhijit
+  - Ahmed
+  - Alex
+  - Alexandra
+  - Amar
+  - Andreas
+  - Bernd
+  - Bhargav
+  - Christian
+  - Erika
+  - Georg
+  - Giancarlo
+  - Hanchun
+  - Hemanth
+  - Holger
+  - Jessi
+  - Jill
+  - Malathi
+  - Manish
+  - Marta
+  - Martin
+  - Marvin
+  - Michael
+  - Ned
+  - Rene
+  - Stefan
+  - Steffen
+  - Sudeep
+  - Thomas
+  - Tom
+move_to_stakeholder: []
+move_to_reference_people:
+  - MyOwn
+alias_only:
+  Alexander: Alex
+manual_review:
+  - Krampi

@@ -16,6 +16,7 @@ import UIKit
 class QuartzUITestCase: XCTestCase {
     #if os(macOS)
     private static let macBundleIdentifier = "olli.QuartzNotes"
+    @MainActor private static var lastLaunchedMacProcessIdentifier: pid_t?
     #endif
 
     private let defaultLaunchArguments = [
@@ -72,6 +73,14 @@ class QuartzUITestCase: XCTestCase {
             Self.launchMacApp(arguments: arguments),
             "Quartz must launch successfully through the macOS app bundle for UI automation"
         )
+        XCTAssertTrue(
+            Self.waitForMacLaunchCompletion(timeout: 15),
+            "Quartz must finish launching before macOS UI assertions begin"
+        )
+        // XCTest attaches to externally launched macOS apps a little after the
+        // process is live; querying the accessibility tree immediately has been
+        // host-sensitive and can wedge the first shell assertion pass.
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
         #endif
         #if !os(macOS)
         app = XCUIApplication()
@@ -80,53 +89,40 @@ class QuartzUITestCase: XCTestCase {
         #endif
         #if os(macOS)
         XCTAssertTrue(
-            waitForMacAppForeground(timeout: 15),
-            "Quartz must reach the foreground on macOS before UI assertions run"
+            waitForMacInteractionReadiness(
+                timeout: 15,
+                requireWorkspaceSurface: arguments.contains("--mock-vault")
+            ),
+            arguments.contains("--mock-vault")
+                ? "Quartz must load the mock-vault workspace before macOS UI assertions query fixture notes"
+                : "Quartz must expose an interactive macOS window before UI assertions run"
         )
-        if arguments.contains("--mock-vault") {
-            XCTAssertTrue(
-                waitForMacWorkspaceSurface(timeout: 15),
-                "Quartz must load the mock-vault workspace before macOS UI assertions query fixture notes"
-            )
-        }
         #endif
     }
 
     #if os(macOS)
     @MainActor
-    private func waitForMacAppForeground(timeout: TimeInterval) -> Bool {
+    private func waitForMacInteractionReadiness(
+        timeout: TimeInterval,
+        requireWorkspaceSurface: Bool
+    ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         var nextActivationAttempt = Date.distantPast
 
         while Date() < deadline {
-            if app.state == .runningForeground, hasVisibleMacWindow() {
+            if hasInteractiveMacWindow(requireWorkspaceSurface: requireWorkspaceSurface) {
                 return true
             }
 
             if Date() >= nextActivationAttempt {
-                if let runningApp = NSRunningApplication
-                    .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
-                    .first(where: { !$0.isTerminated }) {
-                    if runningApp.isActive, hasVisibleMacWindow() {
-                        return true
-                    }
-
-                    if runningApp.isFinishedLaunching {
-                        _ = runningApp.activate(options: [.activateAllWindows])
-                    }
-                }
-
-                if app.state == .runningBackground || app.state == .runningForeground {
-                    app.activate()
-                }
-
+                _ = activateRunningMacApp()
                 nextActivationAttempt = Date().addingTimeInterval(1)
             }
 
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
 
-        return app.state == .runningForeground && hasVisibleMacWindow()
+        return hasInteractiveMacWindow(requireWorkspaceSurface: requireWorkspaceSurface)
     }
 
     @MainActor
@@ -138,9 +134,7 @@ class QuartzUITestCase: XCTestCase {
                 return true
             }
 
-            if app.state != .runningForeground {
-                app.activate()
-            }
+            _ = activateRunningMacApp()
 
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
@@ -150,29 +144,72 @@ class QuartzUITestCase: XCTestCase {
 
     @MainActor
     private func hasVisibleMacWindow() -> Bool {
-        if app.windows.firstMatch.exists {
+        if let runningApp = Self.runningMacApplication(),
+           !runningApp.isTerminated,
+           runningApp.isFinishedLaunching
+        {
             return true
         }
 
-        return app.descendants(matching: .window).firstMatch.exists
+        return app.state == .runningForeground || app.state == .runningBackground
+    }
+
+    @MainActor
+    private func hasForegroundMacWindow() -> Bool {
+        if let runningApp = Self.runningMacApplication(), runningApp.isActive {
+            return true
+        }
+
+        return app.state == .runningForeground
+    }
+
+    @MainActor
+    private func hasInteractiveMacWindow(requireWorkspaceSurface: Bool) -> Bool {
+        let surfaceReady = !requireWorkspaceSurface || hasMacWorkspaceSurface()
+        guard surfaceReady else { return false }
+
+        if hasForegroundMacWindow() {
+            return true
+        }
+
+        return hasVisibleMacWindow()
     }
 
     @MainActor
     private func hasMacWorkspaceSurface() -> Bool {
-        if element(matchingIdentifier: "workspace-split-view").exists {
+        let readinessElements: [XCUIElement] = [
+            element(matchingIdentifier: "sidebar-new-note"),
+            element(matchingIdentifier: "note-list-new-note"),
+            element(matchingIdentifier: "note-list-item-Welcome"),
+            element(matchingIdentifier: "note-list-item-Todo"),
+            element(matchingIdentifier: "dashboard-view"),
+            element(matchingIdentifier: "editor-toolbar-link"),
+            element(matchingIdentifier: "editor-text-view"),
+            app.textViews.firstMatch
+        ]
+
+        for element in readinessElements where element.exists {
             return true
         }
 
-        if element(matchingIdentifier: "note-list-view").exists {
+        return false
+    }
+
+    @MainActor
+    private func activateRunningMacApp() -> Bool {
+        guard let runningApp = Self.runningMacApplication() else {
+            return false
+        }
+
+        if runningApp.isActive {
             return true
         }
 
-        if element(matchingIdentifier: "dashboard-view").exists {
-            return true
+        guard runningApp.isFinishedLaunching else {
+            return false
         }
 
-        return element(matchingIdentifier: "editor-text-view").exists
-            || app.textViews.firstMatch.exists
+        return runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
     }
 
     @MainActor
@@ -195,20 +232,77 @@ class QuartzUITestCase: XCTestCase {
             .allSatisfy(\.isTerminated)
     }
 
+    @MainActor
+    private static func waitForMacLaunchCompletion(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if let runningApp = runningMacApplication(),
+               !runningApp.isTerminated,
+               runningApp.isFinishedLaunching
+            {
+                return true
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        guard let runningApp = runningMacApplication() else { return false }
+        return !runningApp.isTerminated && runningApp.isFinishedLaunching
+    }
+
+    @MainActor
+    private static func runningMacApplication() -> NSRunningApplication? {
+        let runningApps = NSRunningApplication
+            .runningApplications(withBundleIdentifier: Self.macBundleIdentifier)
+            .filter { !$0.isTerminated }
+
+        if let preferredPID = Self.lastLaunchedMacProcessIdentifier,
+           let preferredApp = runningApps.first(where: { $0.processIdentifier == preferredPID })
+        {
+            return preferredApp
+        }
+
+        return runningApps.max(by: { $0.processIdentifier < $1.processIdentifier })
+    }
+
+    @MainActor
     private static func launchMacApp(arguments: [String]) -> Bool {
         guard let appURL = macAppBundleURL() else { return false }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-n", appURL.path(percentEncoded: false), "--args"] + arguments
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.addsToRecentItems = false
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = arguments
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
+        var launchedApp: NSRunningApplication?
+        var launchError: Error?
+
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { runningApp, error in
+            launchedApp = runningApp
+            launchError = error
         }
+
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            if launchError != nil {
+                return false
+            }
+
+            if let launchedApp, !launchedApp.isTerminated {
+                Self.lastLaunchedMacProcessIdentifier = launchedApp.processIdentifier
+                return true
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        let launchedSuccessfully = launchError == nil && launchedApp?.isTerminated == false
+        if launchedSuccessfully, let launchedApp {
+            Self.lastLaunchedMacProcessIdentifier = launchedApp.processIdentifier
+        }
+        return launchedSuccessfully
     }
 
     private static func macAppBundleURL() -> URL? {
@@ -256,7 +350,11 @@ class QuartzUITestCase: XCTestCase {
         }
 
         if terminatedAny {
-            return Self.waitForNoRunningMacApp(timeout: 10)
+            let terminated = Self.waitForNoRunningMacApp(timeout: 10)
+            if terminated {
+                Self.lastLaunchedMacProcessIdentifier = nil
+            }
+            return terminated
         }
         #endif
 
@@ -267,7 +365,11 @@ class QuartzUITestCase: XCTestCase {
         existingApp.terminate()
         _ = existingApp.wait(for: .notRunning, timeout: 5)
         #if os(macOS)
-        return Self.waitForNoRunningMacApp(timeout: 5)
+        let terminated = Self.waitForNoRunningMacApp(timeout: 5)
+        if terminated {
+            Self.lastLaunchedMacProcessIdentifier = nil
+        }
+        return terminated
         #else
         return true
         #endif
@@ -315,8 +417,78 @@ class QuartzUITestCase: XCTestCase {
 
     @MainActor
     func element(matchingIdentifier identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        #if os(macOS)
+        if let preferred = preferredMacElement(matchingIdentifier: identifier) {
+            return preferred
+        }
+        #endif
+        return app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
+
+    #if os(macOS)
+    @MainActor
+    private func preferredMacElement(matchingIdentifier identifier: String) -> XCUIElement? {
+        let targetedQueries: [XCUIElementQuery]
+
+        switch identifier {
+        case "workspace-split-view":
+            targetedQueries = [
+                app.descendants(matching: .splitGroup),
+                app.descendants(matching: .group),
+                app.windows
+            ]
+        case "note-list-view":
+            targetedQueries = [
+                app.descendants(matching: .outline),
+                app.descendants(matching: .scrollView),
+                app.descendants(matching: .collectionView),
+                app.descendants(matching: .group)
+            ]
+        case "sidebar-new-note", "note-list-new-note", "editor-toolbar-link":
+            targetedQueries = [
+                app.buttons,
+                app.descendants(matching: .button),
+                app.toolbars.buttons
+            ]
+        case let value where value.hasPrefix("note-list-item-"):
+            targetedQueries = [
+                app.outlineRows,
+                app.cells,
+                app.buttons,
+                app.staticTexts
+            ]
+        case "dashboard-view":
+            targetedQueries = [
+                app.descendants(matching: .group),
+                app.descendants(matching: .other)
+            ]
+        case "editor-text-view", "editor-find-query":
+            targetedQueries = [
+                app.descendants(matching: .textView),
+                app.descendants(matching: .textField),
+                app.descendants(matching: .scrollView)
+            ]
+        default:
+            targetedQueries = [
+                app.descendants(matching: .button),
+                app.descendants(matching: .textField),
+                app.descendants(matching: .textView),
+                app.descendants(matching: .menuItem),
+                app.descendants(matching: .group),
+                app.descendants(matching: .other)
+            ]
+        }
+
+        for query in targetedQueries {
+            let match = query.matching(identifier: identifier).firstMatch
+            if match.exists {
+                return match
+            }
+        }
+
+        return targetedQueries.first?.matching(identifier: identifier).firstMatch
+    }
+    #endif
 
     @MainActor
     func waitForEditorSurface(timeout: TimeInterval) -> Bool {
@@ -498,9 +670,6 @@ class QuartzUITestCase: XCTestCase {
         let filteredTitles = titles.filter { !$0.isEmpty }
         guard !filteredTitles.isEmpty else { return nil }
 
-        let noteList = element(matchingIdentifier: "note-list-view")
-        let noteListExists = noteList.waitForExistence(timeout: min(timeout, 2))
-
         let predicate = NSCompoundPredicate(
             orPredicateWithSubpredicates: filteredTitles.map {
                 NSPredicate(format: "label CONTAINS[c] %@", $0)
@@ -518,12 +687,6 @@ class QuartzUITestCase: XCTestCase {
             app.buttons,
             app.staticTexts
         ]
-        if noteListExists {
-            scopedQueries.insert(noteList.descendants(matching: .any), at: 0)
-            identifierQueries.insert(noteList.descendants(matching: .cell), at: 0)
-            identifierQueries.insert(noteList.descendants(matching: .button), at: 1)
-            identifierQueries.insert(noteList.descendants(matching: .staticText), at: 2)
-        }
 
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -693,6 +856,7 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     func interact(with element: XCUIElement) {
         #if os(macOS)
+        _ = activateRunningMacApp()
         element.click()
         #else
         element.tap()

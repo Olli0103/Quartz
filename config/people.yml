@@ -1,0 +1,49 @@
+canonical_people:
+  - Andreas
+  - Giancarlo
+  - Ahmed
+  - Abhijit
+  - Rene
+  - Amar
+  - Steffen
+  - Hanchun
+  - Martin
+  - Alexandra
+  - Christian
+  - Stefan
+  - Sudeep
+  - Michael
+  - Hemanth
+  - Jessi
+  - Ned
+  - Erika
+  - Bernd
+  - Thomas
+  - Tom
+  - Alex
+  - Holger
+  - Bhargav
+  - Marta
+  - Marvin
+  - Georg
+  - Jill
+  - Manish
+  - MyOwn
+  - Krampi
+  - Malathi
+routing_aliases:
+  Hemanth:
+    - Hemant
+  Michael:
+    - Micha
+  Ned:
+    - Nedim
+  MyOwn:
+    - MY
+  Alex:
+    - Alexander
+ambiguous_short_names:
+  - Tom
+  - Thomas
+  - Alex
+  - Alexandra

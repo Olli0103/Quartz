@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "root_project": {
+    "name": "📤 SAP",
+    "reuse_existing": true,
+    "children": {
+      "People": {
+        "sections": [
+          "1:1 prep",
+          "follow-ups",
+          "hiring",
+          "performance actions"
+        ]
+      },
+      "Projects": {
+        "sections": [
+          "AI / Automation",
+          "Reporting",
+          "Tooling / ISD Hub",
+          "E2E / TCO",
+          "other active"
+        ]
+      },
+      "Operations": {
+        "sections": [
+          "leadership",
+          "team meetings",
+          "supplier / vendor",
+          "security",
+          "admin"
+        ]
+      },
+      "Services": {
+        "sections": [
+          "General",
+          "Council",
+          "ATLAS / IBM",
+          "AppOps",
+          "Cloud ALM",
+          "CAS FRUN / ESP",
+          "BDC / SNOW / JIRA"
+        ]
+      },
+      "Waiting": {
+        "sections": []
+      }
+    }
+  },
+  "allowed_labels": [
+    "@waiting",
+    "@1to1",
+    "@decision",
+    "@email",
+    "@deep"
+  ],
+  "rules": {
+    "delegated_project": "Waiting",
+    "delegated_label": "@waiting"
+  }
+}

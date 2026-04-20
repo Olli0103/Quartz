@@ -183,6 +183,18 @@ public actor FileSystemVaultProvider: VaultProviding {
 
         let isEvicted = resourceValues?.ubiquitousItemDownloadingStatus == .notDownloaded
         let isDownloading = resourceValues?.ubiquitousItemIsDownloading ?? false
+        let isICloudManaged = resourceValues?.ubiquitousItemDownloadingStatus != nil
+
+        // Local files should not pay the coordinated iCloud timeout/task-group cost on
+        // the editor open path. Read them directly and only fall back to coordination if
+        // the simple read fails.
+        if !isICloudManaged {
+            do {
+                return try Data(contentsOf: url, options: [.mappedIfSafe])
+            } catch {
+                return try CoordinatedFileWriter.shared.read(from: url)
+            }
+        }
 
         if isEvicted || isDownloading {
             // Trigger download if not already downloading

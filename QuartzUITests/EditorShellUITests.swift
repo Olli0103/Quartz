@@ -151,7 +151,7 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = replaceEditorText(with: "Toolbar bold baseline")
+        let editor = focusEditor()
         let boldButton = element(matchingIdentifier: "editor-toolbar-bold")
         XCTAssertTrue(boldButton.waitForExistence(timeout: 5),
                       "Bold toolbar action must exist on macOS")

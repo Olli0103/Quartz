@@ -289,3 +289,25 @@ Quartz is free and open source. If it helps you, consider supporting development
 ## License
 
 MIT License -- see [LICENSE](LICENSE) for details.
+
+---
+
+## Internal Todoist Toolkit
+
+This repo also contains a small internal Python toolkit for restructuring SAP management work in Todoist without touching personal areas.
+
+Requirements:
+
+- Python 3.9+
+- `pip install -r requirements.txt`
+- `TODOIST_API_TOKEN` exported in the shell for live export or apply runs
+
+Commands:
+
+```bash
+python3 scripts/export_todoist.py --output reports/current_inventory.json --backup-dir reports/backups
+python3 scripts/dry_run_todoist_reorg.py --inventory reports/current_inventory.json --target todoist_target.yaml --plan todoist_migration_plan.yaml --report reports/DRY_RUN.md --dry-run
+python3 scripts/apply_todoist_reorg.py --inventory reports/current_inventory.json --target todoist_target.yaml --plan todoist_migration_plan.yaml --apply
+```
+
+The dry-run stays read-only. The apply script exports a fresh rollback snapshot, prints a summary, and asks for confirmation before mutating Todoist.

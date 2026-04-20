@@ -1,0 +1,9 @@
+{
+  "category": "state",
+  "timestamp": "2026-04-14T08:59:10Z",
+  "textkit_wiring_references": 4,
+  "coordinated_io_references": 10,
+  "hardware_macro_references": 4,
+  "rerun_status": "pass",
+  "rerun_log": "/tmp/quartz_phase4_state_heal.log"
+}

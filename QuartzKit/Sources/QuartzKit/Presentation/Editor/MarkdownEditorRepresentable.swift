@@ -337,8 +337,10 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
 
-        // Trigger initial highlighting (no debounce — instant)
-        session.highlightImmediately()
+        // Trigger initial highlighting only when a note body is already present.
+        if !session.currentText.isEmpty {
+            session.highlightImmediately()
+        }
 
         context.coordinator.textView = textView
         context.coordinator.lastFontScale = editorFontScale
@@ -938,8 +940,10 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
             await session.highlighter?.updateSettings(fontFamily: editorFontFamily, lineSpacing: editorLineSpacing)
         }
 
-        // Trigger initial highlighting (no debounce — instant)
-        session.highlightImmediately()
+        // Trigger initial highlighting only when a note body is already present.
+        if !session.currentText.isEmpty {
+            session.highlightImmediately()
+        }
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false

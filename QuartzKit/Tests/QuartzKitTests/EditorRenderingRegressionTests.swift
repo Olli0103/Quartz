@@ -383,7 +383,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
             in: text
         ).location
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: "## Architecture Overview",
+            in: text
+        )
 
         let initialH1 = try uniformHeadingContentSignature(
             matchingLine: "# Release Notes",
@@ -403,7 +407,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
 
         session.closeNote()
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: "## Architecture Overview",
+            in: text
+        )
 
         let reopenedH1 = try uniformHeadingContentSignature(
             matchingLine: "# Release Notes",
@@ -455,7 +463,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
 
         session.closeNote()
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: "## Architecture Overview",
+            in: text
+        )
 
         let reopenedAfterEditH1 = try uniformHeadingContentSignature(
             matchingLine: "# Release Notes",
@@ -509,7 +521,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
         ).location
 
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: headingLine,
+            in: text
+        )
 
         let initialHeading = try uniformHeadingContentSignature(
             matchingLine: headingLine,
@@ -536,7 +552,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertTrue(session.currentText.contains("| Column 1 | Column 2 | Column 3 |"))
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: headingLine,
+            in: text
+        )
 
         let postInsertHeading = try uniformHeadingContentSignature(
             matchingLine: headingLine,
@@ -555,7 +575,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
         await session.manualSave()
         session.closeNote()
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: headingLine,
+            in: text
+        )
 
         let reopenedHeading = try uniformHeadingContentSignature(
             matchingLine: headingLine,
@@ -604,7 +628,11 @@ final class EditorRenderingRegressionTests: XCTestCase {
         ).location
 
         await session.loadNote(at: url)
-        try await waitForHighlightPass(on: textView, monitoredLocation: monitoredLocation)
+        try await waitForHeadingHighlightPass(
+            on: textView,
+            matchingLine: headingLine,
+            in: text
+        )
 
         let initialHeading = try uniformHeadingContentSignature(
             matchingLine: headingLine,
@@ -843,6 +871,32 @@ final class EditorRenderingRegressionTests: XCTestCase {
         struct HighlightPassTimeout: Error {}
         XCTFail("Timed out waiting for highlight pass to complete")
         throw HighlightPassTimeout()
+    }
+
+    private func waitForHeadingHighlightPass(
+        on textView: NSTextView,
+        matchingLine line: String,
+        in text: String
+    ) async throws {
+        let contentRange = try headingContentRange(matchingLine: line, in: text)
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(3)
+
+        while clock.now < deadline {
+            if textView.alphaValue == 1,
+               let textStorage = textView.textStorage,
+               contentRange.location < textStorage.length,
+               let font = textStorage.attribute(.font, at: contentRange.location, effectiveRange: nil) as? NSFont,
+               NSFontManager.shared.traits(of: font).contains(.boldFontMask),
+               font.pointSize > CGFloat(14) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        struct HeadingHighlightPassTimeout: Error {}
+        XCTFail("Timed out waiting for heading highlight pass to complete for '\(line)'")
+        throw HeadingHighlightPassTimeout()
     }
 
     private func makeHiddenUntilCaretTextView(

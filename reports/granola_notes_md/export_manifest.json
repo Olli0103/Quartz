@@ -1,0 +1,3381 @@
+{
+  "generated_at": "2026-04-13T18:34:04.676231+00:00",
+  "note_count": 482,
+  "includes_transcript": false,
+  "notes": [
+    {
+      "note_id": "not_LWJOSWCz2BTyGl",
+      "filename": "20260413_1_1_Marta.md",
+      "title": "13.04.2026 - 1:1 Marta",
+      "created_at": "2026-04-13T12:03:09.942Z",
+      "updated_at": "2026-04-13T12:36:42.014Z"
+    },
+    {
+      "note_id": "not_n4H42uOnenSJxg",
+      "filename": "20260413_Service_reporting_and_GRAS-Analytics_rollout_review.md",
+      "title": "Service reporting and GRAS-Analytics rollout review",
+      "created_at": "2026-04-13T11:46:56.287Z",
+      "updated_at": "2026-04-13T12:36:39.637Z"
+    },
+    {
+      "note_id": "not_UbdBOJRA68jXaI",
+      "filename": "20260413_Mondays_Management_Alignment.md",
+      "title": "13.04.2026 Mondays Management Alignment",
+      "created_at": "2026-04-13T11:01:27.210Z",
+      "updated_at": "2026-04-13T11:37:43.182Z"
+    },
+    {
+      "note_id": "not_6vnJuxl57xHEKU",
+      "filename": "20260410_ISD_Hub_and_Engagement_Management_Strategy_Planning.md",
+      "title": "ISD Hub and Engagement Management Strategy Planning",
+      "created_at": "2026-04-10T11:09:07.668Z",
+      "updated_at": "2026-04-13T09:30:56.428Z"
+    },
+    {
+      "note_id": "not_ikcEmFZQzTw78b",
+      "filename": "20260410_BDC_service_delivery_documentation_and_ODP_RFC_compliance_strategy.md",
+      "title": "BDC service delivery documentation and ODP RFC compliance strategy",
+      "created_at": "2026-04-10T08:30:50.060Z",
+      "updated_at": "2026-04-13T11:33:54.890Z"
+    },
+    {
+      "note_id": "not_O8ibKPoX2U52tU",
+      "filename": "20260409_ESX_Launchpad_app_inventory_and_role_management_strategy_with_Jessica.md",
+      "title": "ESX Launchpad app inventory and role management strategy with Jessica",
+      "created_at": "2026-04-09T09:36:31.793Z",
+      "updated_at": "2026-04-09T10:06:13.184Z"
+    },
+    {
+      "note_id": "not_EE3sJdVThAvx6R",
+      "filename": "20260409_Notification_automation_and_data_processing_challenges_with_ACV_and_contract_types.md",
+      "title": "Notification automation and data processing challenges with ACV and contract types",
+      "created_at": "2026-04-09T08:24:59.072Z",
+      "updated_at": "2026-04-09T09:36:31.789Z"
+    },
+    {
+      "note_id": "not_L3hXcydOlj1jYr",
+      "filename": "20260409_BTP_Terraform_Strategy_and_Service_Delivery_Planning_with_Christian_Gruhmann.md",
+      "title": "BTP Terraform Strategy and Service Delivery Planning with Christian Gruhmann",
+      "created_at": "2026-04-09T08:02:05.685Z",
+      "updated_at": "2026-04-09T08:23:45.205Z"
+    },
+    {
+      "note_id": "not_B5Xe38sLktTPhW",
+      "filename": "20260408_SAP_Cloud-A-Lern_service_strategy_and_market_expansion_planning_with_colleague.md",
+      "title": "SAP Cloud-A-Lern service strategy and market expansion planning with colleague",
+      "created_at": "2026-04-08T07:59:30.679Z",
+      "updated_at": "2026-04-08T08:10:23.054Z"
+    },
+    {
+      "note_id": "not_19hCmfYJZiNVIz",
+      "filename": "20260408_ESP_team_data_lake_and_contract_management_sync.md",
+      "title": "ESP team data lake and contract management sync",
+      "created_at": "2026-04-08T06:17:57.298Z",
+      "updated_at": "2026-04-08T07:59:30.676Z"
+    },
+    {
+      "note_id": "not_0GWBQC77gdKUtA",
+      "filename": "20260407_Q1_Cast_Portfolio_Performance_Review_with_Turkey_Sales_Team.md",
+      "title": "Q1 Cast Portfolio Performance Review with Turkey Sales Team",
+      "created_at": "2026-04-07T09:30:07.455Z",
+      "updated_at": "2026-04-07T10:08:59.167Z"
+    },
+    {
+      "note_id": "not_iY4GXAGos86ayl",
+      "filename": "20260407_SAP_ADS_Customer_Entitlement_AI_Feature_Planning_with_Team.md",
+      "title": "SAP ADS Customer Entitlement AI Feature Planning with Team",
+      "created_at": "2026-04-07T08:29:52.600Z",
+      "updated_at": "2026-04-07T09:29:09.804Z"
+    },
+    {
+      "note_id": "not_h8Y797D9Gvm5jZ",
+      "filename": "20260402_Cloud_ALM_AI_Resolution_and_Monitoring_Strategy_Update.md",
+      "title": "Cloud ALM AI Resolution and Monitoring Strategy Update",
+      "created_at": "2026-04-02T11:34:13.589Z",
+      "updated_at": "2026-04-07T06:30:28.738Z"
+    },
+    {
+      "note_id": "not_u7FpiwSM7YbPtS",
+      "filename": "20260402_Easter_egg_hunting_and_pet_discussion_with_team_members.md",
+      "title": "Easter egg hunting and pet discussion with team members",
+      "created_at": "2026-04-02T10:31:58.236Z",
+      "updated_at": "2026-04-07T09:30:07.436Z"
+    },
+    {
+      "note_id": "not_zpiKhJR0nm85fi",
+      "filename": "20260402_AI_talent_recruitment_for_SAP_cloud_application_services_team.md",
+      "title": "AI talent recruitment for SAP cloud application services team",
+      "created_at": "2026-04-02T09:29:53.325Z",
+      "updated_at": "2026-04-02T10:31:58.206Z"
+    },
+    {
+      "note_id": "not_uWNMyll2RTAHcb",
+      "filename": "20260401_CAS_Boundary_Conditions_and_Support_Clarification_Strategy.md",
+      "title": "CAS Boundary Conditions and Support Clarification Strategy",
+      "created_at": "2026-04-01T11:00:40.301Z",
+      "updated_at": "2026-04-10T09:16:42.291Z"
+    },
+    {
+      "note_id": "not_qebIgmi40MjfCQ",
+      "filename": "20260401_SAP_BTP_AI_Ticketing_System_Candidate_Interview_with_Sushi.md",
+      "title": "SAP BTP AI Ticketing System Candidate Interview with Sushi",
+      "created_at": "2026-04-01T09:29:52.885Z",
+      "updated_at": "2026-04-10T09:16:38.336Z"
+    },
+    {
+      "note_id": "not_B4pbsW5ANXaomb",
+      "filename": "20260331_ITSM_and_Service_Now_Q4_Timeline_Planning_with_Project_Management_Transition.md",
+      "title": "ITSM and Service Now Q4 Timeline Planning with Project Management Transition",
+      "created_at": "2026-03-31T13:31:24.902Z",
+      "updated_at": "2026-04-01T11:00:40.259Z"
+    },
+    {
+      "note_id": "not_3F2Z113viYFPnt",
+      "filename": "20260331_Delivery_organization_and_service_restructuring_update.md",
+      "title": "Delivery organization and service restructuring update",
+      "created_at": "2026-03-31T08:37:27.909Z",
+      "updated_at": "2026-03-31T12:50:16.326Z"
+    },
+    {
+      "note_id": "not_B5c4L6aCKSTrtA",
+      "filename": "20260331_Service_ownership_and_BDC_goals_planning_for_2026.md",
+      "title": "Service ownership and BDC goals planning for 2026",
+      "created_at": "2026-03-31T08:00:59.534Z",
+      "updated_at": "2026-04-13T11:37:01.105Z"
+    },
+    {
+      "note_id": "not_mjv4N0HqcMOw8M",
+      "filename": "20260331_Goals_and_AI_tools_quarterly_check-in_with_team_member.md",
+      "title": "Goals and AI tools quarterly check-in with team member",
+      "created_at": "2026-03-31T07:31:06.774Z",
+      "updated_at": "2026-04-01T07:07:59.164Z"
+    },
+    {
+      "note_id": "not_iLdgESbjDXJiCR",
+      "filename": "20260331_Goals_and_AI_integration_quarterly_review_with_team_member.md",
+      "title": "Goals and AI integration quarterly review with team member",
+      "created_at": "2026-03-31T06:30:14.742Z",
+      "updated_at": "2026-04-01T07:07:48.030Z"
+    },
+    {
+      "note_id": "not_LBnmpDlu3hBTwS",
+      "filename": "20260330_ESX_development_goals_and_project_timelines_for_Q2_2026.md",
+      "title": "ESX development goals and project timelines for Q2 2026",
+      "created_at": "2026-03-30T13:33:58.175Z",
+      "updated_at": "2026-04-01T07:07:41.511Z"
+    },
+    {
+      "note_id": "not_81uqYytkpimVgU",
+      "filename": "20260330_Service_performance_reporting_and_data_source_integration_planning.md",
+      "title": "Service performance reporting and data source integration planning",
+      "created_at": "2026-03-30T13:01:25.986Z",
+      "updated_at": "2026-04-01T07:07:37.380Z"
+    },
+    {
+      "note_id": "not_Lly1hm9XeIwXXJ",
+      "filename": "20260330_Support_ticket_automation_using_LLM_analysis_with_Oliver_Posselt.md",
+      "title": "Support ticket automation using LLM analysis with Oliver Posselt",
+      "created_at": "2026-03-30T12:29:53.815Z",
+      "updated_at": "2026-04-01T07:07:32.860Z"
+    },
+    {
+      "note_id": "not_7uKFXh3wsrjLS9",
+      "filename": "20260330_Comms_team_communication_strategy.md",
+      "title": "Comms team communication strategy",
+      "created_at": "2026-03-30T11:30:59.184Z",
+      "updated_at": "2026-03-30T12:29:53.799Z"
+    },
+    {
+      "note_id": "not_dSho6MVrmXj8jk",
+      "filename": "20260330_SAP_onboarding_ITSM_integration_and_workflow_optimization_with_Roman.md",
+      "title": "SAP onboarding, ITSM integration, and workflow optimization with Roman",
+      "created_at": "2026-03-30T11:08:08.600Z",
+      "updated_at": "2026-04-01T07:07:25.651Z"
+    },
+    {
+      "note_id": "not_0IaLeSxpOMhjas",
+      "filename": "20260330_Cloud_ERP_project_onboarding_and_ISD_Hub_strategy_with_delivery_team.md",
+      "title": "Cloud ERP project onboarding and ISD Hub strategy with delivery team",
+      "created_at": "2026-03-30T08:59:34.673Z",
+      "updated_at": "2026-04-01T07:07:17.287Z"
+    },
+    {
+      "note_id": "not_pQFponPaAo0cyq",
+      "filename": "20260330_Performance_goals_and_AI_certification_planning_for_2026.md",
+      "title": "Performance goals and AI certification planning for 2026",
+      "created_at": "2026-03-30T07:59:59.712Z",
+      "updated_at": "2026-04-01T07:07:12.487Z"
+    },
+    {
+      "note_id": "not_j2xcFDtBLgOlK7",
+      "filename": "20260330_ESP_Service_Now_Migration_Planning_with_Stuart.md",
+      "title": "ESP Service Now Migration Planning with Stuart",
+      "created_at": "2026-03-30T07:07:41.732Z",
+      "updated_at": "2026-03-30T08:59:33.034Z"
+    },
+    {
+      "note_id": "not_lexHsfcyIl0DA6",
+      "filename": "20260330_Goals_and_coaching_strategy_review_with_Benjamin.md",
+      "title": "Goals and coaching strategy review with Benjamin",
+      "created_at": "2026-03-30T06:30:11.050Z",
+      "updated_at": "2026-04-01T07:07:06.403Z"
+    },
+    {
+      "note_id": "not_B0EsWsTJSBFjYi",
+      "filename": "20260327_ESP_engine_data_and_LLM_strategy_with_project_details_for_Vinay_s_presentation.md",
+      "title": "ESP engine data and LLM strategy with project details for Vinay's presentation",
+      "created_at": "2026-03-27T15:00:41.530Z",
+      "updated_at": "2026-03-27T16:34:03.650Z"
+    },
+    {
+      "note_id": "not_AunhqVjaOMKrNI",
+      "filename": "20260327_Transition_planning_and_project_handover_details.md",
+      "title": "Transition planning and project handover details",
+      "created_at": "2026-03-27T14:03:03.437Z",
+      "updated_at": "2026-03-30T07:06:31.629Z"
+    },
+    {
+      "note_id": "not_S9bSQPBeUHyubC",
+      "filename": "20260327_Goals_and_AI-Assisted_Resolution_Planning_with_Amit.md",
+      "title": "Goals and AI-Assisted Resolution Planning with Amit",
+      "created_at": "2026-03-27T13:30:55.802Z",
+      "updated_at": "2026-03-27T16:34:00.711Z"
+    },
+    {
+      "note_id": "not_FwtGZmmj2WrkXs",
+      "filename": "20260327_Project_planning_and_team_goals_alignment_with_Rene_s_upcoming_transition.md",
+      "title": "Project planning and team goals alignment with René's upcoming transition",
+      "created_at": "2026-03-27T12:31:51.552Z",
+      "updated_at": "2026-03-27T16:33:57.325Z"
+    },
+    {
+      "note_id": "not_d1sHLLIMRK4Kzh",
+      "filename": "20260327_Performance_goals_and_certification_planning_with_Thomas.md",
+      "title": "Performance goals and certification planning with Thomas",
+      "created_at": "2026-03-27T12:00:26.954Z",
+      "updated_at": "2026-03-27T12:31:34.776Z"
+    },
+    {
+      "note_id": "not_lpeBZVT8zfUBTz",
+      "filename": "20260327_Sales_to_delivery_process_alignment_for_ISD_Hub_project.md",
+      "title": "Sales to delivery process alignment for ISD Hub project",
+      "created_at": "2026-03-27T10:30:13.684Z",
+      "updated_at": "2026-03-27T12:31:38.248Z"
+    },
+    {
+      "note_id": "not_3MSmGlBXfw54aT",
+      "filename": "20260327_ASM_Data_Access_and_One_AI_Chatbot_Integration_Planning.md",
+      "title": "ASM Data Access and One AI Chatbot Integration Planning",
+      "created_at": "2026-03-27T10:03:10.644Z",
+      "updated_at": "2026-03-27T12:31:41.758Z"
+    },
+    {
+      "note_id": "not_5A5ZOhIdGy59EE",
+      "filename": "20260327_J4C_community_progress_and_AI_efficiency_strategies.md",
+      "title": "J4C community progress and AI efficiency strategies",
+      "created_at": "2026-03-27T08:31:39.248Z",
+      "updated_at": "2026-03-27T12:31:44.088Z"
+    },
+    {
+      "note_id": "not_hE0IuMZkD1a1RD",
+      "filename": "20260327_Consumed_ECV_Tracking_and_Reporting_Framework_Planning.md",
+      "title": "Consumed ECV Tracking and Reporting Framework Planning",
+      "created_at": "2026-03-27T07:30:57.748Z",
+      "updated_at": "2026-03-27T12:31:48.863Z"
+    },
+    {
+      "note_id": "not_cWP0TwRiEVxM8T",
+      "filename": "20260326_S4_LE_goals_and_AI_strategy_planning_with_leadership_alignment.md",
+      "title": "S4/LE goals and AI strategy planning with leadership alignment",
+      "created_at": "2026-03-26T16:17:29.193Z",
+      "updated_at": "2026-03-26T16:54:40.617Z"
+    },
+    {
+      "note_id": "not_d7Egg2TU655eWI",
+      "filename": "20260326_Goals_and_objectives_planning_for_2026_with_project_transition_lead_responsibilities.md",
+      "title": "Goals and objectives planning for 2026 with project transition lead responsibilities",
+      "created_at": "2026-03-26T15:01:42.181Z",
+      "updated_at": "2026-03-26T16:54:36.398Z"
+    },
+    {
+      "note_id": "not_aZjxuJzAHpoHtP",
+      "filename": "20260326_AI_and_Performance_Objectives_Review_with_Team_Goals_Tracking.md",
+      "title": "AI and Performance Objectives Review with Team Goals Tracking",
+      "created_at": "2026-03-26T14:32:42.258Z",
+      "updated_at": "2026-03-26T16:54:28.328Z"
+    },
+    {
+      "note_id": "not_LlvpgMtSuJdIuL",
+      "filename": "20260326_ServiceNow_project_timeline_and_go-live_delay_planning.md",
+      "title": "ServiceNow project timeline and go-live delay planning",
+      "created_at": "2026-03-26T14:00:21.750Z",
+      "updated_at": "2026-03-26T16:54:24.085Z"
+    },
+    {
+      "note_id": "not_cDdV4A98vcWNVw",
+      "filename": "20260326_Consultants_community_tool_rollout_and_documentation_planning.md",
+      "title": "Consultants community tool rollout and documentation planning",
+      "created_at": "2026-03-26T12:00:49.549Z",
+      "updated_at": "2026-03-26T16:54:18.928Z"
+    },
+    {
+      "note_id": "not_L4S9OF5WnZvIux",
+      "filename": "20260325_SAP_Sapphire_Presentation_Prep_for_AMS_Transformation_Strategy.md",
+      "title": "SAP Sapphire Presentation Prep for AMS Transformation Strategy",
+      "created_at": "2026-03-25T13:00:21.022Z",
+      "updated_at": "2026-03-26T16:54:05.533Z"
+    },
+    {
+      "note_id": "not_LdFm8BBJpHDCkU",
+      "filename": "20260324_AO_Consumption_and_Customer_Engagement_Strategy_with_Service_Plan_Recommendations.md",
+      "title": "AO Consumption and Customer Engagement Strategy with Service Plan Recommendations",
+      "created_at": "2026-03-24T15:33:09.066Z",
+      "updated_at": "2026-03-24T17:33:45.443Z"
+    },
+    {
+      "note_id": "not_6Ola7EYUY0jm9u",
+      "filename": "20260324_J4C_Product_Roadmap_and_Renewal_Risk_Review.md",
+      "title": "J4C Product Roadmap and Renewal Risk Review",
+      "created_at": "2026-03-24T12:33:39.624Z",
+      "updated_at": "2026-03-24T15:19:28.272Z"
+    },
+    {
+      "note_id": "not_K1Jqa26X1Ren3j",
+      "filename": "20260320_Regional_team_challenges_and_North_America_strategy_with_Vinay.md",
+      "title": "Regional team challenges and North America strategy with Vinay",
+      "created_at": "2026-03-20T14:04:37.594Z",
+      "updated_at": "2026-03-24T17:34:11.727Z"
+    },
+    {
+      "note_id": "not_8WAcwKWQ6yvKyY",
+      "filename": "20260320_Google_Chromebooks_and_UiPath_automation_update_with_Adi.md",
+      "title": "Google Chromebooks and UiPath automation update with Adi",
+      "created_at": "2026-03-20T12:58:41.078Z",
+      "updated_at": "2026-03-24T17:34:05.454Z"
+    },
+    {
+      "note_id": "not_JH8XVmNFHIu0OD",
+      "filename": "20260320_Service_development_roadmap_and_success_plan_alignment_with_Ryan.md",
+      "title": "Service development roadmap and success plan alignment with Ryan",
+      "created_at": "2026-03-20T11:59:56.850Z",
+      "updated_at": "2026-03-24T17:34:00.883Z"
+    },
+    {
+      "note_id": "not_oB5lagSWajsrD4",
+      "filename": "20260320_Quick_work_sync_with_team_member.md",
+      "title": "Quick work sync with team member",
+      "created_at": "2026-03-20T10:29:57.284Z",
+      "updated_at": "2026-03-24T17:33:54.448Z"
+    },
+    {
+      "note_id": "not_4UVck9FcL9zQHW",
+      "filename": "20260320_IT_hub_project_planning_and_team_enablement_with_Martin.md",
+      "title": "IT hub project planning and team enablement with Martin",
+      "created_at": "2026-03-20T09:36:20.535Z",
+      "updated_at": "2026-03-24T17:33:50.285Z"
+    },
+    {
+      "note_id": "not_3TMVM3BSMFu50o",
+      "filename": "20260320_SAP_engagement_cloud_service_offering_roadmap_planning.md",
+      "title": "SAP engagement cloud service offering roadmap planning",
+      "created_at": "2026-03-20T07:32:51.257Z",
+      "updated_at": "2026-03-24T12:33:41.317Z"
+    },
+    {
+      "note_id": "not_M0CygMe1nBmvuo",
+      "filename": "20260319_ServiceNow_and_Ariba_project_status_update_with_Oliver.md",
+      "title": "ServiceNow and Ariba project status update with Oliver",
+      "created_at": "2026-03-19T09:11:06.092Z",
+      "updated_at": "2026-03-24T17:34:27.874Z"
+    },
+    {
+      "note_id": "not_WysFEDTCNz8TqP",
+      "filename": "20260318_Cloud_services_collaboration_potential_with_SAP_support_team.md",
+      "title": "Cloud services collaboration potential with SAP support team",
+      "created_at": "2026-03-18T13:37:41.166Z",
+      "updated_at": "2026-03-19T07:59:28.885Z"
+    },
+    {
+      "note_id": "not_Ec0b9Mq1TuM2dt",
+      "filename": "20260317_HSM_Demand_Planning_and_Cost_Onboarding_Update_with_Stan.md",
+      "title": "HSM Demand Planning and Cost Onboarding Update with Stan",
+      "created_at": "2026-03-17T12:02:31.235Z",
+      "updated_at": "2026-03-17T15:27:42.193Z"
+    },
+    {
+      "note_id": "not_48MLN1mdRBf0C9",
+      "filename": "20260317_Rene.md",
+      "title": "Rene",
+      "created_at": "2026-03-17T09:08:42.427Z",
+      "updated_at": "2026-03-17T15:27:32.220Z"
+    },
+    {
+      "note_id": "not_Eu9JisXo4WhzXt",
+      "filename": "20260316_Performance_review_and_compensation_discussion_with_manager.md",
+      "title": "Performance review and compensation discussion with manager",
+      "created_at": "2026-03-16T14:04:03.379Z",
+      "updated_at": "2026-03-17T08:31:09.318Z"
+    },
+    {
+      "note_id": "not_RnaFyqZks5Mcq3",
+      "filename": "20260316_not_RnaFyqZks5Mcq3.md",
+      "title": null,
+      "created_at": "2026-03-16T13:33:28.125Z",
+      "updated_at": "2026-03-16T13:58:54.059Z"
+    },
+    {
+      "note_id": "not_dIqMLu8gvTK6oI",
+      "filename": "20260316_Pricing_update_and_AI_use_case_exploration_with_Thomas.md",
+      "title": "Pricing update and AI use case exploration with Thomas",
+      "created_at": "2026-03-16T12:39:55.475Z",
+      "updated_at": "2026-03-16T13:33:27.521Z"
+    },
+    {
+      "note_id": "not_Z9yeJsgBvcWAn9",
+      "filename": "20260316_Team_performance_and_service_delivery_strategy_update.md",
+      "title": "Team performance and service delivery strategy update",
+      "created_at": "2026-03-16T08:00:15.530Z",
+      "updated_at": "2026-03-16T13:04:59.754Z"
+    },
+    {
+      "note_id": "not_XV9cMYyHBaL8H8",
+      "filename": "20260313_EWA-Alliards_data_product_access_and_integration_planning.md",
+      "title": "EWA-Alliards data product access and integration planning",
+      "created_at": "2026-03-13T12:38:39.424Z",
+      "updated_at": "2026-03-16T13:04:35.984Z"
+    },
+    {
+      "note_id": "not_ew7melHMY1NCtW",
+      "filename": "20260313_Consumed_ACV_Metrics_and_Cloud_ERP_Private_Service_Reporting_Strategy.md",
+      "title": "Consumed ACV Metrics and Cloud ERP Private Service Reporting Strategy",
+      "created_at": "2026-03-13T12:01:49.771Z",
+      "updated_at": "2026-03-16T13:04:14.879Z"
+    },
+    {
+      "note_id": "not_jSINzX7DNGJ2Lh",
+      "filename": "20260313_ISD_HUB.md",
+      "title": "ISD HUB",
+      "created_at": "2026-03-13T10:29:53.414Z",
+      "updated_at": "2026-03-16T13:02:59.385Z"
+    },
+    {
+      "note_id": "not_nUjnJhoUEdKCVH",
+      "filename": "20260313_Quick_check_with_Adi_and_Tony.md",
+      "title": "Quick check with Adi and Tony",
+      "created_at": "2026-03-13T09:29:52.040Z",
+      "updated_at": "2026-03-16T13:03:43.092Z"
+    },
+    {
+      "note_id": "not_1ogOgBZjVQ6kXp",
+      "filename": "20260313_Goals_and_AI_project_planning_with_Adi_for_Q1_2024.md",
+      "title": "Goals and AI project planning with Adi for Q1 2024",
+      "created_at": "2026-03-13T09:03:10.334Z",
+      "updated_at": "2026-03-16T13:02:45.364Z"
+    },
+    {
+      "note_id": "not_pfJwvyGjRiyxW3",
+      "filename": "20260312_Cloud_ALM_strategy_and_metrics_planning_with_IBM_team.md",
+      "title": "Cloud ALM strategy and metrics planning with IBM team",
+      "created_at": "2026-03-12T14:17:32.176Z",
+      "updated_at": "2026-03-12T15:11:17.714Z"
+    },
+    {
+      "note_id": "not_y2LMzSI1P83ll8",
+      "filename": "20260312_AI_ticket_system_and_sentiment_analysis_update_with_Mark.md",
+      "title": "AI ticket system and sentiment analysis update with Mark",
+      "created_at": "2026-03-12T13:59:57.853Z",
+      "updated_at": "2026-03-12T14:17:32.174Z"
+    },
+    {
+      "note_id": "not_sstbiq0OBRahgp",
+      "filename": "20260312_Quarterly_Business_Review_Delivery_Performance_Customer_Engagement_and_Strategic_Metrics.md",
+      "title": "Quarterly Business Review: Delivery Performance, Customer Engagement, and Strategic Metrics",
+      "created_at": "2026-03-12T12:03:01.879Z",
+      "updated_at": "2026-03-12T14:00:52.019Z"
+    },
+    {
+      "note_id": "not_cSXHsjR0vDC4Su",
+      "filename": "20260312_Deep_program_service_portfolio_harmonization_with_cross-organizational_AI_platform_proposal.md",
+      "title": "Deep program service portfolio harmonization with cross-organizational AI platform proposal",
+      "created_at": "2026-03-12T10:32:04.600Z",
+      "updated_at": "2026-03-12T14:00:59.151Z"
+    },
+    {
+      "note_id": "not_LzgGmzBfcMKaKB",
+      "filename": "20260312_Time_recording_application_and_project_updates_for_BTP_environment.md",
+      "title": "Time recording application and project updates for BTP environment",
+      "created_at": "2026-03-12T09:03:35.736Z",
+      "updated_at": "2026-03-12T14:01:44.075Z"
+    },
+    {
+      "note_id": "not_iCRRLJWWHyOTQM",
+      "filename": "20260311_AO_Account_Segmentation_and_Consumption_Strategy_for_2026-2027.md",
+      "title": "AO Account Segmentation and Consumption Strategy for 2026-2027",
+      "created_at": "2026-03-11T11:32:36.575Z",
+      "updated_at": "2026-03-11T15:08:56.801Z"
+    },
+    {
+      "note_id": "not_3DS2wSeXeItmjC",
+      "filename": "20260311_AI_collaboration_and_toolchain_exploration_call_with_Danny_Maria_and_Felipe.md",
+      "title": "AI collaboration and toolchain exploration call with Danny, Maria, and Felipe",
+      "created_at": "2026-03-11T09:01:21.950Z",
+      "updated_at": "2026-03-11T10:04:31.426Z"
+    },
+    {
+      "note_id": "not_YuMBlbNmG89uj6",
+      "filename": "20260310_Career_development_and_motivation_alignment_with_team_member.md",
+      "title": "Career development and motivation alignment with team member",
+      "created_at": "2026-03-10T15:32:01.541Z",
+      "updated_at": "2026-03-10T16:03:47.279Z"
+    },
+    {
+      "note_id": "not_1kWwfJb16nm8Qp",
+      "filename": "20260310_Dubai_employee_relocation_and_mobility_package_review_with_HR.md",
+      "title": "Dubai employee relocation and mobility package review with HR",
+      "created_at": "2026-03-10T15:02:51.134Z",
+      "updated_at": "2026-03-10T15:32:01.537Z"
+    },
+    {
+      "note_id": "not_ESSaB4QRrzl6WI",
+      "filename": "20260310_Portfolio_and_data_management_goals_with_Georg.md",
+      "title": "Portfolio and data management goals with Georg",
+      "created_at": "2026-03-10T13:30:17.545Z",
+      "updated_at": "2026-03-10T14:58:37.642Z"
+    },
+    {
+      "note_id": "not_Mm5oMPMIerwcKW",
+      "filename": "20260310_Cass_delivery_strategy_and_action_items_review.md",
+      "title": "Cass delivery strategy and action items review",
+      "created_at": "2026-03-10T12:00:37.642Z",
+      "updated_at": "2026-03-10T15:02:48.836Z"
+    },
+    {
+      "note_id": "not_BLyydMWfqF0jwn",
+      "filename": "20260310_Service_owner_role_clarification_and_execution_flow_documentation.md",
+      "title": "Service owner role clarification and execution flow documentation",
+      "created_at": "2026-03-10T10:03:28.125Z",
+      "updated_at": "2026-03-10T12:00:37.639Z"
+    },
+    {
+      "note_id": "not_6ZrpmJ6b2j8uVz",
+      "filename": "20260310_Relocation_and_business_portfolio_planning_with_team_member.md",
+      "title": "Relocation and business portfolio planning with team member",
+      "created_at": "2026-03-10T06:00:11.017Z",
+      "updated_at": "2026-03-10T10:03:29.123Z"
+    },
+    {
+      "note_id": "not_pZ1gi4SPpHEMhk",
+      "filename": "20260309_Deployment_and_Service_Monitoring_Review_for_ADP_Customer.md",
+      "title": "Deployment and Service Monitoring Review for ADP Customer",
+      "created_at": "2026-03-09T15:32:53.710Z",
+      "updated_at": "2026-03-10T06:00:11.013Z"
+    },
+    {
+      "note_id": "not_9HGUZPXHmFRCB4",
+      "filename": "20260309_ITS_Transition_Project_Steering_Board_Meeting_-_ECS_and_CAST_Project_Updates.md",
+      "title": "ITS Transition Project Steering Board Meeting - ECS and CAST Project Updates",
+      "created_at": "2026-03-09T15:00:08.831Z",
+      "updated_at": "2026-03-09T15:32:54.702Z"
+    },
+    {
+      "note_id": "not_8GJNZZqv0hmJbq",
+      "filename": "20260309_Onboarding_status_and_delivery_challenges_review_with_team_member.md",
+      "title": "Onboarding status and delivery challenges review with team member",
+      "created_at": "2026-03-09T14:31:55.439Z",
+      "updated_at": "2026-03-09T14:59:07.643Z"
+    },
+    {
+      "note_id": "not_y7NgTNzOwVB18K",
+      "filename": "20260309_AI_and_Automation_Service_Goal_Planning_with_Oliver.md",
+      "title": "AI and Automation Service Goal Planning with Oliver",
+      "created_at": "2026-03-09T14:00:49.416Z",
+      "updated_at": "2026-03-09T14:32:22.805Z"
+    },
+    {
+      "note_id": "not_Z7dgztkBsZCptv",
+      "filename": "20260309_AI_Ticket_Automation_and_Resource_Planning_with_Oliver.md",
+      "title": "AI Ticket Automation and Resource Planning with Oliver",
+      "created_at": "2026-03-09T13:29:57.774Z",
+      "updated_at": "2026-03-09T14:32:40.256Z"
+    },
+    {
+      "note_id": "not_64jMHh4MZ0ASyT",
+      "filename": "20260309_Q1_goals_and_bonus_plan_review_with_team.md",
+      "title": "Q1 goals and bonus plan review with team",
+      "created_at": "2026-03-09T12:01:55.714Z",
+      "updated_at": "2026-03-09T14:32:01.093Z"
+    },
+    {
+      "note_id": "not_kiC4QBBXstJ0xj",
+      "filename": "20260309_ESP_development_goals_and_ServiceNow_transition_planning_with_Steffen.md",
+      "title": "ESP development goals and ServiceNow transition planning with Steffen",
+      "created_at": "2026-03-09T09:32:47.766Z",
+      "updated_at": "2026-03-09T12:01:55.708Z"
+    },
+    {
+      "note_id": "not_Smg0wDHJy0sAmq",
+      "filename": "20260309_SAP_Services_Portfolio_Launch_and_Alignment_Strategy.md",
+      "title": "SAP Services Portfolio Launch and Alignment Strategy",
+      "created_at": "2026-03-09T07:59:50.550Z",
+      "updated_at": "2026-03-09T09:32:48.762Z"
+    },
+    {
+      "note_id": "not_hyfl2fhX0roz5S",
+      "filename": "20260306_SAP_Basis_Consultant_Interview_for_Service_Provider_Cockpit_Role.md",
+      "title": "SAP Basis Consultant Interview for Service Provider Cockpit Role",
+      "created_at": "2026-03-06T15:01:17.094Z",
+      "updated_at": "2026-03-09T07:59:50.546Z"
+    },
+    {
+      "note_id": "not_DhZZs8ZKatagy3",
+      "filename": "20260306_F-Ran_and_Unicorn_Project_Goal_Planning_for_2026.md",
+      "title": "F-Ran and Unicorn Project Goal Planning for 2026",
+      "created_at": "2026-03-06T14:00:03.524Z",
+      "updated_at": "2026-03-06T15:01:17.088Z"
+    },
+    {
+      "note_id": "not_7tPUJZEKKqLklO",
+      "filename": "20260306_Performance_management_and_service_optimization_planning_with_team_member.md",
+      "title": "Performance management and service optimization planning with team member",
+      "created_at": "2026-03-06T12:31:49.606Z",
+      "updated_at": "2026-03-06T13:15:10.048Z"
+    },
+    {
+      "note_id": "not_7QlOgbGitLBEUx",
+      "filename": "20260306_Goal_setting_and_performance_management_review_with_commercial_targets.md",
+      "title": "Goal setting and performance management review with commercial targets",
+      "created_at": "2026-03-06T12:13:31.286Z",
+      "updated_at": "2026-03-06T13:15:26.587Z"
+    },
+    {
+      "note_id": "not_rkyoiRo8DZl2Kr",
+      "filename": "20260306_ISD_Hub_service_delivery_baseline_and_onboarding_strategy_with_Martin.md",
+      "title": "ISD Hub service delivery baseline and onboarding strategy with Martin",
+      "created_at": "2026-03-06T10:34:26.762Z",
+      "updated_at": "2026-03-06T13:15:48.869Z"
+    },
+    {
+      "note_id": "not_NnkeaKADJ0gmPG",
+      "filename": "20260306_Service_owner_roles_and_portfolio_governance_clarification.md",
+      "title": "Service owner roles and portfolio governance clarification",
+      "created_at": "2026-03-06T07:37:26.960Z",
+      "updated_at": "2026-03-06T13:52:55.842Z"
+    },
+    {
+      "note_id": "not_mX29eQdiYUZzbC",
+      "filename": "20260305_ServiceNow_onboarding_status_and_process_owner_goal_planning_for_2026.md",
+      "title": "ServiceNow onboarding status and process owner goal planning for 2026",
+      "created_at": "2026-03-05T15:00:09.091Z",
+      "updated_at": "2026-03-05T15:41:26.702Z"
+    },
+    {
+      "note_id": "not_bDtcHRZDti5EHm",
+      "filename": "20260305_AI_Orchestrator_Demo_and_Strategic_Planning_with_Oliver.md",
+      "title": "AI Orchestrator Demo and Strategic Planning with Oliver",
+      "created_at": "2026-03-05T13:59:54.778Z",
+      "updated_at": "2026-03-05T15:00:10.085Z"
+    },
+    {
+      "note_id": "not_SEOR7ml3M0UQ5Z",
+      "filename": "20260305_ServiceNow_ticket_process_alignment_for_Ariba_support_team.md",
+      "title": "ServiceNow ticket process alignment for Ariba support team",
+      "created_at": "2026-03-05T13:05:21.323Z",
+      "updated_at": "2026-03-05T13:59:54.775Z"
+    },
+    {
+      "note_id": "not_Z7yASDvcRDcCU6",
+      "filename": "20260305_Weekly_Juul_AI_consultant_usage_and_feedback_tracking.md",
+      "title": "Weekly Juul AI consultant usage and feedback tracking",
+      "created_at": "2026-03-05T12:00:49.958Z",
+      "updated_at": "2026-03-05T12:40:19.511Z"
+    },
+    {
+      "note_id": "not_mHcRE3ui3fltNY",
+      "filename": "20260305_Goal_setting_and_service_development_planning_for_cloud_ERP_service.md",
+      "title": "Goal setting and service development planning for cloud ERP service",
+      "created_at": "2026-03-05T10:06:37.469Z",
+      "updated_at": "2026-03-05T12:00:49.953Z"
+    },
+    {
+      "note_id": "not_NXU2mxlwzePqEI",
+      "filename": "20260305_Ariba_Service_Management_Routing_and_Contract_Check_Process_Optimization.md",
+      "title": "Ariba Service Management Routing and Contract Check Process Optimization",
+      "created_at": "2026-03-05T09:34:35.207Z",
+      "updated_at": "2026-03-05T10:06:37.467Z"
+    },
+    {
+      "note_id": "not_LFjK1j99hpc0vx",
+      "filename": "20260305_Cost_analytics_center_dashboards_walkthrough_for_service_owners.md",
+      "title": "Cost analytics center dashboards walkthrough for service owners",
+      "created_at": "2026-03-05T07:59:58.632Z",
+      "updated_at": "2026-03-05T10:06:16.937Z"
+    },
+    {
+      "note_id": "not_WWUtaXyAweCZxT",
+      "filename": "20260304_External_AI_and_automation_grouping_for_portfolio_presentation.md",
+      "title": "External AI and automation grouping for portfolio presentation",
+      "created_at": "2026-03-04T15:32:45.868Z",
+      "updated_at": "2026-03-05T07:59:58.625Z"
+    },
+    {
+      "note_id": "not_PfiH3L9TFSg4l2",
+      "filename": "20260304_Cloud_ERP_package_collaboration_and_operational_challenges_review.md",
+      "title": "Cloud ERP package collaboration and operational challenges review",
+      "created_at": "2026-03-04T12:30:12.976Z",
+      "updated_at": "2026-03-04T15:32:46.864Z"
+    },
+    {
+      "note_id": "not_9vmaT8a8LfI8qz",
+      "filename": "20260304_AI_Roadmap_and_Automation_Strategy_Review_with_Team_Leads.md",
+      "title": "AI Roadmap and Automation Strategy Review with Team Leads",
+      "created_at": "2026-03-04T09:02:19.625Z",
+      "updated_at": "2026-03-04T12:30:13.973Z"
+    },
+    {
+      "note_id": "not_6FVEufxCLku0Ls",
+      "filename": "20260304_Recurring_service_tickets_workflow_optimization_for_ServiceNow_and_SPC.md",
+      "title": "Recurring service tickets workflow optimization for ServiceNow and SPC",
+      "created_at": "2026-03-04T08:01:01.947Z",
+      "updated_at": "2026-03-04T08:44:25.709Z"
+    },
+    {
+      "note_id": "not_WrsJIcKZeAbfO7",
+      "filename": "20260303_Business_AI_strategy_and_portfolio_refreshment_challenges_with_team_alignment.md",
+      "title": "Business AI strategy and portfolio refreshment challenges with team alignment",
+      "created_at": "2026-03-03T15:06:28.659Z",
+      "updated_at": "2026-03-03T16:03:12.819Z"
+    },
+    {
+      "note_id": "not_zgWauqTGQC4ueP",
+      "filename": "20260303_CAS4Cloud_Agents_and_Dashboard_Marketing_Strategy.md",
+      "title": "CAS4Cloud Agents and Dashboard Marketing Strategy",
+      "created_at": "2026-03-03T14:30:13.854Z",
+      "updated_at": "2026-03-03T15:06:49.168Z"
+    },
+    {
+      "note_id": "not_IwzCL68ZfNWSuO",
+      "filename": "20260303_CS_and_D_AI_Agents_Program_Integration_and_Prioritization_with_Services_Team.md",
+      "title": "CS and D AI Agents Program Integration and Prioritization with Services Team",
+      "created_at": "2026-03-03T14:05:41.666Z",
+      "updated_at": "2026-03-03T14:20:58.627Z"
+    },
+    {
+      "note_id": "not_JfIH4ddU1gN3TD",
+      "filename": "20260303_Foundation_package_strategy_and_ECS_collaboration_challenges_with_Bayer.md",
+      "title": "Foundation package strategy and ECS collaboration challenges with Bayer",
+      "created_at": "2026-03-03T12:18:46.393Z",
+      "updated_at": "2026-03-03T14:03:12.834Z"
+    },
+    {
+      "note_id": "not_L768xZV7H9Jwhn",
+      "filename": "20260303_Performance_goals_and_team_objectives_planning_with_team_member.md",
+      "title": "Performance goals and team objectives planning with team member",
+      "created_at": "2026-03-03T09:01:21.655Z",
+      "updated_at": "2026-03-03T14:04:20.175Z"
+    },
+    {
+      "note_id": "not_BUBHcmwQYjchyq",
+      "filename": "20260302_QBR_for_service_and_support_portfolio_roadmap_update.md",
+      "title": "QBR for service and support portfolio roadmap update",
+      "created_at": "2026-03-02T12:29:43.978Z",
+      "updated_at": "2026-03-03T07:36:43.025Z"
+    },
+    {
+      "note_id": "not_s1Dj45wrkEDABX",
+      "filename": "20260302_Oliver_s_travel_debrief_Manila_trip_insights_and_team_updates.md",
+      "title": "Oliver's travel debrief: Manila trip insights and team updates",
+      "created_at": "2026-03-02T12:14:42.403Z",
+      "updated_at": "2026-03-03T07:36:59.270Z"
+    },
+    {
+      "note_id": "not_o0sD0gXgoJ5HwX",
+      "filename": "20260302_Reporting_phase_two_and_goal-setting_review_with_team_member.md",
+      "title": "Reporting phase two and goal-setting review with team member",
+      "created_at": "2026-03-02T09:34:47.267Z",
+      "updated_at": "2026-03-03T07:36:50.248Z"
+    },
+    {
+      "note_id": "not_SNypHJkRj9WUeD",
+      "filename": "20260302_Service_reporting_dashboard_walkthrough_and_user_guide_preparation.md",
+      "title": "Service reporting dashboard walkthrough and user guide preparation",
+      "created_at": "2026-03-02T09:00:01.383Z",
+      "updated_at": "2026-03-02T12:44:22.963Z"
+    },
+    {
+      "note_id": "not_ZnkR5IKy6kBvCt",
+      "filename": "20260302_Phase_two_project_planning_and_Jira_board_setup.md",
+      "title": "Phase two project planning and Jira board setup",
+      "created_at": "2026-03-02T08:30:16.238Z",
+      "updated_at": "2026-03-02T08:42:35.443Z"
+    },
+    {
+      "note_id": "not_BFEpDd23ipZcLl",
+      "filename": "20260302_Best_practices_playbook_for_cloud_ERP_customer_engagement_with_Vinay.md",
+      "title": "Best practices playbook for cloud ERP customer engagement with Vinay",
+      "created_at": "2026-03-02T08:04:59.470Z",
+      "updated_at": "2026-03-02T08:30:23.596Z"
+    },
+    {
+      "note_id": "not_xDXhaPCFv67fvj",
+      "filename": "20260302_Agentic_AI_and_Automation_Strategies_for_ESP_and_SPC.md",
+      "title": "Agentic AI and Automation Strategies for ESP and SPC",
+      "created_at": "2026-03-02T06:00:34.885Z",
+      "updated_at": "2026-03-02T06:49:39.307Z"
+    },
+    {
+      "note_id": "not_Hkc5mQtvT92rBy",
+      "filename": "20260227_Sentiment_Analysis_and_AI_Project_Status_Update_with_Martin.md",
+      "title": "Sentiment Analysis and AI Project Status Update with Martin",
+      "created_at": "2026-02-27T14:01:14.318Z",
+      "updated_at": "2026-03-02T05:49:39.298Z"
+    },
+    {
+      "note_id": "not_rkiTQDep0OjZHW",
+      "filename": "20260227_Automation_team_progress_and_goal_setting_review_with_Oliver.md",
+      "title": "Automation team progress and goal setting review with Oliver",
+      "created_at": "2026-02-27T13:02:36.005Z",
+      "updated_at": "2026-02-27T13:33:29.195Z"
+    },
+    {
+      "note_id": "not_aG8n4mfJZhdy3I",
+      "filename": "20260227_Biweekly_customer_service_request_committee_meeting_-_January_updates.md",
+      "title": "Biweekly customer service request committee meeting - January updates",
+      "created_at": "2026-02-27T12:00:30.924Z",
+      "updated_at": "2026-02-27T13:34:10.426Z"
+    },
+    {
+      "note_id": "not_timgQp3UjLTDjt",
+      "filename": "20260227_Mercedes-Benz_collaboration_model_with_ECS_and_CAS_alignment.md",
+      "title": "Mercedes-Benz collaboration model with ECS and CAS alignment",
+      "created_at": "2026-02-27T10:31:50.726Z",
+      "updated_at": "2026-02-27T10:55:20.091Z"
+    },
+    {
+      "note_id": "not_Z2fW6Pqj8PdhOF",
+      "filename": "20260227_Recurring_service_ticket_implementation_strategy_with_Dirk.md",
+      "title": "Recurring service ticket implementation strategy with Dirk",
+      "created_at": "2026-02-27T09:30:23.518Z",
+      "updated_at": "2026-02-27T13:00:04.854Z"
+    },
+    {
+      "note_id": "not_xwB72UdfVCvnUs",
+      "filename": "20260227_Performance_goals_and_project_support_planning_with_team_member.md",
+      "title": "Performance goals and project support planning with team member",
+      "created_at": "2026-02-27T09:08:06.936Z",
+      "updated_at": "2026-02-27T09:29:58.055Z"
+    },
+    {
+      "note_id": "not_6fNUQMl3jBwexT",
+      "filename": "20260227_Cloud_contract_migration_strategy_and_ESP_system_phase-out_planning.md",
+      "title": "Cloud contract migration strategy and ESP system phase-out planning",
+      "created_at": "2026-02-27T08:06:01.749Z",
+      "updated_at": "2026-02-27T09:05:06.059Z"
+    },
+    {
+      "note_id": "not_EbnA9DncrAsHaP",
+      "filename": "20260226_Job_search_and_career_planning_update_with_student_contract_review.md",
+      "title": "Job search and career planning update with student contract review",
+      "created_at": "2026-02-26T13:30:48.320Z",
+      "updated_at": "2026-02-26T13:38:52.424Z"
+    },
+    {
+      "note_id": "not_zwE6Rl9YRDxcGt",
+      "filename": "20260226_KPI_Goals_and_Performance_Metrics_Alignment_for_Oliver_Posselt.md",
+      "title": "KPI Goals and Performance Metrics Alignment for Oliver Posselt",
+      "created_at": "2026-02-26T13:00:12.710Z",
+      "updated_at": "2026-02-26T13:30:56.516Z"
+    },
+    {
+      "note_id": "not_GpIOoKZ0SloLdN",
+      "filename": "20260226_Drew_AI_pilot_kickoff_for_consultants_efficiency_tracking.md",
+      "title": "Drew AI pilot kickoff for consultants efficiency tracking",
+      "created_at": "2026-02-26T12:00:33.861Z",
+      "updated_at": "2026-02-26T13:39:59.003Z"
+    },
+    {
+      "note_id": "not_RVWeANTZQKIW4C",
+      "filename": "20260226_Development_strategy_for_BTP_project_with_team_resources.md",
+      "title": "Development strategy for BTP project with team resources",
+      "created_at": "2026-02-26T10:30:49.671Z",
+      "updated_at": "2026-02-26T10:37:21.898Z"
+    },
+    {
+      "note_id": "not_9pRdgSyogeiyeD",
+      "filename": "20260226_Malta_team_headcount_transfer_with_Marta.md",
+      "title": "Malta team headcount transfer with Marta",
+      "created_at": "2026-02-26T10:00:36.327Z",
+      "updated_at": "2026-02-26T11:56:09.599Z"
+    },
+    {
+      "note_id": "not_ZTsAQp17eRH1kT",
+      "filename": "20260226_Quarterly_price_check_for_application_management_cost_portfolio.md",
+      "title": "Quarterly price check for application management cost portfolio",
+      "created_at": "2026-02-26T07:44:52.147Z",
+      "updated_at": "2026-02-26T09:27:38.316Z"
+    },
+    {
+      "note_id": "not_JLF7pdah5HwjcG",
+      "filename": "20260225_Staffing_strategy_for_Success_Factors_and_Ariba_regional_support_team.md",
+      "title": "Staffing strategy for Success Factors and Ariba regional support team",
+      "created_at": "2026-02-25T14:00:25.050Z",
+      "updated_at": "2026-02-25T16:13:09.089Z"
+    },
+    {
+      "note_id": "not_Z39tQb8gk6JJCx",
+      "filename": "20260225_Application_monitoring_project_kickoff_with_Sudeep_and_team.md",
+      "title": "Application monitoring project kickoff with Sudeep and team",
+      "created_at": "2026-02-25T13:06:04.203Z",
+      "updated_at": "2026-02-25T13:16:59.773Z"
+    },
+    {
+      "note_id": "not_HDBZOpIbkothiK",
+      "filename": "20260225_Cloud_ALM_and_AI_Integration_Strategy_with_Tenant_Management_Considerations.md",
+      "title": "Cloud ALM and AI Integration Strategy with Tenant Management Considerations",
+      "created_at": "2026-02-25T08:59:57.971Z",
+      "updated_at": "2026-02-25T11:52:36.077Z"
+    },
+    {
+      "note_id": "not_Mc4TB0xzfT5WRB",
+      "filename": "20260225_SAP_goal_setting_and_performance_management_guidance_for_2026.md",
+      "title": "SAP goal setting and performance management guidance for 2026",
+      "created_at": "2026-02-25T07:59:53.700Z",
+      "updated_at": "2026-02-25T13:52:35.929Z"
+    },
+    {
+      "note_id": "not_uHAJWDesLQNO5j",
+      "filename": "20260224_Partner_managed_cloud_policy_clarification_with_Ali.md",
+      "title": "Partner managed cloud policy clarification with Ali",
+      "created_at": "2026-02-24T15:03:31.921Z",
+      "updated_at": "2026-02-25T07:10:32.476Z"
+    },
+    {
+      "note_id": "not_huxYzwPmSn0LnG",
+      "filename": "20260224_ServiceNow_integration_for_Cas4Ariba_ticket_routing_process.md",
+      "title": "ServiceNow integration for Cas4Ariba ticket routing process",
+      "created_at": "2026-02-24T14:05:21.951Z",
+      "updated_at": "2026-02-25T07:52:35.727Z"
+    },
+    {
+      "note_id": "not_UnMkbqoo3V4YlZ",
+      "filename": "20260224_Data_growth_management_and_portfolio_strategy_with_AI_roadmap_exploration.md",
+      "title": "Data growth management and portfolio strategy with AI roadmap exploration",
+      "created_at": "2026-02-24T13:31:48.848Z",
+      "updated_at": "2026-02-24T14:25:50.559Z"
+    },
+    {
+      "note_id": "not_V4AcvCYiBELd3K",
+      "filename": "20260224_QBR_Preparation_for_Portfolio_Performance_and_Roadmap_Updates.md",
+      "title": "QBR Preparation for Portfolio Performance and Roadmap Updates",
+      "created_at": "2026-02-24T12:00:25.928Z",
+      "updated_at": "2026-02-24T13:19:16.998Z"
+    },
+    {
+      "note_id": "not_YeLJP0REmUCoqX",
+      "filename": "20260224_Phoenix_project_goal_setting_for_2024.md",
+      "title": "Phoenix project goal setting for 2024",
+      "created_at": "2026-02-24T10:03:17.477Z",
+      "updated_at": "2026-02-24T11:19:17.233Z"
+    },
+    {
+      "note_id": "not_6xsWt34098MLlC",
+      "filename": "20260224_Ariba_delivery_team_and_AI_automation_strategy_alignment.md",
+      "title": "Ariba delivery team and AI automation strategy alignment",
+      "created_at": "2026-02-24T09:32:45.062Z",
+      "updated_at": "2026-02-24T10:02:36.003Z"
+    },
+    {
+      "note_id": "not_wu18jNlpLpnXNi",
+      "filename": "20260224_Cloud_ERP_and_Security_Services_Goal_Planning_with_Oliver.md",
+      "title": "Cloud ERP and Security Services Goal Planning with Oliver",
+      "created_at": "2026-02-24T09:02:41.000Z",
+      "updated_at": "2026-02-24T09:31:18.233Z"
+    },
+    {
+      "note_id": "not_4HPxu8tzyK70ED",
+      "filename": "20260224_Application_security_updates_and_AI_integration_progress_review_with_Oliver.md",
+      "title": "Application security updates and AI integration progress review with Oliver",
+      "created_at": "2026-02-24T08:36:06.616Z",
+      "updated_at": "2026-02-24T09:02:22.569Z"
+    },
+    {
+      "note_id": "not_tI885QoFwep5zc",
+      "filename": "20260224_Advanced_success_plan_service_overlap_review_with_Georg.md",
+      "title": "Advanced success plan service overlap review with Georg",
+      "created_at": "2026-02-24T08:02:28.968Z",
+      "updated_at": "2026-02-24T08:34:55.538Z"
+    },
+    {
+      "note_id": "not_RsixTkGj4SX00d",
+      "filename": "20260224_Goals_and_business_AI_strategy_alignment_with_team_member.md",
+      "title": "Goals and business AI strategy alignment with team member",
+      "created_at": "2026-02-24T06:01:12.391Z",
+      "updated_at": "2026-02-24T08:02:46.582Z"
+    },
+    {
+      "note_id": "not_g2naiAIAC0MRh9",
+      "filename": "20260223_Performance_goals_and_bonus_discussion_with_HR_for_pre-retirement_planning.md",
+      "title": "Performance goals and bonus discussion with HR for pre-retirement planning",
+      "created_at": "2026-02-23T15:30:35.333Z",
+      "updated_at": "2026-02-24T05:15:53.088Z"
+    },
+    {
+      "note_id": "not_5L7zI1gISKtz44",
+      "filename": "20260223_Performance_management_and_career_progression_planning_for_Oliver_Posselt.md",
+      "title": "Performance management and career progression planning for Oliver Posselt",
+      "created_at": "2026-02-23T14:30:53.840Z",
+      "updated_at": "2026-02-23T15:30:21.717Z"
+    },
+    {
+      "note_id": "not_NNrS9tavz63g2f",
+      "filename": "20260223_DynaTrace_performance_monitoring_review_with_Mark.md",
+      "title": "DynaTrace performance monitoring review with Mark",
+      "created_at": "2026-02-23T13:34:14.403Z",
+      "updated_at": "2026-02-23T14:30:38.248Z"
+    },
+    {
+      "note_id": "not_lxIYNdGE5wJzYv",
+      "filename": "20260223_Collaboration_strategies_and_AI_automation_exploration_with_team_leads.md",
+      "title": "Collaboration strategies and AI automation exploration with team leads",
+      "created_at": "2026-02-23T13:10:48.723Z",
+      "updated_at": "2026-03-03T10:37:00.603Z"
+    },
+    {
+      "note_id": "not_JEvdGfwX7nVbrH",
+      "filename": "20260223_LT_Team_Call_Quarterly_Review_of_Operational_Challenges_and_Strategic_Initiatives.md",
+      "title": "LT Team Call: Quarterly Review of Operational Challenges and Strategic Initiatives",
+      "created_at": "2026-02-23T12:00:57.417Z",
+      "updated_at": "2026-02-23T14:00:48.834Z"
+    },
+    {
+      "note_id": "not_x16mxbdOt7drs3",
+      "filename": "20260223_Performance_management_review_for_underperforming_Berlin_team_member.md",
+      "title": "Performance management review for underperforming Berlin team member",
+      "created_at": "2026-02-23T10:00:49.265Z",
+      "updated_at": "2026-02-23T10:27:52.574Z"
+    },
+    {
+      "note_id": "not_bbH7iA10No943X",
+      "filename": "20260223_Greeting_exchange_with_Yama.md",
+      "title": "Greeting exchange with Yama",
+      "created_at": "2026-02-23T09:35:19.009Z",
+      "updated_at": "2026-02-23T10:00:13.514Z"
+    },
+    {
+      "note_id": "not_a6mvW6mK58TeAP",
+      "filename": "20260223_Management_reporting_enablement_session_planning_and_rollout_strategy.md",
+      "title": "Management reporting enablement session planning and rollout strategy",
+      "created_at": "2026-02-23T08:29:54.643Z",
+      "updated_at": "2026-02-23T09:36:16.333Z"
+    },
+    {
+      "note_id": "not_cbEVC9o9l8Gwk6",
+      "filename": "20260223_AI_and_Automation_Strategy_Planning_with_Andreas.md",
+      "title": "AI and Automation Strategy Planning with Andreas",
+      "created_at": "2026-02-23T07:32:42.852Z",
+      "updated_at": "2026-03-03T13:46:22.887Z"
+    },
+    {
+      "note_id": "not_wuaQdScNQvDvG1",
+      "filename": "20260213_ISD_Hub_platform_design_and_user_story_scoping.md",
+      "title": "ISD Hub platform design and user story scoping",
+      "created_at": "2026-02-13T14:31:45.714Z",
+      "updated_at": "2026-02-23T08:23:59.547Z"
+    },
+    {
+      "note_id": "not_3qew6UIBqZvnDr",
+      "filename": "20260213_not_3qew6UIBqZvnDr.md",
+      "title": null,
+      "created_at": "2026-02-13T14:00:11.502Z",
+      "updated_at": "2026-02-13T14:31:02.242Z"
+    },
+    {
+      "note_id": "not_qf5U321ZPQFsPU",
+      "filename": "20260213_ePA_Tenant_Provisioning_and_Automation_Strategy_Review.md",
+      "title": "ePA Tenant Provisioning and Automation Strategy Review",
+      "created_at": "2026-02-13T13:04:46.405Z",
+      "updated_at": "2026-02-23T10:28:28.975Z"
+    },
+    {
+      "note_id": "not_s3LLDNvPs3TTjM",
+      "filename": "20260213_ServiceNow_strategy_document_review_with_team_member.md",
+      "title": "ServiceNow strategy document review with team member",
+      "created_at": "2026-02-13T12:30:21.572Z",
+      "updated_at": "2026-02-13T12:37:15.427Z"
+    },
+    {
+      "note_id": "not_TJgT6dKrFfyLb8",
+      "filename": "20260213_BTP_Developer_Resourcing_and_Entitlement_Solution_Planning.md",
+      "title": "BTP Developer Resourcing and Entitlement Solution Planning",
+      "created_at": "2026-02-13T10:02:09.497Z",
+      "updated_at": "2026-02-13T12:02:43.098Z"
+    },
+    {
+      "note_id": "not_9WEOKylKk2o7Vs",
+      "filename": "20260213_Career_path_and_project_performance_review_with_Oliver.md",
+      "title": "Career path and project performance review with Oliver",
+      "created_at": "2026-02-13T09:02:24.592Z",
+      "updated_at": "2026-02-23T10:28:38.444Z"
+    },
+    {
+      "note_id": "not_HexNF26yiqNFNr",
+      "filename": "20260213_Customer_objects_roadmap_planning_with_team_member.md",
+      "title": "Customer objects roadmap planning with team member",
+      "created_at": "2026-02-13T08:30:31.066Z",
+      "updated_at": "2026-02-13T08:34:59.556Z"
+    },
+    {
+      "note_id": "not_ZlrdJl2RHgOm2j",
+      "filename": "20260213_AI_agents_roadmap_for_service_request_management_with_ECS_team.md",
+      "title": "AI agents roadmap for service request management with ECS team",
+      "created_at": "2026-02-13T08:03:53.052Z",
+      "updated_at": "2026-02-23T10:29:01.990Z"
+    },
+    {
+      "note_id": "not_a7xh1wUyTrB7G9",
+      "filename": "20260209_ISD_Hub_onboarding_and_project_initiation_with_new_team_member.md",
+      "title": "ISD Hub onboarding and project initiation with new team member",
+      "created_at": "2026-02-09T08:25:41.934Z",
+      "updated_at": "2026-02-10T10:22:50.132Z"
+    },
+    {
+      "note_id": "not_RaPTRznQiKA4bx",
+      "filename": "20260206_HCSM_onboarding_for_Cars_project_timeline_and_stakeholder_alignment.md",
+      "title": "HCSM onboarding for Cars project: timeline and stakeholder alignment",
+      "created_at": "2026-02-06T16:29:52.488Z",
+      "updated_at": "2026-02-06T19:15:12.397Z"
+    },
+    {
+      "note_id": "not_PYYmmJ5a3Z0eIF",
+      "filename": "20260206_Automation_and_AI_strategy_for_customer_support_and_monitoring.md",
+      "title": "Automation and AI strategy for customer support and monitoring",
+      "created_at": "2026-02-06T15:00:52.456Z",
+      "updated_at": "2026-02-06T15:41:27.697Z"
+    },
+    {
+      "note_id": "not_Zl7HRv4SbRNe6s",
+      "filename": "20260206_Application_service_manager_AI_tool_development_and_workflow_optimization.md",
+      "title": "Application service manager AI tool development and workflow optimization",
+      "created_at": "2026-02-06T14:32:51.252Z",
+      "updated_at": "2026-03-03T14:02:50.137Z"
+    },
+    {
+      "note_id": "not_wKSGEQ7jEGOFbA",
+      "filename": "20260206_Performance_management_and_compensation_review_with_team_member.md",
+      "title": "Performance management and compensation review with team member",
+      "created_at": "2026-02-06T14:05:06.244Z",
+      "updated_at": "2026-02-06T16:08:45.814Z"
+    },
+    {
+      "note_id": "not_3CjhWejrXyUFbL",
+      "filename": "20260206_Performance_management_and_compensation_review_for_Oliver_s_team.md",
+      "title": "Performance management and compensation review for Oliver's team",
+      "created_at": "2026-02-06T13:30:15.195Z",
+      "updated_at": "2026-02-06T16:09:15.349Z"
+    },
+    {
+      "note_id": "not_RwN51rZj9P3WbE",
+      "filename": "20260206_Cloud_ERP_and_Premium_Supplier_Enablement_with_Satya_and_Hemant.md",
+      "title": "Cloud ERP and Premium Supplier Enablement with Satya and Hemant",
+      "created_at": "2026-02-06T12:33:37.751Z",
+      "updated_at": "2026-02-06T16:09:46.854Z"
+    },
+    {
+      "note_id": "not_wN4ZLQkNOkxN7g",
+      "filename": "20260206_PMC_partner_cloud_contract_review_with_Americas_team.md",
+      "title": "PMC partner cloud contract review with Americas team",
+      "created_at": "2026-02-06T12:07:25.550Z",
+      "updated_at": "2026-02-06T16:15:12.608Z"
+    },
+    {
+      "note_id": "not_SAXSCegGxVjPqq",
+      "filename": "20260206_HR_onboarding_for_Antonia_with_compensation_strategy_overview.md",
+      "title": "HR onboarding for Antonia with compensation strategy overview",
+      "created_at": "2026-02-06T11:00:07.954Z",
+      "updated_at": "2026-02-06T11:22:58.835Z"
+    },
+    {
+      "note_id": "not_8m85NF0jzNzfjC",
+      "filename": "20260206_Service_owner_role_definition_and_capability_mapping_review.md",
+      "title": "Service owner role definition and capability mapping review",
+      "created_at": "2026-02-06T09:31:04.093Z",
+      "updated_at": "2026-02-06T10:49:08.291Z"
+    },
+    {
+      "note_id": "not_IvrfVJSl3sQPLn",
+      "filename": "20260206_Portfolio_governance_and_service_roadmap_planning_for_BTP_and_AI_services.md",
+      "title": "Portfolio governance and service roadmap planning for BTP and AI services",
+      "created_at": "2026-02-06T07:39:56.865Z",
+      "updated_at": "2026-02-06T10:49:32.122Z"
+    },
+    {
+      "note_id": "not_W0BHgpmGVuBbRm",
+      "filename": "20260205_Career_planning_and_job_search_support_for_student_transitioning_from_thesis_project.md",
+      "title": "Career planning and job search support for student transitioning from thesis project",
+      "created_at": "2026-02-05T14:33:57.290Z",
+      "updated_at": "2026-02-05T15:15:11.853Z"
+    },
+    {
+      "note_id": "not_mytSIbhW403PWM",
+      "filename": "20260205_Weekly_production_and_service_updates_with_Oliver.md",
+      "title": "Weekly production and service updates with Oliver",
+      "created_at": "2026-02-05T14:09:39.488Z",
+      "updated_at": "2026-02-06T07:15:12.177Z"
+    },
+    {
+      "note_id": "not_7MtFhi9FGkmEJI",
+      "filename": "20260205_Performance_review_and_challenges_in_resource_allocation_for_IT_projects.md",
+      "title": "Performance review and challenges in resource allocation for IT projects",
+      "created_at": "2026-02-05T12:59:55.928Z",
+      "updated_at": "2026-02-06T12:33:30.133Z"
+    },
+    {
+      "note_id": "not_4LpGAF4d8ksW2d",
+      "filename": "20260205_SLA_Monitor_and_P1_Ticket_Processing_Update_with_Service_Desk_Team.md",
+      "title": "SLA Monitor and P1 Ticket Processing Update with Service Desk Team",
+      "created_at": "2026-02-05T09:02:57.049Z",
+      "updated_at": "2026-02-05T13:36:23.734Z"
+    },
+    {
+      "note_id": "not_J6zcOYsy9XPBoI",
+      "filename": "20260205_Cost_analytics_center_phase_two_project_plan_approval_and_timeline_review.md",
+      "title": "Cost analytics center phase two project plan approval and timeline review",
+      "created_at": "2026-02-05T08:32:43.725Z",
+      "updated_at": "2026-02-05T10:09:25.092Z"
+    },
+    {
+      "note_id": "not_SjkJGJZYUx7PLL",
+      "filename": "20260205_Volume-based_contracts_and_reporting_strategy_for_CAS_services.md",
+      "title": "Volume-based contracts and reporting strategy for CAS services",
+      "created_at": "2026-02-05T07:59:50.389Z",
+      "updated_at": "2026-02-05T13:34:43.559Z"
+    },
+    {
+      "note_id": "not_7At3KUm5DEEpqF",
+      "filename": "20260205_AI_Anomaly_Model_Training_and_Data_Lake_Strategy_Update.md",
+      "title": "AI Anomaly Model Training and Data Lake Strategy Update",
+      "created_at": "2026-02-05T07:00:04.288Z",
+      "updated_at": "2026-02-05T08:03:06.159Z"
+    },
+    {
+      "note_id": "not_O2F2Qblw8paRQx",
+      "filename": "20260204_Standard_change_approval_process_for_CAS_business_clients.md",
+      "title": "Standard change approval process for CAS business clients",
+      "created_at": "2026-02-04T15:33:59.119Z",
+      "updated_at": "2026-02-04T17:38:47.777Z"
+    },
+    {
+      "note_id": "not_qLDuRF5h9ix8Vj",
+      "filename": "20260204_Cloud_ERP_service_delivery_challenges_and_enablement_strategy.md",
+      "title": "Cloud ERP service delivery challenges and enablement strategy",
+      "created_at": "2026-02-04T13:03:55.431Z",
+      "updated_at": "2026-02-04T14:54:40.709Z"
+    },
+    {
+      "note_id": "not_w6xrq7jAxv0w0z",
+      "filename": "20260204_CAS_Global_Delivery_Hub_Annual_Review_and_2026_Strategic_Priorities.md",
+      "title": "CAS Global Delivery Hub Annual Review and 2026 Strategic Priorities",
+      "created_at": "2026-02-04T12:00:31.684Z",
+      "updated_at": "2026-02-04T14:54:28.927Z"
+    },
+    {
+      "note_id": "not_EcXoWaFUVgFj7T",
+      "filename": "20260204_ESP_and_AI_Reporting_Platform_Migration_Strategy.md",
+      "title": "ESP and AI Reporting Platform Migration Strategy",
+      "created_at": "2026-02-04T07:29:33.199Z",
+      "updated_at": "2026-02-04T11:41:36.407Z"
+    },
+    {
+      "note_id": "not_jvU1U5ufjJrm4X",
+      "filename": "20260203_Time_recording_test_project_with_Sulli_in_ServiceNow.md",
+      "title": "Time recording test project with Sulli in ServiceNow",
+      "created_at": "2026-02-03T15:29:57.541Z",
+      "updated_at": "2026-02-04T07:08:25.590Z"
+    },
+    {
+      "note_id": "not_GtlLhku4hwFrjB",
+      "filename": "20260203_I_apologize_but_it_seems_like_the_meeting_transcript_is_missing_from_the_input._Could_you_please_provide_the_transcript_so_I_can_help_generate_an_appropriate_meeting_title.md",
+      "title": "I apologize, but it seems like the meeting transcript is missing from the input. Could you please provide the transcript so I can help generate an appropriate meeting title?",
+      "created_at": "2026-02-03T14:31:19.994Z",
+      "updated_at": "2026-02-03T15:00:03.678Z"
+    },
+    {
+      "note_id": "not_ZUKP7gEmibdxxM",
+      "filename": "20260203_Automation_platform_team_hiring_for_project_management_and_RPA_role.md",
+      "title": "Automation platform team hiring for project management and RPA role",
+      "created_at": "2026-02-03T13:59:52.368Z",
+      "updated_at": "2026-02-03T15:05:05.532Z"
+    },
+    {
+      "note_id": "not_cpfGzQVTpaREVS",
+      "filename": "20260203_Clean_core_strategy_and_CAS_delivery_expansion_planning_with_team_lead.md",
+      "title": "Clean core strategy and CAS delivery expansion planning with team lead",
+      "created_at": "2026-02-03T13:29:52.135Z",
+      "updated_at": "2026-02-03T14:11:25.397Z"
+    },
+    {
+      "note_id": "not_9vMooykeV49Z2S",
+      "filename": "20260203_CAS_for_MRSYs_portfolio_expansion_and_Q2_service_planning.md",
+      "title": "CAS for MRSYs portfolio expansion and Q2 service planning",
+      "created_at": "2026-02-03T13:01:54.194Z",
+      "updated_at": "2026-02-03T13:29:16.804Z"
+    },
+    {
+      "note_id": "not_Hvuwke43ovlQRo",
+      "filename": "20260203_Weekly_CAS_Global_Team_Sync_Market_Kickoff_Regional_Solution_Centers_and_Performance_Management_Updates.md",
+      "title": "Weekly CAS Global Team Sync: Market Kickoff, Regional Solution Centers, and Performance Management Updates",
+      "created_at": "2026-02-03T12:00:18.029Z",
+      "updated_at": "2026-02-03T13:29:09.963Z"
+    },
+    {
+      "note_id": "not_iLkk4XImKNhnMJ",
+      "filename": "20260203_Portfolio_roadmap_planning_for_Q1_2026_release.md",
+      "title": "Portfolio roadmap planning for Q1 2026 release",
+      "created_at": "2026-02-03T10:05:10.378Z",
+      "updated_at": "2026-02-03T12:05:35.391Z"
+    },
+    {
+      "note_id": "not_vAnhSvG5xA6uQO",
+      "filename": "20260203_Clean_core_methodology_and_delivery_strategy_implementation.md",
+      "title": "Clean core methodology and delivery strategy implementation",
+      "created_at": "2026-02-03T09:30:00.904Z",
+      "updated_at": "2026-02-03T12:05:16.532Z"
+    },
+    {
+      "note_id": "not_cysCLcLXlG1NeY",
+      "filename": "20260203_Performance_testing_and_support_user_group_strategy_with_load_balancing_considerations.md",
+      "title": "Performance testing and support user group strategy with load balancing considerations",
+      "created_at": "2026-02-03T09:06:29.209Z",
+      "updated_at": "2026-03-03T14:44:28.074Z"
+    },
+    {
+      "note_id": "not_CA3oblmsxhPLtZ",
+      "filename": "20260203_Project_phase_one_and_two_status_update_with_sprint_planning_methodology_review.md",
+      "title": "Project phase one and two status update with sprint planning methodology review",
+      "created_at": "2026-02-03T08:29:54.672Z",
+      "updated_at": "2026-02-03T12:04:35.209Z"
+    },
+    {
+      "note_id": "not_GpKk1xsRddDTht",
+      "filename": "20260203_ESP_Project_Phase_Two_Progress_and_Challenges_Review.md",
+      "title": "ESP Project Phase Two Progress and Challenges Review",
+      "created_at": "2026-02-03T08:04:41.559Z",
+      "updated_at": "2026-02-03T12:04:10.032Z"
+    },
+    {
+      "note_id": "not_EfMpDBDVvVmnI7",
+      "filename": "20260202_OCM_coordination_and_project_status_with_Accenture_transition_lead.md",
+      "title": "OCM coordination and project status with Accenture transition lead",
+      "created_at": "2026-02-02T15:35:52.023Z",
+      "updated_at": "2026-02-03T08:10:14.995Z"
+    },
+    {
+      "note_id": "not_b9pOvR1Fq5J3Rz",
+      "filename": "20260202_AO_Customer_Renewal_Strategy_and_Service_Delivery_Challenges.md",
+      "title": "AO Customer Renewal Strategy and Service Delivery Challenges",
+      "created_at": "2026-02-02T15:04:02.454Z",
+      "updated_at": "2026-02-02T15:36:14.698Z"
+    },
+    {
+      "note_id": "not_riaKXvEYP8H18r",
+      "filename": "20260202_Project_phase_one_rollout_and_phase_two_platform_migration_alignment.md",
+      "title": "Project phase one rollout and phase two platform migration alignment",
+      "created_at": "2026-02-02T13:01:26.138Z",
+      "updated_at": "2026-02-02T13:16:15.171Z"
+    },
+    {
+      "note_id": "not_lPHOrjf3YfWLTW",
+      "filename": "20260202_Enablement_Reporting_Alignment.md",
+      "title": "Enablement Reporting Alignment",
+      "created_at": "2026-02-02T12:02:11.112Z",
+      "updated_at": "2026-03-03T13:45:40.574Z"
+    },
+    {
+      "note_id": "not_7Prxpq8IKRVkkI",
+      "filename": "20260202_Team_status_and_portfolio_management_quarterly_update.md",
+      "title": "Team status and portfolio management quarterly update",
+      "created_at": "2026-02-02T07:59:52.115Z",
+      "updated_at": "2026-02-02T12:44:21.341Z"
+    },
+    {
+      "note_id": "not_fatFIkH92GinN6",
+      "filename": "20260127_Vinay_27.01.2026.md",
+      "title": "Vinay 27.01.2026",
+      "created_at": "2026-01-27T14:32:24.809Z",
+      "updated_at": "2026-01-27T17:12:47.796Z"
+    },
+    {
+      "note_id": "not_25FqsiHi5QRZxm",
+      "filename": "20260127_Cast_service_delivery_standardization_with_Raquel_and_IBM_insights.md",
+      "title": "Cast service delivery standardization with Raquel and IBM insights",
+      "created_at": "2026-01-27T13:00:02.033Z",
+      "updated_at": "2026-01-27T13:52:34.040Z"
+    },
+    {
+      "note_id": "not_dCmWutCrGKRLyK",
+      "filename": "20260127_CAS_customer_retention_and_service_delivery_challenges.md",
+      "title": "CAS customer retention and service delivery challenges",
+      "created_at": "2026-01-27T12:01:31.512Z",
+      "updated_at": "2026-01-27T12:37:43.029Z"
+    },
+    {
+      "note_id": "not_AZbmZcmFdGrjaI",
+      "filename": "20260127_BDC_Portfolio_Development_and_Regional_Sales_Enablement_with_Amit.md",
+      "title": "BDC Portfolio Development and Regional Sales Enablement with Amit",
+      "created_at": "2026-01-27T10:29:55.994Z",
+      "updated_at": "2026-01-27T12:44:02.614Z"
+    },
+    {
+      "note_id": "not_RBLtx6fbuslbxO",
+      "filename": "20260126_Premium_supplier_delivery_strategy_for_RISE_customers.md",
+      "title": "Premium supplier delivery strategy for RISE customers",
+      "created_at": "2026-01-26T15:59:52.209Z",
+      "updated_at": "2026-01-26T18:20:58.113Z"
+    },
+    {
+      "note_id": "not_vT38fsba8gpugB",
+      "filename": "20260126_ServiceNow_integration_challenges_for_Cast_ERP_Package.md",
+      "title": "ServiceNow integration challenges for Cast ERP Package",
+      "created_at": "2026-01-26T13:01:20.245Z",
+      "updated_at": "2026-01-26T15:20:57.984Z"
+    },
+    {
+      "note_id": "not_XyMRURVNJiUNgX",
+      "filename": "20260126_ASM_Lifecycle_Extensions_Enablement_Planning_with_Kathrin_Naas.md",
+      "title": "ASM Lifecycle Extensions Enablement Planning with Kathrin Naas",
+      "created_at": "2026-01-26T12:33:28.567Z",
+      "updated_at": "2026-01-26T12:59:23.050Z"
+    },
+    {
+      "note_id": "not_oAt0C2msJWIbUP",
+      "filename": "20260126_Organizational_changes_and_team_structure_review_with_Kathrin.md",
+      "title": "Organizational changes and team structure review with Kathrin",
+      "created_at": "2026-01-26T12:00:26.213Z",
+      "updated_at": "2026-01-26T12:26:00.430Z"
+    },
+    {
+      "note_id": "not_L08tfazjxX1S6c",
+      "filename": "20260126_Premium_supplier_delivery_model_for_cloud_ERP_private_services.md",
+      "title": "Premium supplier delivery model for cloud ERP private services",
+      "created_at": "2026-01-26T11:29:58.721Z",
+      "updated_at": "2026-01-26T11:59:43.454Z"
+    },
+    {
+      "note_id": "not_8yCZ7l79QzoYr3",
+      "filename": "20260126_Wiki_content_ownership_and_PMO_responsibilities_clarification_with_Ali.md",
+      "title": "Wiki content ownership and PMO responsibilities clarification with Ali",
+      "created_at": "2026-01-26T10:00:40.508Z",
+      "updated_at": "2026-01-26T11:07:17.049Z"
+    },
+    {
+      "note_id": "not_hWiqXEtXoMPSev",
+      "filename": "20260123_Atlas_roadmap_for_CAS_pricing_in_PCE_and_PDO_landscapes.md",
+      "title": "Atlas roadmap for CAS pricing in PCE and PDO landscapes",
+      "created_at": "2026-01-23T15:04:00.278Z",
+      "updated_at": "2026-01-23T16:43:56.615Z"
+    },
+    {
+      "note_id": "not_0CJmManqlFRXHI",
+      "filename": "20260123_IBM_Clean_Core_Strategy_and_Operational_Transparency_Roadmap.md",
+      "title": "IBM Clean Core Strategy and Operational Transparency Roadmap",
+      "created_at": "2026-01-23T14:30:55.171Z",
+      "updated_at": "2026-01-23T15:03:55.241Z"
+    },
+    {
+      "note_id": "not_1k2sJbFfddc9so",
+      "filename": "20260123_Application_management_and_pre-approved_package_pricing_strategy_with_Oliver.md",
+      "title": "Application management and pre-approved package pricing strategy with Oliver",
+      "created_at": "2026-01-23T13:59:52.784Z",
+      "updated_at": "2026-01-23T15:03:35.621Z"
+    },
+    {
+      "note_id": "not_RW9tr8mJpW2hQi",
+      "filename": "20260123_Premium_suppliers_portfolio_and_cloud_ERP_private_governance_challenges_with_Aditi.md",
+      "title": "Premium suppliers portfolio and cloud ERP private governance challenges with Aditi",
+      "created_at": "2026-01-23T13:31:50.659Z",
+      "updated_at": "2026-01-23T13:59:47.035Z"
+    },
+    {
+      "note_id": "not_xQFlbXwgaOAita",
+      "filename": "20260123_ADS_Migration_and_Procedure_Challenges_Update_with_Team.md",
+      "title": "ADS Migration and Procedure Challenges Update with Team",
+      "created_at": "2026-01-23T13:00:10.874Z",
+      "updated_at": "2026-01-23T13:54:43.298Z"
+    },
+    {
+      "note_id": "not_DjYmPxSTxJ8wbO",
+      "filename": "20260123_IBM_Portfolio_and_Premium_Supplier_Strategy_Review_with_Georg.md",
+      "title": "IBM Portfolio and Premium Supplier Strategy Review with Georg",
+      "created_at": "2026-01-23T07:33:14.661Z",
+      "updated_at": "2026-01-23T13:54:40.145Z"
+    },
+    {
+      "note_id": "not_dZYpFlFSk2UFnT",
+      "filename": "20260122_Similar_tickets_review_with_Mark_-_production_issue_prioritization.md",
+      "title": "Similar tickets review with Mark - production issue prioritization",
+      "created_at": "2026-01-22T12:30:07.946Z",
+      "updated_at": "2026-01-23T06:43:53.876Z"
+    },
+    {
+      "note_id": "not_0oGkpFibvwZLg4",
+      "filename": "20260122_UiPath_BPA_initiative_and_resource_hiring_for_Bangalore_team.md",
+      "title": "UiPath BPA initiative and resource hiring for Bangalore team",
+      "created_at": "2026-01-22T12:00:48.516Z",
+      "updated_at": "2026-01-22T12:30:30.436Z"
+    },
+    {
+      "note_id": "not_4nYqxP0FF5dXMr",
+      "filename": "20260122_Retirement_timeline_and_transition_planning_with_colleague.md",
+      "title": "Retirement timeline and transition planning with colleague",
+      "created_at": "2026-01-22T10:08:45.788Z",
+      "updated_at": "2026-01-22T12:30:56.335Z"
+    },
+    {
+      "note_id": "not_JK6fIYHp3NzRrj",
+      "filename": "20260122_Premium_suppliers_CAS_enablement_strategy_and_technical_dependencies.md",
+      "title": "Premium suppliers CAS enablement strategy and technical dependencies",
+      "created_at": "2026-01-22T09:44:53.261Z",
+      "updated_at": "2026-01-22T12:30:59.071Z"
+    },
+    {
+      "note_id": "not_PNXoIoCJcPuFwe",
+      "filename": "20260122_Portfolio_governance_and_team_coordination_update.md",
+      "title": "Portfolio governance and team coordination update",
+      "created_at": "2026-01-22T08:29:54.332Z",
+      "updated_at": "2026-01-22T09:14:24.968Z"
+    },
+    {
+      "note_id": "not_F8ravKYgzeSEN5",
+      "filename": "20260122_Portfolio_and_Service_Engineering_Update_with_Martin.md",
+      "title": "Portfolio and Service Engineering Update with Martin",
+      "created_at": "2026-01-22T08:03:32.294Z",
+      "updated_at": "2026-01-22T08:24:01.710Z"
+    },
+    {
+      "note_id": "not_a7nbXfUhscaHu7",
+      "filename": "20260121_ESP_and_ServiceNow_migration_planning_with_Stefan.md",
+      "title": "ESP and ServiceNow migration planning with Stefan",
+      "created_at": "2026-01-21T12:01:15.993Z",
+      "updated_at": "2026-01-21T12:35:01.132Z"
+    },
+    {
+      "note_id": "not_sshWXRfCJGRURd",
+      "filename": "20260121_Work_status_and_team_collaboration_check-in_with_colleague.md",
+      "title": "Work status and team collaboration check-in with colleague",
+      "created_at": "2026-01-21T08:59:53.830Z",
+      "updated_at": "2026-01-21T11:35:01.232Z"
+    },
+    {
+      "note_id": "not_OdhFWHCyJQhQA5",
+      "filename": "20260121_Premium_supplier_strategy_and_best_run_operations_alignment_with_IBM.md",
+      "title": "Premium supplier strategy and best run operations alignment with IBM",
+      "created_at": "2026-01-21T08:34:42.436Z",
+      "updated_at": "2026-03-03T13:44:51.469Z"
+    },
+    {
+      "note_id": "not_2l5xqBwXDOYeAy",
+      "filename": "20260120_Rabbit_farming_and_organizational_changes_at_SAP.md",
+      "title": "Rabbit farming and organizational changes at SAP",
+      "created_at": "2026-01-20T14:00:41.179Z",
+      "updated_at": "2026-01-20T15:47:37.917Z"
+    },
+    {
+      "note_id": "not_vghyWX0Wf9nVMl",
+      "filename": "20260120_TCO_Reduction_Tracking_and_Cost_Optimization_Strategy.md",
+      "title": "TCO Reduction Tracking and Cost Optimization Strategy",
+      "created_at": "2026-01-20T13:07:18.950Z",
+      "updated_at": "2026-01-20T13:47:37.612Z"
+    },
+    {
+      "note_id": "not_DON1fwx8yzr2ZW",
+      "filename": "20260120_Customer_satisfaction_survey_process_review_and_rollout_planning.md",
+      "title": "Customer satisfaction survey process review and rollout planning",
+      "created_at": "2026-01-20T10:30:51.951Z",
+      "updated_at": "2026-01-20T12:47:37.597Z"
+    },
+    {
+      "note_id": "not_BqjcafmktxH4MJ",
+      "filename": "20260120_Project_planning_for_Cloud_ALM_service_integration_with_CAS_platform.md",
+      "title": "Project planning for Cloud ALM service integration with CAS platform",
+      "created_at": "2026-01-20T10:00:43.779Z",
+      "updated_at": "2026-01-20T10:29:20.096Z"
+    },
+    {
+      "note_id": "not_yQRd74HrAHewuy",
+      "filename": "20260120_CAS_for_Ariba_and_Success_Factor_Service_Portfolio_Update_with_Amit.md",
+      "title": "CAS for Ariba and Success Factor Service Portfolio Update with Amit",
+      "created_at": "2026-01-20T09:01:32.306Z",
+      "updated_at": "2026-01-20T09:49:58.966Z"
+    },
+    {
+      "note_id": "not_zgogTH9MRp0Y6b",
+      "filename": "20260119_Q4_foundation_package_deals_review_across_Americas_EMEA_and_APAC_regions.md",
+      "title": "Q4 foundation package deals review across Americas, EMEA, and APAC regions",
+      "created_at": "2026-01-19T12:30:37.843Z",
+      "updated_at": "2026-01-20T08:47:37.574Z"
+    },
+    {
+      "note_id": "not_mMHuG4QqhT4kRs",
+      "filename": "20260119_SuccessFactors_and_Foundation_Package_Implementation_Review.md",
+      "title": "SuccessFactors and Foundation Package Implementation Review",
+      "created_at": "2026-01-19T12:01:46.976Z",
+      "updated_at": "2026-01-19T12:25:12.384Z"
+    },
+    {
+      "note_id": "not_MYD7DphOBNkf6I",
+      "filename": "20260119_SAP_RPA_recruitment_interview_with_Aditi_for_platform_team_automation_role.md",
+      "title": "SAP RPA recruitment interview with Aditi for platform team automation role",
+      "created_at": "2026-01-19T10:02:54.962Z",
+      "updated_at": "2026-01-19T11:41:45.958Z"
+    },
+    {
+      "note_id": "not_eLxq4fu92er8vx",
+      "filename": "20260119_SAP_Reorganization_and_Career_Development_Check-in_with_Oliver.md",
+      "title": "SAP Reorganization and Career Development Check-in with Oliver",
+      "created_at": "2026-01-19T07:35:41.843Z",
+      "updated_at": "2026-01-19T09:16:10.948Z"
+    },
+    {
+      "note_id": "not_bJRAAAE76Wj9om",
+      "filename": "20260116_Master_s_thesis_research_and_defense_planning_with_Oliver.md",
+      "title": "Master's thesis research and defense planning with Oliver",
+      "created_at": "2026-01-16T12:34:07.165Z",
+      "updated_at": "2026-01-18T08:11:15.974Z"
+    },
+    {
+      "note_id": "not_teOi9fNfddgL9A",
+      "filename": "20260116_SAP_Services_Strategy_and_Portfolio_Consolidation_Review.md",
+      "title": "SAP Services Strategy and Portfolio Consolidation Review",
+      "created_at": "2026-01-16T12:05:39.492Z",
+      "updated_at": "2026-01-16T15:11:15.231Z"
+    },
+    {
+      "note_id": "not_C8VV4vDBozVSP1",
+      "filename": "20260116_ASM_AI_Upskilling_Strategy_for_2026_Brainstorming.md",
+      "title": "ASM AI Upskilling Strategy for 2026 Brainstorming",
+      "created_at": "2026-01-16T10:03:16.410Z",
+      "updated_at": "2026-01-16T11:11:15.026Z"
+    },
+    {
+      "note_id": "not_Z0TQc0WQPGEf4E",
+      "filename": "20260116_Council_16.01.2026.md",
+      "title": "Council 16.01.2026",
+      "created_at": "2026-01-16T07:30:07.038Z",
+      "updated_at": "2026-01-16T09:11:15.179Z"
+    },
+    {
+      "note_id": "not_m3u5HBVqaXQgQe",
+      "filename": "20260115_Sprint_progress_and_service_management_strategy_with_Oliver.md",
+      "title": "Sprint progress and service management strategy with Oliver",
+      "created_at": "2026-01-15T14:00:59.924Z",
+      "updated_at": "2026-01-16T07:11:14.974Z"
+    },
+    {
+      "note_id": "not_q9qcliGlJFVBQ7",
+      "filename": "20260115_PAM_Pilot_and_Application_Management_Strategy_Review_with_Delivery_Team.md",
+      "title": "PAM Pilot and Application Management Strategy Review with Delivery Team",
+      "created_at": "2026-01-15T12:00:23.376Z",
+      "updated_at": "2026-01-15T12:33:47.116Z"
+    },
+    {
+      "note_id": "not_DZnUchUFhvrMjV",
+      "filename": "20260115_ServiceNow_ticket_component_routing_investigation_with_Manuel.md",
+      "title": "ServiceNow ticket component routing investigation with Manuel",
+      "created_at": "2026-01-15T10:01:25.113Z",
+      "updated_at": "2026-01-15T11:11:14.945Z"
+    },
+    {
+      "note_id": "not_gYpYKLm3XDoECJ",
+      "filename": "20260115_ServiceNow_ticket_recategorization_and_process_review_with_Steffen.md",
+      "title": "ServiceNow ticket recategorization and process review with Steffen",
+      "created_at": "2026-01-15T09:07:43.177Z",
+      "updated_at": "2026-01-15T10:11:14.512Z"
+    },
+    {
+      "note_id": "not_ERR3RjQ7LzMO6d",
+      "filename": "20260115_Service_development_alignment_meeting_for_comprehensive_service_offerings_and_North_Star_portfolio_changes.md",
+      "title": "Service development alignment meeting for comprehensive service offerings and North Star portfolio changes",
+      "created_at": "2026-01-15T08:02:19.933Z",
+      "updated_at": "2026-01-15T08:54:28.548Z"
+    },
+    {
+      "note_id": "not_Yv1wQd9lKAVZOZ",
+      "filename": "20260115_Service_portfolio_roadmap_and_release_notes_review_with_Georg.md",
+      "title": "Service portfolio roadmap and release notes review with Georg",
+      "created_at": "2026-01-15T07:30:05.677Z",
+      "updated_at": "2026-01-15T08:01:47.301Z"
+    },
+    {
+      "note_id": "not_ZFjkm66V9tv1bo",
+      "filename": "20260114_KI_Roadmap_and_Organizational_Restructuring_Update_with_Colleague.md",
+      "title": "KI Roadmap and Organizational Restructuring Update with Colleague",
+      "created_at": "2026-01-14T09:00:59.623Z",
+      "updated_at": "2026-01-14T11:26:52.609Z"
+    },
+    {
+      "note_id": "not_7NWaeZJoJJw62g",
+      "filename": "20260114_Weekly_project_status_and_AI_enhancement_review_with_team.md",
+      "title": "Weekly project status and AI enhancement review with team",
+      "created_at": "2026-01-14T07:00:14.653Z",
+      "updated_at": "2026-01-14T09:02:19.776Z"
+    },
+    {
+      "note_id": "not_GIgOF6T8aywSVu",
+      "filename": "20260113_Technical_candidate_interview_for_SAP_Cloud_Application_Services_PDF_reporting_app_project.md",
+      "title": "Technical candidate interview for SAP Cloud Application Services PDF reporting app project",
+      "created_at": "2026-01-13T09:28:30.969Z",
+      "updated_at": "2026-01-14T09:03:10.710Z"
+    },
+    {
+      "note_id": "not_yYoBsHBScn4QJ4",
+      "filename": "20260113_BTP_Developer_Candidate_Interview_with_Jorge_for_New_App_Project.md",
+      "title": "BTP Developer Candidate Interview with Jorge for New App Project",
+      "created_at": "2026-01-13T08:59:58.517Z",
+      "updated_at": "2026-03-03T10:40:37.787Z"
+    },
+    {
+      "note_id": "not_2k1u3ZNdkFmsnJ",
+      "filename": "20260113_Team_update_on_Jewel_project_cloud_development_and_onboarding_new_team_members.md",
+      "title": "Team update on Jewel project, cloud development, and onboarding new team members",
+      "created_at": "2026-01-13T08:29:50.501Z",
+      "updated_at": "2026-01-14T09:03:19.838Z"
+    },
+    {
+      "note_id": "not_Ne2MtrZ6oeT9Fu",
+      "filename": "20260112_ECS_Project_Phase_One_Post-Go_Live_Review_and_Phase_Two_Planning.md",
+      "title": "ECS Project Phase One Post-Go Live Review and Phase Two Planning",
+      "created_at": "2026-01-12T14:59:54.216Z",
+      "updated_at": "2026-01-14T09:03:52.472Z"
+    },
+    {
+      "note_id": "not_rP1eUr74C800ZN",
+      "filename": "20260112_Rene_1_1.md",
+      "title": "Rene 1:1",
+      "created_at": "2026-01-12T14:32:08.442Z",
+      "updated_at": "2026-01-14T09:04:20.714Z"
+    },
+    {
+      "note_id": "not_Ds3OxubAyBZ5ys",
+      "filename": "20260112_BTP_Service_Integration_and_Team_Alignment_Update_with_Bernd_s_Transition.md",
+      "title": "BTP Service Integration and Team Alignment Update with Bernd's Transition",
+      "created_at": "2026-01-12T14:00:00.223Z",
+      "updated_at": "2026-01-14T09:04:46.115Z"
+    },
+    {
+      "note_id": "not_I0fiknDCVQZFCV",
+      "filename": "20260112_HCM_AI_Use_Cases_and_Project_Update_with_Team_Lead.md",
+      "title": "HCM AI Use Cases and Project Update with Team Lead",
+      "created_at": "2026-01-12T13:29:53.937Z",
+      "updated_at": "2026-01-14T09:05:08.100Z"
+    },
+    {
+      "note_id": "not_vzuBf6nHaundUh",
+      "filename": "20260112_EPA_automated_testing_and_code_review_strategy_planning.md",
+      "title": "EPA automated testing and code review strategy planning",
+      "created_at": "2026-01-12T09:36:47.852Z",
+      "updated_at": "2026-01-14T09:05:24.957Z"
+    },
+    {
+      "note_id": "not_IuQK6JFNXRfUSi",
+      "filename": "20260112_Phase_two_project_roles_and_management_presentation_planning.md",
+      "title": "Phase two project roles and management presentation planning",
+      "created_at": "2026-01-12T08:35:34.656Z",
+      "updated_at": "2026-01-14T09:05:36.023Z"
+    },
+    {
+      "note_id": "not_ocdv3EhQM9Wl8Y",
+      "filename": "20260112_Event_management_strategy_for_BDC_monitoring_with_Cloud_ALM_and_AI_integration.md",
+      "title": "Event management strategy for BDC monitoring with Cloud ALM and AI integration",
+      "created_at": "2026-01-12T07:33:02.215Z",
+      "updated_at": "2026-01-14T09:05:50.174Z"
+    },
+    {
+      "note_id": "not_Bj8fG4ZgR8dr4S",
+      "filename": "20260109_ISD_Hub_Integration_Planning_for_Cloud_ERP_Foundation_Package.md",
+      "title": "ISD Hub Integration Planning for Cloud ERP Foundation Package",
+      "created_at": "2026-01-09T14:00:15.336Z",
+      "updated_at": "2026-01-14T09:06:49.454Z"
+    },
+    {
+      "note_id": "not_uLXMfiSRzEVXf4",
+      "filename": "20260108_Performance_optimization_for_Gemini_latency_with_Silver_and_Stefan.md",
+      "title": "Performance optimization for Gemini latency with Silver and Stefan",
+      "created_at": "2026-01-08T14:01:07.586Z",
+      "updated_at": "2026-01-14T09:07:05.358Z"
+    },
+    {
+      "note_id": "not_Pbe3WfMH0XOQlE",
+      "filename": "20260108_Premium_Suppliers_and_CAS.md",
+      "title": "Premium Suppliers and CAS",
+      "created_at": "2026-01-08T13:03:57.288Z",
+      "updated_at": "2026-03-03T13:27:17.717Z"
+    },
+    {
+      "note_id": "not_T2SyQdSHq05iFB",
+      "filename": "20260108_ECS_Incidents_and_Service_Requests_Reporting_Dashboard_Review_with_Jay.md",
+      "title": "ECS Incidents and Service Requests Reporting Dashboard Review with Jay",
+      "created_at": "2026-01-08T12:02:56.669Z",
+      "updated_at": "2026-01-14T09:08:38.345Z"
+    },
+    {
+      "note_id": "not_XxISH2Wqh5o6ha",
+      "filename": "20260108_ServiceNow_and_Cloud_ALM_integration_strategy_with_NetLuschen_partners.md",
+      "title": "ServiceNow and Cloud ALM integration strategy with NetLuschen partners",
+      "created_at": "2026-01-08T10:00:22.316Z",
+      "updated_at": "2026-01-14T09:08:57.805Z"
+    },
+    {
+      "note_id": "not_UjdmcX9PQ1hk1D",
+      "filename": "20260108_AO_Consumption_and_Cloud_ERP_Private_Conversion_Strategy.md",
+      "title": "AO Consumption and Cloud ERP Private Conversion Strategy",
+      "created_at": "2026-01-08T09:00:00.522Z",
+      "updated_at": "2026-01-14T09:09:43.813Z"
+    },
+    {
+      "note_id": "not_0Dn19GL6AXp8CK",
+      "filename": "20260107_Compensation_update_and_AI_roadmap_review_with_manager.md",
+      "title": "Compensation update and AI roadmap review with manager",
+      "created_at": "2026-01-07T15:44:53.119Z",
+      "updated_at": "2026-01-14T09:10:10.019Z"
+    },
+    {
+      "note_id": "not_wD552HGbZA7Axd",
+      "filename": "20260107_CAS_SKUs_retirement_and_communication_planning_for_Q1.md",
+      "title": "CAS SKUs retirement and communication planning for Q1",
+      "created_at": "2026-01-07T13:33:57.100Z",
+      "updated_at": "2026-01-14T09:10:33.982Z"
+    },
+    {
+      "note_id": "not_IPlgt3UZ4uYZyj",
+      "filename": "20260106_Biweekly_CAS_for_Cloud_ERP_Steering_Call_-_06.01.2026.md",
+      "title": "Biweekly CAS for Cloud ERP Steering Call - 06.01.2026",
+      "created_at": "2026-01-06T12:30:50.654Z",
+      "updated_at": "2026-01-14T09:10:53.900Z"
+    },
+    {
+      "note_id": "not_W06GYiUMszhXWW",
+      "filename": "20260106_Application_management_team_status_and_portfolio_planning_with_Georg.md",
+      "title": "Application management team status and portfolio planning with Georg",
+      "created_at": "2026-01-06T12:11:37.422Z",
+      "updated_at": "2026-01-14T09:11:18.010Z"
+    },
+    {
+      "note_id": "not_jqAmnBcZNswnmd",
+      "filename": "20260105_Customer_Specific_Joule.md",
+      "title": "Customer Specific Joule",
+      "created_at": "2026-01-05T15:31:43.980Z",
+      "updated_at": "2026-01-14T09:12:25.314Z"
+    },
+    {
+      "note_id": "not_9ywtuJqoaXydKz",
+      "filename": "20260105_Q4_Bookings_Performance_and_Customer_Tracking_Review_with_Oliver.md",
+      "title": "Q4 Bookings Performance and Customer Tracking Review with Oliver",
+      "created_at": "2026-01-05T12:03:43.511Z",
+      "updated_at": "2026-01-14T09:12:47.708Z"
+    },
+    {
+      "note_id": "not_6S9PwkkmFLGXpz",
+      "filename": "20251219_Portfolio_management_and_service_engineering_team_update.md",
+      "title": "Portfolio management and service engineering team update",
+      "created_at": "2025-12-19T07:30:28.015Z",
+      "updated_at": "2026-01-14T09:13:09.759Z"
+    },
+    {
+      "note_id": "not_YJvzY90vk4sEf6",
+      "filename": "20251218_LLM_chunking_and_memory_optimization_strategy_with_Stefan.md",
+      "title": "LLM chunking and memory optimization strategy with Stefan",
+      "created_at": "2025-12-18T14:00:08.190Z",
+      "updated_at": "2026-01-14T09:13:43.069Z"
+    },
+    {
+      "note_id": "not_NAkWUvv3NMBbCj",
+      "filename": "20251218_Portfolio_process_and_team_responsibilities_after_Georg_s_departure.md",
+      "title": "Portfolio process and team responsibilities after Georg's departure",
+      "created_at": "2025-12-18T12:01:39.447Z",
+      "updated_at": "2025-12-18T14:10:18.468Z"
+    },
+    {
+      "note_id": "not_orb4631A04LCzY",
+      "filename": "20251201_Service_request_process_and_ASR_time_tracking_optimization.md",
+      "title": "Service request process and ASR time tracking optimization",
+      "created_at": "2025-12-01T13:01:19.260Z",
+      "updated_at": "2025-12-01T13:05:47.200Z"
+    },
+    {
+      "note_id": "not_BaUkE4OWvL5Ec5",
+      "filename": "20251201_Automation_strategy_planning_for_Cloud_ERP_and_AI_workflows.md",
+      "title": "Automation strategy planning for Cloud ERP and AI workflows",
+      "created_at": "2025-12-01T08:00:29.389Z",
+      "updated_at": "2025-12-01T08:12:08.316Z"
+    },
+    {
+      "note_id": "not_6pjzTTZsfDBbVS",
+      "filename": "20251128_Weekly_team_status_update_with_Sandeep_on_DPA_TechEd_insights_and_HR_workflow_automation.md",
+      "title": "Weekly team status update with Sandeep on DPA, TechEd insights, and HR workflow automation",
+      "created_at": "2025-11-28T13:00:27.571Z",
+      "updated_at": "2025-11-28T14:02:09.649Z"
+    },
+    {
+      "note_id": "not_KMewZG5EDXCnht",
+      "filename": "20251128_Reporting_and_performance_dashboard_strategy_for_CAS_cloud_services.md",
+      "title": "Reporting and performance dashboard strategy for CAS cloud services",
+      "created_at": "2025-11-28T10:04:16.881Z",
+      "updated_at": "2025-11-28T10:43:21.887Z"
+    },
+    {
+      "note_id": "not_smzEvg7CxY8Ml0",
+      "filename": "20251128_Service_development_for_Business_AI_and_Procurement_Management.md",
+      "title": "Service development for Business AI and Procurement Management",
+      "created_at": "2025-11-28T07:30:11.008Z",
+      "updated_at": "2025-11-28T08:52:31.303Z"
+    },
+    {
+      "note_id": "not_3tSlJ9HFUuIiy3",
+      "filename": "20251127_Customer_support_operational_dashboard_rollout_planning.md",
+      "title": "Customer support operational dashboard rollout planning",
+      "created_at": "2025-11-27T13:33:11.917Z",
+      "updated_at": "2025-11-27T14:00:59.140Z"
+    },
+    {
+      "note_id": "not_az7h7X780sFQxD",
+      "filename": "20251127_Standard_change_approval_process_for_SAP_services.md",
+      "title": "Standard change approval process for SAP services",
+      "created_at": "2025-11-27T12:30:03.609Z",
+      "updated_at": "2025-11-27T12:58:58.250Z"
+    },
+    {
+      "note_id": "not_3bzf5zXNE60atd",
+      "filename": "20251127_AI_use_cases_and_ESX_migration_planning_with_security_documentation_review.md",
+      "title": "AI use cases and ESX migration planning with security documentation review",
+      "created_at": "2025-11-27T10:04:39.892Z",
+      "updated_at": "2026-03-03T13:48:43.861Z"
+    },
+    {
+      "note_id": "not_igI6BOWuCitpm6",
+      "filename": "20251127_not_igI6BOWuCitpm6.md",
+      "title": null,
+      "created_at": "2025-11-27T08:31:12.354Z",
+      "updated_at": "2025-11-27T09:19:03.448Z"
+    },
+    {
+      "note_id": "not_gl94SWngdoHrle",
+      "filename": "20251126_Support_and_Access_Service_KPI_Tracking_and_Customer_Reporting_Process.md",
+      "title": "Support and Access Service KPI Tracking and Customer Reporting Process",
+      "created_at": "2025-11-26T12:33:25.905Z",
+      "updated_at": "2025-11-26T14:48:53.134Z"
+    },
+    {
+      "note_id": "not_br5JPEzArvBR9O",
+      "filename": "20251126_ESP_operations_model_and_AI_feature_roadmap_checkpoint_with_team_member.md",
+      "title": "ESP operations model and AI feature roadmap checkpoint with team member",
+      "created_at": "2025-11-26T12:02:18.407Z",
+      "updated_at": "2025-11-26T14:48:50.482Z"
+    },
+    {
+      "note_id": "not_Pm8hIZAvUK4vrH",
+      "filename": "20251126_Recurring_ticket_maintenance_organization_and_transfer_planning.md",
+      "title": "Recurring ticket maintenance organization and transfer planning",
+      "created_at": "2025-11-26T08:30:22.870Z",
+      "updated_at": "2025-11-26T08:57:08.026Z"
+    },
+    {
+      "note_id": "not_WrXtoC7s5sXOFO",
+      "filename": "20251125_Cloud_ERP_private_foundation_package_quarterly_business_review.md",
+      "title": "Cloud ERP private foundation package quarterly business review",
+      "created_at": "2025-11-25T13:30:02.742Z",
+      "updated_at": "2025-11-25T14:29:44.951Z"
+    },
+    {
+      "note_id": "not_3MV1Ow1Tn5dpKf",
+      "filename": "20251125_Service_reporting_and_global_team_collaboration_challenges.md",
+      "title": "Service reporting and global team collaboration challenges",
+      "created_at": "2025-11-25T10:32:11.655Z",
+      "updated_at": "2025-11-25T10:57:04.550Z"
+    },
+    {
+      "note_id": "not_cN9APqfIzDCX1O",
+      "filename": "20251124_Service_desk_tools_and_SPC_integration_workflow_with_Andrea.md",
+      "title": "Service desk tools and SPC integration workflow with Andrea",
+      "created_at": "2025-11-24T14:00:21.903Z",
+      "updated_at": "2025-11-24T14:11:44.338Z"
+    },
+    {
+      "note_id": "not_cWnfigJA71Wq1V",
+      "filename": "20251124_Rescheduling_meeting_with_Siva_due_to_technical_issues.md",
+      "title": "Rescheduling meeting with Siva due to technical issues",
+      "created_at": "2025-11-24T10:01:06.620Z",
+      "updated_at": "2025-11-24T10:15:47.040Z"
+    },
+    {
+      "note_id": "not_GCroBbRDouMp8W",
+      "filename": "20251124_Initial_SAP_cloud_application_services_automation_role_interview_with_Priya.md",
+      "title": "Initial SAP cloud application services automation role interview with Priya",
+      "created_at": "2025-11-24T09:01:10.944Z",
+      "updated_at": "2026-03-03T10:31:33.689Z"
+    },
+    {
+      "note_id": "not_RNLZ8Ho95XYRhU",
+      "filename": "20251121_Service_request_management_research_interview_preparation_with_team_member.md",
+      "title": "Service request management research interview preparation with team member",
+      "created_at": "2025-11-21T12:30:16.010Z",
+      "updated_at": "2025-11-21T12:42:56.045Z"
+    },
+    {
+      "note_id": "not_ZautwMk9RcXvAj",
+      "filename": "20251121_Workday_status_update_and_personal_anecdotes.md",
+      "title": "Workday status update and personal anecdotes",
+      "created_at": "2025-11-21T07:34:01.850Z",
+      "updated_at": "2025-11-21T08:10:45.673Z"
+    },
+    {
+      "note_id": "not_x5HCJrIF6JzzIX",
+      "filename": "20251120_Service_performance_dashboard_phase_one_planning_with_Alfred.md",
+      "title": "Service performance dashboard phase one planning with Alfred",
+      "created_at": "2025-11-20T10:00:08.722Z",
+      "updated_at": "2025-11-20T10:33:20.264Z"
+    },
+    {
+      "note_id": "not_veGj3iZKTRZXfM",
+      "filename": "20251118_AI_Use_Case_Performance_and_Architecture_Alignment_with_Tim.md",
+      "title": "AI Use Case Performance and Architecture Alignment with Tim",
+      "created_at": "2025-11-18T12:30:42.160Z",
+      "updated_at": "2025-11-18T13:14:31.787Z"
+    },
+    {
+      "note_id": "not_uTTGEfzm5MC7FW",
+      "filename": "20251118_Service_development_community_planning_for_Q1_2026.md",
+      "title": "Service development community planning for Q1 2026",
+      "created_at": "2025-11-18T10:35:03.890Z",
+      "updated_at": "2025-11-18T11:03:08.335Z"
+    },
+    {
+      "note_id": "not_vM8gr3LpCSKerM",
+      "filename": "20251117_BTP_Pilot_Customer_Onboarding_and_Process_Improvement_with_Team.md",
+      "title": "BTP Pilot Customer Onboarding and Process Improvement with Team",
+      "created_at": "2025-11-17T15:01:56.008Z",
+      "updated_at": "2026-01-08T13:03:10.102Z"
+    },
+    {
+      "note_id": "not_7S0MxtA6pAUm1G",
+      "filename": "20251117_Portfolio_team_leadership_and_organizational_changes_with_Winnie.md",
+      "title": "Portfolio team leadership and organizational changes with Winnie",
+      "created_at": "2025-11-17T14:00:26.743Z",
+      "updated_at": "2025-11-17T14:30:08.706Z"
+    },
+    {
+      "note_id": "not_1NUVqnJgoJZdE9",
+      "filename": "20251117_AI_activation_requests_process_alignment_with_Cloud_Application_Services.md",
+      "title": "AI activation requests process alignment with Cloud Application Services",
+      "created_at": "2025-11-17T13:00:04.886Z",
+      "updated_at": "2025-11-17T13:29:13.231Z"
+    },
+    {
+      "note_id": "not_VFVw8DTx59eFxN",
+      "filename": "20251107_1_1_Stefan_Olli.md",
+      "title": "1:1 Stefan <> Olli",
+      "created_at": "2025-11-07T14:04:47.207Z",
+      "updated_at": "2026-03-03T10:37:30.270Z"
+    },
+    {
+      "note_id": "not_0m12Yu3BbzvAGI",
+      "filename": "20251107_Holger_Olli.md",
+      "title": "Holger <> Olli",
+      "created_at": "2025-11-07T13:30:16.097Z",
+      "updated_at": "2025-11-07T13:42:06.549Z"
+    },
+    {
+      "note_id": "not_7v1nNFDhq9Ff9y",
+      "filename": "20251107_Olli_-_Jessi_Absprache_Masterarbeit.md",
+      "title": "Olli <-> Jessi: Absprache Masterarbeit",
+      "created_at": "2025-11-07T12:31:50.226Z",
+      "updated_at": "2025-11-07T13:02:40.418Z"
+    },
+    {
+      "note_id": "not_A3YiO5d3nDMWfN",
+      "filename": "20251107_ITSM_L2_Steering.md",
+      "title": "ITSM L2 Steering ",
+      "created_at": "2025-11-07T08:03:12.481Z",
+      "updated_at": "2026-03-03T10:37:46.100Z"
+    },
+    {
+      "note_id": "not_FhtbmYMGx1c9f7",
+      "filename": "20251106_1_1_Steffen_Olli.md",
+      "title": "1:1 Steffen <> Olli",
+      "created_at": "2025-11-06T14:03:09.861Z",
+      "updated_at": "2025-11-06T14:30:15.939Z"
+    },
+    {
+      "note_id": "not_cM1VklgnxcuDbb",
+      "filename": "20251106_1_1.md",
+      "title": "1:1",
+      "created_at": "2025-11-06T13:02:58.887Z",
+      "updated_at": "2025-11-06T13:35:26.903Z"
+    },
+    {
+      "note_id": "not_XYVk5iab5pPcu7",
+      "filename": "20251106_Service_Performance_Dashboard.md",
+      "title": "Service Performance Dashboard ",
+      "created_at": "2025-11-06T10:31:43.881Z",
+      "updated_at": "2025-11-06T11:05:43.265Z"
+    },
+    {
+      "note_id": "not_XafY4j6uvXrdKI",
+      "filename": "20251106_One_Delivery_Series.md",
+      "title": "One Delivery Series",
+      "created_at": "2025-11-06T08:01:59.423Z",
+      "updated_at": "2025-11-06T08:33:44.758Z"
+    },
+    {
+      "note_id": "not_0vx8EQNgXvOswX",
+      "filename": "20251105_CAS_and_ES.md",
+      "title": "CAS and ES",
+      "created_at": "2025-11-05T15:30:33.539Z",
+      "updated_at": "2026-03-03T13:43:25.767Z"
+    },
+    {
+      "note_id": "not_3u9FREgA4wBkOq",
+      "filename": "20251105_QBR_Dashboard_Page_Redesign_Proposal_Discussion.md",
+      "title": "QBR Dashboard Page Redesign Proposal Discussion",
+      "created_at": "2025-11-05T12:01:32.834Z",
+      "updated_at": "2026-03-03T13:53:54.641Z"
+    },
+    {
+      "note_id": "not_jGlcHXLXVSiSVL",
+      "filename": "20251105_R_R.md",
+      "title": "R&R",
+      "created_at": "2025-11-05T09:00:07.510Z",
+      "updated_at": "2025-11-05T10:23:18.373Z"
+    },
+    {
+      "note_id": "not_vFwbE5ILwldj5u",
+      "filename": "20251105_Interview_SAP_Siva_Padmanaban_regarding_AI_Developer_role.md",
+      "title": "Interview SAP / Siva Padmanaban regarding \"AI Developer\" role",
+      "created_at": "2025-11-05T08:00:05.116Z",
+      "updated_at": "2025-11-05T08:31:13.572Z"
+    },
+    {
+      "note_id": "not_wJR3BiREAnE7xY",
+      "filename": "20251104_FW_CMI_Scoping_Call_-_T-218085.md",
+      "title": "FW: CMI Scoping Call - T-218085",
+      "created_at": "2025-11-04T15:32:29.730Z",
+      "updated_at": "2025-11-04T16:00:54.400Z"
+    },
+    {
+      "note_id": "not_GSqFtNYdteQiqb",
+      "filename": "20251104_ESP_ZCDD_DATA_PUSH_ESX_live_setzen.md",
+      "title": "ESP: ZCDD_DATA_PUSH_ESX live setzen",
+      "created_at": "2025-11-04T15:04:46.178Z",
+      "updated_at": "2025-11-04T15:25:21.816Z"
+    },
+    {
+      "note_id": "not_Nk2c9PUsSwiBmr",
+      "filename": "20251104_CAS_for_LeanIX_-_rolling_alignment.md",
+      "title": "CAS for LeanIX - rolling alignment",
+      "created_at": "2025-11-04T13:06:20.415Z",
+      "updated_at": "2025-11-04T13:26:04.917Z"
+    },
+    {
+      "note_id": "not_VH8fzRmIEjKNhL",
+      "filename": "20251104_Interview_SAP_Veera_Pandian_regarding_AI_Developer_role.md",
+      "title": "Interview SAP / Veera Pandian regarding \"AI Developer\" role",
+      "created_at": "2025-11-04T08:59:53.225Z",
+      "updated_at": "2026-03-03T10:35:18.611Z"
+    },
+    {
+      "note_id": "not_lwh848bcxeZ1Wo",
+      "filename": "20251103_Zugabstimmung_GTM.md",
+      "title": "Zugabstimmung GTM",
+      "created_at": "2025-11-03T15:30:40.487Z",
+      "updated_at": "2025-11-03T16:07:20.680Z"
+    },
+    {
+      "note_id": "not_1vmxyHev3u5uCC",
+      "filename": "20251103_New_SDM_SAP_Deutschland_ESP.md",
+      "title": "New SDM SAP Deutschland_ESP",
+      "created_at": "2025-11-03T13:59:51.732Z",
+      "updated_at": "2025-11-03T14:13:39.037Z"
+    },
+    {
+      "note_id": "not_Yrad9FmWCLovLs",
+      "filename": "20251103_Interview_SAP_Mark_Carey_regarding_AI_Solution_Architect_Project_Manager.md",
+      "title": "Interview SAP / Mark Carey regarding AI Solution Architect & Project Manager",
+      "created_at": "2025-11-03T13:29:56.809Z",
+      "updated_at": "2025-11-03T13:58:39.513Z"
+    },
+    {
+      "note_id": "not_ih9MKfhw2VZ4wS",
+      "filename": "20251103_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-11-03T12:05:49.814Z",
+      "updated_at": "2025-11-03T13:08:42.776Z"
+    },
+    {
+      "note_id": "not_0WgrETrCMujMpS",
+      "filename": "20251028_Bi-weekly_CAS_for_Cloud_ERP_Private_Steering_Call.md",
+      "title": "Bi-weekly CAS for Cloud ERP Private Steering Call",
+      "created_at": "2025-10-28T13:30:33.616Z",
+      "updated_at": "2026-02-09T23:15:09.726Z"
+    },
+    {
+      "note_id": "not_BugpqbMOvHXah9",
+      "filename": "20251028_Olli_Ned_1_1_Catch-up_Blokker.md",
+      "title": "Olli:Ned 1:1 Catch-up Blokker",
+      "created_at": "2025-10-28T12:34:42.654Z",
+      "updated_at": "2025-10-28T13:05:04.163Z"
+    },
+    {
+      "note_id": "not_LD3iPpNElE0A9X",
+      "filename": "20251027_Reporting_Project_-_Documentation.md",
+      "title": "Reporting Project - Documentation",
+      "created_at": "2025-10-27T14:31:05.950Z",
+      "updated_at": "2025-10-27T14:48:24.840Z"
+    },
+    {
+      "note_id": "not_nwSDaaYS5eFgjt",
+      "filename": "20251027_RE_CGI_Further_AI_assistance_needed.md",
+      "title": "RE: CGI: Further AI assistance needed",
+      "created_at": "2025-10-27T14:00:14.086Z",
+      "updated_at": "2025-10-27T14:05:27.096Z"
+    },
+    {
+      "note_id": "not_IlOxmzkXi1KsAA",
+      "filename": "20251027_Reporting_Project-_Weekly_Status_Check.md",
+      "title": "Reporting Project- Weekly Status Check",
+      "created_at": "2025-10-27T08:30:52.100Z",
+      "updated_at": "2026-03-03T10:36:25.680Z"
+    },
+    {
+      "note_id": "not_Dc4JAFITc2EJ39",
+      "filename": "20251027_Abstimmung.md",
+      "title": "Abstimmung",
+      "created_at": "2025-10-27T07:38:22.369Z",
+      "updated_at": "2025-10-27T07:59:34.298Z"
+    },
+    {
+      "note_id": "not_Hg50GPtaUM3Ayb",
+      "filename": "20251024_1_1_Olli_Sudeep.md",
+      "title": "1:1 Olli <> Sudeep",
+      "created_at": "2025-10-24T12:01:25.715Z",
+      "updated_at": "2025-10-24T12:43:59.941Z"
+    },
+    {
+      "note_id": "not_tzqbal7DNp0NKx",
+      "filename": "20251024_Performance_Dashboard_-_User_Access.md",
+      "title": "Performance Dashboard - User Access",
+      "created_at": "2025-10-24T09:00:28.249Z",
+      "updated_at": "2025-10-24T09:17:47.671Z"
+    },
+    {
+      "note_id": "not_JLEEhLaMNVc7Nj",
+      "filename": "20251024_short_alignment_One_Delivery.md",
+      "title": "short alignment One Delivery",
+      "created_at": "2025-10-24T07:59:51.947Z",
+      "updated_at": "2025-10-24T11:15:19.342Z"
+    },
+    {
+      "note_id": "not_mCtlwxyX59WLng",
+      "filename": "20251024_CAS_Service_Engineering_Council_-_weekly.md",
+      "title": "CAS Service Engineering Council - weekly",
+      "created_at": "2025-10-24T06:34:31.321Z",
+      "updated_at": "2025-10-24T07:59:58.772Z"
+    },
+    {
+      "note_id": "not_hmc9wRhAo2ObG4",
+      "filename": "20251023_Abstimmung_Reise.md",
+      "title": "Abstimmung Reise",
+      "created_at": "2025-10-23T12:30:49.251Z",
+      "updated_at": "2025-10-23T13:06:33.869Z"
+    },
+    {
+      "note_id": "not_t6mn4JcSKzbtTI",
+      "filename": "20251023_CAS_PCC_and_CSAT_Customer_Surveys.md",
+      "title": "CAS PCC and CSAT Customer Surveys",
+      "created_at": "2025-10-23T11:02:17.836Z",
+      "updated_at": "2025-10-23T11:22:58.854Z"
+    },
+    {
+      "note_id": "not_xBmHZsf7NHUWyr",
+      "filename": "20251021_LCO_and_Additional_Services_Workflow_Planning_with_Georg.md",
+      "title": "LCO and Additional Services Workflow Planning with Georg",
+      "created_at": "2025-10-21T11:33:28.914Z",
+      "updated_at": "2025-10-21T12:04:59.203Z"
+    },
+    {
+      "note_id": "not_SezAsnqney0JOz",
+      "filename": "20251021_Aufgaben_CCM_-_alignement.md",
+      "title": "Aufgaben CCM - alignement",
+      "created_at": "2025-10-21T08:00:28.648Z",
+      "updated_at": "2026-02-10T07:58:16.478Z"
+    },
+    {
+      "note_id": "not_RLZbt98eYISm5V",
+      "filename": "20251020_1_1.md",
+      "title": "1:1",
+      "created_at": "2025-10-20T14:03:38.222Z",
+      "updated_at": "2026-01-14T09:02:01.291Z"
+    },
+    {
+      "note_id": "not_JvgXvbefu8WKnH",
+      "filename": "20251020_HCSM_AI.md",
+      "title": "HCSM AI",
+      "created_at": "2025-10-20T12:03:12.671Z",
+      "updated_at": "2025-10-20T12:33:55.100Z"
+    },
+    {
+      "note_id": "not_o6Wd4zbxhNgI9q",
+      "filename": "20251020_CAS_Service_Development_-_Alignment_on_process_updates_-_CPR_818_weekly.md",
+      "title": "CAS Service Development - Alignment on process updates - CPR_818 (weekly)",
+      "created_at": "2025-10-20T11:29:54.407Z",
+      "updated_at": "2025-10-20T12:03:02.325Z"
+    },
+    {
+      "note_id": "not_zgmaqN9r2RkqJI",
+      "filename": "20251020_Runthrough_Delivery_Model_incl._CIM_MIM_for_Service_Desk.md",
+      "title": "Runthrough Delivery Model incl. CIM/MIM for Service Desk",
+      "created_at": "2025-10-20T08:03:07.703Z",
+      "updated_at": "2025-10-20T14:42:47.496Z"
+    },
+    {
+      "note_id": "not_XaKBTesnUUOMKd",
+      "filename": "20251010_Olli_Vinay_-_monthly_sync.md",
+      "title": "Olli/Vinay - monthly sync",
+      "created_at": "2025-10-10T13:00:18.626Z",
+      "updated_at": "2026-02-11T06:07:12.835Z"
+    },
+    {
+      "note_id": "not_eNDudaQUIfFPqO",
+      "filename": "20251010_Olli_-_Jessi_Absprache_Masterarbeit.md",
+      "title": "Olli <-> Jessi: Absprache Masterarbeit",
+      "created_at": "2025-10-10T11:35:39.871Z",
+      "updated_at": "2025-10-10T12:57:23.542Z"
+    },
+    {
+      "note_id": "not_iKZEmKGVqNoesh",
+      "filename": "20251010_Q-end_briefing_Q3.md",
+      "title": "Q-end briefing (Q3)",
+      "created_at": "2025-10-10T10:00:01.504Z",
+      "updated_at": "2025-10-10T11:27:02.887Z"
+    },
+    {
+      "note_id": "not_eCSii7y7Ybk8ZK",
+      "filename": "20251010_Foundation_Customer_Kickoff.md",
+      "title": "Foundation Customer Kickoff",
+      "created_at": "2025-10-10T09:01:22.884Z",
+      "updated_at": "2025-10-10T09:41:16.624Z"
+    },
+    {
+      "note_id": "not_ELklZZklkjXzur",
+      "filename": "20251009_CAS_all_managers_call.md",
+      "title": "CAS all managers call",
+      "created_at": "2025-10-09T11:01:11.992Z",
+      "updated_at": "2025-10-09T14:00:59.772Z"
+    },
+    {
+      "note_id": "not_VKoW59DVLR0nsB",
+      "filename": "20251009_ESP_Support_Team_meeting.md",
+      "title": "ESP Support Team meeting",
+      "created_at": "2025-10-09T06:02:16.032Z",
+      "updated_at": "2026-03-03T13:51:51.265Z"
+    },
+    {
+      "note_id": "not_POiRPqvdjM71Ye",
+      "filename": "20251008_CAS_Service_Engineering_Council_bi-weekly.md",
+      "title": "CAS Service Engineering Council bi-weekly",
+      "created_at": "2025-10-08T12:01:39.580Z",
+      "updated_at": "2025-10-08T12:22:11.597Z"
+    },
+    {
+      "note_id": "not_pH8f8VBqUDwxkS",
+      "filename": "20251008_One_Delivery_Series.md",
+      "title": "One Delivery Series",
+      "created_at": "2025-10-08T08:33:28.496Z",
+      "updated_at": "2025-10-08T08:42:16.875Z"
+    },
+    {
+      "note_id": "not_c98s6Dt8wrmQtx",
+      "filename": "20251007_CAS_for_LeanIX_-_rolling_alignment.md",
+      "title": "CAS for LeanIX - rolling alignment",
+      "created_at": "2025-10-07T12:01:08.033Z",
+      "updated_at": "2025-10-07T12:25:29.239Z"
+    },
+    {
+      "note_id": "not_0L9tLwRy39EgWb",
+      "filename": "20251006_Internal_SteerCo_-_AO_Transition.md",
+      "title": "Internal SteerCo - AO Transition",
+      "created_at": "2025-10-06T10:30:39.457Z",
+      "updated_at": "2025-10-06T10:57:42.989Z"
+    },
+    {
+      "note_id": "not_57hNVaAfVlY9pC",
+      "filename": "20251006_Service_Desk_Persona_Ticket_Flow_Foundation.md",
+      "title": "Service Desk Persona / Ticket Flow Foundation",
+      "created_at": "2025-10-06T09:00:35.961Z",
+      "updated_at": "2025-10-06T12:38:54.105Z"
+    },
+    {
+      "note_id": "not_lyrWflK8ZuaIwA",
+      "filename": "20251002_1_1_Steffen.md",
+      "title": "1:1 Steffen",
+      "created_at": "2025-10-02T12:03:55.957Z",
+      "updated_at": "2025-10-02T12:24:24.344Z"
+    },
+    {
+      "note_id": "not_8Q8qPZ9nXe3vww",
+      "filename": "20251002_Giancarlo_Olli.md",
+      "title": "Giancarlo <> Olli",
+      "created_at": "2025-10-02T11:30:06.220Z",
+      "updated_at": "2025-10-02T12:03:06.553Z"
+    },
+    {
+      "note_id": "not_HHy6olPc1J4aGQ",
+      "filename": "20251002_ASC_CAS_Portfolio_Service_Engineering_Coffee_Corner_Talk_Series_2025.md",
+      "title": "ASC CAS Portfolio & Service Engineering Coffee Corner Talk Series 2025",
+      "created_at": "2025-10-02T11:01:36.285Z",
+      "updated_at": "2025-10-02T11:25:30.587Z"
+    },
+    {
+      "note_id": "not_ksUBIztkJNwTO9",
+      "filename": "20251001_CAS_Service_Engineering_Council_bi-weekly.md",
+      "title": "CAS Service Engineering Council bi-weekly",
+      "created_at": "2025-10-01T13:01:10.817Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_eI8W8jQHapvPFu",
+      "filename": "20251001_RISEination_-_Working_synch_session.md",
+      "title": "RISEination - Working/synch session",
+      "created_at": "2025-10-01T09:01:50.355Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_pHtrgF0oiJ9NGN",
+      "filename": "20251001_weekly_Stefan_Olli.md",
+      "title": "weekly Stefan <> Olli",
+      "created_at": "2025-10-01T08:06:50.817Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_QitAwh5sIfF7A0",
+      "filename": "20251001_Wlakthrough_Customer_ITSM_Integration_Whitepaper_-_Updated_Version.md",
+      "title": "Wlakthrough: Customer ITSM Integration Whitepaper - Updated Version",
+      "created_at": "2025-10-01T07:01:36.459Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_J73R4NNbzIBhtl",
+      "filename": "20250930_service_performance_dashboard_UAT_preparation.md",
+      "title": "service performance dashboard UAT preparation",
+      "created_at": "2025-09-30T09:33:53.525Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_NjTAZ8J0YY72rK",
+      "filename": "20250930_Olli_Ned_1_1_Catch-up_Blokker.md",
+      "title": "Olli:Ned 1:1 Catch-up Blokker",
+      "created_at": "2025-09-30T08:59:52.666Z",
+      "updated_at": "2025-10-01T14:47:36.166Z"
+    },
+    {
+      "note_id": "not_ix8vYTY1XfaIcD",
+      "filename": "20250929_Alignment_Platform_Automation.md",
+      "title": "Alignment Platform & Automation",
+      "created_at": "2025-09-29T14:00:50.562Z",
+      "updated_at": "2026-03-03T13:32:58.919Z"
+    },
+    {
+      "note_id": "not_7aLeYLuWKW7T8O",
+      "filename": "20250929_CAS_Service_Development_-_Alignment_on_process_updates_-_CPR_818_weekly.md",
+      "title": "CAS Service Development - Alignment on process updates - CPR_818 (weekly)",
+      "created_at": "2025-09-29T11:30:06.535Z",
+      "updated_at": "2025-10-01T14:47:36.167Z"
+    },
+    {
+      "note_id": "not_X2kqUneE77BWKn",
+      "filename": "20250929_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-09-29T10:59:58.450Z",
+      "updated_at": "2025-10-01T14:47:36.167Z"
+    },
+    {
+      "note_id": "not_xoQ3zkc5lE2vLz",
+      "filename": "20250926_New_Reporting_Dashboard_-_KM_alignment.md",
+      "title": "New Reporting Dashboard - KM alignment",
+      "created_at": "2025-09-26T09:02:20.389Z",
+      "updated_at": "2026-03-03T10:40:02.199Z"
+    },
+    {
+      "note_id": "not_WY4XaHoE4huy1S",
+      "filename": "20250924_SPC_-_SR_Management.md",
+      "title": "SPC - SR Management",
+      "created_at": "2025-09-24T13:00:27.668Z",
+      "updated_at": "2025-10-01T14:47:36.167Z"
+    },
+    {
+      "note_id": "not_vosITFWui06Ucd",
+      "filename": "20250924_One_Delivery_Series.md",
+      "title": "One Delivery Series",
+      "created_at": "2025-09-24T08:30:29.904Z",
+      "updated_at": "2025-09-24T09:00:17.928Z"
+    },
+    {
+      "note_id": "not_m4M3JNTPz3V83p",
+      "filename": "20250924_weekly_Stefan_Olli.md",
+      "title": "weekly Stefan <> Olli",
+      "created_at": "2025-09-24T08:04:38.133Z",
+      "updated_at": "2025-09-24T08:28:04.733Z"
+    },
+    {
+      "note_id": "not_g9cmUsOWVxcBLm",
+      "filename": "20250924_Alignment_Platform_Automation.md",
+      "title": "Alignment Platform & Automation",
+      "created_at": "2025-09-24T07:01:04.280Z",
+      "updated_at": "2025-10-01T14:47:36.167Z"
+    },
+    {
+      "note_id": "not_YN0eKdFs1ooDMz",
+      "filename": "20250923_Oliver_Georg.md",
+      "title": "Oliver:Georg",
+      "created_at": "2025-09-23T08:30:07.239Z",
+      "updated_at": "2025-10-01T14:47:36.168Z"
+    },
+    {
+      "note_id": "not_nONjsdCtryQfpG",
+      "filename": "20250919_Scope_Document_-_CAS_for_Cloud_ERP.md",
+      "title": "Scope Document - CAS for Cloud ERP",
+      "created_at": "2025-09-19T08:32:17.809Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_KtJE8oOh3ljjBz",
+      "filename": "20250919_CAS_Service_Engineering_Council_-_weekly.md",
+      "title": "CAS Service Engineering Council - weekly",
+      "created_at": "2025-09-19T06:35:04.864Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_Y8LGOsaZKZPLoq",
+      "filename": "20250917_Foundation_Service_-_Service_Desk_Persona.md",
+      "title": "Foundation Service - Service Desk Persona",
+      "created_at": "2025-09-17T13:59:52.636Z",
+      "updated_at": "2025-09-17T14:36:18.960Z"
+    },
+    {
+      "note_id": "not_dwTfnzaIjABlXR",
+      "filename": "20250917_FW_CAS_for_Cloud_ERP_-_Ticket_Components.md",
+      "title": "FW: CAS for Cloud ERP - Ticket Components",
+      "created_at": "2025-09-17T12:34:08.585Z",
+      "updated_at": "2025-09-17T12:52:35.045Z"
+    },
+    {
+      "note_id": "not_NfXPHJEfUE41vH",
+      "filename": "20250917_Delivery_Excellence_Dashboard_Enablement_Session.md",
+      "title": "Delivery Excellence Dashboard Enablement Session",
+      "created_at": "2025-09-17T11:03:09.810Z",
+      "updated_at": "2026-03-03T13:26:54.759Z"
+    },
+    {
+      "note_id": "not_pc2Ait92yfjUOs",
+      "filename": "20250917_CAS_ASM_Team_Alignment_in_EMEA.md",
+      "title": "CAS ASM Team Alignment in EMEA",
+      "created_at": "2025-09-17T08:30:25.808Z",
+      "updated_at": "2026-02-09T02:05:41.496Z"
+    },
+    {
+      "note_id": "not_mEgZe8yY96lvQp",
+      "filename": "20250917_Wiki_1st_Level_Restructure.md",
+      "title": "Wiki 1st Level Restructure",
+      "created_at": "2025-09-17T07:30:17.117Z",
+      "updated_at": "2025-09-17T08:05:39.410Z"
+    },
+    {
+      "note_id": "not_xc9XyNvghaMmk1",
+      "filename": "20250916_Placeholder_Portfolio_CAS_Training_overview.md",
+      "title": "Placeholder Portfolio CAS Training  overview",
+      "created_at": "2025-09-16T13:00:08.083Z",
+      "updated_at": "2025-09-16T14:20:54.863Z"
+    },
+    {
+      "note_id": "not_RogPCc5GL06DrU",
+      "filename": "20250916_CAS_for_LeanIX_-_rolling_alignment.md",
+      "title": "CAS for LeanIX - rolling alignment",
+      "created_at": "2025-09-16T12:02:24.193Z",
+      "updated_at": "2025-09-16T12:55:07.618Z"
+    },
+    {
+      "note_id": "not_BFdDP0bHvxKIJS",
+      "filename": "20250916_CAS_Joule_Functions_-_Status.md",
+      "title": "CAS Joule Functions - Status",
+      "created_at": "2025-09-16T11:01:25.267Z",
+      "updated_at": "2025-09-22T18:22:19.291Z"
+    },
+    {
+      "note_id": "not_u51tJ0e4gX5S5P",
+      "filename": "20250916_RMJ_-_rolling_alignment.md",
+      "title": "RMJ - rolling alignment",
+      "created_at": "2025-09-16T09:32:03.392Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_1JFLkhf4ggZuIt",
+      "filename": "20250916_ASC_Awards_Alignment.md",
+      "title": "ASC Awards Alignment",
+      "created_at": "2025-09-16T09:03:45.188Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_lYlPLOB8nssFhp",
+      "filename": "20250916_Oliver_Georg.md",
+      "title": "Oliver:Georg",
+      "created_at": "2025-09-16T08:32:20.518Z",
+      "updated_at": "2025-09-16T08:55:16.734Z"
+    },
+    {
+      "note_id": "not_ppeSBSqjHxCJ4c",
+      "filename": "20250916_Abstimmung_HCSM_AI.md",
+      "title": "Abstimmung HCSM AI",
+      "created_at": "2025-09-16T08:00:21.246Z",
+      "updated_at": "2025-09-16T08:21:53.645Z"
+    },
+    {
+      "note_id": "not_XYCDoWftngiDww",
+      "filename": "20250916_Minutes_Re_ServiceNow_Time_Recording_app.md",
+      "title": "Minutes: Re: ServiceNow Time Recording app",
+      "created_at": "2025-09-16T07:00:42.187Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_w7xQslvWFo181G",
+      "filename": "20250915_CAS_FRUN_-_Metric_Visualization_for_Customer_-_Demo.md",
+      "title": "CAS FRUN - Metric Visualization for Customer - Demo",
+      "created_at": "2025-09-15T14:31:35.981Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_ahDg8Znse8bqQj",
+      "filename": "20250915_Neue_Service-Komponenten_fur_CAS_for_Cloud_ERP.md",
+      "title": "Neue Service-Komponenten für CAS for Cloud ERP",
+      "created_at": "2025-09-15T13:30:02.780Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_YU5ZarvT846feE",
+      "filename": "20250915_Abstimmung_ITSM.md",
+      "title": "Abstimmung ITSM",
+      "created_at": "2025-09-15T12:59:51.834Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_Al40VFKDV8wR1s",
+      "filename": "20250915_CAS_Service_Development_-_Alignment_on_process_updates_-_CPR_818_weekly.md",
+      "title": "CAS Service Development - Alignment on process updates - CPR_818 (weekly)",
+      "created_at": "2025-09-15T11:29:52.968Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_td65wQkcyOmzJW",
+      "filename": "20250915_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-09-15T10:59:50.788Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_FQ03JWoECPFsB7",
+      "filename": "20250908_R_R_Alignment.md",
+      "title": "R&R Alignment",
+      "created_at": "2025-09-08T13:29:52.408Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_tl3Shr2b1rpbWe",
+      "filename": "20250908_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-09-08T12:00:24.591Z",
+      "updated_at": "2026-02-11T08:57:50.664Z"
+    },
+    {
+      "note_id": "not_JPJPbnaLwx6euK",
+      "filename": "20250908_CAS_Dashboard_IBM_Corporation.md",
+      "title": "CAS Dashboard: IBM Corporation",
+      "created_at": "2025-09-08T11:01:01.568Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_kgVHirA3Pahq06",
+      "filename": "20250908_SAP_Talk_Q3_Checkin_2.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-09-08T08:32:59.194Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_IIKpgADnd8ykUi",
+      "filename": "20250908_Business_AI_Operations_Rescue_Strategy_for_Cloud_ERP_Support_Challenges.md",
+      "title": "Business AI Operations Rescue Strategy for Cloud ERP Support Challenges",
+      "created_at": "2025-09-08T07:34:13.919Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_GzmV2hvolOKhOv",
+      "filename": "20250905_1_1_Stefan_Olli.md",
+      "title": "1:1 Stefan <> Olli",
+      "created_at": "2025-09-05T11:30:00.822Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_kxuS7Kgqqw31nJ",
+      "filename": "20250905_Der_Woche_guldenes_Ende.md",
+      "title": "Der Woche güldenes Ende",
+      "created_at": "2025-09-05T11:03:02.483Z",
+      "updated_at": "2025-09-05T11:26:24.728Z"
+    },
+    {
+      "note_id": "not_kTw97C58bAaTGl",
+      "filename": "20250905_CAS_Service_Engineering_Council_-_weekly.md",
+      "title": "CAS Service Engineering Council - weekly",
+      "created_at": "2025-09-05T06:30:08.292Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_bjLqzoy77MNbYI",
+      "filename": "20250904_Access_Management_Scheme_Concept_Alignment_Meeting_Reporting_Project.md",
+      "title": "Access Management Scheme/ Concept Alignment Meeting: Reporting Project",
+      "created_at": "2025-09-04T14:00:13.347Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_ersBJKpCAyqC2s",
+      "filename": "20250904_Absprache_Masterarbeit_Jessi.md",
+      "title": "Absprache Masterarbeit Jessi",
+      "created_at": "2025-09-04T12:31:29.396Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_NWSGw20tokksPT",
+      "filename": "20250904_ESP_-_AI_cases_-_short_status_alignment.md",
+      "title": "ESP - AI cases - short status alignment",
+      "created_at": "2025-09-04T12:03:04.026Z",
+      "updated_at": "2026-03-03T13:54:41.635Z"
+    },
+    {
+      "note_id": "not_ICI75UocdLNaah",
+      "filename": "20250904_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-09-04T09:03:46.186Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_3pqGRzwxSSH7XS",
+      "filename": "20250904_One_Delivery_Series.md",
+      "title": "One Delivery Series",
+      "created_at": "2025-09-04T07:33:36.622Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_RFI0uHkEjO0rNW",
+      "filename": "20250904_AI_NewTech.md",
+      "title": "AI & NewTech",
+      "created_at": "2025-09-04T06:30:40.492Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_Z28eNjNXQIENib",
+      "filename": "20250903_Minutes_RISE_Ticket_Flow.md",
+      "title": "Minutes: RISE Ticket Flow",
+      "created_at": "2025-09-03T13:00:00.686Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_y05bQAKwLxDIb7",
+      "filename": "20250902_Weekly_CAS_for_Cloud_ERP_Portfolio_Steering_Call.md",
+      "title": "Weekly CAS for Cloud ERP Portfolio Steering Call",
+      "created_at": "2025-09-02T12:31:44.950Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_WulGX2OugLIo2G",
+      "filename": "20250902_CAS_for_LeanIX_-_rolling_alignment.md",
+      "title": "CAS for LeanIX - rolling alignment",
+      "created_at": "2025-09-02T12:00:41.527Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_0WPoqhrsVhxSbs",
+      "filename": "20250902_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-09-02T11:04:09.876Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_N7yEXXRBVekiFT",
+      "filename": "20250902_Oliver_Georg_Q3_Progress_Checkpoint.md",
+      "title": "Oliver:Georg + Q3 Progress Checkpoint",
+      "created_at": "2025-09-02T08:00:14.633Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_2LZZXLkiRPqBr8",
+      "filename": "20250901_ICP_Rollen-Integration_fur_Private_Cloud_ERP_Service.md",
+      "title": "ICP Rollen-Integration für Private Cloud ERP Service",
+      "created_at": "2025-09-01T13:30:14.913Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_DrgeDJ09iOakIH",
+      "filename": "20250901_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-09-01T11:03:45.855Z",
+      "updated_at": "2026-02-11T21:11:31.524Z"
+    },
+    {
+      "note_id": "not_U2AeDuD4A1WK3C",
+      "filename": "20250901_ITSM_Integration.md",
+      "title": "ITSM Integration",
+      "created_at": "2025-09-01T08:01:45.725Z",
+      "updated_at": "2026-03-03T10:33:17.243Z"
+    },
+    {
+      "note_id": "not_dheIs0tNe64mQ2",
+      "filename": "20250901_Reporting_Project-_Weekly_Status_Check.md",
+      "title": "Reporting Project- Weekly Status Check",
+      "created_at": "2025-09-01T07:35:43.831Z",
+      "updated_at": "2026-02-11T21:45:41.684Z"
+    },
+    {
+      "note_id": "not_1NrsLLXX5w3eT8",
+      "filename": "20250829_CAS_Dashboard_IBM_Corporation.md",
+      "title": "CAS Dashboard: IBM Corporation",
+      "created_at": "2025-08-29T13:00:03.122Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_OIGKqu66f7WhI2",
+      "filename": "20250829_Basav_-_Olli_1_1.md",
+      "title": "Basav - Olli 1:1",
+      "created_at": "2025-08-29T11:30:22.851Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_uyjr6wT2tQSbCh",
+      "filename": "20250829_Der_Woche_guldenes_Ende.md",
+      "title": "Der Woche güldenes Ende",
+      "created_at": "2025-08-29T11:03:22.969Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_4yS9WqSIHRfzRI",
+      "filename": "20250829_CAS_Service_Engineering_Council_-_weekly.md",
+      "title": "CAS Service Engineering Council - weekly",
+      "created_at": "2025-08-29T06:33:10.650Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_vzl9UKcbrjXloY",
+      "filename": "20250828_Foundation_Package_-_Scope_clarifications.md",
+      "title": "Foundation Package -> Scope clarifications",
+      "created_at": "2025-08-28T11:01:26.604Z",
+      "updated_at": "2025-09-22T18:22:19.292Z"
+    },
+    {
+      "note_id": "not_CkHJhEvjkcwVUd",
+      "filename": "20250828_Discuss_Joule_Adoption_Hurdles.md",
+      "title": "Discuss Joule Adoption Hurdles",
+      "created_at": "2025-08-28T10:16:13.819Z",
+      "updated_at": "2025-09-22T18:22:20.310Z"
+    },
+    {
+      "note_id": "not_ZE26mpWmR1vRTM",
+      "filename": "20250828_PrS_CAS_Alignment_-_Heads_up_Alignment.md",
+      "title": "PrS , CAS Alignment - Heads up Alignment",
+      "created_at": "2025-08-28T09:30:50.721Z",
+      "updated_at": "2025-09-22T18:22:19.293Z"
+    },
+    {
+      "note_id": "not_MqFp90dejYwsIz",
+      "filename": "20250828_ESX_CAS_Launchpad.md",
+      "title": "ESX CAS Launchpad",
+      "created_at": "2025-08-28T08:00:57.350Z",
+      "updated_at": "2025-09-22T18:22:19.293Z"
+    },
+    {
+      "note_id": "not_aYfenRuWpMv0I8",
+      "filename": "20250828_CAS_Service_Development_alignment_bi-weekly.md",
+      "title": "CAS Service Development alignment (bi-weekly)",
+      "created_at": "2025-08-28T06:59:54.624Z",
+      "updated_at": "2026-03-03T10:32:01.408Z"
+    },
+    {
+      "note_id": "not_xAXLbRCPKMQN1Q",
+      "filename": "20250827_CAS_Service_Engineering_Council_bi-weekly.md",
+      "title": "CAS Service Engineering Council bi-weekly",
+      "created_at": "2025-08-27T12:00:06.149Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_EBRqSmkvDgDQtw",
+      "filename": "20250827_weekly_Stefan_Olli.md",
+      "title": "weekly Stefan <> Olli",
+      "created_at": "2025-08-27T08:00:55.056Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_AhVdhUBQvMBYTA",
+      "filename": "20250826_Weekly_CAS_for_Cloud_ERP_Portfolio_Steering_Call.md",
+      "title": "Weekly CAS for Cloud ERP Portfolio Steering Call",
+      "created_at": "2025-08-26T12:29:51.986Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_2MqnIpB4PHd8e8",
+      "filename": "20250826_SOP_WI_for_CAS.md",
+      "title": "SOP WI for CAS",
+      "created_at": "2025-08-26T11:32:32.570Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_biRKy3dSBJTgXR",
+      "filename": "20250826_Simplify_Service_Engineering_Portfolio_Lifecycle_Process.md",
+      "title": "Simplify Service Engineering Portfolio Lifecycle Process",
+      "created_at": "2025-08-26T10:59:55.480Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_Tgh6FO1Q1SWypM",
+      "filename": "20250826_ITSM_Integration.md",
+      "title": "ITSM Integration",
+      "created_at": "2025-08-26T08:33:17.734Z",
+      "updated_at": "2026-03-03T14:08:06.768Z"
+    },
+    {
+      "note_id": "not_8TqPjk33SEH0Eu",
+      "filename": "20250826_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-08-26T07:59:56.032Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_hCvKQX61ymG8Vm",
+      "filename": "20250826_1_1.md",
+      "title": "1:1",
+      "created_at": "2025-08-26T07:02:26.110Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_vMd4QW56zELQ9u",
+      "filename": "20250825_CAS_Delivery_Meeting_EMEA_MEE_-_August.md",
+      "title": "CAS Delivery Meeting EMEA/MEE - August",
+      "created_at": "2025-08-25T13:01:03.346Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_d0780kWzI19hq3",
+      "filename": "20250825_ESP_-_Alignment_on_Solution_Evaluation.md",
+      "title": "ESP - Alignment on Solution Evaluation",
+      "created_at": "2025-08-25T12:00:31.322Z",
+      "updated_at": "2026-03-03T10:39:39.118Z"
+    },
+    {
+      "note_id": "not_1lIQh1Sm71o1SK",
+      "filename": "20250825_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-08-25T11:05:16.344Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_EdCKctbezk7IgI",
+      "filename": "20250825_Oliver_Georg.md",
+      "title": "Oliver:Georg",
+      "created_at": "2025-08-25T08:30:48.833Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_lgpHdiAbLQVbq1",
+      "filename": "20250825_HCSM_AI_Roadmap_Agents.md",
+      "title": "HCSM AI Roadmap / Agents",
+      "created_at": "2025-08-25T07:30:59.998Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_MbkssuAoOc7dF5",
+      "filename": "20250822_Portfolio_Council.md",
+      "title": "Portfolio Council",
+      "created_at": "2025-08-22T12:59:02.524Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_qSI2FEqkrC8KpE",
+      "filename": "20250822_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-08-22T11:29:52.408Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_X4rtDrztURrTGO",
+      "filename": "20250822_Der_Woche_guldenes_Ende.md",
+      "title": "Der Woche güldenes Ende",
+      "created_at": "2025-08-22T10:59:58.836Z",
+      "updated_at": "2025-09-22T18:22:19.293Z"
+    },
+    {
+      "note_id": "not_0c1HVBwFEgKSrv",
+      "filename": "20250822_CAS_Portfolio_Governance_2025_-_biweekly_alignment_on_responsibilities_roles_tasks_feedback.md",
+      "title": "CAS Portfolio Governance 2025 - biweekly alignment on responsibilities, roles, tasks + feedback",
+      "created_at": "2025-08-22T09:00:51.219Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_41XKbHx2OXzJy6",
+      "filename": "20250822_Database_table_growth_and_performance_tracking_strategy_with_Michael_and_Walter.md",
+      "title": "Database table growth and performance tracking strategy with Michael and Walter",
+      "created_at": "2025-08-22T08:03:19.025Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_CpgpKHpd9quxQm",
+      "filename": "20250822_CAS_Service_Engineering_Council_-_weekly.md",
+      "title": "CAS Service Engineering Council - weekly",
+      "created_at": "2025-08-22T06:31:16.157Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_4qN6eRgq5PW6zs",
+      "filename": "20250821_SAP_Talk_Q3_Checkin.md",
+      "title": "SAP Talk Q3 Checkin",
+      "created_at": "2025-08-21T11:59:51.957Z",
+      "updated_at": "2025-09-22T18:22:20.311Z"
+    },
+    {
+      "note_id": "not_5ucW77hhisOmWl",
+      "filename": "20250821_ASC_CAS_Portfolio_Service_Engineering_Coffee_Corner_Talk_Series_2025.md",
+      "title": "ASC CAS Portfolio & Service Engineering Coffee Corner Talk Series 2025",
+      "created_at": "2025-08-21T11:02:58.345Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_zeGBia7PJfXgni",
+      "filename": "20250821_EPA_ESX_Documentation.md",
+      "title": "EPA / ESX Documentation",
+      "created_at": "2025-08-21T09:03:27.525Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_fol9tCJdXyMBuO",
+      "filename": "20250820_kurze_Abstimmung.md",
+      "title": "kurze Abstimmung",
+      "created_at": "2025-08-20T13:00:55.576Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_kJNlIHehSpemdh",
+      "filename": "20250820_PRIVATE_SSF_HR_Request_7005757571.md",
+      "title": "[PRIVATE] SSF HR Request: 7005757571",
+      "created_at": "2025-08-20T12:29:52.803Z",
+      "updated_at": "2026-03-03T13:49:01.941Z"
+    },
+    {
+      "note_id": "not_vuRwJoafm4WDmK",
+      "filename": "20250820_LeanIX_-_Prep_Call_for_Council.md",
+      "title": "LeanIX - Prep Call for Council",
+      "created_at": "2025-08-20T12:00:12.543Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_nEAN03WnoPOkzw",
+      "filename": "20250820_RISEination_-_Working_synch_session.md",
+      "title": "RISEination - Working/synch session",
+      "created_at": "2025-08-20T09:02:56.119Z",
+      "updated_at": "2025-08-20T10:15:46.856Z"
+    },
+    {
+      "note_id": "not_XMUjBbmmWdlWMX",
+      "filename": "20250820_SAP_Labs_Dresden_Infocall_modernization_renovation_project_DRE04.md",
+      "title": "SAP Labs Dresden Infocall | modernization & renovation project DRE04",
+      "created_at": "2025-08-20T06:59:58.104Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_DikldfLSjv8GQa",
+      "filename": "20250819_1_1_monthly.md",
+      "title": "1:1 monthly",
+      "created_at": "2025-08-19T13:30:10.741Z",
+      "updated_at": "2026-03-03T13:51:34.183Z"
+    },
+    {
+      "note_id": "not_uUDJQhFNmFpWtk",
+      "filename": "20250819_Weekly_CAS_for_Cloud_ERP_Portfolio_Steering_Call.md",
+      "title": "Weekly CAS for Cloud ERP Portfolio Steering Call",
+      "created_at": "2025-08-19T12:30:26.619Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_Upt0ryQ3KxMv6Q",
+      "filename": "20250819_1_1_Amar_Olli.md",
+      "title": "1:1 Amar <> Olli",
+      "created_at": "2025-08-19T11:01:56.050Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_aF4N3lS0JuiCyb",
+      "filename": "20250819_AIO_Transition_and_Operations_Status_Update_with_Service_Catalog_Management_Review.md",
+      "title": "AIO Transition and Operations Status Update with Service Catalog Management Review",
+      "created_at": "2025-08-19T08:31:15.484Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_NiwY6fTZYmpAu1",
+      "filename": "20250819_Joule_for_Consultants.md",
+      "title": "Joule for Consultants",
+      "created_at": "2025-08-19T07:59:52.531Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_IbPrCfnpE7ZZXG",
+      "filename": "20250819_RISE_Ticket_Flow.md",
+      "title": "RISE Ticket Flow",
+      "created_at": "2025-08-19T07:00:02.686Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_DUUA2iBTBsixuA",
+      "filename": "20250818_Business_Improvement_Foundation_Alignment.md",
+      "title": "Business Improvement Foundation Alignment",
+      "created_at": "2025-08-18T13:31:02.590Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_29MjQf7Z3BXIAl",
+      "filename": "20250818_CAS_Service_Development_-_Alignment_on_process_updates_-_CPR_818_weekly.md",
+      "title": "CAS Service Development - Alignment on process updates - CPR_818 (weekly)",
+      "created_at": "2025-08-18T11:29:52.311Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_S8O7jQGRzDCZCv",
+      "filename": "20250818_virtuelle_Kaffeerunde_-_ECS_DD_Management.md",
+      "title": "virtuelle Kaffeerunde - ECS DD Management",
+      "created_at": "2025-08-18T11:00:31.094Z",
+      "updated_at": "2025-09-22T18:22:20.312Z"
+    },
+    {
+      "note_id": "not_3YStZQHn79I9UV",
+      "filename": "20250818_Follow-up_Service_Performance_Reporting.md",
+      "title": "Follow-up Service Performance Reporting",
+      "created_at": "2025-08-18T07:59:52.395Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_c4xUWRnUf496P4",
+      "filename": "20250818_Reporting_Project-_Weekly_Status_Check.md",
+      "title": "Reporting Project- Weekly Status Check",
+      "created_at": "2025-08-18T07:29:52.914Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_BSVTWUSNQudLXB",
+      "filename": "20250818_Unicorn_workstream_and_integration_challenges_with_Fraunhofer.md",
+      "title": "Unicorn workstream and integration challenges with Fraunhofer",
+      "created_at": "2025-08-18T07:02:32.641Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_wqhe7v5XDhBynl",
+      "filename": "20250815_Der_Woche_guldenes_Ende.md",
+      "title": "Der Woche güldenes Ende",
+      "created_at": "2025-08-15T13:32:06.807Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_pYx2XBKC3ZJNm7",
+      "filename": "20250815_AO_Transition.md",
+      "title": "AO Transition",
+      "created_at": "2025-08-15T11:30:55.364Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_YoFV2GMztcE889",
+      "filename": "20250815_CAS_Portfolio_Governance_2025_-_biweekly_alignment_on_responsibilities_roles_tasks_feedback.md",
+      "title": "CAS Portfolio Governance 2025 - biweekly alignment on responsibilities, roles, tasks + feedback",
+      "created_at": "2025-08-15T11:01:06.135Z",
+      "updated_at": "2025-08-15T11:31:03.039Z"
+    },
+    {
+      "note_id": "not_rN78K5axq24zFJ",
+      "filename": "20250814_ESX_EPA_Roadmap_Brainstorming.md",
+      "title": "ESX/EPA Roadmap / Brainstorming",
+      "created_at": "2025-08-14T13:00:33.452Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_Zn0r7oTIdzHz14",
+      "filename": "20250813_Redwood_Solution.md",
+      "title": "Redwood Solution",
+      "created_at": "2025-08-13T13:02:11.202Z",
+      "updated_at": "2025-08-13T13:25:44.015Z"
+    },
+    {
+      "note_id": "not_eMCd0ezL6PafCG",
+      "filename": "20250813_RISEination_-_Working_synch_session.md",
+      "title": "RISEination - Working/synch session",
+      "created_at": "2025-08-13T09:01:07.072Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_9jypbjKEpSg2TG",
+      "filename": "20250813_Entitlement_and_Service_Delivery_Transformation_Planning_with_Alfie.md",
+      "title": "Entitlement and Service Delivery Transformation Planning with Alfie",
+      "created_at": "2025-08-13T08:32:09.964Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_67nRHHE7HHjioj",
+      "filename": "20250813_CAS_WalkMe_-_Brief_alignment_on_findings_CASSUPPCH-83.md",
+      "title": "CAS @ WalkMe - Brief alignment on findings (CASSUPPCH-83)",
+      "created_at": "2025-08-13T06:32:16.488Z",
+      "updated_at": "2026-03-03T13:23:58.438Z"
+    },
+    {
+      "note_id": "not_iuU0PB3S3uf7gI",
+      "filename": "20250812_Re_CMI_Scoping_Call_-_T-218085.md",
+      "title": "Re: CMI Scoping Call - T-218085",
+      "created_at": "2025-08-12T14:30:32.348Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_1qQOMBzvZFVnKs",
+      "filename": "20250812_Re_Preferred_Success_-_Continuous_Application_Operations_Guidance.md",
+      "title": "Re: Preferred Success - Continuous Application Operations Guidance",
+      "created_at": "2025-08-12T14:00:49.341Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_RRo2RrOZcuo12H",
+      "filename": "20250812_Weekly_CAS_for_Cloud_ERP_Portfolio_Steering_Call.md",
+      "title": "Weekly CAS for Cloud ERP Portfolio Steering Call",
+      "created_at": "2025-08-12T12:29:52.739Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_BZPr3ZHjkxqBsU",
+      "filename": "20250812_Follow-up_SOP_s_and_WI_s_for_CAS.md",
+      "title": "Follow-up SOP's and WI's for CAS",
+      "created_at": "2025-08-12T11:36:09.270Z",
+      "updated_at": "2025-09-22T18:22:20.313Z"
+    },
+    {
+      "note_id": "not_Rbf8zSbYpldJ6H",
+      "filename": "20250812_AO_Transition.md",
+      "title": "AO Transition",
+      "created_at": "2025-08-12T09:32:53.834Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_rt0TgxmLbcs9CS",
+      "filename": "20250812_1_1_Georg.md",
+      "title": "1:1 Georg",
+      "created_at": "2025-08-12T07:59:58.484Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_fpnNnfkR4vcDNl",
+      "filename": "20250812_Service_Request_Management_-_AO.md",
+      "title": "Service Request Management - AO",
+      "created_at": "2025-08-12T07:29:57.419Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_p0n1OOcldCQUFF",
+      "filename": "20250812_Alignment_Malathi.md",
+      "title": "Alignment Malathi",
+      "created_at": "2025-08-12T06:37:46.828Z",
+      "updated_at": "2025-08-12T06:44:33.758Z"
+    },
+    {
+      "note_id": "not_WarkDe6GsxXUkg",
+      "filename": "20250811_Re_E2E_Integration_-_CAS_Success_Plans.md",
+      "title": "Re: E2E Integration - CAS + Success Plans",
+      "created_at": "2025-08-11T14:30:00.813Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_X0WUXQAkyfNVab",
+      "filename": "20250811_LeanIX_Calc.md",
+      "title": "LeanIX Calc",
+      "created_at": "2025-08-11T14:02:38.331Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_zDpQDMO7MPWdZh",
+      "filename": "20250811_SAP_certification_exam_preparation_with_Micha.md",
+      "title": "SAP certification exam preparation with Micha",
+      "created_at": "2025-08-11T13:49:12.609Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_XrWWBKyaIEiYwK",
+      "filename": "20250811_Requirements_for_Improvement_ASU_service_with_AI.md",
+      "title": "Requirements for Improvement ASU service with AI",
+      "created_at": "2025-08-11T13:30:34.851Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_s1kTKhKCQcFLXF",
+      "filename": "20250811_Portfolio_performance_reporting_review_for_service_owners.md",
+      "title": "Portfolio performance reporting review for service owners",
+      "created_at": "2025-08-11T08:34:06.629Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_VIpRwTj2QXHd7S",
+      "filename": "20250811_Team_Meeting_CAS_Portfolio_Service_Engineering.md",
+      "title": "Team Meeting CAS Portfolio & Service Engineering",
+      "created_at": "2025-08-11T07:01:54.978Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_03V73GuekiFUEi",
+      "filename": "20250811_Abstimmung.md",
+      "title": "Abstimmung",
+      "created_at": "2025-08-11T06:30:52.677Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_lNZmuFT6wO6G7b",
+      "filename": "20250807_CAS_ITSM_Integration.md",
+      "title": "CAS ITSM Integration",
+      "created_at": "2025-08-07T12:29:52.456Z",
+      "updated_at": "2025-12-18T10:22:24.777Z"
+    },
+    {
+      "note_id": "not_h2MXNveb8zDxOf",
+      "filename": "20250807_1_1_Steffen_Olli.md",
+      "title": "1:1 Steffen <> Olli",
+      "created_at": "2025-08-07T12:00:40.599Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_Z8dqwNuPdmtotd",
+      "filename": "20250807_Regarding_CASSUPPCH-174_Fix_Automation_-_SAP_CAS_Application_Security_Updates.md",
+      "title": "Regarding CASSUPPCH-174 Fix Automation - SAP CAS Application Security Updates",
+      "created_at": "2025-08-07T09:34:46.508Z",
+      "updated_at": "2025-09-22T18:22:20.314Z"
+    },
+    {
+      "note_id": "not_Dig0DAWm9kJhwU",
+      "filename": "20250807_CAS_Delivery_Platform_Services_weekly.md",
+      "title": "CAS Delivery Platform /Services weekly",
+      "created_at": "2025-08-07T08:00:01.607Z",
+      "updated_at": "2025-09-22T18:22:20.315Z"
+    },
+    {
+      "note_id": "not_KP1X8xSwEOQZYt",
+      "filename": "20250807_Working_session_ES_CAS.md",
+      "title": "Working session ES/CAS",
+      "created_at": "2025-08-07T06:59:58.078Z",
+      "updated_at": "2025-09-22T18:22:20.315Z"
+    },
+    {
+      "note_id": "not_l8H8RkXUWO2B47",
+      "filename": "20250807_ESP_project_status_and_CR_tracking_sync_with_team.md",
+      "title": "ESP project status and CR tracking sync with team",
+      "created_at": "2025-08-07T06:10:50.495Z",
+      "updated_at": "2025-09-22T18:22:20.315Z"
+    }
+  ]
+}

@@ -1,0 +1,752 @@
+{
+  "metadata": {
+    "generated_at": "2026-04-13T09:53:19+02:00",
+    "generated_by": "todoist_mcp_snapshot",
+    "completeness": "active project structure plus SAP-scope tasks",
+    "project_count": 16,
+    "section_count": 3,
+    "task_count": 14,
+    "archived_project_count": 0,
+    "account": {
+      "user_id": "7031609",
+      "full_name": "Oliver Posselt",
+      "email": "opsocial@icloud.com",
+      "timezone": "Europe/Berlin",
+      "plan": "Todoist Pro"
+    },
+    "shared_labels": [
+      "@focus",
+      "@growth",
+      "@health",
+      "@lifestyle",
+      "@productivity"
+    ],
+    "warnings": [
+      "This snapshot was generated from Todoist MCP read-only observations because TODOIST_API_TOKEN was not present in the local shell.",
+      "The live Todoist state changed during inspection: the sample fuzzy work tasks were no longer in Inbox and were observed directly under 📤 SAP."
+    ],
+    "out_of_scope_task_counts": {
+      "🕵️‍♀️ Private": 9,
+      "Haus": 1,
+      "🔄 regularly": 15,
+      "🎊Feier": 0,
+      "🎁 presents": 7,
+      "Testberichte": 20,
+      "Notizen": 16,
+      "Team-Eingang": 16,
+      "Clollibot": 0
+    }
+  },
+  "projects": [
+    {
+      "id": "6CrfvW36Wpx23pG2",
+      "name": "Inbox",
+      "parent_id": "",
+      "color": "grey",
+      "child_order": 0,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": true,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6FMv2cp45M2MPXVg",
+      "name": "🕵️‍♀️ Private",
+      "parent_id": "",
+      "color": "green",
+      "child_order": 0,
+      "is_shared": false,
+      "is_favorite": true,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6HG7Fx5gFchjwFVg",
+      "name": "Haus",
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "color": "yellow",
+      "child_order": 1,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6FMv2VVMw65X28C5",
+      "name": "🔄 regularly",
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "color": "berry_red",
+      "child_order": 2,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6G8fm75VfX5wmc6C",
+      "name": "🎊Feier",
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "color": "berry_red",
+      "child_order": 3,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6FMv2WVGPfVX7hP3",
+      "name": "🎁 presents",
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "color": "charcoal",
+      "child_order": 4,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6Crf4Rv9Jp4VmPxQ",
+      "name": "Testberichte",
+      "parent_id": "",
+      "color": "mint_green",
+      "child_order": 0,
+      "is_shared": true,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6Crf4Rv9M3FhgqXC",
+      "name": "Notizen",
+      "parent_id": "",
+      "color": "grey",
+      "child_order": 0,
+      "is_shared": true,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6FMv4C4qgMMgRf8m",
+      "name": "📤 SAP",
+      "parent_id": "",
+      "color": "blue",
+      "child_order": 5,
+      "is_shared": false,
+      "is_favorite": true,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6gP359mQ5HfcQ75r",
+      "name": "Services",
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "color": "blue",
+      "child_order": 6,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6gP358fPxcXhv6VJ",
+      "name": "Operations",
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "color": "blue",
+      "child_order": 7,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6gP357gjgPwVWG3C",
+      "name": "Projects",
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "color": "blue",
+      "child_order": 8,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6gP3575RgCrxgChH",
+      "name": "People",
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "color": "blue",
+      "child_order": 9,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6gP35CJ37f7Gff2H",
+      "name": "Waiting",
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "color": "blue",
+      "child_order": 10,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6V6HPv3Rx8xJ2qmw",
+      "name": "Team-Eingang",
+      "parent_id": "",
+      "color": "charcoal",
+      "child_order": 0,
+      "is_shared": true,
+      "is_favorite": true,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    },
+    {
+      "id": "6frFHw8M69vRMJ2C",
+      "name": "Clollibot",
+      "parent_id": "",
+      "color": "charcoal",
+      "child_order": 11,
+      "is_shared": false,
+      "is_favorite": false,
+      "inbox_project": false,
+      "view_style": "list",
+      "url": ""
+    }
+  ],
+  "sections": [
+    {
+      "id": "6cjR4HHvMJ9CrRWP",
+      "project_id": "6V6HPv3Rx8xJ2qmw",
+      "name": "EMBARGOS",
+      "order": 2,
+      "url": "https://app.todoist.com/app/section/embargos-6cjR4HHvMJ9CrRWP"
+    },
+    {
+      "id": "6V6HXcrQH2q3489w",
+      "project_id": "6V6HPv3Rx8xJ2qmw",
+      "name": "Weekender, Terminthemen und so",
+      "order": 4,
+      "url": "https://app.todoist.com/app/section/weekender-terminthemen-und-so-6V6HXcrQH2q3489w"
+    },
+    {
+      "id": "6V6HRWWmpmrMw9wP",
+      "project_id": "6V6HPv3Rx8xJ2qmw",
+      "name": "Wiederkehrend",
+      "order": 5,
+      "url": "https://app.todoist.com/app/section/wiederkehrend-6V6HRWWmpmrMw9wP"
+    }
+  ],
+  "labels": [
+    {
+      "id": "2157810955",
+      "name": "CALM",
+      "color": "charcoal",
+      "order": 2,
+      "favorite": false
+    },
+    {
+      "id": "2157811159",
+      "name": "iRPA",
+      "color": "charcoal",
+      "order": 3,
+      "favorite": false
+    },
+    {
+      "id": "2157811189",
+      "name": "crypto",
+      "color": "charcoal",
+      "order": 4,
+      "favorite": false
+    },
+    {
+      "id": "2157830072",
+      "name": "SPC",
+      "color": "charcoal",
+      "order": 5,
+      "favorite": false
+    },
+    {
+      "id": "2157830073",
+      "name": "ESP",
+      "color": "charcoal",
+      "order": 6,
+      "favorite": false
+    },
+    {
+      "id": "2157832332",
+      "name": "Unicorn",
+      "color": "charcoal",
+      "order": 7,
+      "favorite": false
+    },
+    {
+      "id": "2166030516",
+      "name": "Alexa",
+      "color": "charcoal",
+      "order": 8,
+      "favorite": false
+    }
+  ],
+  "tasks": [
+    {
+      "id": "6fCr5hgwqPq35wF5",
+      "content": "IT Ops Model https://lucid.app/lucidchart/a0d9e526-d1f3-42d2-b8da-e3dd5bf2b89d/edit?invitationId=inv_f2f6eea7-89ea-467c-828f-49238b2069f8&page=0_0#",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6fHrpprqP9MVhM3m",
+      "content": "AI Project",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p3",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "",
+        "datetime": "2026-04-13T11:00:00",
+        "string": "jeden Tag um 11:00",
+        "timezone": "",
+        "recurring": true
+      },
+      "deadline": null
+    },
+    {
+      "id": "6fHrprFVfhFC6M5m",
+      "content": "Reporting Project",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "",
+        "datetime": "2026-04-13T11:30:00",
+        "string": "jeden Tag um 11:30",
+        "timezone": "",
+        "recurring": true
+      },
+      "deadline": null
+    },
+    {
+      "id": "6fvrmW7wJMXCwpGR",
+      "content": "J4C Expert?",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6fxHv2PmqVW3wcxR",
+      "content": "Rollout Abhijit AI",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6g4qGH9Q4FCmj742",
+      "content": "Security Concept anpassen mit Ralf 0900",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6g6QMG7GMW3FrqhR",
+      "content": "application operations dashboard rollout stuff?",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6g85Q6qJ3xcv94cR",
+      "content": "Demo Landschaft restriktiv (appops cockpit)",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6g8WwjjFRCmv45v2",
+      "content": "Proposal E2E Delivery",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-30",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6gFqgWJ5XGXgm7h2",
+      "content": "J4C prep",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6gGG95MgFcH3969R",
+      "content": "Reifen",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-14",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6gJg66J25mCC43R2",
+      "content": "Service Desk Service --> including AI/Automation",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-15",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6gMJgJcHQh5H5Qx2",
+      "content": "Andreas Krueckendorf",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-23",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    },
+    {
+      "id": "6gMJp62WvpQG3xM5",
+      "content": "External Roadmap",
+      "description": "",
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "section_id": "",
+      "parent_id": "",
+      "labels": [],
+      "priority": "p4",
+      "responsible_uid": "",
+      "assigned_by_uid": "",
+      "url": "",
+      "due": {
+        "date": "2026-04-13",
+        "datetime": "",
+        "string": "",
+        "timezone": "",
+        "recurring": false
+      },
+      "deadline": null
+    }
+  ],
+  "archived_projects": [],
+  "backups": [],
+  "project_summaries": [
+    {
+      "project_id": "6CrfvW36Wpx23pG2",
+      "name": "Inbox",
+      "path": "Inbox",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": true
+    },
+    {
+      "project_id": "6FMv2cp45M2MPXVg",
+      "name": "🕵️‍♀️ Private",
+      "path": "🕵️‍♀️ Private",
+      "task_count": 9,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6HG7Fx5gFchjwFVg",
+      "name": "Haus",
+      "path": "🕵️‍♀️ Private / Haus",
+      "task_count": 1,
+      "section_count": 0,
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6FMv2VVMw65X28C5",
+      "name": "🔄 regularly",
+      "path": "🕵️‍♀️ Private / 🔄 regularly",
+      "task_count": 15,
+      "section_count": 0,
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6G8fm75VfX5wmc6C",
+      "name": "🎊Feier",
+      "path": "🕵️‍♀️ Private / 🎊Feier",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6FMv2WVGPfVX7hP3",
+      "name": "🎁 presents",
+      "path": "🕵️‍♀️ Private / 🎁 presents",
+      "task_count": 7,
+      "section_count": 0,
+      "parent_id": "6FMv2cp45M2MPXVg",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6Crf4Rv9Jp4VmPxQ",
+      "name": "Testberichte",
+      "path": "Testberichte",
+      "task_count": 20,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6Crf4Rv9M3FhgqXC",
+      "name": "Notizen",
+      "path": "Notizen",
+      "task_count": 16,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6FMv4C4qgMMgRf8m",
+      "name": "📤 SAP",
+      "path": "📤 SAP",
+      "task_count": 14,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6gP359mQ5HfcQ75r",
+      "name": "Services",
+      "path": "📤 SAP / Services",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6gP358fPxcXhv6VJ",
+      "name": "Operations",
+      "path": "📤 SAP / Operations",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6gP357gjgPwVWG3C",
+      "name": "Projects",
+      "path": "📤 SAP / Projects",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6gP3575RgCrxgChH",
+      "name": "People",
+      "path": "📤 SAP / People",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6gP35CJ37f7Gff2H",
+      "name": "Waiting",
+      "path": "📤 SAP / Waiting",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "6FMv4C4qgMMgRf8m",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6V6HPv3Rx8xJ2qmw",
+      "name": "Team-Eingang",
+      "path": "Team-Eingang",
+      "task_count": 16,
+      "section_count": 3,
+      "parent_id": "",
+      "inbox_project": false
+    },
+    {
+      "project_id": "6frFHw8M69vRMJ2C",
+      "name": "Clollibot",
+      "path": "Clollibot",
+      "task_count": 0,
+      "section_count": 0,
+      "parent_id": "",
+      "inbox_project": false
+    }
+  ]
+}
