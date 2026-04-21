@@ -52,6 +52,11 @@ struct ContentView: View {
     private static let restorationCursorLengthKey = "quartz.restoration.cursorLength"
     private static let restorationScrollOffsetKey = "quartz.restoration.scrollOffset"
     private static let restorationSidebarSourceKey = "quartz.restoration.sidebarSource"
+    private static let uiTestShellModeArgument = "--ui-test-shell-mode"
+
+    private static var isUITestShellMode: Bool {
+        CommandLine.arguments.contains(uiTestShellModeArgument)
+    }
 
     // MARK: - Layout
 
@@ -104,6 +109,11 @@ struct ContentView: View {
             get: { workspaceStore.selectedNoteURL },
             set: { workspaceStore.selectedNoteURL = $0 }
         ))
+        .overlay(alignment: .topLeading) {
+            if isUITestWorkspaceReady {
+                uiTestWorkspaceReadyMarker
+            }
+        }
     }
 
     // MARK: - Body
@@ -349,6 +359,14 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: viewModel?.sidebarViewModel?.fileTree) { _, newTree in
             handleSidebarFileTreeChange(newTree)
         })
+        view = AnyView(view.onChange(of: appState.currentVault?.rootURL) { _, newRoot in
+            guard newRoot != nil, selectedNoteURL == nil else { return }
+            restoreSelectedNoteIfNeeded()
+        })
+        view = AnyView(view.onChange(of: viewModel?.editorSession != nil) { _, editorSessionAvailable in
+            guard editorSessionAvailable, selectedNoteURL == nil else { return }
+            restoreSelectedNoteIfNeeded()
+        })
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("quartzApplicationWillTerminate"))) { _ in
             saveStateForRestoration()
         })
@@ -365,6 +383,9 @@ struct ContentView: View {
         bodyWithUserActivity
             .task {
                 await runStartupTask()
+                if appState.currentVault != nil, selectedNoteURL == nil {
+                    restoreSelectedNoteIfNeeded()
+                }
             }
     }
 
@@ -379,6 +400,21 @@ struct ContentView: View {
                     selectedNoteURL = url
                 }
             }
+    }
+
+    private var isUITestWorkspaceReady: Bool {
+        Self.isUITestShellMode
+            && appState.currentVault != nil
+            && viewModel?.sidebarViewModel?.vaultRootURL != nil
+    }
+
+    private var uiTestWorkspaceReadyMarker: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Quartz UI workspace ready")
+            .accessibilityIdentifier("ui-test-workspace-ready")
     }
 
     // MARK: - Sheet Builders
@@ -656,9 +692,11 @@ struct ContentView: View {
         ) { restoreSelectedNoteIfNeeded() }
 
         #if os(macOS)
-        coordinator.quickNoteManager?.unregisterHotkey()
-        coordinator.quickNoteManager = QuickNoteManager(vaultRoot: vault.rootURL)
-        coordinator.quickNoteManager?.registerHotkey()
+        if !Self.isUITestShellMode {
+            coordinator.quickNoteManager?.unregisterHotkey()
+            coordinator.quickNoteManager = QuickNoteManager(vaultRoot: vault.rootURL)
+            coordinator.quickNoteManager?.registerHotkey()
+        }
         #endif
     }
 
@@ -826,12 +864,14 @@ struct ContentView: View {
             workspaceStore.setRoute(.empty)
         }
 
-        coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
-        deepLinkCoordinator?.consumePendingWidgetDeepLinks(
-            coordinator: coordinator,
-            workspaceStore: workspaceStore
-        ) { url in
-            selectedNoteURL = url
+        if !Self.isUITestShellMode {
+            coordinator.availableUpdate = await UpdateChecker.shared.checkForUpdate()
+            deepLinkCoordinator?.consumePendingWidgetDeepLinks(
+                coordinator: coordinator,
+                workspaceStore: workspaceStore
+            ) { url in
+                selectedNoteURL = url
+            }
         }
     }
 
@@ -859,8 +899,11 @@ struct ContentView: View {
             return
         }
 
-        let relativePath = url.path(percentEncoded: false)
-            .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
+        guard let relativePath = restorationRelativePath(for: url, vaultRoot: vaultRoot) else {
+            restoredNotePath = nil
+            persistSelectedNotePathFallback(nil)
+            return
+        }
         restoredNotePath = relativePath
         persistSelectedNotePathFallback(relativePath)
     }
@@ -931,7 +974,7 @@ struct ContentView: View {
             viewModel?.completeStartupRestorationIfNeeded()
             return
         }
-        let noteURL = vaultRoot.appending(path: relativePath)
+        let noteURL = restorationNoteURL(for: relativePath, vaultRoot: vaultRoot)
         guard FileManager.default.fileExists(atPath: noteURL.path(percentEncoded: false)) else {
             restoredNotePath = nil
             viewModel?.completeStartupRestorationIfNeeded()
@@ -941,10 +984,15 @@ struct ContentView: View {
         let selectionWasAlreadyRestored = selectedNoteURL.map(CanonicalNoteIdentity.canonicalFileURL(for:)) == canonicalNoteURL
         selectedNoteURL = canonicalNoteURL
 
-        // Scene restoration can repopulate the selection before this callback runs.
-        // In that case `onChange(selectedNoteURL)` will not fire again, so reopen the
-        // note explicitly instead of leaving the editor mounted with an empty session.
-        if selectionWasAlreadyRestored {
+        let currentSessionNoteURL = viewModel?.editorSession?.note
+            .map(\.fileURL)
+            .map(CanonicalNoteIdentity.canonicalFileURL(for:))
+
+        // Route restoration and note loading are distinct concerns. SceneStorage or
+        // manual selection restoration can repopulate the route before the editor
+        // session has loaded the note, so explicitly reopen whenever the session is
+        // empty or pointed at a different note.
+        if selectionWasAlreadyRestored || currentSessionNoteURL != canonicalNoteURL {
             viewModel?.openNote(at: canonicalNoteURL)
         }
 
@@ -1012,5 +1060,36 @@ struct ContentView: View {
            !fallbackSidebarSource.isEmpty {
             restoredSidebarSource = fallbackSidebarSource
         }
+    }
+
+    private func restorationRelativePath(for noteURL: URL, vaultRoot: URL) -> String? {
+        let canonicalVaultRoot = CanonicalNoteIdentity.canonicalFileURL(for: vaultRoot)
+            .resolvingSymlinksInPath()
+        let canonicalNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+            .resolvingSymlinksInPath()
+
+        let vaultPath = normalizedRestorationPath(canonicalVaultRoot.path(percentEncoded: false))
+        let notePath = normalizedRestorationPath(canonicalNoteURL.path(percentEncoded: false))
+
+        guard notePath == vaultPath || notePath.hasPrefix(vaultPath + "/") else {
+            return nil
+        }
+
+        let relativePath = String(notePath.dropFirst(vaultPath.count))
+        return relativePath.isEmpty ? nil : relativePath
+    }
+
+    private func restorationNoteURL(for relativePath: String, vaultRoot: URL) -> URL {
+        let canonicalVaultRoot = CanonicalNoteIdentity.canonicalFileURL(for: vaultRoot)
+            .resolvingSymlinksInPath()
+        let trimmedRelativePath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return canonicalVaultRoot.appending(path: trimmedRelativePath)
+    }
+
+    private func normalizedRestorationPath(_ path: String) -> String {
+        if path.count > 1, path.hasSuffix("/") {
+            return String(path.dropLast())
+        }
+        return path
     }
 }

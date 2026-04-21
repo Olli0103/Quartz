@@ -25,6 +25,20 @@ IOS_UI_RESULT_BUNDLE="${IOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPhone.xcre
 IPADOS_UI_RESULT_BUNDLE="${IPADOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPad.xcresult}"
 IPHONE_PREFERRED_SIMULATOR="${IPHONE_PREFERRED_SIMULATOR:-iPhone 17 Pro}"
 IPAD_PREFERRED_SIMULATOR="${IPAD_PREFERRED_SIMULATOR:-iPad Pro 13-inch (M5)}"
+MACOS_UI_DERIVED_DATA_PATH="${MACOS_UI_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/QuartzUITestDerivedDataAdhoc}"
+MACOS_UI_XCODEBUILD_SIGNING_ARGS=(
+    -derivedDataPath "$MACOS_UI_DERIVED_DATA_PATH"
+    CODE_SIGN_STYLE=Manual
+    DEVELOPMENT_TEAM=
+    CODE_SIGN_IDENTITY=-
+    AD_HOC_CODE_SIGNING_ALLOWED=YES
+    CODE_SIGNING_ALLOWED=YES
+    CODE_SIGNING_REQUIRED=YES
+    CODE_SIGN_ENTITLEMENTS=
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO
+    PROVISIONING_PROFILE_SPECIFIER=
+    PROVISIONING_PROFILE=
+)
 EDITOR_FILTER="${EDITOR_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip|Snapshot)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
 EDITOR_NON_SNAPSHOT_FILTER="${EDITOR_NON_SNAPSHOT_FILTER:-SyntaxVisibilityModeTests|EditorPasteNormalizationTests|EditorSemanticDocumentTests|EditorReality(Corpus|Roundtrip)Tests|EditorRenderingRegressionTests|EditorLiveMutationRegressionTests|EditorPerformanceBudgetTests|IncrementalASTPatchingTests|TextKitRenderingTests|LiveTableRenderingTests|EditorUndoBundleTests|EditorMutationTransactionTests}"
 EDITOR_SNAPSHOT_FILTER="${EDITOR_SNAPSHOT_FILTER:-EditorRealitySnapshotTests}"
@@ -116,6 +130,9 @@ run_editor_shell_ui_matrix() {
     )
 
     reset_result_bundle "$result_bundle"
+    if [ "$destination" = "platform=macOS" ]; then
+        xcodebuild_args+=("${MACOS_UI_XCODEBUILD_SIGNING_ARGS[@]}")
+    fi
     for test_identifier in "${test_identifiers[@]}"; do
         xcodebuild_args+=("-only-testing:$test_identifier")
     done
@@ -137,6 +154,23 @@ if run_swift_test_with_serial_retry_to_log \
     pass "Editor excellence gate passed"
 else
     fail "Editor excellence gate failed"
+fi
+
+step "Running macOS editor shell UI coverage"
+echo "  DerivedData: $MACOS_UI_DERIVED_DATA_PATH"
+if ! ensure_macos_ui_automation_available "$MACOS_UI_LOG_PATH"; then
+    echo "Host automation mode is disabled; continuing to the real macOS XCTest launch/attach probe." | tee -a "$MACOS_UI_LOG_PATH"
+fi
+
+terminate_conflicting_macos_app_processes
+if run_editor_shell_ui_matrix \
+    "platform=macOS" \
+    "$MACOS_UI_LOG_PATH" \
+    "$MACOS_UI_RESULT_BUNDLE" \
+    "${MACOS_EDITOR_SHELL_TESTS[@]}"; then
+    pass "macOS editor shell UI coverage passed"
+else
+    fail "macOS editor shell UI coverage failed"
 fi
 
 step "Running iPhone editor parity"
@@ -175,22 +209,6 @@ elif grep -q "$PACKAGE_SCHEME_TEST_ACTION_ERROR" "$IPADOS_LOG_PATH"; then
     fail "iPad editor parity blocked: QuartzKit scheme has no xcodebuild test action for simulator parity"
 else
     fail "iPad editor parity failed"
-fi
-
-step "Running macOS editor shell UI coverage"
-if ! ensure_macos_ui_automation_available "$MACOS_UI_LOG_PATH"; then
-    fail "macOS editor shell UI coverage is blocked by host UI automation setup"
-fi
-
-terminate_conflicting_macos_app_processes
-if run_editor_shell_ui_matrix \
-    "platform=macOS" \
-    "$MACOS_UI_LOG_PATH" \
-    "$MACOS_UI_RESULT_BUNDLE" \
-    "${MACOS_EDITOR_SHELL_TESTS[@]}"; then
-    pass "macOS editor shell UI coverage passed"
-else
-    fail "macOS editor shell UI coverage failed"
 fi
 
 step "Running iPhone editor shell UI coverage"

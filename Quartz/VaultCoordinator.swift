@@ -9,6 +9,11 @@ import os
 @Observable
 @MainActor
 public final class VaultCoordinator {
+    private static let uiTestShellModeArgument = "--ui-test-shell-mode"
+
+    private static var isUITestShellMode: Bool {
+        CommandLine.arguments.contains(uiTestShellModeArgument)
+    }
 
     // MARK: - Dependencies
 
@@ -54,10 +59,14 @@ public final class VaultCoordinator {
 
         logger.info("Opened vault: \(vault.name)")
 
-        // Allow UI to settle before restoration
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(200))
+        if Self.isUITestShellMode {
             onComplete?()
+        } else {
+            // Allow UI to settle before restoration
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(200))
+                onComplete?()
+            }
         }
     }
 

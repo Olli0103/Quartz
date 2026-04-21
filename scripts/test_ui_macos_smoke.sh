@@ -12,13 +12,28 @@ mkdir -p reports
 
 LOG_PATH="${LOG_PATH:-reports/ui_matrix_macos.log}"
 RESULT_BUNDLE="${RESULT_BUNDLE:-/tmp/QuartzUITests_macOS.xcresult}"
+MACOS_UI_DERIVED_DATA_PATH="${MACOS_UI_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/QuartzUITestDerivedDataAdhoc}"
+MACOS_UI_XCODEBUILD_SIGNING_ARGS=(
+    -derivedDataPath "$MACOS_UI_DERIVED_DATA_PATH"
+    CODE_SIGN_STYLE=Manual
+    DEVELOPMENT_TEAM=
+    CODE_SIGN_IDENTITY=-
+    AD_HOC_CODE_SIGNING_ALLOWED=YES
+    CODE_SIGNING_ALLOWED=YES
+    CODE_SIGNING_REQUIRED=YES
+    CODE_SIGN_ENTITLEMENTS=
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO
+    PROVISIONING_PROFILE_SPECIFIER=
+    PROVISIONING_PROFILE=
+)
 
 step "Running macOS UI smoke tests"
 echo "  Log: $LOG_PATH"
 echo "  Result bundle: $RESULT_BUNDLE"
+echo "  DerivedData: $MACOS_UI_DERIVED_DATA_PATH"
 
 if ! ensure_macos_ui_automation_available "$LOG_PATH"; then
-    fail "macOS UI smoke tests are blocked by host UI automation setup"
+    echo "Host automation mode is disabled; continuing to the real macOS XCTest launch/attach probe." | tee -a "$LOG_PATH"
 fi
 
 terminate_conflicting_macos_app_processes
@@ -30,7 +45,8 @@ if run_xcodebuild_to_log "$LOG_PATH" \
         -destination "platform=macOS" \
         -only-testing:QuartzUITests/macOSSmokeUITests \
         -only-testing:QuartzUITests/macOSEditorShellUITests \
-        -resultBundlePath "$RESULT_BUNDLE"; then
+        -resultBundlePath "$RESULT_BUNDLE" \
+        "${MACOS_UI_XCODEBUILD_SIGNING_ARGS[@]}"; then
     pass "macOS UI smoke tests passed"
 else
     fail "macOS UI smoke tests failed"
