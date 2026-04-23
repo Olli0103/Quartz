@@ -87,6 +87,10 @@ public final class VaultAccessManager {
             lastError = nil
         } catch {
             logger.error("Failed to persist vault bookmark: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VaultAccessManager",
+                "Failed to persist vault bookmark: \(error.localizedDescription)"
+            )
             let accessError = VaultAccessError.bookmarkCreationFailed(error)
             lastError = accessError
             throw accessError
@@ -113,6 +117,10 @@ public final class VaultAccessManager {
                 logger.warning(
                     "Security-scoped access denied for persisted vault \(url.lastPathComponent, privacy: .public); preserving bookmark for retry"
                 )
+                QuartzDiagnostics.warning(
+                    category: "VaultAccessManager",
+                    "Security-scoped access denied for persisted vault \(url.lastPathComponent); preserving bookmark for retry"
+                )
                 throw accessError
             }
 
@@ -124,6 +132,10 @@ public final class VaultAccessManager {
                 } catch {
                     // Non-fatal: we can still use the old bookmark this session
                     logger.warning("Failed to refresh stale bookmark: \(error.localizedDescription)")
+                    QuartzDiagnostics.warning(
+                        category: "VaultAccessManager",
+                        "Failed to refresh stale bookmark: \(error.localizedDescription)"
+                    )
                 }
             }
 
@@ -142,6 +154,10 @@ public final class VaultAccessManager {
             lastError = accessError
             logger.error(
                 "Failed to resolve persisted vault bookmark; preserving bookmark for retry: \(error.localizedDescription, privacy: .public)"
+            )
+            QuartzDiagnostics.error(
+                category: "VaultAccessManager",
+                "Failed to resolve persisted vault bookmark; preserving bookmark for retry: \(error.localizedDescription)"
             )
             throw accessError
         }
@@ -219,10 +235,18 @@ public final class VaultAccessManager {
         guard fm.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDir),
               isDir.boolValue else {
             logger.warning("Vault path is not a directory: \(url.lastPathComponent)")
+            QuartzDiagnostics.warning(
+                category: "VaultAccessManager",
+                "Vault path is not a directory: \(url.lastPathComponent)"
+            )
             return false
         }
         guard fm.isReadableFile(atPath: url.path(percentEncoded: false)) else {
             logger.warning("Vault directory is not readable: \(url.lastPathComponent)")
+            QuartzDiagnostics.warning(
+                category: "VaultAccessManager",
+                "Vault directory is not readable: \(url.lastPathComponent)"
+            )
             return false
         }
         return true
@@ -353,6 +377,10 @@ public final class VaultAccessManager {
                 guard attempt + 1 < maxAttempts else { break }
                 let delay = Double(1 << attempt) // 1s, 2s, 4s
                 logger.info("Vault restore attempt \(attempt + 1)/\(maxAttempts) failed, retrying in \(delay)s")
+                QuartzDiagnostics.warning(
+                    category: "VaultAccessManager",
+                    "Vault restore attempt \(attempt + 1)/\(maxAttempts) failed, retrying in \(delay)s"
+                )
                 try? await Task.sleep(for: .seconds(delay))
             }
         }

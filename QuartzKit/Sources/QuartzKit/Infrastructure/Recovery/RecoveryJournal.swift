@@ -92,6 +92,10 @@ public actor RecoveryJournal {
             entries[existingIndex].lastError = error?.localizedDescription
 
             logger.warning("Updated journal entry for \(url.lastPathComponent): retry #\(self.entries[existingIndex].retryCount)")
+            QuartzDiagnostics.warning(
+                category: "RecoveryJournal",
+                "Updated journal entry for \(url.lastPathComponent): retry #\(self.entries[existingIndex].retryCount)"
+            )
         } else {
             // Create new entry
             let entry = JournalEntry(
@@ -150,6 +154,10 @@ public actor RecoveryJournal {
             // Check if max retries exceeded
             if entry.retryCount >= maxRetryAttempts {
                 logger.warning("Max retries exceeded for \(entry.fileURL.lastPathComponent), marking as deferred")
+                QuartzDiagnostics.warning(
+                    category: "RecoveryJournal",
+                    "Max retries exceeded for \(entry.fileURL.lastPathComponent), marking as deferred"
+                )
                 deferredEntries.append(entry.id)
                 continue
             }
@@ -165,6 +173,10 @@ public actor RecoveryJournal {
             } else {
                 // Update retry count (will be incremented by recordFailure if called)
                 logger.warning("Recovery failed for \(entry.fileURL.lastPathComponent)")
+                QuartzDiagnostics.warning(
+                    category: "RecoveryJournal",
+                    "Recovery failed for \(entry.fileURL.lastPathComponent)"
+                )
             }
         }
 
@@ -232,6 +244,10 @@ public actor RecoveryJournal {
             logger.info("Loaded \(self.entries.count) entries from recovery journal")
         } catch {
             logger.error("Failed to load recovery journal: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "RecoveryJournal",
+                "Failed to load recovery journal: \(error.localizedDescription)"
+            )
             // Don't delete corrupted journal — might contain important recovery data
         }
     }
@@ -254,6 +270,10 @@ public actor RecoveryJournal {
             logger.debug("Saved \(self.entries.count) entries to recovery journal")
         } catch {
             logger.error("Failed to save recovery journal: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "RecoveryJournal",
+                "Failed to save recovery journal: \(error.localizedDescription)"
+            )
         }
     }
 }

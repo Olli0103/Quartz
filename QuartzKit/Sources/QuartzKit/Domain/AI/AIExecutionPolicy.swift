@@ -137,6 +137,10 @@ public actor AIExecutionPolicy {
             } catch {
                 recordFailure(error)
                 logger.warning("Remote similarity failed: \(error.localizedDescription), falling back")
+                QuartzDiagnostics.warning(
+                    category: "AIExecutionPolicy",
+                    "Remote similarity failed: \(error.localizedDescription), falling back"
+                )
             }
         }
 
@@ -192,6 +196,10 @@ public actor AIExecutionPolicy {
             } catch {
                 recordFailure(error)
                 logger.warning("Remote concept extraction failed: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "AIExecutionPolicy",
+                    "Remote concept extraction failed: \(error.localizedDescription)"
+                )
             }
         }
 
@@ -349,6 +357,10 @@ public actor AIExecutionPolicy {
             circuitOpenedAt = Date()
             persistHealth()
             logger.warning("Circuit breaker opened after \(self.consecutiveFailures) failures")
+            QuartzDiagnostics.warning(
+                category: "AIExecutionPolicy",
+                "Circuit breaker opened after \(self.consecutiveFailures) failures"
+            )
         } else if consecutiveFailures >= circuitBreakerThreshold / 2 {
             providerHealth = .degraded
             persistHealth()
@@ -479,6 +491,10 @@ public actor FallbackKnowledgeExtractor {
                 }
             } catch {
                 logger.warning("Remote entity extraction failed: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "KnowledgeExtractor",
+                    "Remote entity extraction failed: \(error.localizedDescription)"
+                )
             }
         }
 
@@ -502,6 +518,10 @@ public actor FallbackKnowledgeExtractor {
                 }
             } catch {
                 logger.warning("Remote tag suggestion failed: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "KnowledgeExtractor",
+                    "Remote tag suggestion failed: \(error.localizedDescription)"
+                )
             }
         }
 

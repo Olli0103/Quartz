@@ -86,6 +86,12 @@ public struct CrashSentinelModifier<FallbackContent: View>: ViewModifier {
             Error: \(error?.localizedDescription ?? "Unknown", privacy: .public)
             Timestamp: \(self.crashTimestamp)
             """)
+        QuartzDiagnostics.fault(
+            category: "CrashSentinel",
+            """
+            Crash sentinel triggered in \(self.context): \(error?.localizedDescription ?? "Unknown")
+            """
+        )
 
         // Invoke callback
         if let error = error {
@@ -221,7 +227,15 @@ public actor DiagnosticExportService {
 
     public static let shared = DiagnosticExportService()
 
-    private init() {}
+    private let diagnosticsStore: QuartzDiagnosticsStore
+
+    private init(diagnosticsStore: QuartzDiagnosticsStore = .shared) {
+        self.diagnosticsStore = diagnosticsStore
+    }
+
+    internal init(testingDiagnosticsStore diagnosticsStore: QuartzDiagnosticsStore) {
+        self.diagnosticsStore = diagnosticsStore
+    }
 
     /// Generates a diagnostic report for the current app state.
     public func generateReport(
@@ -230,8 +244,27 @@ public actor DiagnosticExportService {
         additionalInfo: [String: Any] = [:]
     ) async -> DiagnosticReport {
         let deviceInfo = await gatherDeviceInfo()
-        let appInfo = await gatherAppInfo()
-        let memoryInfo = await gatherMemoryInfo()
+        let appInfo = gatherAppInfo()
+        let memoryInfo = gatherMemoryInfo()
+        let vaultInfo = await gatherVaultInfo()
+        let metricInfo = await gatherMetricInfo()
+        let recoveryInfo = await gatherRecoveryInfo()
+        let recentDiagnosticsLog = await diagnosticsStore.recentLogText(limitBytes: 65_536)
+        let diagnosticsLogLocation = await diagnosticsStore.logFileURL()?.path(percentEncoded: false)
+
+        var mergedAdditionalInfo = additionalInfo.mapValues { String(describing: $0) }
+        for (key, value) in vaultInfo {
+            mergedAdditionalInfo[key] = value
+        }
+        for (key, value) in metricInfo {
+            mergedAdditionalInfo[key] = value
+        }
+        for (key, value) in recoveryInfo {
+            mergedAdditionalInfo[key] = value
+        }
+        if let diagnosticsLogLocation {
+            mergedAdditionalInfo["diagnosticsLogPath"] = diagnosticsLogLocation
+        }
 
         return DiagnosticReport(
             id: UUID(),
@@ -242,7 +275,8 @@ public actor DiagnosticExportService {
             deviceInfo: deviceInfo,
             appInfo: appInfo,
             memoryInfo: memoryInfo,
-            additionalInfo: additionalInfo.mapValues { String(describing: $0) }
+            recentDiagnosticsLog: recentDiagnosticsLog,
+            additionalInfo: mergedAdditionalInfo
         )
     }
 
@@ -289,6 +323,11 @@ public actor DiagnosticExportService {
         ───────────────────────────────────────────────────────────────
         \(report.additionalInfo.map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
 
+        ───────────────────────────────────────────────────────────────
+        RECENT DIAGNOSTICS LOG
+        ───────────────────────────────────────────────────────────────
+        \(report.recentDiagnosticsLog)
+
         ═══════════════════════════════════════════════════════════════
         END OF REPORT
         ═══════════════════════════════════════════════════════════════
@@ -333,6 +372,99 @@ public actor DiagnosticExportService {
         )
     }
 
+    @MainActor
+    private func gatherMetricInfo() -> [String: String] {
+        var info: [String: String] = [:]
+
+        if let metrics = QuartzMetricManager.shared.latestMetricsSummary {
+            if let coldLaunch = metrics.coldLaunchTimeSeconds {
+                info["metrics.coldLaunchSeconds"] = String(format: "%.2f", coldLaunch)
+            }
+            if let totalHang = metrics.totalHangTimeMs {
+                info["metrics.totalHangMs"] = String(format: "%.0f", totalHang)
+            }
+            if let peakMemory = metrics.peakMemoryMB {
+                info["metrics.peakMemoryMB"] = String(format: "%.0f", peakMemory)
+            }
+            if let cpuTime = metrics.cpuTimeSeconds {
+                info["metrics.cpuTimeSeconds"] = String(format: "%.2f", cpuTime)
+            }
+            if let diskWrites = metrics.diskWritesGB {
+                info["metrics.diskWritesGB"] = String(format: "%.3f", diskWrites)
+            }
+            if let hitchRate = metrics.scrollHitchRate {
+                info["metrics.scrollHitchRate"] = String(format: "%.4f", hitchRate)
+            }
+        }
+
+        if let diagnostics = QuartzMetricManager.shared.latestDiagnosticsSummary {
+            info["diagnostics.crashCount"] = String(diagnostics.crashCount)
+            info["diagnostics.hangCount"] = String(diagnostics.hangCount)
+            info["diagnostics.diskWriteExceptionCount"] = String(diagnostics.diskWriteExceptionCount)
+            info["diagnostics.cpuExceptionCount"] = String(diagnostics.cpuExceptionCount)
+        }
+
+        return info
+    }
+
+    @MainActor
+    private func gatherVaultInfo() -> [String: String] {
+        let manager = VaultAccessManager.shared
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var info: [String: String] = [
+            "vault.hasPersistedBookmark": String(manager.hasPersistedBookmark)
+        ]
+
+        if let lastVaultName = manager.lastVaultName {
+            info["vault.lastVaultName"] = lastVaultName
+        }
+
+        if let activeVaultURL = manager.activeVaultURL {
+            info["vault.activeVaultName"] = activeVaultURL.lastPathComponent
+
+            let quartzDirectory = activeVaultURL.appending(path: ".quartz", directoryHint: .isDirectory)
+            for fileName in [
+                "preview-cache.json",
+                "search-index.json",
+                "embeddings.idx",
+                "ai_index.json",
+                "recovery_journal.json"
+            ] {
+                let fileURL = quartzDirectory.appending(path: fileName)
+                let path = fileURL.path(percentEncoded: false)
+                let exists = FileManager.default.fileExists(atPath: path)
+                info["vault.\(fileName).exists"] = String(exists)
+                guard exists,
+                      let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
+                    continue
+                }
+
+                if let size = attributes[.size] as? NSNumber {
+                    info["vault.\(fileName).sizeBytes"] = size.stringValue
+                }
+                if let modifiedDate = attributes[.modificationDate] as? Date {
+                    info["vault.\(fileName).modified"] = timestampFormatter.string(from: modifiedDate)
+                }
+            }
+        }
+
+        if let lastError = manager.lastError?.localizedDescription {
+            info["vault.lastError"] = lastError
+        }
+
+        return info
+    }
+
+    private func gatherRecoveryInfo() async -> [String: String] {
+        let pendingEntries = await RecoveryJournal.shared.pendingEntries
+        let deferredEntries = await RecoveryJournal.shared.deferredEntries
+        return [
+            "recovery.pendingEntries": String(pendingEntries.count),
+            "recovery.deferredEntries": String(deferredEntries.count)
+        ]
+    }
+
     private func gatherMemoryInfo() -> MemoryInfo {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
@@ -365,6 +497,7 @@ public struct DiagnosticReport: Sendable, Codable {
     public let deviceInfo: DeviceInfo
     public let appInfo: AppInfo
     public let memoryInfo: MemoryInfo
+    public let recentDiagnosticsLog: String
     public let additionalInfo: [String: String]
 }
 

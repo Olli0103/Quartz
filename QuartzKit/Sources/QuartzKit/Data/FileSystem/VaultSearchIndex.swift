@@ -136,6 +136,10 @@ public actor VaultSearchIndex {
             }
         } catch {
             logger.warning("Could not index note at \(url.lastPathComponent): \(error.localizedDescription)")
+            QuartzDiagnostics.warning(
+                category: "VaultSearchIndex",
+                "Could not index note at \(url.lastPathComponent): \(error.localizedDescription)"
+            )
             entries.removeValue(forKey: url)
         }
     }
@@ -402,6 +406,10 @@ public actor VaultSearchIndex {
             logger.debug("Saved search index cache (\(self.entries.count) entries)")
         } catch {
             logger.warning("Failed to save search index cache: \(error.localizedDescription)")
+            QuartzDiagnostics.warning(
+                category: "VaultSearchIndex",
+                "Failed to save search index cache: \(error.localizedDescription)"
+            )
         }
     }
 

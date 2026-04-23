@@ -102,6 +102,10 @@ public actor OperationWatchdog {
                     Duration: \(durationMs, format: .fixed(precision: 2))ms
                     Threshold: \(Double(thresholdNanos) / 1_000_000, format: .fixed(precision: 2))ms
                     """)
+                QuartzDiagnostics.fault(
+                    category: "OperationWatchdog",
+                    "Slow operation detected: \(name) [\(category)] \(String(format: "%.2f", durationMs))ms"
+                )
 
                 // Post notification for RecoveryJournal
                 Task { @MainActor in
@@ -187,6 +191,10 @@ public actor OperationWatchdog {
 
             if durationNanos > thresholdNanos {
                 logger.warning("Operation '\(name, privacy: .public)' exceeded threshold: \(durationMs, format: .fixed(precision: 2))ms")
+                QuartzDiagnostics.warning(
+                    category: "OperationWatchdog",
+                    "Operation '\(name)' exceeded threshold: \(String(format: "%.2f", durationMs))ms"
+                )
             }
 
             await recordOperation(name: "\(name)", category: category, durationMs: durationMs, exceededThreshold: durationNanos > thresholdNanos)
@@ -196,6 +204,10 @@ public actor OperationWatchdog {
         } catch let error as WatchdogError {
             os_signpost(.end, log: signpostLog, name: name, signpostID: signpostID, "timeout")
             logger.fault("OPERATION TIMEOUT: \(name, privacy: .public) exceeded \(timeout.components.seconds)s hard limit")
+            QuartzDiagnostics.fault(
+                category: "OperationWatchdog",
+                "Operation timeout: \(name) exceeded \(timeout.components.seconds)s hard limit"
+            )
 
             // Capture diagnostic info
             await recordTimeout(name: "\(name)", category: category, timeoutMs: Double(timeout.components.seconds) * 1000)

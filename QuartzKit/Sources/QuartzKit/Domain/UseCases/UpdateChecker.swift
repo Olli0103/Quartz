@@ -95,6 +95,10 @@ public actor UpdateChecker {
             )
         } catch {
             logger.error("Failed to check for updates: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "UpdateChecker",
+                "Failed to check for updates: \(error.localizedDescription)"
+            )
             return nil
         }
     }

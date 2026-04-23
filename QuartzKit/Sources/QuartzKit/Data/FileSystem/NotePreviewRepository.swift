@@ -61,6 +61,10 @@ public actor NotePreviewRepository {
             logger.info("Loaded \(entries.count) preview cache entries.")
         } catch {
             logger.warning("Failed to load preview cache: \(error.localizedDescription). Starting fresh.")
+            QuartzDiagnostics.warning(
+                category: "NotePreviewRepository",
+                "Failed to load preview cache: \(error.localizedDescription). Starting fresh."
+            )
             cache = [:]
         }
     }
@@ -75,6 +79,10 @@ public actor NotePreviewRepository {
             try data.write(to: cacheFileURL, options: .atomic)
         } catch {
             logger.warning("Failed to save preview cache: \(error.localizedDescription)")
+            QuartzDiagnostics.warning(
+                category: "NotePreviewRepository",
+                "Failed to save preview cache: \(error.localizedDescription)"
+            )
         }
     }
 

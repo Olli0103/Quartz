@@ -321,6 +321,10 @@ public actor KnowledgeExtractionService {
         saveStateToDisk()
         let elapsedMilliseconds = (DispatchTime.now().uptimeNanoseconds - scanStart) / 1_000_000
         logger.info("Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms")
+        QuartzDiagnostics.info(
+            category: "KnowledgeExtraction",
+            "Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms"
+        )
 
         await MainActor.run {
             NotificationCenter.default.post(name: .quartzConceptScanProgress, object: nil)
@@ -409,6 +413,10 @@ public actor KnowledgeExtractionService {
             )
         } catch {
             logger.warning("Extraction failed: \(error.localizedDescription)")
+            QuartzDiagnostics.warning(
+                category: "KnowledgeExtraction",
+                "Extraction failed: \(error.localizedDescription)"
+            )
         }
     }
 

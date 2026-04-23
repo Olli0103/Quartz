@@ -160,6 +160,10 @@ struct VaultPickerView: View {
             } catch {
                 Logger(subsystem: "com.quartz", category: "VaultPicker")
                     .warning("Failed to persist bookmark: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "VaultPicker",
+                    "Failed to persist bookmark: \(error.localizedDescription)"
+                )
             }
             onVaultSelected(vault)
             dismiss()
@@ -205,6 +209,10 @@ struct VaultPickerView: View {
             } catch {
                 Logger(subsystem: "com.quartz", category: "VaultPicker")
                     .warning("Failed to persist bookmark: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "VaultPicker",
+                    "Failed to persist bookmark: \(error.localizedDescription)"
+                )
             }
             onVaultSelected(vault)
             dismiss()

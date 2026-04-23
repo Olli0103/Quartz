@@ -57,6 +57,7 @@ public final class AppState {
 
     /// Convenience to show an error string.
     public func showError(_ message: String) {
+        QuartzDiagnostics.error(category: "AppState", "User-facing error: \(message)")
         errorMessage = message
     }
 

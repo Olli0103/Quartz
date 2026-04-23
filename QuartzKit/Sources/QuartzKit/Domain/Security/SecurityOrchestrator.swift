@@ -132,6 +132,10 @@ public final class SecurityOrchestrator {
 
         case .failed(let message):
             logger.warning("Authentication failed: \(message)")
+            QuartzDiagnostics.warning(
+                category: "Security",
+                "Authentication failed: \(message)"
+            )
             authError = message
             QuartzFeedback.warning()
         }

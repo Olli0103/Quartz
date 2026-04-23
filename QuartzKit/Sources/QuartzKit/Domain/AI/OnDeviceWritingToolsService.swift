@@ -166,6 +166,10 @@ public actor OnDeviceWritingToolsService {
                     return response.content
                 } catch {
                     logger.error("Foundation Models inline AI failed: \(error.localizedDescription, privacy: .public)")
+                    QuartzDiagnostics.error(
+                        category: "OnDeviceWritingTools",
+                        "Foundation Models inline AI failed: \(error.localizedDescription)"
+                    )
                     throw AIError.foundationModelUnavailable
                 }
             }
@@ -174,6 +178,10 @@ public actor OnDeviceWritingToolsService {
 
         // Path 3: Nothing available
         logger.warning("Inline AI: no provider or Apple Intelligence available")
+        QuartzDiagnostics.warning(
+            category: "OnDeviceWritingTools",
+            "Inline AI unavailable: no provider or Apple Intelligence available"
+        )
         throw AIError.noAIProviderConfigured
     }
 
@@ -301,6 +309,10 @@ public actor OnDeviceWritingToolsService {
                 } catch {
                     // Log the failure but don't crash — fall through to provider path.
                     logger.error("Foundation Models failed: \(error.localizedDescription, privacy: .public). Falling back to AI provider.")
+                    QuartzDiagnostics.error(
+                        category: "OnDeviceWritingTools",
+                        "Foundation Models failed: \(error.localizedDescription). Falling back to AI provider."
+                    )
                 }
             }
         }

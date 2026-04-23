@@ -129,6 +129,10 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
         // Check document size
         if utf8Count > Self.maxDocumentSize {
             logger.warning("Document exceeds max size: \(utf8Count) > \(Self.maxDocumentSize)")
+            QuartzDiagnostics.warning(
+                category: "TextKitCircuitBreaker",
+                "Document exceeds max size: \(utf8Count) > \(Self.maxDocumentSize)"
+            )
             return .degraded(reason: .documentTooLarge(size: utf8Count))
         }
 
@@ -142,6 +146,10 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
 
         if let longLineLength = scanResult.longLineLength {
             logger.warning("Line too long: \(longLineLength) characters")
+            QuartzDiagnostics.warning(
+                category: "TextKitCircuitBreaker",
+                "Line too long: \(longLineLength) characters"
+            )
             return .degraded(reason: .lineTooLong(length: longLineLength))
         }
 
@@ -410,6 +418,10 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
     private func recordFailure(reason: String) {
         failureCount += 1
         logger.warning("TextKit failure #\(self.failureCount): \(reason, privacy: .public)")
+        QuartzDiagnostics.warning(
+            category: "TextKitCircuitBreaker",
+            "TextKit failure #\(self.failureCount): \(reason)"
+        )
 
         if failureCount >= failureThreshold {
             tripCircuit(reason: reason)
@@ -444,6 +456,10 @@ public final class TextKitCircuitBreaker: @unchecked Sendable {
 
         if state != previousState {
             logger.fault("TextKit circuit tripped: \(previousState.rawValue) → \(self.state.rawValue). Reason: \(reason, privacy: .public)")
+            QuartzDiagnostics.fault(
+                category: "TextKitCircuitBreaker",
+                "TextKit circuit tripped: \(previousState.rawValue) -> \(self.state.rawValue). Reason: \(reason)"
+            )
 
             // Notify observers
             NotificationCenter.default.post(

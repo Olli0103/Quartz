@@ -264,6 +264,10 @@ public actor IntelligenceEngineCoordinator {
         // CRITICAL: Use coordinated read to prevent race with iCloud
         guard let content = try? CoordinatedFileWriter.shared.readString(from: url) else {
             logger.warning("Failed to read file: \(url.lastPathComponent)")
+            QuartzDiagnostics.warning(
+                category: "IntelligenceEngine",
+                "Failed to read file: \(url.lastPathComponent)"
+            )
             return
         }
 
@@ -276,6 +280,10 @@ public actor IntelligenceEngineCoordinator {
             try await embedding.saveIndex()
         } catch {
             logger.error("Failed to index note: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "IntelligenceEngine",
+                "Failed to index note: \(error.localizedDescription)"
+            )
         }
     }
 

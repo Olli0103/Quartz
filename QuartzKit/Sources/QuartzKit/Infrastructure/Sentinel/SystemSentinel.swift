@@ -162,8 +162,16 @@ public final class SystemSentinel: @unchecked Sendable {
         switch memoryPressure {
         case .critical:
             logger.fault("CRITICAL memory pressure! Initiating emergency throttle.")
+            QuartzDiagnostics.fault(
+                category: "SystemSentinel",
+                "Critical memory pressure detected. Initiating emergency throttle."
+            )
         case .warning:
             logger.warning("Memory pressure warning. Throttling non-essential work.")
+            QuartzDiagnostics.warning(
+                category: "SystemSentinel",
+                "Memory pressure warning. Throttling non-essential work."
+            )
         case .normal:
             logger.info("Memory pressure returned to normal.")
         }
@@ -209,14 +217,26 @@ public final class SystemSentinel: @unchecked Sendable {
         switch thermalState {
         case .critical:
             logger.fault("CRITICAL thermal state! CPU heavily throttled. Disabling animations.")
+            QuartzDiagnostics.fault(
+                category: "SystemSentinel",
+                "Critical thermal state detected. CPU heavily throttled."
+            )
         case .serious:
             logger.warning("Serious thermal pressure. Reducing frame rate.")
+            QuartzDiagnostics.warning(
+                category: "SystemSentinel",
+                "Serious thermal pressure detected. Reducing frame rate."
+            )
         case .fair:
             logger.info("Thermal state: fair. Minor throttling may occur.")
         case .nominal:
             logger.info("Thermal state returned to nominal.")
         @unknown default:
             logger.warning("Unknown thermal state: \(self.thermalState.rawValue)")
+            QuartzDiagnostics.warning(
+                category: "SystemSentinel",
+                "Unknown thermal state: \(self.thermalState.rawValue)"
+            )
         }
 
         // Notify subsystems

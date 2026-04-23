@@ -101,22 +101,28 @@ public final class ContentViewModel {
         detail: String? = nil
     ) {
         let elapsed = elapsedMilliseconds(since: startTime)
+        let diagnosticsMessage: String
         switch (noteCount, detail) {
         case let (.some(noteCount), .some(detail)):
+            diagnosticsMessage = "\(stage) finished in \(elapsed) ms (\(noteCount) notes, \(detail))"
             indexingTelemetryLogger.info(
                 "\(stage, privacy: .public) finished in \(elapsed) ms (\(noteCount) notes, \(detail, privacy: .public))"
             )
         case let (.some(noteCount), .none):
+            diagnosticsMessage = "\(stage) finished in \(elapsed) ms (\(noteCount) notes)"
             indexingTelemetryLogger.info(
                 "\(stage, privacy: .public) finished in \(elapsed) ms (\(noteCount) notes)"
             )
         case let (.none, .some(detail)):
+            diagnosticsMessage = "\(stage) finished in \(elapsed) ms (\(detail))"
             indexingTelemetryLogger.info(
                 "\(stage, privacy: .public) finished in \(elapsed) ms (\(detail, privacy: .public))"
             )
         case (.none, .none):
+            diagnosticsMessage = "\(stage) finished in \(elapsed) ms"
             indexingTelemetryLogger.info("\(stage, privacy: .public) finished in \(elapsed) ms")
         }
+        QuartzDiagnostics.info(category: "IndexingTelemetry", diagnosticsMessage)
     }
 
     // MARK: - Vault Loading
@@ -398,6 +404,10 @@ public final class ContentViewModel {
             // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
             await knowledgeExtractionService?.startVaultScan()
             Self.indexingTelemetryLogger.info("AI concept vault scan scheduled for \(noteURLs.count) notes")
+            QuartzDiagnostics.info(
+                category: "IndexingTelemetry",
+                "AI concept vault scan scheduled for \(noteURLs.count) notes"
+            )
         }
 
         let iCloudSyncEnabled = (UserDefaults.standard.object(forKey: "iCloudSyncEnabled") as? Bool) ?? true
@@ -1331,6 +1341,10 @@ public final class ContentViewModel {
                 Self.indexingTelemetryLogger.info(
                     "Embedding sweep skipped: 0/\(noteURLs.count) notes need re-embedding"
                 )
+                QuartzDiagnostics.info(
+                    category: "IndexingTelemetry",
+                    "Embedding sweep skipped: 0/\(noteURLs.count) notes need re-embedding"
+                )
                 await MainActor.run { [weak self] in
                     guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
                     self?.indexingProgress = nil
@@ -1341,6 +1355,10 @@ public final class ContentViewModel {
 
             let total = pendingNoteURLs.count
             Self.indexingTelemetryLogger.info(
+                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding"
+            )
+            QuartzDiagnostics.info(
+                category: "IndexingTelemetry",
                 "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding"
             )
             await MainActor.run { [weak self] in
@@ -1374,6 +1392,10 @@ public final class ContentViewModel {
                 let current = i + 1
                 if current == total || current.isMultiple(of: 100) {
                     Self.indexingTelemetryLogger.info(
+                        "Embedding sweep progress: \(current)/\(total) pending notes processed"
+                    )
+                    QuartzDiagnostics.info(
+                        category: "IndexingTelemetry",
                         "Embedding sweep progress: \(current)/\(total) pending notes processed"
                     )
                 }

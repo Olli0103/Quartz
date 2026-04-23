@@ -283,6 +283,10 @@ public actor VectorEmbeddingService {
     ) -> [SearchResult] {
         guard let queryEmbedding = generateEmbedding(for: query) else {
             logger.warning("search: failed to generate embedding for query, returning empty")
+            QuartzDiagnostics.warning(
+                category: "Embeddings",
+                "Search failed to generate embedding for query; returning empty result"
+            )
             return []
         }
 

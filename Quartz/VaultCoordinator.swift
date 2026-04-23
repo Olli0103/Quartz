@@ -137,6 +137,10 @@ public final class VaultCoordinator {
             }
         } catch {
             logger.warning("Failed to restore vault: \(error.localizedDescription)")
+            QuartzDiagnostics.warning(
+                category: "VaultCoordinator",
+                "Failed to restore vault: \(error.localizedDescription)"
+            )
         }
 
         // Fallback: check if another device synced an iCloud vault via KVStore
@@ -169,6 +173,10 @@ public final class VaultCoordinator {
             try VaultAccessManager.shared.persistBookmark(for: url, vaultName: vaultName)
         } catch {
             logger.error("Failed to persist bookmark: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VaultCoordinator",
+                "Failed to persist bookmark: \(error.localizedDescription)"
+            )
         }
     }
 

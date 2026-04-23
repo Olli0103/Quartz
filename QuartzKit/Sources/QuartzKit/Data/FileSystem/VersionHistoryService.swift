@@ -100,6 +100,10 @@ public struct VersionHistoryService: Sendable {
             try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
         } catch {
             Self.logger.error("Failed to create snapshot directory: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VersionHistory",
+                "Failed to create snapshot directory: \(error.localizedDescription)"
+            )
             return
         }
 
@@ -113,6 +117,10 @@ public struct VersionHistoryService: Sendable {
 
         guard var data = content.data(using: .utf8) else {
             Self.logger.error("Failed to encode snapshot content as UTF-8")
+            QuartzDiagnostics.error(
+                category: "VersionHistory",
+                "Failed to encode snapshot content as UTF-8"
+            )
             return
         }
 
@@ -122,11 +130,19 @@ public struct VersionHistoryService: Sendable {
                 let sealedBox = try AES.GCM.seal(data, using: key)
                 guard let combined = sealedBox.combined else {
                     Self.logger.error("Failed to combine encrypted snapshot data")
+                    QuartzDiagnostics.error(
+                        category: "VersionHistory",
+                        "Failed to combine encrypted snapshot data"
+                    )
                     return
                 }
                 data = combined
             } catch {
                 Self.logger.error("Failed to encrypt snapshot: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
+                    category: "VersionHistory",
+                    "Failed to encrypt snapshot: \(error.localizedDescription)"
+                )
                 return
             }
         }
@@ -140,11 +156,19 @@ public struct VersionHistoryService: Sendable {
                 try data.write(to: coordinatedURL, options: .atomic)
             } catch {
                 Self.logger.error("Failed to write snapshot: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
+                    category: "VersionHistory",
+                    "Failed to write snapshot: \(error.localizedDescription)"
+                )
             }
         }
 
         if let error = coordinatorError {
             Self.logger.error("File coordination failed for snapshot: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VersionHistory",
+                "File coordination failed for snapshot: \(error.localizedDescription)"
+            )
         }
 
         // Prune old snapshots (async to avoid blocking)
@@ -173,6 +197,10 @@ public struct VersionHistoryService: Sendable {
             )
         } catch {
             Self.logger.error("Failed to list version snapshots: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VersionHistory",
+                "Failed to list version snapshots: \(error.localizedDescription)"
+            )
             return []
         }
 
