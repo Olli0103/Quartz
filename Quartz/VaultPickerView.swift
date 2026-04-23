@@ -215,15 +215,17 @@ struct VaultPickerView: View {
     }
 
     private func restoreLastVault() {
-        do {
-            if let vault = try VaultAccessManager.shared.restoreLastVault() {
-                onVaultSelected(vault)
-                dismiss()
-            } else {
-                errorMessage = String(localized: "Could not find saved vault bookmark.")
+        Task { @MainActor in
+            do {
+                if let vault = try await VaultAccessManager.shared.restoreLastVaultWithRetry(maxAttempts: 2) {
+                    onVaultSelected(vault)
+                    dismiss()
+                } else {
+                    errorMessage = String(localized: "Could not find saved vault bookmark.")
+                }
+            } catch {
+                errorMessage = error.localizedDescription
             }
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }

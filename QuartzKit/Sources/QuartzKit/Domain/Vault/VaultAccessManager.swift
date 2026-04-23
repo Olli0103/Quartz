@@ -14,6 +14,10 @@ import os
 @MainActor
 @Observable
 public final class VaultAccessManager {
+    internal struct ResolvedBookmark {
+        let url: URL
+        let isStale: Bool
+    }
 
     // MARK: - Singleton
 
@@ -39,6 +43,8 @@ public final class VaultAccessManager {
     private let iCloudVaultNameKey = "icloud.vault.name"
     private let iCloudContainerID = "iCloud.olli.QuartzNotes"
     private let logger = Logger(subsystem: "com.quartz", category: "VaultAccessManager")
+    internal var bookmarkResolverOverride: ((Data) throws -> ResolvedBookmark)?
+    internal var securityScopeAccessOverride: ((URL) -> Bool)?
     /// Stored notification token removed during teardown.
     private var kvStoreObserver: Any?
 
@@ -78,9 +84,12 @@ public final class VaultAccessManager {
             syncVaultPathToICloud(url: url, vaultName: vaultName)
 
             logger.info("Persisted bookmark for vault: \(vaultName)")
+            lastError = nil
         } catch {
             logger.error("Failed to persist vault bookmark: \(error.localizedDescription)")
-            throw VaultAccessError.bookmarkCreationFailed(error)
+            let accessError = VaultAccessError.bookmarkCreationFailed(error)
+            lastError = accessError
+            throw accessError
         }
     }
 
@@ -93,48 +102,49 @@ public final class VaultAccessManager {
             return nil
         }
 
-        var isStale = false
-        let url: URL
-
         do {
-            #if os(macOS)
-            url = try URL(
-                resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            url = try URL(
-                resolvingBookmarkData: bookmarkData,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-        } catch {
-            clearBookmark()
-            throw VaultAccessError.bookmarkResolutionFailed(error)
-        }
+            let resolved = try resolveBookmark(from: bookmarkData)
+            let url = resolved.url
+            let isStale = resolved.isStale
 
-        guard url.startAccessingSecurityScopedResource() else {
-            clearBookmark()
-            throw VaultAccessError.securityScopeAccessDenied(url)
-        }
-
-        // Refresh stale bookmarks
-        if isStale {
-            logger.info("Refreshing stale bookmark for: \(url.lastPathComponent)")
-            do {
-                try persistBookmark(for: url, vaultName: url.lastPathComponent)
-            } catch {
-                // Non-fatal: we can still use the old bookmark this session
-                logger.warning("Failed to refresh stale bookmark: \(error.localizedDescription)")
+            guard startAccessingSecurityScopedResource(for: url) else {
+                let accessError = VaultAccessError.securityScopeAccessDenied(url)
+                lastError = accessError
+                logger.warning(
+                    "Security-scoped access denied for persisted vault \(url.lastPathComponent, privacy: .public); preserving bookmark for retry"
+                )
+                throw accessError
             }
+
+            // Refresh stale bookmarks
+            if isStale {
+                logger.info("Refreshing stale bookmark for: \(url.lastPathComponent)")
+                do {
+                    try persistBookmark(for: url, vaultName: url.lastPathComponent)
+                } catch {
+                    // Non-fatal: we can still use the old bookmark this session
+                    logger.warning("Failed to refresh stale bookmark: \(error.localizedDescription)")
+                }
+            }
+
+            let name = UserDefaults.standard.string(forKey: nameKey) ?? url.lastPathComponent
+            activeVaultURL = url
+            lastError = nil
+
+            logger.info("Restored vault: \(name)")
+            return VaultConfig(name: name, rootURL: url)
+        } catch {
+            if let accessError = error as? VaultAccessError {
+                throw accessError
+            }
+
+            let accessError = VaultAccessError.bookmarkResolutionFailed(error)
+            lastError = accessError
+            logger.error(
+                "Failed to resolve persisted vault bookmark; preserving bookmark for retry: \(error.localizedDescription, privacy: .public)"
+            )
+            throw accessError
         }
-
-        let name = UserDefaults.standard.string(forKey: nameKey) ?? url.lastPathComponent
-        activeVaultURL = url
-
-        logger.info("Restored vault: \(name)")
-        return VaultConfig(name: name, rootURL: url)
     }
 
     /// Clears the persisted bookmark and iCloud-synced vault info.
@@ -146,6 +156,7 @@ public final class VaultAccessManager {
         kvStore.removeObject(forKey: iCloudVaultNameKey)
         kvStore.synchronize()
         activeVaultURL = nil
+        lastError = nil
         logger.info("Cleared vault bookmark and iCloud sync")
     }
 
@@ -167,14 +178,17 @@ public final class VaultAccessManager {
     /// - Returns: `VaultConfig` for the opened vault.
     /// - Throws: `VaultAccessError` if access or persistence fails.
     public func openVault(at url: URL, name: String? = nil) throws -> VaultConfig {
-        guard url.startAccessingSecurityScopedResource() else {
-            throw VaultAccessError.securityScopeAccessDenied(url)
+        guard startAccessingSecurityScopedResource(for: url) else {
+            let accessError = VaultAccessError.securityScopeAccessDenied(url)
+            lastError = accessError
+            throw accessError
         }
 
         let vaultName = name ?? url.lastPathComponent
         try persistBookmark(for: url, vaultName: vaultName)
 
         activeVaultURL = url
+        lastError = nil
         return VaultConfig(name: vaultName, rootURL: url)
     }
 
@@ -185,6 +199,11 @@ public final class VaultAccessManager {
             logger.info("Closed vault: \(url.lastPathComponent)")
         }
         activeVaultURL = nil
+    }
+
+    internal func resetTestingOverrides() {
+        bookmarkResolverOverride = nil
+        securityScopeAccessOverride = nil
     }
 
     // MARK: - Hardening
@@ -325,11 +344,13 @@ public final class VaultAccessManager {
                     if validateVaultAccess(config.rootURL) {
                         return config
                     }
+                    closeActiveVault()
                     throw VaultAccessError.vaultNotFound(config.rootURL)
                 }
                 return nil
             } catch {
                 lastError = error
+                guard attempt + 1 < maxAttempts else { break }
                 let delay = Double(1 << attempt) // 1s, 2s, 4s
                 logger.info("Vault restore attempt \(attempt + 1)/\(maxAttempts) failed, retrying in \(delay)s")
                 try? await Task.sleep(for: .seconds(delay))
@@ -340,6 +361,34 @@ public final class VaultAccessManager {
             throw lastError
         }
         return nil
+    }
+
+    private func resolveBookmark(from bookmarkData: Data) throws -> ResolvedBookmark {
+        if let bookmarkResolverOverride {
+            return try bookmarkResolverOverride(bookmarkData)
+        }
+
+        var isStale = false
+        #if os(macOS)
+        let url = try URL(
+            resolvingBookmarkData: bookmarkData,
+            options: .withSecurityScope,
+            bookmarkDataIsStale: &isStale
+        )
+        #else
+        let url = try URL(
+            resolvingBookmarkData: bookmarkData,
+            bookmarkDataIsStale: &isStale
+        )
+        #endif
+        return ResolvedBookmark(url: url, isStale: isStale)
+    }
+
+    private func startAccessingSecurityScopedResource(for url: URL) -> Bool {
+        if let securityScopeAccessOverride {
+            return securityScopeAccessOverride(url)
+        }
+        return url.startAccessingSecurityScopedResource()
     }
 }
 

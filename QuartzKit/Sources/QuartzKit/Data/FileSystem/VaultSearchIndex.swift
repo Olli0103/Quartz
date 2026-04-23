@@ -11,6 +11,14 @@ import os
 ///
 /// System-wide discovery uses ``QuartzSpotlightIndexer`` (Core Spotlight), not this type.
 public actor VaultSearchIndex {
+    private static let rebuildCheckpointInterval = 32
+
+    public enum BuildSource: String, Sendable {
+        case cache
+        case rebuild
+        case incremental
+    }
+
     /// Indexed entry for a note.
     private struct IndexEntry: Sendable, Codable {
         let url: URL
@@ -33,6 +41,7 @@ public actor VaultSearchIndex {
     private var entries: [URL: IndexEntry] = [:]
     private let vaultProvider: any VaultProviding
     private let logger = Logger(subsystem: "com.quartz", category: "VaultSearchIndex")
+    private var lastBuildSource: BuildSource?
 
     /// Root URL of the current vault (set after buildIndex or loadIndex).
     private var vaultRoot: URL?
@@ -58,30 +67,40 @@ public actor VaultSearchIndex {
     /// vault state (no files added/removed/modified), loads from cache. Otherwise
     /// rebuilds from the filesystem and saves the new cache.
     public func buildIndex(at root: URL) async throws {
-        vaultRoot = root
         let tree = try await vaultProvider.loadFileTree(at: root)
-        let noteURLs = collectNoteURLs(from: tree)
-        let fingerprint = Self.computeFingerprint(for: noteURLs)
-
-        // Try loading from cache
-        if let cached = loadCache(vaultRoot: root), cached.fingerprint == fingerprint {
-            entries = cached.entries
-            logger.info("Loaded search index from cache (\(cached.entries.count) entries)")
-            return
-        }
-
-        // Cache miss — rebuild from filesystem
-        await indexNodes(tree)
-        scheduleCacheSave()
+        await buildIndex(fromPreloadedTree: tree, at: root)
     }
 
-    /// Indexes notes from an already loaded file tree (avoids duplicate I/O).
+    /// Builds the search index from an already loaded file tree.
+    ///
+    /// Reuses the persisted cache when the fingerprint matches, avoiding a second
+    /// full-note read on startup after the sidebar tree has already been loaded.
+    public func buildIndex(fromPreloadedTree nodes: [FileNode], at root: URL) async {
+        await buildIndex(fromPreloadedTree: nodes, at: root, forceRebuild: false)
+    }
+
+    /// Forces a rebuild from an already loaded file tree, overwriting any persisted cache.
+    public func rebuildIndex(fromPreloadedTree nodes: [FileNode], at root: URL) async {
+        await buildIndex(fromPreloadedTree: nodes, at: root, forceRebuild: true)
+    }
+
+    /// Indexes notes from an already loaded file tree without cache reuse.
+    /// Kept for compatibility with older call sites; prefer `buildIndex(fromPreloadedTree:at:)`.
     public func indexFromPreloadedTree(_ nodes: [FileNode]) async {
-        await indexNodes(nodes)
+        guard let vaultRoot else {
+            entries.removeAll(keepingCapacity: true)
+            await indexNodes(nodes)
+            return
+        }
+        await buildIndex(fromPreloadedTree: nodes, at: vaultRoot, forceRebuild: true)
     }
 
     /// Updates the index for a single note.
     public func updateEntry(for url: URL) async {
+        await updateEntry(for: url, scheduleSave: true)
+    }
+
+    private func updateEntry(for url: URL, scheduleSave: Bool) async {
         do {
             let note = try await vaultProvider.readNote(at: url)
             let title = note.displayName
@@ -111,7 +130,10 @@ public actor VaultSearchIndex {
                 bodyLower: body.lowercased(),
                 modifiedAt: note.frontmatter.modifiedAt
             )
-            scheduleCacheSave()
+            if scheduleSave {
+                lastBuildSource = .incremental
+                scheduleCacheSave()
+            }
         } catch {
             logger.warning("Could not index note at \(url.lastPathComponent): \(error.localizedDescription)")
             entries.removeValue(forKey: url)
@@ -121,6 +143,7 @@ public actor VaultSearchIndex {
     /// Removes a note from the index.
     public func removeEntry(for url: URL) {
         entries.removeValue(forKey: url)
+        lastBuildSource = .incremental
         scheduleCacheSave()
     }
 
@@ -138,6 +161,9 @@ public actor VaultSearchIndex {
 
     /// Returns the total number of indexed notes.
     public var entryCount: Int { entries.count }
+
+    /// Source used for the most recent vault-wide build or incremental update.
+    public var latestBuildSource: BuildSource? { lastBuildSource }
 
     /// Searches the index and returns results sorted by relevance.
     ///
@@ -206,9 +232,29 @@ public actor VaultSearchIndex {
 
     // MARK: - Private
 
+    private func buildIndex(fromPreloadedTree nodes: [FileNode], at root: URL, forceRebuild: Bool) async {
+        vaultRoot = root
+        let noteURLs = collectNoteURLs(from: nodes)
+        let fingerprint = Self.computeFingerprint(for: noteURLs)
+
+        if !forceRebuild,
+           let cached = loadCache(vaultRoot: root),
+           cached.fingerprint == fingerprint {
+            entries = cached.entries
+            lastBuildSource = .cache
+            logger.info("Loaded search index from cache (\(cached.entries.count) entries)")
+            return
+        }
+
+        entries.removeAll(keepingCapacity: true)
+        await indexNodes(nodes)
+        lastBuildSource = .rebuild
+    }
+
     private func indexNodes(_ nodes: [FileNode]) async {
         let noteURLs = collectNoteURLs(from: nodes)
         let maxConcurrency = 16
+        var completedSinceCheckpoint = 0
 
         await withTaskGroup(of: Void.self) { group in
             var pending = 0
@@ -216,14 +262,29 @@ public actor VaultSearchIndex {
                 if pending >= maxConcurrency {
                     await group.next()
                     pending -= 1
+                    completedSinceCheckpoint += 1
+                    if completedSinceCheckpoint >= Self.rebuildCheckpointInterval {
+                        saveCache()
+                        completedSinceCheckpoint = 0
+                    }
                 }
                 group.addTask {
-                    await self.updateEntry(for: url)
+                    await self.updateEntry(for: url, scheduleSave: false)
                 }
                 pending += 1
             }
-            await group.waitForAll()
+            while pending > 0 {
+                await group.next()
+                pending -= 1
+                completedSinceCheckpoint += 1
+                if completedSinceCheckpoint >= Self.rebuildCheckpointInterval {
+                    saveCache()
+                    completedSinceCheckpoint = 0
+                }
+            }
         }
+
+        saveCache()
     }
 
     private func collectNoteURLs(from nodes: [FileNode]) -> [URL] {

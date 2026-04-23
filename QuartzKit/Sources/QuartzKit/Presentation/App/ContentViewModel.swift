@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 
 /// Coordinates vault loading, note opening, and command routing.
 ///
@@ -7,6 +8,9 @@ import SwiftUI
 @Observable
 @MainActor
 public final class ContentViewModel {
+    nonisolated private static let embeddingCheckpointInterval = 8
+    nonisolated private static let indexingTelemetryLogger = Logger(subsystem: "com.quartz", category: "IndexingTelemetry")
+
     public var sidebarViewModel: SidebarViewModel?
     /// Jitter-free editor session. Used by WorkspaceView's detail column.
     /// This is the SOLE editor state machine — no legacy fallback.
@@ -57,6 +61,7 @@ public final class ContentViewModel {
     private var semanticSnapshotPersistTask: Task<Void, Never>?
     private var currentVaultRootURL: URL?
     private var relationshipRuntimeGeneration: UInt64 = 0
+    private var indexingRunID: UInt64 = 0
     /// Debounced task for re-indexing embeddings after note saves.
     private var embeddingReindexTask: Task<Void, Never>?
     /// Observer token for `.quartzNoteSaved` notifications (embedding reindex).
@@ -83,6 +88,35 @@ public final class ContentViewModel {
 
     public init(appState: AppState) {
         self.appState = appState
+    }
+
+    nonisolated private static func elapsedMilliseconds(since startTime: UInt64) -> UInt64 {
+        (DispatchTime.now().uptimeNanoseconds - startTime) / 1_000_000
+    }
+
+    nonisolated private static func logIndexingStage(
+        _ stage: String,
+        startedAt startTime: UInt64,
+        noteCount: Int? = nil,
+        detail: String? = nil
+    ) {
+        let elapsed = elapsedMilliseconds(since: startTime)
+        switch (noteCount, detail) {
+        case let (.some(noteCount), .some(detail)):
+            indexingTelemetryLogger.info(
+                "\(stage, privacy: .public) finished in \(elapsed) ms (\(noteCount) notes, \(detail, privacy: .public))"
+            )
+        case let (.some(noteCount), .none):
+            indexingTelemetryLogger.info(
+                "\(stage, privacy: .public) finished in \(elapsed) ms (\(noteCount) notes)"
+            )
+        case let (.none, .some(detail)):
+            indexingTelemetryLogger.info(
+                "\(stage, privacy: .public) finished in \(elapsed) ms (\(detail, privacy: .public))"
+            )
+        case (.none, .none):
+            indexingTelemetryLogger.info("\(stage, privacy: .public) finished in \(elapsed) ms")
+        }
     }
 
     // MARK: - Vault Loading
@@ -215,7 +249,15 @@ public final class ContentViewModel {
                   !Task.isCancelled else { return }
 
             // Load preview cache from disk first (instant middle column population)
+            let previewCacheLoadStart = DispatchTime.now().uptimeNanoseconds
             await previewRepo.loadCache()
+            let cachedPreviewCount = await previewRepo.count
+            Self.logIndexingStage(
+                "preview cache load",
+                startedAt: previewCacheLoadStart,
+                noteCount: cachedPreviewCount,
+                detail: "cached previews"
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
@@ -227,12 +269,23 @@ public final class ContentViewModel {
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
+            let treeLoadStart = DispatchTime.now().uptimeNanoseconds
             await viewModel.loadTree(at: vault.rootURL)
+            let treeNoteCount = Self.collectNoteURLs(from: viewModel.fileTree).count
+            Self.logIndexingStage("vault tree load", startedAt: treeLoadStart, noteCount: treeNoteCount)
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
             await self.syncRelationshipCatalog(to: viewModel.fileTree)
             // Run preview indexer alongside other indexers — it's the fastest (8KB reads)
+            let previewReindexStart = DispatchTime.now().uptimeNanoseconds
             await previewIdx.indexAll(from: viewModel.fileTree)
+            let refreshedPreviewCount = await previewRepo.count
+            Self.logIndexingStage(
+                "preview cache rebuild",
+                startedAt: previewReindexStart,
+                noteCount: treeNoteCount,
+                detail: "\(refreshedPreviewCount) cached previews"
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
@@ -243,7 +296,16 @@ public final class ContentViewModel {
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
-            await index.indexFromPreloadedTree(viewModel.fileTree)
+            let searchIndexStart = DispatchTime.now().uptimeNanoseconds
+            await index.buildIndex(fromPreloadedTree: viewModel.fileTree, at: vault.rootURL)
+            let searchEntryCount = await index.entryCount
+            let searchBuildSource = await index.latestBuildSource?.rawValue ?? "unknown"
+            Self.logIndexingStage(
+                "search index ready",
+                startedAt: searchIndexStart,
+                noteCount: searchEntryCount,
+                detail: searchBuildSource
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
@@ -253,6 +315,7 @@ public final class ContentViewModel {
             let noteURLs = Self.collectNoteURLs(from: viewModel.fileTree)
             let graphCache = GraphCache(vaultRoot: vault.rootURL)
             let explicitFingerprint = graphCache.computeFingerprint(for: noteURLs)
+            let explicitRelationshipStart = DispatchTime.now().uptimeNanoseconds
             if let snapshot = graphCache.loadExplicitRelationshipSnapshotIfValid(
                 fingerprint: explicitFingerprint
             ) {
@@ -265,9 +328,15 @@ public final class ContentViewModel {
             } else {
                 await self.rebuildExplicitRelationshipState(from: viewModel.fileTree)
             }
+            Self.logIndexingStage(
+                "explicit relationship hydration",
+                startedAt: explicitRelationshipStart,
+                noteCount: noteURLs.count
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
+            let semanticRelationshipStart = DispatchTime.now().uptimeNanoseconds
             let semanticSnapshot = graphCache.loadSemanticRelationshipSnapshotIfValid(
                 fingerprint: explicitFingerprint
             )
@@ -279,10 +348,18 @@ public final class ContentViewModel {
                     userInfo: ["vaultRootURL": vault.rootURL]
                 )
             }
+            Self.logIndexingStage(
+                "semantic relationship hydration",
+                startedAt: semanticRelationshipStart,
+                noteCount: noteURLs.count,
+                detail: semanticSnapshot == nil ? "no persisted snapshot" : "persisted snapshot restored"
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
 
+            let conceptRestoreStart = DispatchTime.now().uptimeNanoseconds
             await self.knowledgeExtractionService?.restorePersistedConcepts()
+            Self.logIndexingStage("ai concept restore", startedAt: conceptRestoreStart, noteCount: noteURLs.count)
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
             self.hasHydratedExplicitRelationships = true
@@ -291,15 +368,24 @@ public final class ContentViewModel {
             self.startupCoordinator.advance(to: StartupCoordinator.StartupPhase.indexWarm)
 
             if let root = self.currentVaultRootURL {
+                let spotlightIndexStart = DispatchTime.now().uptimeNanoseconds
                 await spotlightIndexer?.removeAllInDomain()
                 await spotlightIndexer?.indexAllNotes(
                     urls: Self.collectNoteURLs(from: viewModel.fileTree),
                     vaultRoot: root
                 )
+                Self.logIndexingStage("spotlight reindex", startedAt: spotlightIndexStart, noteCount: noteURLs.count)
             }
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
+            let embeddingLoadStart = DispatchTime.now().uptimeNanoseconds
             try? await embedding.loadIndex()
+            let loadedEmbeddingEntries = await embedding.entryCount
+            Self.logIndexingStage(
+                "embedding index load",
+                startedAt: embeddingLoadStart,
+                detail: "\(loadedEmbeddingEntries) chunks"
+            )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
             self.indexAllNotes(
@@ -311,6 +397,7 @@ public final class ContentViewModel {
 
             // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
             await knowledgeExtractionService?.startVaultScan()
+            Self.indexingTelemetryLogger.info("AI concept vault scan scheduled for \(noteURLs.count) notes")
         }
 
         let iCloudSyncEnabled = (UserDefaults.standard.object(forKey: "iCloudSyncEnabled") as? Bool) ?? true
@@ -405,7 +492,7 @@ public final class ContentViewModel {
         }
         noteLifecycleObservers.append(relatedNotesObserver)
 
-        // .quartzSpotlightNotesRemoved — remove spotlight and preview entries
+        // .quartzSpotlightNotesRemoved — remove spotlight, preview, and search entries
         let removedObserver = NotificationCenter.default.addObserver(
             forName: .quartzSpotlightNotesRemoved,
             object: nil,
@@ -416,11 +503,12 @@ public final class ContentViewModel {
             Task { @MainActor in
                 self.spotlightRemoveNotes(at: urls)
                 self.removePreviewsForNotes(at: urls)
+                self.removeSearchEntries(for: urls)
             }
         }
         noteLifecycleObservers.append(removedObserver)
 
-        // .quartzSpotlightNoteRelocated — update spotlight and preview paths
+        // .quartzSpotlightNoteRelocated — update spotlight, preview, and search paths
         let relocatedObserver = NotificationCenter.default.addObserver(
             forName: .quartzSpotlightNoteRelocated,
             object: nil,
@@ -431,10 +519,56 @@ public final class ContentViewModel {
                   let newURL = notification.userInfo?["new"] as? URL else { return }
             Task { @MainActor in
                 self.spotlightRelocateNote(from: oldURL, to: newURL)
-                self.relocatePreview(from: oldURL, to: newURL)
+                self.handleSearchAndPreviewRelocation(from: oldURL, to: newURL)
             }
         }
         noteLifecycleObservers.append(relocatedObserver)
+
+        // .quartzFilePresenterDidChange — external edits should refresh all in-app indexes
+        let filePresenterChangeObserver = NotificationCenter.default.addObserver(
+            forName: .quartzFilePresenterDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let url = notification.object as? URL else { return }
+            Task { @MainActor in
+                self.spotlightIndexNote(at: url)
+                self.updatePreviewForNote(at: url)
+                self.updateSearchIndex(for: url)
+            }
+        }
+        noteLifecycleObservers.append(filePresenterChangeObserver)
+
+        // .quartzFilePresenterWillDelete — external deletes must remove all persisted in-app indexes
+        let filePresenterDeleteObserver = NotificationCenter.default.addObserver(
+            forName: .quartzFilePresenterWillDelete,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let url = notification.object as? URL else { return }
+            Task { @MainActor in
+                self.spotlightRemoveNotes(at: [url])
+                self.removePreviewsForNotes(at: [url])
+                self.removeSearchEntries(for: [url])
+            }
+        }
+        noteLifecycleObservers.append(filePresenterDeleteObserver)
+
+        // .quartzFilePresenterDidMove — external renames/moves must relocate all in-app indexes
+        let filePresenterMoveObserver = NotificationCenter.default.addObserver(
+            forName: .quartzFilePresenterDidMove,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let oldURL = notification.userInfo?["oldURL"] as? URL,
+                  let newURL = notification.userInfo?["newURL"] as? URL else { return }
+            Task { @MainActor in
+                self.spotlightRelocateNote(from: oldURL, to: newURL)
+                self.handleSearchAndPreviewRelocation(from: oldURL, to: newURL)
+            }
+        }
+        noteLifecycleObservers.append(filePresenterMoveObserver)
 
         // .quartzReindexRequested — full vault reindex
         let reindexObserver = NotificationCenter.default.addObserver(
@@ -660,6 +794,14 @@ public final class ContentViewModel {
         return currentVaultRootURL?.standardizedFileURL == vaultRoot.standardizedFileURL
     }
 
+    private func isCurrentIndexingRun(
+        _ runID: UInt64,
+        generation: UInt64,
+        vaultRoot: URL
+    ) -> Bool {
+        indexingRunID == runID && isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot)
+    }
+
     private func notificationBelongsToCurrentVault(_ updatedVaultRoot: URL?) -> Bool {
         guard let updatedVaultRoot else { return true }
         guard let currentVaultRootURL else { return false }
@@ -806,6 +948,7 @@ public final class ContentViewModel {
     public func reindexVault() {
         guard let tree = sidebarViewModel?.fileTree,
               let vaultRoot = currentVaultRootURL else { return }
+        refreshSearchAndPreviewCaches(from: tree, vaultRoot: vaultRoot, forceSearchRebuild: true)
         if let embedding = embeddingService {
             indexAllNotes(
                 in: tree,
@@ -836,6 +979,13 @@ public final class ContentViewModel {
             for url in urls {
                 await searchIndex?.removeEntry(for: url)
             }
+        }
+    }
+
+    public func relocateSearchEntry(from oldURL: URL, to newURL: URL) {
+        Task {
+            await searchIndex?.removeEntry(for: oldURL)
+            await searchIndex?.updateEntry(for: newURL)
         }
     }
 
@@ -899,6 +1049,37 @@ public final class ContentViewModel {
             await previewIndexer?.removeFile(at: oldURL)
             await previewIndexer?.indexFile(at: newURL)
             NotificationCenter.default.post(name: .quartzPreviewCacheDidChange, object: nil)
+        }
+    }
+
+    private func handleSearchAndPreviewRelocation(from oldURL: URL, to newURL: URL) {
+        if newURL.pathExtension.lowercased() == "md" {
+            relocatePreview(from: oldURL, to: newURL)
+            relocateSearchEntry(from: oldURL, to: newURL)
+            return
+        }
+
+        guard let tree = sidebarViewModel?.fileTree,
+              let vaultRoot = currentVaultRootURL else { return }
+        refreshSearchAndPreviewCaches(from: tree, vaultRoot: vaultRoot, forceSearchRebuild: true)
+    }
+
+    private func refreshSearchAndPreviewCaches(
+        from tree: [FileNode],
+        vaultRoot: URL,
+        forceSearchRebuild: Bool = false
+    ) {
+        Task {
+            await previewIndexer?.indexAll(from: tree)
+            NotificationCenter.default.post(name: .quartzPreviewCacheDidChange, object: nil)
+        }
+
+        Task {
+            if forceSearchRebuild {
+                await searchIndex?.rebuildIndex(fromPreloadedTree: tree, at: vaultRoot)
+            } else {
+                await searchIndex?.buildIndex(fromPreloadedTree: tree, at: vaultRoot)
+            }
         }
     }
 
@@ -1112,41 +1293,90 @@ public final class ContentViewModel {
         generation: UInt64
     ) {
         indexingTask?.cancel()
+        indexingRunID &+= 1
+        let runID = indexingRunID
 
         let noteURLs = Self.collectNoteURLs(from: tree)
         guard !noteURLs.isEmpty else { return }
 
-        indexingProgress = (current: 0, total: noteURLs.count)
-        sidebarViewModel?.indexingProgress = indexingProgress
-
         indexingTask = Task.detached(priority: .utility) {
-            let total = noteURLs.count
-            for (i, url) in noteURLs.enumerated() {
+            let indexingStart = DispatchTime.now().uptimeNanoseconds
+            var pendingNoteURLs: [URL] = []
+            pendingNoteURLs.reserveCapacity(noteURLs.count)
+
+            for url in noteURLs {
                 guard !Task.isCancelled else { break }
                 let isCurrentGeneration = await MainActor.run { [weak self] in
-                    self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
+                    self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
+                }
+                guard isCurrentGeneration else { return }
+
+                let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
+                let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                if let mtime,
+                   let lastIndexed = await embedding.lastIndexedDate(for: stableID),
+                   mtime <= lastIndexed {
+                    continue
+                }
+
+                pendingNoteURLs.append(url)
+            }
+
+            let isCurrentGenerationAtCompletion = await MainActor.run { [weak self] in
+                self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
+            }
+            guard isCurrentGenerationAtCompletion else { return }
+
+            guard !pendingNoteURLs.isEmpty else {
+                Self.indexingTelemetryLogger.info(
+                    "Embedding sweep skipped: 0/\(noteURLs.count) notes need re-embedding"
+                )
+                await MainActor.run { [weak self] in
+                    guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
+                    self?.indexingProgress = nil
+                    self?.sidebarViewModel?.indexingProgress = nil
+                }
+                return
+            }
+
+            let total = pendingNoteURLs.count
+            Self.indexingTelemetryLogger.info(
+                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding"
+            )
+            await MainActor.run { [weak self] in
+                guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
+                let progress = (current: 0, total: total)
+                self?.indexingProgress = progress
+                self?.sidebarViewModel?.indexingProgress = progress
+            }
+
+            var changedNotesSinceCheckpoint = 0
+            var indexedNotes = 0
+            for (i, url) in pendingNoteURLs.enumerated() {
+                guard !Task.isCancelled else { break }
+                let isCurrentGeneration = await MainActor.run { [weak self] in
+                    self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
                 }
                 guard isCurrentGeneration else { break }
 
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
-                let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                if let mtime, let lastIndexed = await embedding.lastIndexedDate(for: stableID), mtime <= lastIndexed {
-                    // File unchanged since last index, skip
-                    let current = i + 1
-                    await MainActor.run { [weak self] in
-                        let progress = (current: current, total: total)
-                        self?.indexingProgress = progress
-                        self?.sidebarViewModel?.indexingProgress = progress
-                    }
-                    continue
-                }
-
                 let content = try? CoordinatedFileWriter.shared.readString(from: url)
                 if let content, !content.isEmpty {
                     try? await embedding.indexNote(noteID: stableID, content: content)
+                    indexedNotes += 1
+                    changedNotesSinceCheckpoint += 1
+                    if changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
+                        try? await embedding.saveIndex()
+                        changedNotesSinceCheckpoint = 0
+                    }
                 }
 
                 let current = i + 1
+                if current == total || current.isMultiple(of: 100) {
+                    Self.indexingTelemetryLogger.info(
+                        "Embedding sweep progress: \(current)/\(total) pending notes processed"
+                    )
+                }
                 await MainActor.run { [weak self] in
                     let progress = (current: current, total: total)
                     self?.indexingProgress = progress
@@ -1155,11 +1385,18 @@ public final class ContentViewModel {
             }
 
             let isCurrentGeneration = await MainActor.run { [weak self] in
-                self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
+                self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
             }
             guard isCurrentGeneration else { return }
             try? await embedding.saveIndex()
+            Self.logIndexingStage(
+                "embedding sweep",
+                startedAt: indexingStart,
+                noteCount: total,
+                detail: "\(indexedNotes) notes indexed"
+            )
             await MainActor.run { [weak self] in
+                guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
                 self?.indexingProgress = nil
                 self?.sidebarViewModel?.indexingProgress = nil
             }

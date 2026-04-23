@@ -152,6 +152,80 @@ public actor KnowledgeExtractionService {
         hasRestoredPersistedConceptsForCurrentGeneration = false
     }
 
+    public func handleNoteDeletion(at noteURL: URL) async {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        pendingURLs.remove(canonicalURL)
+        requestedRevisionByURL[canonicalURL, default: 0] &+= 1
+
+        let relPath = relativePath(for: canonicalURL)
+        state.processedTimestamps.removeValue(forKey: relPath)
+        for (concept, var paths) in state.conceptEdges {
+            if paths.remove(relPath) != nil {
+                state.conceptEdges[concept] = paths.isEmpty ? nil : paths
+            }
+        }
+
+        await edgeStore.removeConcepts(for: canonicalURL)
+        saveStateToDisk()
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzConceptsUpdated,
+                object: canonicalURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
+        }
+    }
+
+    public func handleNoteRelocation(from oldURL: URL, to newURL: URL) async {
+        let canonicalOldURL = CanonicalNoteIdentity.canonicalFileURL(for: oldURL)
+        let canonicalNewURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+
+        pendingURLs.remove(canonicalOldURL)
+        requestedRevisionByURL[canonicalOldURL, default: 0] &+= 1
+
+        let oldRelPath = relativePath(for: canonicalOldURL)
+        let newRelPath = relativePath(for: canonicalNewURL)
+        guard oldRelPath != newRelPath else { return }
+
+        let existingConcepts = await edgeStore.concepts(for: canonicalOldURL)
+        let persistedConcepts = state.conceptEdges.compactMap { concept, paths in
+            paths.contains(oldRelPath) ? concept : nil
+        }
+        let conceptsToMove = Array(Set(existingConcepts + persistedConcepts)).sorted()
+
+        if let oldTimestamp = state.processedTimestamps.removeValue(forKey: oldRelPath) {
+            state.processedTimestamps[newRelPath] = fileModificationDate(for: canonicalNewURL) ?? oldTimestamp
+        }
+
+        for (concept, var paths) in state.conceptEdges {
+            guard paths.remove(oldRelPath) != nil else { continue }
+            if conceptsToMove.contains(concept) {
+                paths.insert(newRelPath)
+            }
+            state.conceptEdges[concept] = paths.isEmpty ? nil : paths
+        }
+
+        if !conceptsToMove.isEmpty {
+            await edgeStore.removeConcepts(for: canonicalOldURL)
+            await edgeStore.updateConcepts(for: canonicalNewURL, concepts: conceptsToMove)
+        } else {
+            await edgeStore.removeConcepts(for: canonicalOldURL)
+        }
+
+        saveStateToDisk()
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzConceptsUpdated,
+                object: canonicalNewURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
+        }
+    }
+
     private func runPendingExtractions(expectedGeneration: UInt64) async {
         guard serviceGeneration == expectedGeneration else { return }
 
@@ -174,6 +248,7 @@ public actor KnowledgeExtractionService {
 
     private func runVaultScan(expectedGeneration: UInt64) async {
         guard serviceGeneration == expectedGeneration else { return }
+        let scanStart = DispatchTime.now().uptimeNanoseconds
         isScanRunning = true
         defer {
             if serviceGeneration == expectedGeneration {
@@ -244,7 +319,8 @@ public actor KnowledgeExtractionService {
 
         guard serviceGeneration == expectedGeneration else { return }
         saveStateToDisk()
-        logger.info("Vault scan complete")
+        let elapsedMilliseconds = (DispatchTime.now().uptimeNanoseconds - scanStart) / 1_000_000
+        logger.info("Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms")
 
         await MainActor.run {
             NotificationCenter.default.post(name: .quartzConceptScanProgress, object: nil)

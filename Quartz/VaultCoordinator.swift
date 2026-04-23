@@ -126,11 +126,11 @@ public final class VaultCoordinator {
         noteListStore: NoteListStore,
         workspaceStore: WorkspaceStore,
         onComplete: (() -> Void)? = nil
-    ) -> VaultConfig? {
+    ) async -> VaultConfig? {
         hasAttemptedRestoration = true
 
         do {
-            if let vault = try VaultAccessManager.shared.restoreLastVault() {
+            if let vault = try await VaultAccessManager.shared.restoreLastVaultWithRetry(maxAttempts: 2) {
                 openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
                 logger.info("Restored vault: \(vault.name)")
                 return vault

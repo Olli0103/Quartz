@@ -849,7 +849,7 @@ struct ContentView: View {
             } else if !defaults.bool(forKey: Self.onboardingCompletedKey) {
                 coordinator.activeSheet = .onboarding
             } else {
-                vaultCoordinator?.restoreLastVault(
+                await vaultCoordinator?.restoreLastVault(
                     viewModel: viewModel,
                     noteListStore: noteListStore,
                     workspaceStore: workspaceStore

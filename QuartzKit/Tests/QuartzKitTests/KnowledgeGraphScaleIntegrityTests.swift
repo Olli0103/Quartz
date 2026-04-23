@@ -85,6 +85,55 @@ struct KnowledgeGraphScaleIntegrityTests {
         #expect(await waitUntil { (await edgeStore.concepts(for: noteURL)) == ["fresh-concept"] })
     }
 
+    @Test("AI concept persistence survives note relocation and deletion")
+    func persistedConceptStateTracksRelocationAndDeletion() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "kg7-concept-state-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let notesDirectory = rootURL.appending(path: "Notes", directoryHint: .isDirectory)
+        let movedDirectory = rootURL.appending(path: "Moved", directoryHint: .isDirectory)
+        let originalURL = notesDirectory.appending(path: "Alpha.md")
+        let relocatedURL = movedDirectory.appending(path: "Alpha.md")
+
+        try FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: movedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rootURL.appending(path: ".quartz"), withIntermediateDirectories: true)
+        try String(repeating: "Swift architecture knowledge graph indexing. ", count: 4)
+            .write(to: originalURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let edgeStore = GraphEdgeStore()
+        let service = KnowledgeExtractionService(
+            edgeStore: edgeStore,
+            vaultRootURL: rootURL,
+            debounceInterval: .milliseconds(1),
+            scanInterval: .milliseconds(1),
+            extractionOverride: { _ in ["swift", "architecture"] }
+        )
+
+        await service.scheduleExtraction(for: originalURL)
+        #expect(await waitUntil { Set(await edgeStore.concepts(for: originalURL)) == Set(["architecture", "swift"]) })
+
+        try FileManager.default.moveItem(at: originalURL, to: relocatedURL)
+        await service.handleNoteRelocation(from: originalURL, to: relocatedURL)
+
+        let relocatedState = try loadAIState(from: rootURL)
+        #expect(relocatedState.processedTimestamps["Notes/Alpha.md"] == nil)
+        #expect(relocatedState.processedTimestamps["Moved/Alpha.md"] != nil)
+        #expect(relocatedState.conceptEdges["swift"] == Set(["Moved/Alpha.md"]))
+        #expect(relocatedState.conceptEdges["architecture"] == Set(["Moved/Alpha.md"]))
+        #expect(await edgeStore.concepts(for: originalURL).isEmpty)
+        #expect(Set(await edgeStore.concepts(for: relocatedURL)) == Set(["architecture", "swift"]))
+
+        try FileManager.default.removeItem(at: relocatedURL)
+        await service.handleNoteDeletion(at: relocatedURL)
+
+        let deletedState = try loadAIState(from: rootURL)
+        #expect(deletedState.processedTimestamps["Moved/Alpha.md"] == nil)
+        #expect(deletedState.conceptEdges["swift"] == nil)
+        #expect(deletedState.conceptEdges["architecture"] == nil)
+        #expect(await edgeStore.concepts(for: relocatedURL).isEmpty)
+    }
+
     @MainActor
     @Test("Vault load and switch hydrate semantic similarity and AI concepts deterministically")
     func vaultLoadAndSwitchRestoreSemanticAndConceptStateDeterministically() async throws {
@@ -209,6 +258,13 @@ struct KnowledgeGraphScaleIntegrityTests {
             try? await Task.sleep(for: pollInterval)
         }
         return await condition()
+    }
+
+    private func loadAIState(from rootURL: URL) throws -> AIIndexState {
+        let data = try Data(contentsOf: rootURL.appending(path: ".quartz").appending(path: "ai_index.json"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(AIIndexState.self, from: data)
     }
 
     @MainActor

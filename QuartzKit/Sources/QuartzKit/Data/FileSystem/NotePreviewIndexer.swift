@@ -22,6 +22,7 @@ public actor NotePreviewIndexer {
 
     /// Maximum concurrent file reads during batch indexing.
     private static let maxConcurrency = 16
+    private static let rebuildCheckpointInterval = 32
 
     private let repository: NotePreviewRepository
     private let frontmatterParser: any FrontmatterParsing
@@ -47,19 +48,34 @@ public actor NotePreviewIndexer {
     /// are skipped entirely.
     public func indexAll(from tree: [FileNode]) async {
         let noteURLs = Self.collectNoteURLs(from: tree)
-        guard !noteURLs.isEmpty else { return }
+        let retainedURLs = Set(noteURLs)
+        await repository.retainOnly(retainedURLs)
+        guard !noteURLs.isEmpty else {
+            await repository.saveCache()
+            return
+        }
 
         logger.info("Indexing \(noteURLs.count) notes for preview cache…")
 
         var indexed = 0
         var skipped = 0
+        var indexedSinceCheckpoint = 0
 
         await withTaskGroup(of: Bool.self) { group in
             var pending = 0
             for url in noteURLs {
                 if pending >= Self.maxConcurrency {
                     if let wasIndexed = await group.next() {
-                        if wasIndexed { indexed += 1 } else { skipped += 1 }
+                        if wasIndexed {
+                            indexed += 1
+                            indexedSinceCheckpoint += 1
+                            if indexedSinceCheckpoint >= Self.rebuildCheckpointInterval {
+                                await repository.saveCache()
+                                indexedSinceCheckpoint = 0
+                            }
+                        } else {
+                            skipped += 1
+                        }
                     }
                     pending -= 1
                 }
@@ -69,7 +85,16 @@ public actor NotePreviewIndexer {
                 pending += 1
             }
             for await wasIndexed in group {
-                if wasIndexed { indexed += 1 } else { skipped += 1 }
+                if wasIndexed {
+                    indexed += 1
+                    indexedSinceCheckpoint += 1
+                    if indexedSinceCheckpoint >= Self.rebuildCheckpointInterval {
+                        await repository.saveCache()
+                        indexedSinceCheckpoint = 0
+                    }
+                } else {
+                    skipped += 1
+                }
             }
         }
 

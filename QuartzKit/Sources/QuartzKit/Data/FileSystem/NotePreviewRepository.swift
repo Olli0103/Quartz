@@ -99,6 +99,11 @@ public actor NotePreviewRepository {
         cache.removeValue(forKey: url)
     }
 
+    /// Prunes any cached entries whose URLs no longer belong to the current tree.
+    public func retainOnly(_ urls: Set<URL>) {
+        cache = cache.filter { urls.contains($0.key) }
+    }
+
     /// Returns all cached previews (for bulk list population).
     public func allPreviews() -> [CachedNotePreview] {
         Array(cache.values)

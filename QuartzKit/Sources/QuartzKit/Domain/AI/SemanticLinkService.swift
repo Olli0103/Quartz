@@ -73,6 +73,40 @@ public actor SemanticLinkService {
         debounceTask = nil
     }
 
+    public func handleNoteDeletion(at noteURL: URL) async {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
+        pendingURLs.remove(canonicalURL)
+        requestedRevisionByURL[canonicalURL, default: 0] &+= 1
+        await edgeStore.removeSemanticConnections(for: canonicalURL)
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzRelatedNotesUpdated,
+                object: canonicalURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
+        }
+    }
+
+    public func handleNoteRelocation(from oldURL: URL, to newURL: URL) async {
+        let canonicalOldURL = CanonicalNoteIdentity.canonicalFileURL(for: oldURL)
+        let canonicalNewURL = CanonicalNoteIdentity.canonicalFileURL(for: newURL)
+        pendingURLs.remove(canonicalOldURL)
+        requestedRevisionByURL[canonicalOldURL, default: 0] &+= 1
+        await edgeStore.removeSemanticConnections(for: canonicalOldURL)
+        scheduleAnalysis(for: canonicalNewURL)
+
+        let notificationVaultRootURL = vaultRootURL
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .quartzRelatedNotesUpdated,
+                object: canonicalNewURL,
+                userInfo: ["vaultRootURL": notificationVaultRootURL]
+            )
+        }
+    }
+
     private func runPendingAnalyses(expectedGeneration: UInt64) async {
         guard serviceGeneration == expectedGeneration else { return }
 

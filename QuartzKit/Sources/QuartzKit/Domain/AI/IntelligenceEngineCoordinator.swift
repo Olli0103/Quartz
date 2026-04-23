@@ -167,8 +167,12 @@ public actor IntelligenceEngineCoordinator {
 
         logger.info("File moved: \(oldURL.lastPathComponent) → \(newURL.lastPathComponent)")
 
-        Task.detached(priority: .utility) { [embeddingService, vaultRootURL] in
-            guard let embedding = embeddingService else { return }
+        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL] in
+            await extractionService?.handleNoteRelocation(from: oldURL, to: newURL)
+            guard let embedding = embeddingService else {
+                await semanticService?.handleNoteRelocation(from: oldURL, to: newURL)
+                return
+            }
 
             // Remove old embeddings
             let oldID = VectorEmbeddingService.stableNoteID(for: oldURL, vaultRoot: vaultRootURL)
@@ -179,6 +183,9 @@ public actor IntelligenceEngineCoordinator {
             if let content = try? CoordinatedFileWriter.shared.readString(from: newURL) {
                 try? await embedding.indexNote(noteID: newID, content: content)
                 try? await embedding.saveIndex()
+                await semanticService?.handleNoteRelocation(from: oldURL, to: newURL)
+            } else {
+                await semanticService?.handleNoteDeletion(at: oldURL)
             }
         }
     }
@@ -189,7 +196,9 @@ public actor IntelligenceEngineCoordinator {
 
         logger.info("File deleted: \(url.lastPathComponent)")
 
-        Task.detached(priority: .utility) { [embeddingService, vaultRootURL] in
+        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL] in
+            await semanticService?.handleNoteDeletion(at: url)
+            await extractionService?.handleNoteDeletion(at: url)
             guard let embedding = embeddingService else { return }
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRootURL)
             await embedding.removeNote(stableID)
