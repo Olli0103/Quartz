@@ -25,6 +25,9 @@ IOS_UI_RESULT_BUNDLE="${IOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPhone.xcre
 IPADOS_UI_RESULT_BUNDLE="${IPADOS_UI_RESULT_BUNDLE:-/tmp/QuartzEditorShell_iPad.xcresult}"
 IPHONE_PREFERRED_SIMULATOR="${IPHONE_PREFERRED_SIMULATOR:-iPhone 17 Pro}"
 IPAD_PREFERRED_SIMULATOR="${IPAD_PREFERRED_SIMULATOR:-iPad Pro 13-inch (M5)}"
+IPAD_DEDICATED_SIMULATOR_NAME="${IPAD_DEDICATED_SIMULATOR_NAME:-Quartz iPad Editor Parity}"
+IPAD_BOOTSTATUS_TIMEOUT_SECONDS="${IPAD_BOOTSTATUS_TIMEOUT_SECONDS:-150}"
+MACOS_UI_XCODEBUILD_TEST_TIMEOUT_SECONDS="${MACOS_UI_XCODEBUILD_TEST_TIMEOUT_SECONDS:-1800}"
 MACOS_UI_DERIVED_DATA_PATH="${MACOS_UI_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/QuartzUITestDerivedDataAdhoc}"
 MACOS_UI_XCODEBUILD_SIGNING_ARGS=(
     -derivedDataPath "$MACOS_UI_DERIVED_DATA_PATH"
@@ -158,12 +161,13 @@ fi
 
 step "Running macOS editor shell UI coverage"
 echo "  DerivedData: $MACOS_UI_DERIVED_DATA_PATH"
+echo "  Timeout: ${MACOS_UI_XCODEBUILD_TEST_TIMEOUT_SECONDS}s"
 if ! ensure_macos_ui_automation_available "$MACOS_UI_LOG_PATH"; then
     echo "Host automation mode is disabled; continuing to the real macOS XCTest launch/attach probe." | tee -a "$MACOS_UI_LOG_PATH"
 fi
 
 terminate_conflicting_macos_app_processes
-if run_editor_shell_ui_matrix \
+if XCODEBUILD_TEST_TIMEOUT_SECONDS="$MACOS_UI_XCODEBUILD_TEST_TIMEOUT_SECONDS" run_editor_shell_ui_matrix \
     "platform=macOS" \
     "$MACOS_UI_LOG_PATH" \
     "$MACOS_UI_RESULT_BUNDLE" \
@@ -193,11 +197,19 @@ else
 fi
 
 step "Running iPad editor parity"
-IPAD_SIM_ID="$(prepared_simulator_id "$IPAD_PREFERRED_SIMULATOR" "iPad" || true)"
-if [ -z "$IPAD_SIM_ID" ]; then
+IPAD_SIM_INFO="$(prepared_dedicated_simulator_info \
+    "$IPAD_PREFERRED_SIMULATOR" \
+    "iPad" \
+    "$IPAD_DEDICATED_SIMULATOR_NAME" \
+    "olli.QuartzNotes" \
+    "$IPAD_BOOTSTATUS_TIMEOUT_SECONDS" || true)"
+if [ -z "$IPAD_SIM_INFO" ]; then
     fail "No stable iPad simulator was ready for editor parity"
 fi
+IFS='|' read -r IPAD_SIM_ID IPAD_SIM_STRATEGY IPAD_SIM_NAME <<<"$IPAD_SIM_INFO"
 echo "  Using iPad simulator id: $IPAD_SIM_ID"
+echo "  Simulator: $IPAD_SIM_NAME"
+echo "  Strategy: $IPAD_SIM_STRATEGY"
 if run_package_editor_matrix \
     "$IPAD_SIM_ID" \
     "$IPADOS_LOG_PATH" \

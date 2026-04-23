@@ -302,26 +302,179 @@ final class EditorRealitySnapshotTests: XCTestCase {
         window.contentView = container
 
         try await waitForEditorReady(session: session, window: window, container: container, hostingView: hostingView)
+        try await waitForStableRenderedImage(
+            session: session,
+            window: window,
+            container: container,
+            hostingView: hostingView,
+            canvasSize: canvasSize,
+            scale: scale
+        )
 
         if let selection {
             session.restoreCursor(location: selection.location, length: selection.length)
             session.selectionDidChange(selection)
-            window.displayIfNeeded()
-            container.layoutSubtreeIfNeeded()
-            hostingView.layoutSubtreeIfNeeded()
+            try await waitForStableRenderedImage(
+                session: session,
+                window: window,
+                container: container,
+                hostingView: hostingView,
+                canvasSize: canvasSize,
+                scale: scale
+            )
         }
 
         if let preparation {
             try await preparation(session)
-            for _ in 0..<20 {
-                window.displayIfNeeded()
-                container.layoutSubtreeIfNeeded()
-                hostingView.layoutSubtreeIfNeeded()
-                try await Task.sleep(for: .milliseconds(10))
-            }
             try await waitForEditorReady(session: session, window: window, container: container, hostingView: hostingView)
+            try await waitForStableRenderedImage(
+                session: session,
+                window: window,
+                container: container,
+                hostingView: hostingView,
+                canvasSize: canvasSize,
+                scale: scale
+            )
         }
 
+        return renderSnapshotImage(
+            session: session,
+            window: window,
+            container: container,
+            hostingView: hostingView,
+            canvasSize: canvasSize,
+            scale: scale
+        )
+    }
+
+    private func waitForEditorReady(
+        session: EditorSession,
+        window: NSWindow,
+        container: NSView,
+        hostingView: NSView
+    ) async throws {
+        for _ in 0..<80 {
+            driveSnapshotLayout(session: session, window: window, container: container, hostingView: hostingView)
+
+            if let textView = session.activeTextView,
+               textView.alphaValue == 1,
+               textView.string == session.currentText,
+               textView.textStorage?.length == (session.currentText as NSString).length,
+               session.semanticDocument.textLength == (session.currentText as NSString).length {
+                return
+            }
+
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for editor snapshot harness to render")
+    }
+
+    private func waitForStableRenderedImage(
+        session: EditorSession,
+        window: NSWindow,
+        container: NSView,
+        hostingView: NSView,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) async throws {
+        var previousFrame: Data?
+        var consecutiveStableFrames = 0
+
+        for _ in 0..<80 {
+            driveSnapshotLayout(session: session, window: window, container: container, hostingView: hostingView)
+
+            guard let frame = renderedSnapshotBitmapData(
+                container: container,
+                canvasSize: canvasSize,
+                scale: scale
+            ) else {
+                try await Task.sleep(for: .milliseconds(10))
+                continue
+            }
+
+            if frame == previousFrame {
+                consecutiveStableFrames += 1
+            } else {
+                consecutiveStableFrames = 1
+                previousFrame = frame
+            }
+
+            if consecutiveStableFrames >= 3 {
+                return
+            }
+
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTFail("Timed out waiting for editor snapshot harness to reach a stable render")
+    }
+
+    private func driveSnapshotLayout(
+        session: EditorSession,
+        window: NSWindow,
+        container: NSView,
+        hostingView: NSView
+    ) {
+        if let textView = session.activeTextView {
+            if let textLayoutManager = textView.textLayoutManager {
+                textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+            }
+            textView.layoutSubtreeIfNeeded()
+            textView.displayIfNeeded()
+            textView.enclosingScrollView?.layoutSubtreeIfNeeded()
+            textView.enclosingScrollView?.displayIfNeeded()
+        }
+
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+    }
+
+    private func renderSnapshotImage(
+        session: EditorSession,
+        window: NSWindow,
+        container: NSView,
+        hostingView: NSView,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) -> NSImage {
+        driveSnapshotLayout(session: session, window: window, container: container, hostingView: hostingView)
+
+        let bitmapRep = makeSnapshotBitmapRep(
+            container: container,
+            canvasSize: canvasSize,
+            scale: scale
+        )
+
+        let image = NSImage(size: canvasSize)
+        image.addRepresentation(bitmapRep)
+        return image
+    }
+
+    private func renderedSnapshotBitmapData(
+        container: NSView,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) -> Data? {
+        let bitmapRep = makeSnapshotBitmapRep(
+            container: container,
+            canvasSize: canvasSize,
+            scale: scale
+        )
+
+        guard let bytes = bitmapRep.bitmapData else {
+            return nil
+        }
+
+        return Data(bytes: bytes, count: bitmapRep.bytesPerRow * bitmapRep.pixelsHigh)
+    }
+
+    private func makeSnapshotBitmapRep(
+        container: NSView,
+        canvasSize: CGSize,
+        scale: CGFloat
+    ) -> NSBitmapImageRep {
         let bitmapRep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(canvasSize.width * scale),
@@ -344,34 +497,7 @@ final class EditorRealitySnapshotTests: XCTestCase {
         container.cacheDisplay(in: container.bounds, to: bitmapRep)
         NSGraphicsContext.restoreGraphicsState()
 
-        let image = NSImage(size: canvasSize)
-        image.addRepresentation(bitmapRep)
-        return image
-    }
-
-    private func waitForEditorReady(
-        session: EditorSession,
-        window: NSWindow,
-        container: NSView,
-        hostingView: NSView
-    ) async throws {
-        for _ in 0..<80 {
-            window.displayIfNeeded()
-            container.layoutSubtreeIfNeeded()
-            hostingView.layoutSubtreeIfNeeded()
-
-            if let textView = session.activeTextView,
-               textView.alphaValue == 1,
-               textView.string == session.currentText,
-               textView.textStorage?.length == (session.currentText as NSString).length,
-               session.semanticDocument.textLength == (session.currentText as NSString).length {
-                return
-            }
-
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        XCTFail("Timed out waiting for editor snapshot harness to render")
+        return bitmapRep
     }
 
     private func performHealingEdit(on session: EditorSession, headingLine: String) async throws {

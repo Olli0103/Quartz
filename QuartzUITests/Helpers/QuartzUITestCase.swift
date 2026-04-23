@@ -17,6 +17,85 @@ class QuartzUITestCase: XCTestCase {
     #if os(macOS)
     private static let macBundleIdentifier = "olli.QuartzNotes"
     private static let macShellModeArgument = "--ui-test-shell-mode"
+    private static let knownInterruptingMacBundleIdentifiers: Set<String> = [
+        "com.microsoft.Outlook",
+        "com.granola.app",
+        "com.raycast.macos",
+        "com.google.Chrome"
+    ]
+    private static let macToolbarAccessibilityLabelsByIdentifier = [
+        "editor-formatting-toolbar": "Formatting Toolbar",
+        "editor-toolbar-undo": "Undo",
+        "editor-toolbar-redo": "Redo",
+        "editor-toolbar-bold": "Bold",
+        "editor-toolbar-italic": "Italic",
+        "editor-toolbar-strikethrough": "Strikethrough",
+        "editor-toolbar-heading-menu": "Heading level",
+        "editor-toolbar-bulletList": "Bullet List",
+        "editor-toolbar-numberedList": "Numbered List",
+        "editor-toolbar-checkbox": "Checkbox",
+        "editor-toolbar-code": "Inline Code",
+        "editor-toolbar-link": "Link",
+        "editor-toolbar-overflow-menu": "More formatting options",
+        "editor-toolbar-ai-assistant": "AI Assistant",
+        "editor-toolbar-export": "Export note",
+        "editor-find-button": "Find in Note",
+        "editor-toolbar-focus-mode": "Focus Mode",
+        "editor-toolbar-inspector": "Inspector",
+        "editor-toolbar-paragraph": "Paragraph",
+        "editor-toolbar-heading1": "Heading 1",
+        "editor-toolbar-heading2": "Heading 2",
+        "editor-toolbar-heading3": "Heading 3",
+        "editor-toolbar-heading4": "Heading 4",
+        "editor-toolbar-heading5": "Heading 5",
+        "editor-toolbar-heading6": "Heading 6",
+        "editor-toolbar-codeBlock": "Code Block",
+        "editor-toolbar-blockquote": "Quote",
+        "editor-toolbar-table": "Table",
+        "editor-toolbar-image": "Image",
+        "editor-toolbar-math": "Math",
+        "editor-toolbar-mermaid": "Mermaid Diagram"
+    ]
+    private static let macTopLevelFormattingToolbarIdentifiers = [
+        "editor-toolbar-undo",
+        "editor-toolbar-redo",
+        "editor-toolbar-bold",
+        "editor-toolbar-italic",
+        "editor-toolbar-strikethrough",
+        "editor-toolbar-heading-menu",
+        "editor-toolbar-bulletList",
+        "editor-toolbar-numberedList",
+        "editor-toolbar-checkbox",
+        "editor-toolbar-code",
+        "editor-toolbar-link",
+        "editor-toolbar-overflow-menu",
+        "editor-toolbar-ai-assistant"
+    ]
+    private static let macFormattingToolbarReadyIdentifiers = [
+        "editor-toolbar-bold",
+        "editor-toolbar-heading-menu",
+        "editor-toolbar-overflow-menu"
+    ]
+    private static let macHeadingToolbarMenuActionIdentifiers: Set<String> = [
+        "editor-toolbar-paragraph",
+        "editor-toolbar-heading1",
+        "editor-toolbar-heading2",
+        "editor-toolbar-heading3",
+        "editor-toolbar-heading4",
+        "editor-toolbar-heading5",
+        "editor-toolbar-heading6"
+    ]
+    private static let macOverflowToolbarPanelActionIdentifiers: Set<String> = [
+        "editor-toolbar-codeBlock",
+        "editor-toolbar-blockquote",
+        "editor-toolbar-table",
+        "editor-toolbar-image",
+        "editor-toolbar-math",
+        "editor-toolbar-mermaid"
+    ]
+    private static let macToolbarTopLevelMenuIdentifiers: Set<String> = [
+        "editor-toolbar-heading-menu"
+    ]
     #endif
 
     private let defaultLaunchArguments = [
@@ -57,6 +136,10 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     func relaunchAppPreservingState() {
         launchApp(arguments: statePreservingLaunchArguments, preserveExistingState: true)
+        XCTAssertTrue(
+            waitForEditorSurface(timeout: 20),
+            "Editor surface must return after a state-preserving relaunch before downstream assertions run"
+        )
     }
 
     /// Creates and launches the app with explicit launch arguments.
@@ -70,7 +153,7 @@ class QuartzUITestCase: XCTestCase {
         )
         app = XCUIApplication()
         app.launchArguments = arguments + [Self.macShellModeArgument]
-        app.launch()
+        app.activate()
         XCTAssertTrue(
             app.wait(for: .runningForeground, timeout: 20),
             "Quartz must launch into a foreground automatable state under macOS XCTest"
@@ -131,7 +214,7 @@ class QuartzUITestCase: XCTestCase {
             element(matchingIdentifier: "note-list-item-Welcome"),
             element(matchingIdentifier: "note-list-item-Todo"),
             element(matchingIdentifier: "dashboard-view"),
-            element(matchingIdentifier: "editor-toolbar-link"),
+            element(matchingIdentifier: "editor-toolbar-bold"),
             element(matchingIdentifier: "editor-text-view"),
             app.textViews.firstMatch
         ]
@@ -170,8 +253,16 @@ class QuartzUITestCase: XCTestCase {
         let existingApp = currentApp ?? XCUIApplication()
 
         if preferGraceful, existingApp.state != .notRunning {
+            #if os(macOS)
+            if existingApp.state != .runningForeground {
+                existingApp.activate()
+                _ = existingApp.wait(for: .runningForeground, timeout: 5)
+            }
+            existingApp.typeKey("q", modifierFlags: .command)
+            #else
             existingApp.terminate()
-            let appExited = existingApp.wait(for: .notRunning, timeout: 5)
+            #endif
+            let appExited = existingApp.wait(for: .notRunning, timeout: 10)
             if appExited {
                 #if os(macOS)
                 if Self.waitForNoRunningMacApp(timeout: 5) {
@@ -270,6 +361,7 @@ class QuartzUITestCase: XCTestCase {
     #if os(macOS)
     @MainActor
     private func preferredMacElement(matchingIdentifier identifier: String) -> XCUIElement? {
+        let activeWindow = app.windows.firstMatch
         let targetedQueries: [XCUIElementQuery]
 
         switch identifier {
@@ -286,6 +378,17 @@ class QuartzUITestCase: XCTestCase {
                 app.descendants(matching: .group),
                 app.windows
             ]
+        case "editor-formatting-toolbar":
+            targetedQueries = [
+                app.toolbars.descendants(matching: .group),
+                app.descendants(matching: .group),
+                app.descendants(matching: .other)
+            ]
+        case "editor-toolbar-overflow-panel":
+            targetedQueries = [
+                activeWindow.descendants(matching: .group),
+                activeWindow.descendants(matching: .other)
+            ]
         case "note-list-view":
             targetedQueries = [
                 app.descendants(matching: .outline),
@@ -299,16 +402,37 @@ class QuartzUITestCase: XCTestCase {
                 app.descendants(matching: .button),
                 app.toolbars.buttons
             ]
-        case let value where value.hasPrefix("editor-toolbar-"):
+        case let value where Self.macHeadingToolbarMenuActionIdentifiers.contains(value):
+            targetedQueries = [
+                app.descendants(matching: .menuItem),
+                app.menuItems
+            ]
+        case let value where Self.macOverflowToolbarPanelActionIdentifiers.contains(value):
+            targetedQueries = [
+                activeWindow.descendants(matching: .button),
+                app.buttons,
+                activeWindow.descendants(matching: .group),
+                activeWindow.descendants(matching: .other)
+            ]
+        case let value where Self.macToolbarTopLevelMenuIdentifiers.contains(value):
+            targetedQueries = [
+                app.toolbars.descendants(matching: .menuButton),
+                activeWindow.descendants(matching: .menuButton),
+                app.toolbars.buttons,
+                activeWindow.descendants(matching: .button),
+                activeWindow.descendants(matching: .image),
+                activeWindow.descendants(matching: .group),
+                activeWindow.descendants(matching: .other)
+            ]
+        case let value where value.hasPrefix("editor-toolbar-") || value == "editor-find-button":
             targetedQueries = [
                 app.toolbars.buttons,
-                app.buttons,
-                app.images,
-                app.descendants(matching: .button),
-                app.descendants(matching: .image),
-                app.descendants(matching: .menuItem),
-                app.descendants(matching: .group),
-                app.descendants(matching: .other)
+                app.toolbars.descendants(matching: .menuButton),
+                activeWindow.descendants(matching: .button),
+                activeWindow.descendants(matching: .menuButton),
+                activeWindow.descendants(matching: .image),
+                activeWindow.descendants(matching: .group),
+                activeWindow.descendants(matching: .other)
             ]
         case let value where value.hasPrefix("note-list-item-"):
             targetedQueries = [
@@ -347,6 +471,62 @@ class QuartzUITestCase: XCTestCase {
             }
         }
 
+        if let fallbackLabel = Self.macToolbarAccessibilityLabelsByIdentifier[identifier] {
+            let labelPredicate = NSPredicate(format: "label == %@", fallbackLabel)
+            let labelQueries: [XCUIElement]
+
+            if Self.macHeadingToolbarMenuActionIdentifiers.contains(identifier) {
+                labelQueries = [
+                    app.menuItems[fallbackLabel],
+                    app.descendants(matching: .menuItem).matching(labelPredicate).firstMatch
+                ]
+            } else if Self.macOverflowToolbarPanelActionIdentifiers.contains(identifier) {
+                labelQueries = [
+                    activeWindow.descendants(matching: .button).matching(labelPredicate).firstMatch,
+                    app.buttons[fallbackLabel],
+                    activeWindow.descendants(matching: .group).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .other).matching(labelPredicate).firstMatch
+                ]
+            } else if Self.macToolbarTopLevelMenuIdentifiers.contains(identifier) {
+                labelQueries = [
+                    app.toolbars.menuButtons[fallbackLabel],
+                    activeWindow.descendants(matching: .menuButton).matching(labelPredicate).firstMatch,
+                    app.toolbars.buttons[fallbackLabel],
+                    activeWindow.descendants(matching: .button).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .image).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .group).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .other).matching(labelPredicate).firstMatch
+                ]
+            } else if identifier.hasPrefix("editor-toolbar-") || identifier == "editor-find-button" {
+                labelQueries = [
+                    app.toolbars.buttons[fallbackLabel],
+                    app.toolbars.menuButtons[fallbackLabel],
+                    activeWindow.descendants(matching: .button).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .menuButton).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .image).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .group).matching(labelPredicate).firstMatch,
+                    activeWindow.descendants(matching: .other).matching(labelPredicate).firstMatch
+                ]
+            } else {
+                labelQueries = [
+                    app.buttons[fallbackLabel],
+                    app.menuButtons[fallbackLabel],
+                    app.menuItems[fallbackLabel],
+                    app.images[fallbackLabel],
+                    app.staticTexts[fallbackLabel],
+                    app.descendants(matching: .button).matching(labelPredicate).firstMatch,
+                    app.descendants(matching: .menuButton).matching(labelPredicate).firstMatch,
+                    app.descendants(matching: .menuItem).matching(labelPredicate).firstMatch,
+                    app.descendants(matching: .image).matching(labelPredicate).firstMatch,
+                    app.descendants(matching: .group).matching(labelPredicate).firstMatch,
+                    app.descendants(matching: .other).matching(labelPredicate).firstMatch
+                ]
+            }
+            for match in labelQueries where match.exists {
+                return match
+            }
+        }
+
         return targetedQueries.first?.matching(identifier: identifier).firstMatch
     }
     #endif
@@ -363,6 +543,129 @@ class QuartzUITestCase: XCTestCase {
 
         return editorSurfaceCandidate().exists
     }
+
+    #if os(macOS)
+    @MainActor
+    func waitForMacFormattingToolbar(
+        timeout: TimeInterval,
+        requiredIdentifiers: [String]? = nil
+    ) -> Bool {
+        let requiredIdentifiers = requiredIdentifiers ?? Self.macTopLevelFormattingToolbarIdentifiers
+        let deadline = Date().addingTimeInterval(timeout)
+
+        for identifier in requiredIdentifiers {
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                break
+            }
+
+            let element = element(matchingIdentifier: identifier)
+            if !element.waitForExistence(timeout: remaining) {
+                let missingIdentifiers = requiredIdentifiers.filter {
+                    !self.element(matchingIdentifier: $0).exists
+                }
+                let labelDiagnostics = missingIdentifiers.map { missingIdentifier in
+                    let label = Self.macToolbarAccessibilityLabelsByIdentifier[missingIdentifier] ?? "<none>"
+                    return "\(missingIdentifier) [label=\(label)]"
+                }.joined(separator: "\n")
+                let attachment = XCTAttachment(string: """
+                Missing top-level macOS toolbar actions:
+                \(labelDiagnostics)
+
+                App debug description:
+                \(app.debugDescription)
+                """)
+                attachment.name = "macOS-toolbar-diagnostics"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+
+                return false
+            }
+        }
+
+        return true
+    }
+
+    @MainActor
+    func waitForMacFormattingToolbarReady(timeout: TimeInterval) -> Bool {
+        waitForMacFormattingToolbar(
+            timeout: timeout,
+            requiredIdentifiers: Self.macFormattingToolbarReadyIdentifiers
+        )
+    }
+
+    @MainActor
+    func openMacToolbarMenu(
+        menuIdentifier: String,
+        expectedActionIdentifier: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let menu = element(matchingIdentifier: menuIdentifier)
+        XCTAssertTrue(
+            menu.waitForExistence(timeout: timeout),
+            "Toolbar menu '\(menuIdentifier)' must exist before opening it",
+            file: file,
+            line: line
+        )
+        interact(with: menu)
+
+        let action = element(matchingIdentifier: expectedActionIdentifier)
+        XCTAssertTrue(
+            action.waitForExistence(timeout: timeout),
+            "Toolbar action '\(expectedActionIdentifier)' must appear after opening '\(menuIdentifier)'",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    func dismissMacToolbarMenu() {
+        let overflowPanel = element(matchingIdentifier: "editor-toolbar-overflow-panel")
+        if overflowPanel.exists {
+            let overflowButton = element(matchingIdentifier: "editor-toolbar-overflow-menu")
+            if overflowButton.exists {
+                interact(with: overflowButton)
+                return
+            }
+        }
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    @MainActor
+    func triggerMacToolbarMenuAction(
+        menuIdentifier: String,
+        actionIdentifier: String,
+        fallbackLabel: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        openMacToolbarMenu(
+            menuIdentifier: menuIdentifier,
+            expectedActionIdentifier: actionIdentifier,
+            timeout: timeout,
+            file: file,
+            line: line
+        )
+
+        let identifiedAction = element(matchingIdentifier: actionIdentifier)
+        if identifiedAction.waitForExistence(timeout: min(timeout, 2)) {
+            interact(with: identifiedAction)
+            return
+        }
+
+        let labeledAction = app.buttons[fallbackLabel]
+        XCTAssertTrue(
+            labeledAction.waitForExistence(timeout: timeout),
+            "Toolbar action '\(fallbackLabel)' must exist",
+            file: file,
+            line: line
+        )
+        interact(with: labeledAction)
+    }
+    #endif
 
     @MainActor
     func editorSurface(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
@@ -385,13 +688,20 @@ class QuartzUITestCase: XCTestCase {
                       file: file,
                       line: line)
         let surface = editorSurface(file: file, line: line)
-        interact(with: surface)
+        let initialTextInput = textInputEditorCandidate()
+        let initialTarget: XCUIElement
+        if initialTextInput.exists {
+            initialTarget = initialTextInput
+        } else {
+            initialTarget = surface
+        }
+        interact(with: initialTarget)
 
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
             let textInput = textInputEditorCandidate()
             if textInput.exists {
-                if textInput.elementType != surface.elementType || textInput.identifier != surface.identifier {
+                if textInput.elementType != initialTarget.elementType || textInput.identifier != initialTarget.identifier {
                     interact(with: textInput)
                 }
                 return textInput
@@ -408,11 +718,11 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let editor = focusEditor(file: file, line: line)
+        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         #if os(macOS)
-        app.typeKey("a", modifierFlags: .command)
+        typeKeyInFocusedMacEditor("a", modifierFlags: .command, file: file, line: line)
         #endif
-        editor.typeText(text)
+        typeTextInFocusedMacEditor(text, file: file, line: line)
         assertEditorContains(text, file: file, line: line)
         return editor
     }
@@ -422,13 +732,77 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let editor = focusEditor(file: file, line: line)
+        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         #if os(macOS)
-        app.typeKey("a", modifierFlags: .command)
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        typeKeyInFocusedMacEditor("a", modifierFlags: .command, file: file, line: line)
+        typeKeyInFocusedMacEditor(
+            XCUIKeyboardKey.delete.rawValue,
+            modifierFlags: [],
+            file: file,
+            line: line
+        )
         #endif
         return editor
     }
+
+    #if os(macOS)
+    @MainActor
+    func focusMacEditorForKeyboardInput(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        XCTAssertTrue(
+            waitForEditorSurface(timeout: 10),
+            "Editor surface must exist before keyboard synthesis",
+            file: file,
+            line: line
+        )
+        let editor = focusEditor(file: file, line: line)
+        prepareFocusedMacEditorForKeyboardInput(file: file, line: line)
+        return editor
+    }
+
+    @MainActor
+    private func prepareFocusedMacEditorForKeyboardInput(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitForEditorSurface(timeout: 10),
+            "Editor surface must exist before keyboard synthesis",
+            file: file,
+            line: line
+        )
+        app.activate()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 5),
+            "Quartz must be foreground before keyboard synthesis",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    func typeTextInFocusedMacEditor(
+        _ text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        prepareFocusedMacEditorForKeyboardInput(file: file, line: line)
+        app.typeText(text)
+    }
+
+    @MainActor
+    func typeKeyInFocusedMacEditor(
+        _ key: String,
+        modifierFlags: XCUIElement.KeyModifierFlags,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        prepareFocusedMacEditorForKeyboardInput(file: file, line: line)
+        app.typeKey(key, modifierFlags: modifierFlags)
+    }
+    #endif
 
     @MainActor
     func editorTextValue(file: StaticString = #filePath, line: UInt = #line) -> String {
@@ -595,29 +969,26 @@ class QuartzUITestCase: XCTestCase {
         let filteredTitles = titles.filter { !$0.isEmpty }
         guard !filteredTitles.isEmpty else { return nil }
 
-        let predicate = NSCompoundPredicate(
-            orPredicateWithSubpredicates: filteredTitles.map {
-                NSPredicate(format: "label CONTAINS[c] %@", $0)
-            }
-        )
-        var scopedQueries: [XCUIElementQuery] = [
-            app.outlineRows,
-            app.cells,
-            app.staticTexts,
-            app.buttons
-        ]
-        var identifierQueries: [XCUIElementQuery] = [
-            app.outlineRows,
-            app.cells,
-            app.buttons,
-            app.staticTexts
-        ]
-
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            let noteList = element(matchingIdentifier: "note-list-view")
+            let scopedQueries = noteList.exists
+                ? [
+                    noteList.descendants(matching: .outlineRow),
+                    noteList.descendants(matching: .cell),
+                    noteList.descendants(matching: .button),
+                    noteList.descendants(matching: .staticText)
+                ]
+                : [
+                    app.outlineRows,
+                    app.cells,
+                    app.buttons,
+                    app.staticTexts
+                ]
+
             for title in filteredTitles {
                 let identifier = "note-list-item-\(title)"
-                for query in identifierQueries {
+                for query in scopedQueries {
                     let match = query.matching(identifier: identifier).firstMatch
                     if match.exists {
                         interact(with: match)
@@ -627,12 +998,15 @@ class QuartzUITestCase: XCTestCase {
                 }
             }
 
-            for query in scopedQueries {
-                let match = query.matching(predicate).firstMatch
-                if match.exists {
-                    interact(with: match)
-                    _ = waitForEditorSurface(timeout: min(timeout, 5))
-                    return match
+            for title in filteredTitles {
+                let labelPredicate = NSPredicate(format: "label CONTAINS[c] %@", title)
+                for query in scopedQueries {
+                    let match = query.matching(labelPredicate).firstMatch
+                    if match.exists {
+                        interact(with: match)
+                        _ = waitForEditorSurface(timeout: min(timeout, 5))
+                        return match
+                    }
                 }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
@@ -643,10 +1017,11 @@ class QuartzUITestCase: XCTestCase {
 
     @MainActor
     func createNewNote(timeout: TimeInterval = 10) -> Bool {
-        let uniqueToken = "UITest\(UUID().uuidString.prefix(8))"
+        let uniqueToken = "UT\(UUID().uuidString.prefix(4))"
         let previousEditorText = waitForEditorSurface(timeout: 1) ? editorTextValue() : nil
 
         #if os(macOS)
+        app.activate()
         app.typeKey("n", modifierFlags: .command)
         if finalizeNewNoteCreation(
             uniqueToken: uniqueToken,
@@ -658,9 +1033,9 @@ class QuartzUITestCase: XCTestCase {
         #endif
 
         let candidates = [
+            app.buttons["New Note"],
             element(matchingIdentifier: "note-list-new-note"),
             element(matchingIdentifier: "sidebar-new-note"),
-            app.buttons["New Note"]
         ]
 
         for candidate in candidates {
@@ -781,14 +1156,38 @@ class QuartzUITestCase: XCTestCase {
     @MainActor
     func interact(with element: XCUIElement) {
         #if os(macOS)
-        if app.state != .runningForeground {
-            app.activate()
-        }
+        Self.hideKnownInterruptingMacApps()
+        app.activate()
+        _ = app.wait(for: .runningForeground, timeout: 5)
         element.click()
         #else
         element.tap()
         #endif
     }
+
+    #if os(macOS)
+    @MainActor
+    private static func hideKnownInterruptingMacApps() {
+        for runningApp in NSWorkspace.shared.runningApplications {
+            guard let bundleIdentifier = runningApp.bundleIdentifier else { continue }
+            guard knownInterruptingMacBundleIdentifiers.contains(bundleIdentifier) else { continue }
+            guard !runningApp.isTerminated else { continue }
+            if !runningApp.terminate() {
+                runningApp.forceTerminate()
+                continue
+            }
+
+            let deadline = Date().addingTimeInterval(1)
+            while !runningApp.isTerminated && deadline.timeIntervalSinceNow > 0 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+
+            if !runningApp.isTerminated {
+                runningApp.forceTerminate()
+            }
+        }
+    }
+    #endif
 
     @MainActor
     func triggerOverflowFormattingAction(
@@ -798,29 +1197,14 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let overflowMenu = element(matchingIdentifier: "editor-toolbar-overflow-menu")
-        XCTAssertTrue(
-            overflowMenu.waitForExistence(timeout: timeout),
-            "Overflow formatting menu must exist before selecting \(actionIdentifier)",
+        triggerMacToolbarMenuAction(
+            menuIdentifier: "editor-toolbar-overflow-menu",
+            actionIdentifier: "editor-toolbar-\(actionIdentifier)",
+            fallbackLabel: fallbackLabel,
+            timeout: timeout,
             file: file,
             line: line
         )
-        interact(with: overflowMenu)
-
-        let identifiedAction = element(matchingIdentifier: "editor-toolbar-\(actionIdentifier)")
-        if identifiedAction.waitForExistence(timeout: min(timeout, 2)) {
-            interact(with: identifiedAction)
-            return
-        }
-
-        let labeledAction = app.buttons[fallbackLabel]
-        XCTAssertTrue(
-            labeledAction.waitForExistence(timeout: timeout),
-            "Overflow action '\(fallbackLabel)' must exist",
-            file: file,
-            line: line
-        )
-        interact(with: labeledAction)
     }
 
     @MainActor

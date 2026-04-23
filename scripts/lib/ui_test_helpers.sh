@@ -30,6 +30,11 @@ xcodebuild_executed_zero_tests_in_log() {
     grep -q "Executed 0 tests" "$log_path"
 }
 
+xctest_runner_bootstrap_failure_in_log() {
+    local log_path="$1"
+    grep -Eq 'Early unexpected exit, operation never finished bootstrapping|before establishing connection|Unable to monitor event loop' "$log_path"
+}
+
 run_command_with_timeout_to_log() {
     local log_path="$1"
     local timeout_seconds="$2"
@@ -265,6 +270,13 @@ run_xcodebuild_to_log() {
             continue
         fi
 
+        if [ "$attempt" -lt "$max_attempts" ] && xctest_runner_bootstrap_failure_in_log "$log_path"; then
+            echo "macOS XCTest runner bootstrap failed before establishing a test connection; cleaning up the runner/app state and retrying once..." >>"$log_path"
+            heal_macos_launch_failure
+            attempt=$((attempt + 1))
+            continue
+        fi
+
         tail -n 40 "$log_path"
         return 1
     done
@@ -306,9 +318,94 @@ extract_simulator_id() {
     echo "$line" | sed -nE 's/.*\(([A-F0-9-]+)\) \((Booted|Shutdown)\)[[:space:]]*$/\1/p' | head -1 | xargs
 }
 
+simulator_line_by_id() {
+    local sim_id="$1"
+    xcrun simctl list devices available 2>/dev/null | grep -F "($sim_id)" | head -1 || true
+}
+
+simulator_runtime_id() {
+    local sim_id="$1"
+    xcrun simctl list devices available 2>/dev/null | awk -v target="($sim_id)" '
+        /^-- / && / --$/ {
+            current = $0
+            sub(/^-- /, "", current)
+            sub(/ --$/, "", current)
+        }
+        index($0, target) {
+            print current
+            exit
+        }
+    ' | sed -nE 's/^.* \((com\.apple\.CoreSimulator\.SimRuntime\.[^)]+)\)$/\1/p' | head -1 | xargs
+}
+
+simulator_name_by_id() {
+    local sim_id="$1"
+    simulator_line_by_id "$sim_id" | sed -nE 's/^[[:space:]]*(.*) \(([A-F0-9-]+)\) \((Booted|Shutdown)\)[[:space:]]*$/\1/p' | head -1 | xargs
+}
+
 stable_simulator_lines() {
     local family="$1"
     xcrun simctl list devices available 2>/dev/null | grep -F "$family" | grep -E '\((Booted|Shutdown)\)[[:space:]]*$' || true
+}
+
+simulator_id_by_name() {
+    local simulator_name="$1"
+    xcrun simctl list devices available 2>/dev/null | grep -F "$simulator_name (" | grep -E '\((Booted|Shutdown)\)[[:space:]]*$' | head -1 | while IFS= read -r line; do
+        extract_simulator_id "$line"
+    done
+}
+
+preferred_device_type_id() {
+    local preferred="$1"
+    xcrun simctl list devicetypes 2>/dev/null | grep -F "$preferred (" | sed -nE 's/^[[:space:]]*.*\((com\.apple\.CoreSimulator\.SimDeviceType\.[^)]+)\)[[:space:]]*$/\1/p' | head -1 | xargs
+}
+
+latest_ios_runtime_id() {
+    xcrun simctl list runtimes available 2>/dev/null | grep -E '^iOS ' | sed -nE 's/^.* - (com\.apple\.CoreSimulator\.SimRuntime\.iOS-[[:alnum:]-]+)$/\1/p' | head -1 | xargs
+}
+
+shutdown_simulator() {
+    local sim_id="$1"
+    run_command_with_timeout 30 xcrun simctl shutdown "$sim_id" || true
+}
+
+delete_simulator() {
+    local sim_id="$1"
+    shutdown_simulator "$sim_id"
+    run_command_with_timeout 30 xcrun simctl delete "$sim_id" || true
+}
+
+create_simulator() {
+    local simulator_name="$1"
+    local device_type_id="$2"
+    local runtime_id="$3"
+    xcrun simctl create "$simulator_name" "$device_type_id" "$runtime_id" 2>/dev/null | tr -d '\n'
+}
+
+bootstatus_waiting_on_data_migration_in_log() {
+    local log_path="$1"
+    grep -Eq 'Waiting on Data Migration|CoreLocationMigrator\.migrator|locationd\.migrator' "$log_path"
+}
+
+bootstatus_terminal_failure_in_log() {
+    local log_path="$1"
+    grep -Eq 'State: Shutdown|Unable to boot device|Invalid device|Failed to open device|Launchd failed to respond' "$log_path"
+}
+
+prepare_simulator_with_bootstatus_log() {
+    local sim_id="$1"
+    local bundle_id="${2:-olli.QuartzNotes}"
+    local bootstatus_timeout_seconds="${3:-120}"
+    local bootstatus_log_path="$4"
+
+    xcrun simctl boot "$sim_id" >/dev/null 2>&1 || true
+    if ! run_command_with_timeout_to_log "$bootstatus_log_path" "$bootstatus_timeout_seconds" xcrun simctl bootstatus "$sim_id" -b; then
+        return 1
+    fi
+
+    run_command_with_timeout 20 xcrun simctl terminate "$sim_id" "$bundle_id" || true
+    run_command_with_timeout 20 xcrun simctl uninstall "$sim_id" "$bundle_id" || true
+    return 0
 }
 
 available_simulator_id() {
@@ -367,9 +464,86 @@ prepared_simulator_id() {
     return 1
 }
 
+prepared_dedicated_simulator_info() {
+    local preferred="$1"
+    local family="$2"
+    local simulator_name="$3"
+    local bundle_id="${4:-olli.QuartzNotes}"
+    local bootstatus_timeout_seconds="${5:-150}"
+    local device_type_id=""
+    local runtime_id=""
+    local sim_id=""
+    local bootstatus_log_path=""
+    local strategy="reused"
+    local attempt=1
+
+    device_type_id=$(preferred_device_type_id "$preferred")
+    runtime_id=$(latest_ios_runtime_id)
+
+    if [ -z "$device_type_id" ] || [ -z "$runtime_id" ]; then
+        return 1
+    fi
+
+    xcrun simctl shutdown all >/dev/null 2>&1 || true
+
+    while [ "$attempt" -le 2 ]; do
+        sim_id=$(simulator_id_by_name "$simulator_name")
+        if [ -z "$sim_id" ]; then
+            sim_id=$(create_simulator "$simulator_name" "$device_type_id" "$runtime_id")
+            strategy="created"
+        elif [ "$attempt" -gt 1 ]; then
+            strategy="recreated"
+        else
+            strategy="reused"
+        fi
+
+        if [ -z "$sim_id" ]; then
+            return 1
+        fi
+
+        bootstatus_log_path="$(mktemp "/tmp/quartz-sim-bootstatus-${sim_id}-XXXX.log")"
+        if prepare_simulator_with_bootstatus_log "$sim_id" "$bundle_id" "$bootstatus_timeout_seconds" "$bootstatus_log_path"; then
+            rm -f "$bootstatus_log_path"
+            printf '%s|%s|%s\n' "$sim_id" "$strategy" "$simulator_name"
+            return 0
+        fi
+
+        if ! bootstatus_waiting_on_data_migration_in_log "$bootstatus_log_path" && ! xcodebuild_timeout_in_log "$bootstatus_log_path" && ! bootstatus_terminal_failure_in_log "$bootstatus_log_path"; then
+            rm -f "$bootstatus_log_path"
+            return 1
+        fi
+
+        rm -f "$bootstatus_log_path"
+        delete_simulator "$sim_id"
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
 terminate_conflicting_macos_app_processes() {
     local pid=""
     local deadline=0
+    local bundle_id=""
+    local pattern=""
+
+    for bundle_id in \
+        com.granola.app \
+        com.microsoft.Outlook \
+        com.raycast.macos
+    do
+        osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true
+    done
+
+    sleep 2
+
+    for pattern in \
+        '/Granola.app/' \
+        '/Microsoft Outlook.app/' \
+        '/Raycast.app/'
+    do
+        pkill -f "$pattern" >/dev/null 2>&1 || true
+    done
 
     deadline=$((SECONDS + 10))
     while IFS= read -r pid; do

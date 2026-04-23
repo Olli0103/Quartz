@@ -32,6 +32,11 @@ echo "  Log: $LOG_PATH"
 echo "  Result bundle: $RESULT_BUNDLE"
 echo "  DerivedData: $MACOS_UI_DERIVED_DATA_PATH"
 
+# Full macOS editor-shell coverage now includes the toolbar visibility matrix and
+# representative action matrix. Focused proofs on this host already exceed the
+# old 15-minute wrapper timeout, so give this smoke lane enough budget to finish.
+export XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-2700}"
+
 if ! ensure_macos_ui_automation_available "$LOG_PATH"; then
     echo "Host automation mode is disabled; continuing to the real macOS XCTest launch/attach probe." | tee -a "$LOG_PATH"
 fi

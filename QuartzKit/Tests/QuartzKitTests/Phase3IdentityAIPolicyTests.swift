@@ -320,7 +320,9 @@ final class Phase3UnifiedAIPolicyEnforcementTests: XCTestCase {
         XCTAssertEqual(health, .circuitOpen)
 
         // Both operations should use fallback when circuit is open
-        let concepts = await policy.extractConcepts(from: "Test content")
+        // Use concept-rich input so this test verifies policy fallback routing
+        // rather than depending on NLP extraction from a generic placeholder string.
+        let concepts = await policy.extractConcepts(from: "Swift programming language architecture")
         let similar = await policy.findSimilarContent(to: "Test")
 
         XCTAssertFalse(concepts.isEmpty, "Concepts should fall back")

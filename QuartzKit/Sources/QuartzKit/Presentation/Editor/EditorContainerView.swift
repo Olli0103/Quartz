@@ -32,6 +32,9 @@ public struct EditorContainerView: View {
     @State private var aiToolsRequest: AIToolsRequest?
     @State private var showChat = false
     @State private var showImageSourceSheet = false
+    #if os(macOS)
+    @State private var isMacOverflowPalettePresented = false
+    #endif
     #if os(iOS)
     @State private var selectedImageSource: ImageSourceOption?
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -123,6 +126,16 @@ public struct EditorContainerView: View {
                 externalModificationBanner
             }
         }
+        #if os(macOS)
+        .overlay(alignment: .topTrailing) {
+            if isMacOverflowPalettePresented {
+                macOverflowPalette
+                    .padding(.top, 12)
+                    .padding(.trailing, 20)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+            }
+        }
+        #endif
         #if os(iOS)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: 72)
@@ -145,19 +158,17 @@ public struct EditorContainerView: View {
         #endif
         .toolbar {
             #if os(macOS)
-            ToolbarItemGroup(placement: .principal) {
-                MacEditorToolbar(
-                    onFormatting: { action in
-                        session.handleFormattingAction(action, source: .toolbar)
-                    },
-                    formattingState: session.formattingState,
-                    isComposing: session.isComposing,
-                    hasSelection: session.cursorPosition.length > 0,
-                    onUndo: { session.undo() },
-                    onRedo: { session.redo() },
-                    onAIAssist: { triggerAIAssist() }
-                )
-            }
+            MacEditorToolbarContent(
+                onFormatting: { action in
+                    session.handleFormattingAction(action, source: .toolbar)
+                },
+                formattingState: session.formattingState,
+                isComposing: session.isComposing,
+                onUndo: { session.undo() },
+                onRedo: { session.redo() },
+                onOverflowToggle: { isMacOverflowPalettePresented.toggle() },
+                isOverflowPresented: isMacOverflowPalettePresented
+            )
             #endif
 
             ToolbarItemGroup(placement: .primaryAction) {
@@ -169,6 +180,7 @@ public struct EditorContainerView: View {
                         } label: {
                             Image(systemName: "mic")
                         }
+                        .accessibilityIdentifier("editor-toolbar-voice-note")
                         .accessibilityLabel(String(localized: "Record Voice Note", bundle: .module))
                     }
 
@@ -194,6 +206,7 @@ public struct EditorContainerView: View {
                               ? "arrow.down.right.and.arrow.up.left"
                               : "arrow.up.left.and.arrow.down.right")
                     }
+                    .accessibilityIdentifier("editor-toolbar-focus-mode")
                     .accessibilityLabel(
                         focusMode.isFocusModeActive
                             ? String(localized: "Exit Focus Mode", bundle: .module)
@@ -207,8 +220,19 @@ public struct EditorContainerView: View {
                         } label: {
                             Image(systemName: "bubble.left.and.bubble.right")
                         }
+                        .accessibilityIdentifier("editor-toolbar-chat")
                         .accessibilityLabel(String(localized: "Chat about this note", bundle: .module))
                     }
+
+                    Button {
+                        QuartzFeedback.primaryAction()
+                        triggerAIAssist()
+                    } label: {
+                        Image(systemName: "sparkles")
+                    }
+                    .disabled(session.isComposing || session.cursorPosition.length == 0)
+                    .accessibilityIdentifier("editor-toolbar-ai-assistant")
+                    .accessibilityLabel(String(localized: "AI Assistant", bundle: .module))
 
                     Button {
                         withAnimation(QuartzAnimation.content) {
@@ -217,6 +241,7 @@ public struct EditorContainerView: View {
                     } label: {
                         Image(systemName: "info.circle")
                     }
+                    .accessibilityIdentifier("editor-toolbar-inspector")
                     .accessibilityLabel(
                         session.inspectorStore.isVisible
                             ? String(localized: "Hide Inspector", bundle: .module)
@@ -658,6 +683,44 @@ public struct EditorContainerView: View {
             }
         )
     }
+
+    #if os(macOS)
+    private var macOverflowPalette: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(macOverflowPaletteActions, id: \.self) { action in
+                Button {
+                    session.handleFormattingAction(action, source: .toolbar)
+                    isMacOverflowPalettePresented = false
+                } label: {
+                    Label(action.label, systemImage: action.icon)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .disabled(session.isComposing)
+                .accessibilityIdentifier("editor-toolbar-\(action.rawValue)")
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.clear)
+                )
+            }
+        }
+        .padding(10)
+        .frame(width: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 6)
+        .accessibilityIdentifier("editor-toolbar-overflow-panel")
+    }
+
+    private var macOverflowPaletteActions: [FormattingAction] {
+        [.codeBlock, .blockquote, .table, .image, .math, .mermaid]
+    }
+    #endif
 
     private func navigateToInspectorNote(_ request: WikiLinkNavigationRequest) {
         QuartzFeedback.primaryAction()

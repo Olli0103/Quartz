@@ -2,9 +2,52 @@ import XCTest
 
 #if os(macOS)
 final class macOSEditorShellUITests: QuartzUITestCase {
+    private struct ToolbarActionSpec {
+        let identifier: String
+        let label: String
+    }
+
     private let preferredExistingNoteTitles = ["Welcome", "Todo"]
     private let preferredInlineFormattingNoteTitles = ["Welcome", "Release Notes", "Todo"]
     private let longFixtureNoteTitle = "Release Notes"
+    private let macTopLevelFormattingActions = [
+        ToolbarActionSpec(identifier: "editor-toolbar-undo", label: "Undo"),
+        ToolbarActionSpec(identifier: "editor-toolbar-redo", label: "Redo"),
+        ToolbarActionSpec(identifier: "editor-toolbar-bold", label: "Bold"),
+        ToolbarActionSpec(identifier: "editor-toolbar-italic", label: "Italic"),
+        ToolbarActionSpec(identifier: "editor-toolbar-strikethrough", label: "Strikethrough"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading-menu", label: "Heading level"),
+        ToolbarActionSpec(identifier: "editor-toolbar-bulletList", label: "Bullet List"),
+        ToolbarActionSpec(identifier: "editor-toolbar-numberedList", label: "Numbered List"),
+        ToolbarActionSpec(identifier: "editor-toolbar-checkbox", label: "Checkbox"),
+        ToolbarActionSpec(identifier: "editor-toolbar-code", label: "Inline Code"),
+        ToolbarActionSpec(identifier: "editor-toolbar-link", label: "Link"),
+        ToolbarActionSpec(identifier: "editor-toolbar-overflow-menu", label: "More formatting options"),
+        ToolbarActionSpec(identifier: "editor-toolbar-ai-assistant", label: "AI Assistant")
+    ]
+    private let macAuxiliaryToolbarActions = [
+        ToolbarActionSpec(identifier: "editor-toolbar-export", label: "Export note"),
+        ToolbarActionSpec(identifier: "editor-find-button", label: "Find in Note"),
+        ToolbarActionSpec(identifier: "editor-toolbar-focus-mode", label: "Focus Mode"),
+        ToolbarActionSpec(identifier: "editor-toolbar-inspector", label: "Inspector")
+    ]
+    private let macHeadingMenuActions = [
+        ToolbarActionSpec(identifier: "editor-toolbar-paragraph", label: "Paragraph"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading1", label: "Heading 1"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading2", label: "Heading 2"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading3", label: "Heading 3"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading4", label: "Heading 4"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading5", label: "Heading 5"),
+        ToolbarActionSpec(identifier: "editor-toolbar-heading6", label: "Heading 6")
+    ]
+    private let macOverflowMenuActions = [
+        ToolbarActionSpec(identifier: "editor-toolbar-codeBlock", label: "Code Block"),
+        ToolbarActionSpec(identifier: "editor-toolbar-blockquote", label: "Quote"),
+        ToolbarActionSpec(identifier: "editor-toolbar-table", label: "Table"),
+        ToolbarActionSpec(identifier: "editor-toolbar-image", label: "Image"),
+        ToolbarActionSpec(identifier: "editor-toolbar-math", label: "Math"),
+        ToolbarActionSpec(identifier: "editor-toolbar-mermaid", label: "Mermaid Diagram")
+    ]
 
     @MainActor
     func testEditorPreservesEditsAcrossNoteSwitching() throws {
@@ -49,11 +92,11 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             return
         }
 
-        let editor = replaceEditorText(with: "Keyboard bold baseline")
-        editor.typeKey("b", modifierFlags: .command)
+        _ = replaceEditorText(with: "Keyboard bold baseline")
+        typeKeyInFocusedMacEditor("b", modifierFlags: .command)
 
         let token = "macBold\(UUID().uuidString.prefix(6))"
-        editor.typeText(token)
+        typeTextInFocusedMacEditor(token)
         assertEditorContains("**\(token)**")
     }
 
@@ -117,6 +160,38 @@ final class macOSEditorShellUITests: QuartzUITestCase {
     }
 
     @MainActor
+    func testToolbarVisibilityMatrixExposesEveryVisibleMacAction() throws {
+        launchApp()
+
+        guard openMockVaultNote(matchingAnyOf: preferredInlineFormattingNoteTitles) != nil else {
+            takeScreenshot(named: "macOS_EditorShell_NoFixtureForToolbarMatrix")
+            XCTFail("A visible fixture note must exist for macOS toolbar matrix coverage")
+            return
+        }
+
+        prepareMacFormattingToolbar(
+            failureMessage: "The visible macOS formatting toolbar surface must become queryable before matrix assertions run"
+        )
+
+        assertToolbarSpecsExist(macTopLevelFormattingActions)
+        assertToolbarSpecsExist(macAuxiliaryToolbarActions)
+
+        openMacToolbarMenu(
+            menuIdentifier: "editor-toolbar-heading-menu",
+            expectedActionIdentifier: "editor-toolbar-paragraph"
+        )
+        assertToolbarSpecsExist(macHeadingMenuActions)
+        dismissMacToolbarMenu()
+
+        openMacToolbarMenu(
+            menuIdentifier: "editor-toolbar-overflow-menu",
+            expectedActionIdentifier: "editor-toolbar-codeBlock"
+        )
+        assertToolbarSpecsExist(macOverflowMenuActions)
+        dismissMacToolbarMenu()
+    }
+
+    @MainActor
     func testTypingWikiLinkTriggerShowsSuggestionsAndInsertsLinkedNote() throws {
         launchApp()
 
@@ -161,6 +236,143 @@ final class macOSEditorShellUITests: QuartzUITestCase {
         let token = "macToolbarBold\(UUID().uuidString.prefix(6))"
         editor.typeText(token)
         assertEditorContains("**\(token)**")
+    }
+
+    @MainActor
+    func testToolbarInlineActionMatrixAppliesExpectedFormatting() throws {
+        launchApp()
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForInlineToolbarMatrix",
+            failureMessage: "A fresh editor note must be creatable for macOS inline toolbar matrix coverage"
+        )
+        assertInlineWrapperActionOnFreshNote(
+            identifier: "editor-toolbar-bold",
+            tokenPrefix: "b",
+            expectedPrefix: "**",
+            expectedSuffix: "**"
+        )
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForInlineToolbarMatrix",
+            failureMessage: "A second fresh editor note must be creatable for macOS inline toolbar matrix coverage"
+        )
+        assertInlineWrapperActionOnFreshNote(
+            identifier: "editor-toolbar-link",
+            tokenPrefix: "l",
+            expectedPrefix: "[",
+            expectedSuffix: "](url)"
+        )
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForInlineToolbarMatrix",
+            failureMessage: "A third fresh editor note must be creatable for macOS inline toolbar matrix coverage"
+        )
+        assertLinePrefixActionOnFreshNote(
+            identifier: "editor-toolbar-checkbox",
+            tokenPrefix: "c",
+            expectedPrefix: "- [ ] "
+        )
+    }
+
+    @MainActor
+    func testToolbarHeadingMenuRepresentativeActionsApplyExpectedFormatting() throws {
+        launchApp()
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForMenuToolbarMatrix",
+            failureMessage: "A fresh editor note must be creatable for macOS menu-toolbar matrix coverage"
+        )
+        let headingToken = "h"
+        let headingEditor = focusEditor()
+        triggerMacToolbarMenuAction(
+            menuIdentifier: "editor-toolbar-heading-menu",
+            actionIdentifier: "editor-toolbar-heading2",
+            fallbackLabel: "Heading 2"
+        )
+        headingEditor.typeText(headingToken)
+        assertEditorContains("## " + headingToken)
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForMenuToolbarMatrix",
+            failureMessage: "A second fresh editor note must be creatable for macOS menu-toolbar matrix coverage"
+        )
+        let paragraphToken = "p"
+        let paragraphEditor = focusEditor()
+        paragraphEditor.typeText("## \(paragraphToken)")
+        app.typeKey("a", modifierFlags: .command)
+        triggerMacToolbarMenuAction(
+            menuIdentifier: "editor-toolbar-heading-menu",
+            actionIdentifier: "editor-toolbar-paragraph",
+            fallbackLabel: "Paragraph"
+        )
+        XCTAssertTrue(waitForEditorSurface(timeout: 5))
+        _ = paragraphEditor
+        assertEditorContains(paragraphToken)
+        assertEditorNotContains("# \(paragraphToken)")
+    }
+
+    @MainActor
+    func testToolbarOverflowMenuRepresentativeActionsApplyExpectedFormatting() throws {
+        launchApp()
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForMenuToolbarMatrix",
+            failureMessage: "A third fresh editor note must be creatable for macOS menu-toolbar matrix coverage"
+        )
+        assertMenuWrappedActionOnFreshNote(
+            menuIdentifier: "editor-toolbar-overflow-menu",
+            actionIdentifier: "editor-toolbar-blockquote",
+            fallbackLabel: "Quote",
+            tokenPrefix: "q",
+            expectedPrefix: "> ",
+            expectedSuffix: ""
+        )
+
+        prepareFreshMacToolbarActionNote(
+            failureScreenshotName: "macOS_EditorShell_NewNoteFailedForMenuToolbarMatrix",
+            failureMessage: "A fourth fresh editor note must be creatable for macOS menu-toolbar matrix coverage"
+        )
+        let tableEditor = focusEditor()
+        _ = tableEditor
+        triggerMacToolbarMenuAction(
+            menuIdentifier: "editor-toolbar-overflow-menu",
+            actionIdentifier: "editor-toolbar-table",
+            fallbackLabel: "Table"
+        )
+        assertEditorContains("| Column 1 | Column 2 | Column 3 |")
+        assertEditorContains("| --- | --- | --- |")
+        assertEditorContains("| Cell 1 | Cell 2 | Cell 3 |")
+    }
+
+    @MainActor
+    func testToolbarUndoRedoButtonsRoundTripSelectionFormatting() throws {
+        launchApp()
+
+        guard createNewNote() else {
+            takeScreenshot(named: "macOS_EditorShell_NewNoteFailedForUndoRedoToolbar")
+            XCTFail("A fresh editor note must be creatable for macOS undo/redo toolbar coverage")
+            return
+        }
+
+        prepareMacFormattingToolbar(
+            failureMessage: "The visible macOS formatting toolbar surface must become queryable before undo/redo coverage runs"
+        )
+
+        let token = "u"
+        let editor = replaceEditorText(with: token)
+        app.typeKey("a", modifierFlags: .command)
+
+        interact(with: element(matchingIdentifier: "editor-toolbar-bold"))
+        assertEditorContains("**\(token)**")
+
+        interact(with: element(matchingIdentifier: "editor-toolbar-undo"))
+        assertEditorContains(token)
+        assertEditorNotContains("**\(token)**")
+
+        interact(with: element(matchingIdentifier: "editor-toolbar-redo"))
+        assertEditorContains("**\(token)**")
+        _ = editor
     }
 
     @MainActor
@@ -318,6 +530,103 @@ final class macOSEditorShellUITests: QuartzUITestCase {
             waitForEditorToContain(marker, timeout: 15),
             "Editor must return with restored note content after relaunch without state reset"
         )
+    }
+
+    @MainActor
+    private func assertToolbarSpecsExist(
+        _ specs: [ToolbarActionSpec],
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for spec in specs {
+            let element = element(matchingIdentifier: spec.identifier)
+            XCTAssertTrue(
+                element.waitForExistence(timeout: timeout),
+                "\(spec.label) must be queryable in the macOS toolbar accessibility tree",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    @MainActor
+    private func prepareMacFormattingToolbar(
+        timeout: TimeInterval = 10,
+        failureMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        _ = focusEditor(file: file, line: line)
+        XCTAssertTrue(
+            waitForMacFormattingToolbarReady(timeout: timeout),
+            failureMessage,
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func prepareFreshMacToolbarActionNote(
+        failureScreenshotName: String,
+        failureMessage: String
+    ) {
+        guard createNewNote() else {
+            takeScreenshot(named: failureScreenshotName)
+            XCTFail(failureMessage)
+            return
+        }
+
+        prepareMacFormattingToolbar(
+            failureMessage: "The visible macOS formatting toolbar surface must become queryable before representative action coverage runs"
+        )
+    }
+
+    @MainActor
+    private func assertInlineWrapperActionOnFreshNote(
+        identifier: String,
+        tokenPrefix: String,
+        expectedPrefix: String,
+        expectedSuffix: String
+    ) {
+        let token = tokenPrefix
+        let editor = focusEditor()
+        interact(with: element(matchingIdentifier: identifier))
+        editor.typeText(token)
+        assertEditorContains("\(expectedPrefix)\(token)\(expectedSuffix)")
+    }
+
+    @MainActor
+    private func assertLinePrefixActionOnFreshNote(
+        identifier: String,
+        tokenPrefix: String,
+        expectedPrefix: String
+    ) {
+        let token = tokenPrefix
+        let editor = focusEditor()
+        interact(with: element(matchingIdentifier: identifier))
+        editor.typeText(token)
+        assertEditorContains("\(expectedPrefix)\(token)")
+    }
+
+    @MainActor
+    private func assertMenuWrappedActionOnFreshNote(
+        menuIdentifier: String,
+        actionIdentifier: String,
+        fallbackLabel: String,
+        tokenPrefix: String,
+        expectedPrefix: String,
+        expectedSuffix: String
+    ) {
+        let token = tokenPrefix
+        let editor = focusEditor()
+        triggerMacToolbarMenuAction(
+            menuIdentifier: menuIdentifier,
+            actionIdentifier: actionIdentifier,
+            fallbackLabel: fallbackLabel
+        )
+        editor.typeText(token)
+        assertEditorContains("\(expectedPrefix)\(token)\(expectedSuffix)")
     }
 }
 #endif

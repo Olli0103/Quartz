@@ -15,7 +15,7 @@ import Foundation
 //     is ACTIVATED and significantly faster than full re-parse on large docs.
 //   - MarkdownASTHighlighter is an actor — parsing runs off the main thread by design.
 
-@Suite("Editor Performance Budget")
+@Suite("Editor Performance Budget", .serialized)
 struct EditorPerformanceBudgetTests {
 
     /// Generates a realistic 20K+ character markdown document.

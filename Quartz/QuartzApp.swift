@@ -32,20 +32,24 @@ private enum QuartzUITestActivationCoordinator {
         guard QuartzUITestLaunchOptions.isShellMode else { return }
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
     }
 
     static func promotePrimaryWindow(reason _: String) {
         guard QuartzUITestLaunchOptions.isShellMode else { return }
 
+        QuartzUITestWindowBootstrap.ensureFallbackWindow()
         configureApplication()
-        NSApp.activate()
-        _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
+        _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
 
         guard let window = primaryWindow() else { return }
 
         window.isRestorable = false
         window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
+        window.makeMain()
 
         let windowID = ObjectIdentifier(window)
         if announcedWindowIDs.insert(windowID).inserted {
@@ -56,6 +60,8 @@ private enum QuartzUITestActivationCoordinator {
 
 @MainActor
 private enum QuartzUITestWindowBootstrap {
+    static let shellWindowWidth: CGFloat = 1500
+    static let shellWindowHeight: CGFloat = 760
     static var makeRootView: (() -> AnyView)?
     private static var fallbackWindow: NSWindow?
 
@@ -73,7 +79,12 @@ private enum QuartzUITestWindowBootstrap {
         guard let makeRootView else { return }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: shellWindowWidth,
+                height: shellWindowHeight
+            ),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -82,6 +93,8 @@ private enum QuartzUITestWindowBootstrap {
         window.title = "Quartz Notes"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        window.setContentSize(NSSize(width: shellWindowWidth, height: shellWindowHeight))
+        window.minSize = NSSize(width: shellWindowWidth, height: 640)
         window.center()
         window.contentViewController = NSHostingController(rootView: makeRootView())
 
@@ -112,13 +125,10 @@ private final class QuartzUITestAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        QuartzUITestWindowBootstrap.ensureFallbackWindow()
         QuartzUITestActivationCoordinator.promotePrimaryWindow(reason: "did-finish-launching")
 
         guard QuartzUITestLaunchOptions.isShellMode else { return }
-        Task { @MainActor in
-            await Task.yield()
-            QuartzUITestWindowBootstrap.ensureFallbackWindow()
-        }
         let center = NotificationCenter.default
         activationObservers.append(
             center.addObserver(
@@ -353,7 +363,10 @@ struct QuartzApp: App {
                 EmptyView()
             }
         }
-        .defaultSize(width: 1100, height: 700)
+        .defaultSize(
+            width: QuartzUITestWindowBootstrap.shellWindowWidth,
+            height: QuartzUITestWindowBootstrap.shellWindowHeight
+        )
         .defaultLaunchBehavior(Self.isUITestShellMode ? .presented : .suppressed)
         .restorationBehavior(.disabled)
 
@@ -378,7 +391,10 @@ struct QuartzApp: App {
                 onCreateVault: { appState.pendingCommand = .createVault }
             )
         }
-        .defaultSize(width: 1100, height: 700)
+        .defaultSize(
+            width: QuartzUITestWindowBootstrap.shellWindowWidth,
+            height: QuartzUITestWindowBootstrap.shellWindowHeight
+        )
         .defaultLaunchBehavior(Self.isUITestShellMode ? .suppressed : .presented)
         #else
         WindowGroup {
