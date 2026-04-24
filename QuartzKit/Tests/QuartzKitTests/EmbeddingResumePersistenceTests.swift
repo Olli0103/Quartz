@@ -149,6 +149,47 @@ struct EmbeddingResumePersistenceTests {
         #expect(summary[.neverIndexed] == nil)
     }
 
+    @Test("Legacy unmatched chunks are pruned so new checkpoint progress survives restart")
+    func legacyUnmatchedChunksArePrunedBeforeResumeCheckpoint() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let notes = try makeNotes(count: 9, in: vault)
+
+        let legacy = VectorEmbeddingService(vaultURL: vault)
+        for url in notes.prefix(4) {
+            try await legacy.indexNote(
+                noteID: UUID(),
+                content: String(contentsOf: url, encoding: .utf8)
+            )
+        }
+        try await legacy.saveIndex()
+
+        let restarted = VectorEmbeddingService(vaultURL: vault)
+        try await restarted.loadIndex()
+        #expect(await restarted.entryCount > 0)
+        #expect(await restarted.indexedNoteIDOverlapCount(with: Set(notes.map {
+            VectorEmbeddingService.stableNoteID(for: $0, vaultRoot: vault)
+        })) == 0)
+
+        let knownIDs = Set(notes.map { VectorEmbeddingService.stableNoteID(for: $0, vaultRoot: vault) })
+        let pruneResult = await restarted.pruneToKnownNoteIDs(knownIDs)
+        #expect(pruneResult.removedChunks > 0)
+        #expect(pruneResult.remainingChunks == 0)
+
+        for url in notes.prefix(3) {
+            let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
+            try await restarted.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
+        }
+        try await restarted.saveIndex()
+
+        let secondRestart = VectorEmbeddingService(vaultURL: vault)
+        try await secondRestart.loadIndex()
+        let summary = try await pendingSummary(service: secondRestart, urls: notes, vaultRoot: vault)
+        #expect(await secondRestart.indexedNoteCount == 3)
+        #expect(summary[.neverIndexed] == 6)
+        #expect(summary[.modifiedAfterIndex] == nil)
+    }
+
     @MainActor
     @Test("Save pressure pauses embedding sweep and recovery resumes it")
     func savePressurePausesAndRecoveryResumesEmbeddingSweep() async throws {

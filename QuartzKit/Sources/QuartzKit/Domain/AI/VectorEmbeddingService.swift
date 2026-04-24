@@ -404,6 +404,37 @@ public actor VectorEmbeddingService {
         Set(index.map(\.noteID))
     }
 
+    /// Summary returned when pruning chunks that do not map to the current vault tree.
+    public struct PruneResult: Equatable, Sendable {
+        public let removedChunks: Int
+        public let removedNoteIDs: Int
+        public let remainingChunks: Int
+        public let remainingNoteIDs: Int
+    }
+
+    /// Counts how many persisted note IDs still match the current vault tree.
+    public func indexedNoteIDOverlapCount(with noteIDs: Set<UUID>) -> Int {
+        indexedNoteIDs.intersection(noteIDs).count
+    }
+
+    /// Removes persisted chunks for note IDs that are not present in the current vault tree.
+    ///
+    /// This repairs indexes written by older builds that used launch-local note IDs.
+    /// Those chunks can load successfully but never satisfy incremental pending checks.
+    @discardableResult
+    public func pruneToKnownNoteIDs(_ knownNoteIDs: Set<UUID>) -> PruneResult {
+        let originalChunks = index.count
+        let originalNoteIDs = indexedNoteIDs
+        index.removeAll { !knownNoteIDs.contains($0.noteID) }
+        let remainingNoteIDs = indexedNoteIDs
+        return PruneResult(
+            removedChunks: originalChunks - index.count,
+            removedNoteIDs: originalNoteIDs.subtracting(remainingNoteIDs).count,
+            remainingChunks: index.count,
+            remainingNoteIDs: remainingNoteIDs.count
+        )
+    }
+
     /// Why a note needs embedding work during a sweep.
     public enum PendingReason: String, Sendable {
         case neverIndexed

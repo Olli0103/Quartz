@@ -699,7 +699,13 @@ public final class ContentViewModel {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, !self.isIndexingPausedForSavePressure else { return }
+                guard let self else { return }
+                guard !self.isIndexingPausedForSavePressure else {
+                    if let pauseUntil = self.savePressurePauseUntil {
+                        self.scheduleSavePressureResume(at: pauseUntil)
+                    }
+                    return
+                }
                 self.savePressureResumeTask = nil
                 self.resumeEmbeddingIndexingAfterSavePressure(reason: "save pressure pause expired")
             }
@@ -1590,6 +1596,20 @@ public final class ContentViewModel {
 
         indexingTask = Task.detached(priority: .utility) {
             let indexingStart = DispatchTime.now().uptimeNanoseconds
+            let currentNoteIDs = Set(noteURLs.map {
+                VectorEmbeddingService.stableNoteID(for: $0, vaultRoot: vaultRoot)
+            })
+            let loadedChunks = await embedding.entryCount
+            let loadedNotes = await embedding.indexedNoteCount
+            let matchingLoadedNotes = await embedding.indexedNoteIDOverlapCount(with: currentNoteIDs)
+            let pruneResult = await embedding.pruneToKnownNoteIDs(currentNoteIDs)
+            if pruneResult.removedChunks > 0 {
+                QuartzDiagnostics.warning(
+                    category: "IndexingTelemetry",
+                    "Embedding index pruned unmatched chunks=\(pruneResult.removedChunks) staleNoteIDs=\(pruneResult.removedNoteIDs) remainingChunks=\(pruneResult.remainingChunks) remainingNoteIDs=\(pruneResult.remainingNoteIDs) loadedChunks=\(loadedChunks) loadedNoteIDs=\(loadedNotes) matchingLoadedNoteIDs=\(matchingLoadedNotes) vaultNotes=\(noteURLs.count) reason=noteIDsOutsideCurrentVaultOrLegacyIndex"
+                )
+            }
+
             var pendingNoteURLs: [URL] = []
             pendingNoteURLs.reserveCapacity(noteURLs.count)
             var pendingMissingMTime = 0
@@ -1643,6 +1663,13 @@ public final class ContentViewModel {
                     self?.indexingProgress = nil
                     self?.sidebarViewModel?.indexingProgress = nil
                 }
+                if pruneResult.removedChunks > 0 {
+                    do {
+                        try await embedding.saveIndex()
+                    } catch {
+                        Self.logIndexingFailure("embedding stale-chunk prune save", error: error)
+                    }
+                }
                 return
             }
 
@@ -1685,8 +1712,14 @@ public final class ContentViewModel {
                         try await embedding.indexNote(noteID: stableID, content: content)
                         indexedNotes += 1
                         changedNotesSinceCheckpoint += 1
-                        if changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
+                        if indexedNotes == 1 || changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
                             try await embedding.saveIndex()
+                            if indexedNotes == 1 {
+                                QuartzDiagnostics.info(
+                                    category: "IndexingTelemetry",
+                                    "Embedding sweep first checkpoint saved processed=\(i + 1)/\(total) indexedNotes=\(indexedNotes)"
+                                )
+                            }
                             changedNotesSinceCheckpoint = 0
                         }
                     } catch {
@@ -1712,6 +1745,22 @@ public final class ContentViewModel {
                     }
                 }
                 await Task.yield()
+            }
+
+            let savePressureActive = await MainActor.run { [weak self] in
+                self?.isIndexingPausedForSavePressure ?? false
+            }
+            if changedNotesSinceCheckpoint > 0 && !savePressureActive {
+                do {
+                    try await embedding.saveIndex()
+                    QuartzDiagnostics.info(
+                        category: "IndexingTelemetry",
+                        "Embedding sweep partial checkpoint saved before exit indexedNotes=\(indexedNotes) pendingSinceLastCheckpoint=\(changedNotesSinceCheckpoint)"
+                    )
+                    changedNotesSinceCheckpoint = 0
+                } catch {
+                    Self.logIndexingFailure("embedding sweep partial checkpoint save", error: error)
+                }
             }
 
             let isCurrentGeneration = await MainActor.run { [weak self] in

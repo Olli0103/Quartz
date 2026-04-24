@@ -407,6 +407,13 @@ struct ContentView: View {
             && viewModel?.sidebarViewModel?.vaultRootURL != nil
     }
 
+    private var currentWindowNeedsVaultLoad: Bool {
+        guard let currentVault = appState.currentVault else { return false }
+        guard let loadedRoot = viewModel?.sidebarViewModel?.vaultRootURL else { return true }
+        return CanonicalNoteIdentity.canonicalFileURL(for: loadedRoot) !=
+            CanonicalNoteIdentity.canonicalFileURL(for: currentVault.rootURL)
+    }
+
     private var uiTestWorkspaceReadyMarker: some View {
         Color.clear
             .frame(width: 1, height: 1)
@@ -833,7 +840,14 @@ struct ContentView: View {
         if deepLinkCoordinator == nil {
             deepLinkCoordinator = DeepLinkCoordinator(appState: appState)
         }
-        if appState.currentVault == nil {
+        if let currentVault = appState.currentVault, currentWindowNeedsVaultLoad {
+            vaultCoordinator?.openVault(
+                currentVault,
+                viewModel: viewModel,
+                noteListStore: noteListStore,
+                workspaceStore: workspaceStore
+            ) { restoreSelectedNoteIfNeeded() }
+        } else if appState.currentVault == nil {
             if CommandLine.arguments.contains("--mock-vault"),
                let fixtureVaultPath = defaults.string(forKey: "quartz.uitest.fixtureVaultPath") {
                 let fixtureURL = URL(fileURLWithPath: fixtureVaultPath, isDirectory: true)
