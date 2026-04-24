@@ -77,6 +77,154 @@ final class EditorSessionSaveFlowTests: XCTestCase {
         XCTAssertTrue(operations.contains { $0.0 == .saveNote }, "saveNote should have been called")
     }
 
+    /// Repeated iCloud coordination timeouts must not spin silently or lose edits.
+    /// The second consecutive timeout triggers deterministic emergency persistence
+    /// to the note URL, keeps the user-facing state honest, and resets failure
+    /// pressure only after a fallback write succeeds.
+    @MainActor
+    func testRepeatedCoordinationTimeoutUsesEmergencyPrimaryWrite() async throws {
+        let tempVault = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzSaveRecovery-\(UUID().uuidString)", directoryHint: .isDirectory)
+        testVaultURL = tempVault
+        testNoteURL = tempVault.appending(path: "timeout-note.md")
+        try FileManager.default.createDirectory(at: tempVault, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempVault) }
+
+        mockVaultProvider = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: testNoteURL,
+            frontmatter: Frontmatter(title: "Timeout", createdAt: Date(), modifiedAt: Date()),
+            body: "original",
+            isDirty: false
+        )
+        await mockVaultProvider.addNote(note)
+        session = EditorSession(
+            vaultProvider: mockVaultProvider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = testVaultURL
+
+        await session.loadNote(at: testNoteURL)
+        session.textDidChange("edited under iCloud pressure")
+        await mockVaultProvider.simulateError(.coordinationTimeout, for: .saveNote)
+
+        await session.save()
+        XCTAssertTrue(session.isDirty, "First timeout should keep dirty state honest")
+        XCTAssertEqual(session.consecutiveSaveFailures, 1)
+
+        await session.save()
+        XCTAssertFalse(session.isDirty, "Emergency primary write should clear dirty only after bytes reach the note URL")
+        XCTAssertEqual(session.consecutiveSaveFailures, 0)
+        let saved = try String(contentsOf: testNoteURL, encoding: .utf8)
+        XCTAssertTrue(saved.contains("edited under iCloud pressure"))
+    }
+
+    /// Emergency direct writes must never escape the active vault. If the loaded
+    /// note URL is not under the vault root, recovery falls back to an
+    /// Application Support copy and leaves the unrelated file untouched.
+    @MainActor
+    func testEmergencySaveSkipsDirectWriteOutsideVaultAndUsesUniqueRecoveryCopies() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzUnsafeRecovery-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let tempVault = tempRoot.appending(path: "Vault", directoryHint: .isDirectory)
+        let outsideDirectory = tempRoot.appending(path: "Outside", directoryHint: .isDirectory)
+        let sourceStem = "unsafe-\(UUID().uuidString)"
+        let outsideURL = outsideDirectory.appending(path: "\(sourceStem).md")
+        try FileManager.default.createDirectory(at: tempVault, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        try "unrelated original".write(to: outsideURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        mockVaultProvider = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: outsideURL,
+            frontmatter: Frontmatter(title: "Unsafe", createdAt: Date(), modifiedAt: Date()),
+            body: "original",
+            isDirty: false
+        )
+        await mockVaultProvider.addNote(note)
+        session = EditorSession(
+            vaultProvider: mockVaultProvider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = tempVault
+
+        await session.loadNote(at: outsideURL)
+        session.textDidChange("must not overwrite outside file")
+        await mockVaultProvider.simulateError(.coordinationTimeout, for: .saveNote)
+
+        await session.save()
+        await session.save()
+        await session.save()
+
+        XCTAssertTrue(session.isDirty, "Recovery copy does not make the primary note durable")
+        XCTAssertEqual(
+            try String(contentsOf: outsideURL, encoding: .utf8),
+            "unrelated original",
+            "Emergency direct write must not overwrite files outside the active vault"
+        )
+
+        let recoveryFiles = emergencyRecoveryFiles(matching: sourceStem)
+        defer {
+            for url in recoveryFiles {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        XCTAssertGreaterThanOrEqual(recoveryFiles.count, 2, "Repeated recovery copies should not overwrite each other")
+        XCTAssertEqual(Set(recoveryFiles.map(\.lastPathComponent)).count, recoveryFiles.count)
+    }
+
+    /// A prolonged coordination outage can produce many emergency recovery
+    /// snapshots. Keep them bounded so the fallback remains deterministic instead
+    /// of filling Application Support forever.
+    @MainActor
+    func testEmergencyRecoveryCopiesArePruned() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzPrunedRecovery-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let tempVault = tempRoot.appending(path: "Vault", directoryHint: .isDirectory)
+        let outsideDirectory = tempRoot.appending(path: "Outside", directoryHint: .isDirectory)
+        let sourceStem = "pruned-\(UUID().uuidString)"
+        let outsideURL = outsideDirectory.appending(path: "\(sourceStem).md")
+        try FileManager.default.createDirectory(at: tempVault, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        try "unrelated original".write(to: outsideURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        mockVaultProvider = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: outsideURL,
+            frontmatter: Frontmatter(title: "Pruned", createdAt: Date(), modifiedAt: Date()),
+            body: "original",
+            isDirty: false
+        )
+        await mockVaultProvider.addNote(note)
+        session = EditorSession(
+            vaultProvider: mockVaultProvider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = tempVault
+
+        await session.loadNote(at: outsideURL)
+        await mockVaultProvider.simulateError(.coordinationTimeout, for: .saveNote)
+
+        for index in 0..<60 {
+            session.textDidChange("must recover copy \(index)")
+            await session.save()
+        }
+
+        let recoveryFiles = emergencyRecoveryFiles(matching: sourceStem)
+        defer {
+            for url in recoveryFiles {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        XCTAssertGreaterThan(recoveryFiles.count, 0, "Recovery fallback should still preserve edits")
+        XCTAssertLessThanOrEqual(recoveryFiles.count, 50, "Emergency recovery files must be bounded")
+    }
+
     /// Tests that isDirty flag is set correctly on text change.
     @MainActor
     func testIsDirtySetOnTextChange() async throws {
@@ -758,11 +906,24 @@ final class EditorSessionSaveFlowTests: XCTestCase {
         // Clear the error
         await mockVaultProvider.clearSimulatedError(for: .saveNote)
 
-        // The error handler should have scheduled another autosave
-        // Wait for it to trigger
-        try await Task.sleep(for: .seconds(1.5))
+        // The error handler should have scheduled another autosave with failure
+        // backoff so repeated iCloud/network failures do not spin aggressively.
+        try await Task.sleep(for: .seconds(5.5))
 
         // Now it should have saved successfully
         XCTAssertFalse(session.isDirty, "Rescheduled autosave should have succeeded")
+    }
+
+    private func emergencyRecoveryFiles(matching sourceStem: String) -> [URL] {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let directory = appSupport
+            .appending(path: "olli.QuartzNotes", directoryHint: .isDirectory)
+            .appending(path: "EmergencySaves", directoryHint: .isDirectory)
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return files.filter { $0.lastPathComponent.contains(sourceStem) }
     }
 }

@@ -385,6 +385,7 @@ public extension AdvancedMockVaultProvider {
         case networkUnavailable
         case conflict
         case encodingFailed
+        case coordinationTimeout
 
         func asFileSystemError(url: URL?) -> Error {
             let targetURL = url ?? URL(filePath: "/unknown")
@@ -411,6 +412,8 @@ public extension AdvancedMockVaultProvider {
                 ])
             case .encodingFailed:
                 return FileSystemError.encodingFailed(targetURL)
+            case .coordinationTimeout:
+                return CoordinatedFileWriterError.timeout(url: targetURL, timeout: CoordinatedFileWriter.defaultTimeout)
             }
         }
     }

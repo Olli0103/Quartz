@@ -65,11 +65,40 @@ public actor VectorEmbeddingService {
         chunkSize: Int = 512,
         language: NLLanguage = .english
     ) {
-        self.indexURL = vaultURL
-            .appending(path: ".quartz")
-            .appending(path: "embeddings.idx")
+        self.indexURL = Self.indexFileURL(for: vaultURL)
         self.chunkSize = chunkSize
         self.language = language
+    }
+
+    /// Canonical embedding index URL. Diagnostics and the loader must use this
+    /// same helper so path contradictions are diagnosable rather than inferred.
+    public static func indexFileURL(for vaultURL: URL) -> URL {
+        CanonicalNoteIdentity.canonicalFileURL(for: vaultURL)
+            .appending(path: ".quartz", directoryHint: .isDirectory)
+            .appending(path: "embeddings.idx")
+    }
+
+    public var indexFileURL: URL { indexURL }
+
+    private static func isLikelyICloudURL(_ url: URL) -> Bool {
+        let path = url.path(percentEncoded: false)
+        return path.contains("/Library/Mobile Documents/")
+            || path.contains("com~apple~CloudDocs")
+    }
+
+    private static func hasOtherPersistedQuartzState(near indexURL: URL) -> Bool {
+        let directory = indexURL.deletingLastPathComponent()
+        let knownFiles = [
+            "preview-cache.json",
+            "search-index.json",
+            "ai_index.json",
+            "recovery_journal.json"
+        ]
+        return knownFiles.contains { name in
+            FileManager.default.fileExists(
+                atPath: directory.appending(path: name).path(percentEncoded: false)
+            )
+        }
     }
 
     /// Detects the dominant language of a text using NLLanguageRecognizer.
@@ -87,12 +116,28 @@ public actor VectorEmbeddingService {
 
     /// Loads the embedding index from disk (binary format).
     public func loadIndex() throws {
-        guard FileManager.default.fileExists(atPath: indexURL.path()) else {
+        let path = indexURL.path(percentEncoded: false)
+        let exists = FileManager.default.fileExists(atPath: path)
+        QuartzDiagnostics.info(
+            category: "Embeddings",
+            "loadIndex pathCheck exists=\(exists) path=\(path)"
+        )
+
+        guard exists else {
             index = []
             logger.info("loadIndex: no index file found, starting fresh")
+            if Self.isLikelyICloudURL(indexURL),
+               Self.hasOtherPersistedQuartzState(near: indexURL) {
+                let message = "Persisted embedding index is unavailable at load time for an iCloud-backed vault: \(path)"
+                QuartzDiagnostics.warning(
+                    category: "Embeddings",
+                    "loadIndex deferred path=\(path) reason=iCloudIndexUnavailable action=skipSweepAndRetryLater"
+                )
+                throw EmbeddingIndexError.indexUnavailable(message)
+            }
             QuartzDiagnostics.info(
                 category: "Embeddings",
-                "loadIndex missing path=\(indexURL.path(percentEncoded: false))"
+                "loadIndex missing path=\(path) reason=noPersistedIndexFound action=rebuildMayCreateFileLater"
             )
             return
         }
@@ -591,6 +636,7 @@ public actor VectorEmbeddingService {
 public enum EmbeddingIndexError: LocalizedError, Sendable {
     case corruptedIndex
     case unsupportedVersion(UInt32)
+    case indexUnavailable(String)
     case invalidEmbeddingDimension(Int)
     case trailingDataAfterDeclaredEntries(declaredEntries: Int, trailingBytes: Int)
 
@@ -600,6 +646,8 @@ public enum EmbeddingIndexError: LocalizedError, Sendable {
             String(localized: "The embedding index file is corrupted.", bundle: .module)
         case .unsupportedVersion(let v):
             String(localized: "Unsupported embedding index version: \(v)", bundle: .module)
+        case .indexUnavailable(let reason):
+            reason
         case .invalidEmbeddingDimension(let dimension):
             String(localized: "Invalid embedding vector dimension in index: \(dimension)", bundle: .module)
         case .trailingDataAfterDeclaredEntries(let declaredEntries, let trailingBytes):

@@ -1,5 +1,59 @@
 import Foundation
 
+private final class CoordinatedWriteState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timedOut = false
+    private var completed = false
+    private var coordinatorError: NSError?
+    private var writeError: NSError?
+
+    var didComplete: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return completed
+    }
+
+    var error: NSError? {
+        lock.lock()
+        defer { lock.unlock() }
+        return coordinatorError ?? writeError
+    }
+
+    func shouldProceedWithWrite() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !timedOut
+    }
+
+    func markCompleted() {
+        lock.lock()
+        completed = true
+        lock.unlock()
+    }
+
+    func markTimedOut() {
+        lock.lock()
+        timedOut = true
+        lock.unlock()
+    }
+
+    func recordCoordinatorError(_ error: NSError?) {
+        lock.lock()
+        coordinatorError = error
+        lock.unlock()
+    }
+
+    func recordWriteError(_ error: NSError) {
+        lock.lock()
+        writeError = error
+        lock.unlock()
+    }
+}
+
+private struct SendableFileCoordinator: @unchecked Sendable {
+    let value: NSFileCoordinator
+}
+
 /// Centralized, iCloud-safe file writer.
 ///
 /// Wraps `NSFileCoordinator` for conflict-free writing to iCloud Drive Vaults.
@@ -75,29 +129,32 @@ public struct CoordinatedFileWriter: Sendable {
     public func write(_ data: Data, to url: URL, timeout: TimeInterval = defaultTimeout,
                       filePresenter: NSFilePresenter? = nil) throws {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
-        var coordinatorError: NSError?
-        var writeError: NSError?
-        var didComplete = false
+        let state = CoordinatedWriteState()
 
-        let coordinator = NSFileCoordinator(filePresenter: filePresenter)
+        let coordinator = SendableFileCoordinator(value: NSFileCoordinator(filePresenter: filePresenter))
 
         // Use a semaphore to implement timeout
         let semaphore = DispatchSemaphore(value: 0)
 
         // Run coordination on a background queue
         DispatchQueue.global(qos: .userInitiated).async {
-            coordinator.coordinate(
+            var coordinatorError: NSError?
+            coordinator.value.coordinate(
                 writingItemAt: canonicalURL,
                 options: .forReplacing,
                 error: &coordinatorError
             ) { actualURL in
+                guard state.shouldProceedWithWrite() else {
+                    return
+                }
                 do {
                     try data.write(to: actualURL, options: .atomic)
-                    didComplete = true
+                    state.markCompleted()
                 } catch {
-                    writeError = error as NSError
+                    state.recordWriteError(error as NSError)
                 }
             }
+            state.recordCoordinatorError(coordinatorError)
             semaphore.signal()
         }
 
@@ -106,15 +163,16 @@ public struct CoordinatedFileWriter: Sendable {
 
         if result == .timedOut {
             // Cancel the coordination if it's taking too long
-            coordinator.cancel()
+            state.markTimedOut()
+            coordinator.value.cancel()
             throw CoordinatedFileWriterError.timeout(url: canonicalURL, timeout: timeout)
         }
 
-        if let error = coordinatorError ?? writeError {
+        if let error = state.error {
             throw error
         }
 
-        if !didComplete && coordinatorError == nil && writeError == nil {
+        if !state.didComplete {
             throw CoordinatedFileWriterError.unknownFailure(url: canonicalURL)
         }
     }

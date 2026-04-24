@@ -59,15 +59,22 @@ public final class ContentViewModel {
     private var relationshipLifecycleTask: Task<Void, Never>?
     private var explicitRelationshipRepairTask: Task<Void, Never>?
     private var semanticSnapshotPersistTask: Task<Void, Never>?
+    private var embeddingLoadRetryTask: Task<Void, Never>?
     private var currentVaultRootURL: URL?
     private var relationshipRuntimeGeneration: UInt64 = 0
     private var indexingRunID: UInt64 = 0
+    private var hasLoadedEmbeddingIndexForCurrentVault = false
     /// Debounced task for re-indexing embeddings after note saves.
     private var embeddingReindexTask: Task<Void, Never>?
+    /// Wakes background embedding sweeps after a save-pressure pause expires.
+    private var savePressureResumeTask: Task<Void, Never>?
     /// Observer token for `.quartzNoteSaved` notifications (embedding reindex).
     private var noteSavedObserver: Any?
     /// Observer tokens for note lifecycle notifications (spotlight, preview, search).
     private var noteLifecycleObservers: [Any] = []
+    /// Until this date, background embedding sweeps should stay paused because
+    /// editor saves are failing and user data safety has priority over indexing.
+    private var savePressurePauseUntil: Date?
     /// Whether the current vault has completed its authoritative explicit relationship hydration.
     private var hasHydratedExplicitRelationships = false
     /// Whether the pending repair task must refresh the sidebar tree before rebuilding.
@@ -160,8 +167,14 @@ public final class ContentViewModel {
         explicitRelationshipRepairTask = nil
         semanticSnapshotPersistTask?.cancel()
         semanticSnapshotPersistTask = nil
+        embeddingLoadRetryTask?.cancel()
+        embeddingLoadRetryTask = nil
         embeddingReindexTask?.cancel()
         embeddingReindexTask = nil
+        savePressureResumeTask?.cancel()
+        savePressureResumeTask = nil
+        savePressurePauseUntil = nil
+        hasLoadedEmbeddingIndexForCurrentVault = false
         hasHydratedExplicitRelationships = false
         explicitRelationshipRepairNeedsSidebarRefresh = false
         inspectorStore.aiScanProgress = nil
@@ -396,9 +409,16 @@ public final class ContentViewModel {
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
             let embeddingLoadStart = DispatchTime.now().uptimeNanoseconds
+            var embeddingLoadSucceeded = false
+            var embeddingLoadDeferred = false
             do {
                 try await embedding.loadIndex()
+                embeddingLoadSucceeded = true
             } catch {
+                if let embeddingError = error as? EmbeddingIndexError,
+                   case .indexUnavailable = embeddingError {
+                    embeddingLoadDeferred = true
+                }
                 Self.logIndexingFailure("embedding index load", error: error)
             }
             let loadedEmbeddingEntries = await embedding.entryCount
@@ -409,12 +429,31 @@ public final class ContentViewModel {
             )
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
-            self.indexAllNotes(
-                in: viewModel.fileTree,
-                vaultRoot: vault.rootURL,
-                embedding: embedding,
-                generation: loadGeneration
-            )
+            if embeddingLoadSucceeded {
+                self.hasLoadedEmbeddingIndexForCurrentVault = true
+                self.indexAllNotes(
+                    in: viewModel.fileTree,
+                    vaultRoot: vault.rootURL,
+                    embedding: embedding,
+                    generation: loadGeneration
+                )
+            } else if embeddingLoadDeferred {
+                self.hasLoadedEmbeddingIndexForCurrentVault = false
+                self.scheduleDeferredEmbeddingIndexLoad(
+                    tree: viewModel.fileTree,
+                    vaultRoot: vault.rootURL,
+                    embedding: embedding,
+                    generation: loadGeneration,
+                    reason: "iCloud index unavailable at startup",
+                    attempt: 0
+                )
+            } else {
+                self.hasLoadedEmbeddingIndexForCurrentVault = false
+                QuartzDiagnostics.warning(
+                    category: "IndexingTelemetry",
+                    "Embedding sweep skipped because persisted index load failed; user saves keep priority"
+                )
+            }
 
             // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
             await knowledgeExtractionService?.startVaultScan()
@@ -606,6 +645,170 @@ public final class ContentViewModel {
             }
         }
         noteLifecycleObservers.append(reindexObserver)
+
+        let saveHealthObserver = NotificationCenter.default.addObserver(
+            forName: .quartzEditorSaveHealthChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let state = notification.userInfo?["state"] as? String
+            let url = notification.object as? URL
+            Task { @MainActor in
+                self.handleEditorSaveHealthChanged(state: state, url: url)
+            }
+        }
+        noteLifecycleObservers.append(saveHealthObserver)
+    }
+
+    private func handleEditorSaveHealthChanged(state: String?, url: URL?) {
+        if state == "failed" {
+            let wasPaused = savePressurePauseUntil.map { $0 > Date() } ?? false
+            let pauseUntil = Date().addingTimeInterval(90)
+            savePressurePauseUntil = pauseUntil
+            indexingTask?.cancel()
+            embeddingReindexTask?.cancel()
+            indexingProgress = nil
+            sidebarViewModel?.indexingProgress = nil
+            if !wasPaused {
+                QuartzDiagnostics.warning(
+                    category: "IndexingTelemetry",
+                    "Background embedding indexing paused for 90s because editor save failed url=\(url?.lastPathComponent ?? "unknown")"
+                )
+            }
+            scheduleSavePressureResume(at: pauseUntil)
+        } else if state == "recovered" {
+            let wasPaused = savePressurePauseUntil != nil
+            savePressurePauseUntil = nil
+            savePressureResumeTask?.cancel()
+            savePressureResumeTask = nil
+            if wasPaused {
+                QuartzDiagnostics.info(
+                    category: "IndexingTelemetry",
+                    "Background embedding indexing unpaused after editor save recovery"
+                )
+                resumeEmbeddingIndexingAfterSavePressure(reason: "save recovered")
+            }
+        }
+    }
+
+    private func scheduleSavePressureResume(at pauseUntil: Date) {
+        savePressureResumeTask?.cancel()
+        let delay = max(0, pauseUntil.timeIntervalSinceNow)
+        savePressureResumeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, !self.isIndexingPausedForSavePressure else { return }
+                self.savePressureResumeTask = nil
+                self.resumeEmbeddingIndexingAfterSavePressure(reason: "save pressure pause expired")
+            }
+        }
+    }
+
+    private func resumeEmbeddingIndexingAfterSavePressure(reason: String) {
+        guard let tree = sidebarViewModel?.fileTree,
+              !tree.isEmpty,
+              let vaultRoot = currentVaultRootURL,
+              let embedding = embeddingService else {
+            return
+        }
+        guard hasLoadedEmbeddingIndexForCurrentVault else {
+            QuartzDiagnostics.warning(
+                category: "IndexingTelemetry",
+                "Embedding sweep not resumed after \(reason) because persisted index has not loaded"
+            )
+            scheduleDeferredEmbeddingIndexLoad(
+                tree: tree,
+                vaultRoot: vaultRoot,
+                embedding: embedding,
+                generation: relationshipRuntimeGeneration,
+                reason: reason,
+                attempt: 0
+            )
+            return
+        }
+        QuartzDiagnostics.info(
+            category: "IndexingTelemetry",
+            "Embedding sweep resumed after \(reason)"
+        )
+        indexAllNotes(
+            in: tree,
+            vaultRoot: vaultRoot,
+            embedding: embedding,
+            generation: relationshipRuntimeGeneration
+        )
+    }
+
+    private func scheduleDeferredEmbeddingIndexLoad(
+        tree: [FileNode],
+        vaultRoot: URL,
+        embedding: VectorEmbeddingService,
+        generation: UInt64,
+        reason: String,
+        attempt: Int
+    ) {
+        embeddingLoadRetryTask?.cancel()
+        let delaySeconds = min(300, 30 * (1 << min(attempt, 3)))
+        QuartzDiagnostics.warning(
+            category: "IndexingTelemetry",
+            "Embedding index load deferred for \(delaySeconds)s reason=\(reason) attempt=\(attempt + 1)"
+        )
+        embeddingLoadRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delaySeconds))
+            guard let self,
+                  !Task.isCancelled,
+                  self.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot),
+                  !self.isIndexingPausedForSavePressure else { return }
+
+            let retryStart = DispatchTime.now().uptimeNanoseconds
+            do {
+                try await embedding.loadIndex()
+                self.hasLoadedEmbeddingIndexForCurrentVault = true
+                let chunks = await embedding.entryCount
+                Self.logIndexingStage(
+                    "embedding index deferred reload",
+                    startedAt: retryStart,
+                    detail: "\(chunks) chunks"
+                )
+                self.indexAllNotes(
+                    in: tree,
+                    vaultRoot: vaultRoot,
+                    embedding: embedding,
+                    generation: generation
+                )
+            } catch {
+                self.hasLoadedEmbeddingIndexForCurrentVault = false
+                Self.logIndexingFailure("embedding index deferred reload", error: error)
+                if let embeddingError = error as? EmbeddingIndexError,
+                   case .indexUnavailable = embeddingError,
+                   self.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot),
+                   !self.isIndexingPausedForSavePressure {
+                    self.scheduleDeferredEmbeddingIndexLoad(
+                        tree: tree,
+                        vaultRoot: vaultRoot,
+                        embedding: embedding,
+                        generation: generation,
+                        reason: "iCloud index still unavailable",
+                        attempt: attempt + 1
+                    )
+                    return
+                }
+                QuartzDiagnostics.warning(
+                    category: "IndexingTelemetry",
+                    "Embedding sweep remains skipped because persisted index is still unavailable"
+                )
+            }
+        }
+    }
+
+    private var isIndexingPausedForSavePressure: Bool {
+        guard let savePressurePauseUntil else { return false }
+        if savePressurePauseUntil > Date() {
+            return true
+        }
+        self.savePressurePauseUntil = nil
+        return false
     }
 
     /// Stops all note lifecycle observers.
@@ -901,7 +1104,7 @@ public final class ContentViewModel {
         if let session = editorSession, let noteURL = session.note?.fileURL {
             await session.save(force: true)
             let liveText = session.currentText
-            if !liveText.isEmpty {
+            if !liveText.isEmpty && hasLoadedEmbeddingIndexForCurrentVault {
                 let stableID = VectorEmbeddingService.stableNoteID(for: noteURL, vaultRoot: vaultRoot)
                 do {
                     try await embeddingService.indexNote(noteID: stableID, content: liveText)
@@ -1119,6 +1322,14 @@ public final class ContentViewModel {
     public func updateEmbeddingForNote(at url: URL) {
         guard let embedding = embeddingService,
               let vaultRoot = currentVaultRootURL else { return }
+        guard hasLoadedEmbeddingIndexForCurrentVault,
+              !isIndexingPausedForSavePressure else {
+            QuartzDiagnostics.warning(
+                category: "IndexingTelemetry",
+                "Embedding note update skipped because index is unavailable or editor save recovery is active url=\(url.lastPathComponent)"
+            )
+            return
+        }
         let generation = relationshipRuntimeGeneration
 
         // If this is the active note, use live text (avoids stale disk read)
@@ -1164,6 +1375,7 @@ public final class ContentViewModel {
     public func removeEmbeddingsForNotes(at urls: [URL]) {
         guard let embedding = embeddingService,
               let vaultRoot = currentVaultRootURL else { return }
+        guard hasLoadedEmbeddingIndexForCurrentVault else { return }
         Task.detached(priority: .utility) {
             for url in urls {
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
@@ -1181,6 +1393,7 @@ public final class ContentViewModel {
     public func relocateEmbedding(from oldURL: URL, to newURL: URL) {
         guard let embedding = embeddingService,
               let vaultRoot = currentVaultRootURL else { return }
+        guard hasLoadedEmbeddingIndexForCurrentVault else { return }
         Task.detached(priority: .utility) {
             // Remove old stableID entries
             let oldID = VectorEmbeddingService.stableNoteID(for: oldURL, vaultRoot: vaultRoot)
@@ -1360,6 +1573,20 @@ public final class ContentViewModel {
 
         let noteURLs = Self.collectNoteURLs(from: tree)
         guard !noteURLs.isEmpty else { return }
+        guard hasLoadedEmbeddingIndexForCurrentVault else {
+            QuartzDiagnostics.warning(
+                category: "IndexingTelemetry",
+                "Embedding sweep skipped because persisted index has not loaded"
+            )
+            return
+        }
+        guard !isIndexingPausedForSavePressure else {
+            QuartzDiagnostics.warning(
+                category: "IndexingTelemetry",
+                "Embedding sweep deferred because editor save recovery is active"
+            )
+            return
+        }
 
         indexingTask = Task.detached(priority: .utility) {
             let indexingStart = DispatchTime.now().uptimeNanoseconds
@@ -1372,7 +1599,9 @@ public final class ContentViewModel {
             for url in noteURLs {
                 guard !Task.isCancelled else { break }
                 let isCurrentGeneration = await MainActor.run { [weak self] in
-                    self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
+                    guard let self else { return false }
+                    return self.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot)
+                        && !self.isIndexingPausedForSavePressure
                 }
                 guard isCurrentGeneration else { return }
 
@@ -1434,7 +1663,9 @@ public final class ContentViewModel {
             for (i, url) in pendingNoteURLs.enumerated() {
                 guard !Task.isCancelled else { break }
                 let isCurrentGeneration = await MainActor.run { [weak self] in
-                    self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
+                    guard let self else { return false }
+                    return self.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot)
+                        && !self.isIndexingPausedForSavePressure
                 }
                 guard isCurrentGeneration else { break }
 

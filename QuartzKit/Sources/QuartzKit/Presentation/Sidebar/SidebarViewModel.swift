@@ -5,6 +5,8 @@ public extension Notification.Name {
     static let quartzReindexRequested = Notification.Name("quartzReindexRequested")
     /// Posted with `object` set to the saved note’s file `URL` (Core Spotlight incremental index).
     static let quartzNoteSaved = Notification.Name("quartzNoteSaved")
+    /// Posted when editor save health changes. `userInfo["state"]` is `failed` or `recovered`.
+    static let quartzEditorSaveHealthChanged = Notification.Name("quartzEditorSaveHealthChanged")
     /// Posted after explicit wiki-link graph connections are updated.
     /// `object` is the canonical source note URL and `userInfo["targetURLs"]` contains canonical target URLs.
     static let quartzReferenceGraphDidChange = Notification.Name("quartzReferenceGraphDidChange")

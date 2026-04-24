@@ -431,7 +431,9 @@ public actor DiagnosticExportService {
                 "ai_index.json",
                 "recovery_journal.json"
             ] {
-                let fileURL = quartzDirectory.appending(path: fileName)
+                let fileURL = fileName == "embeddings.idx"
+                    ? VectorEmbeddingService.indexFileURL(for: activeVaultURL)
+                    : quartzDirectory.appending(path: fileName)
                 let path = fileURL.path(percentEncoded: false)
                 let exists = FileManager.default.fileExists(atPath: path)
                 info["vault.\(fileName).exists"] = String(exists)

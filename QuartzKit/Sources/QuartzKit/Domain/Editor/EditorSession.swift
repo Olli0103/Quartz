@@ -141,6 +141,14 @@ public final class EditorSession {
     /// slow file coordination are not left dirty without a follow-up save.
     private var savePendingAfterCurrentWrite: Bool = false
 
+    /// Consecutive save failures. Drives retry backoff so iCloud coordination
+    /// outages do not create a tight autosave loop that competes with recovery.
+    public private(set) var consecutiveSaveFailures: Int = 0
+
+    /// True when a save request that arrived during an active save should replay
+    /// as an explicit save after the current write completes.
+    private var forceSavePendingAfterCurrentWrite = false
+
     /// Guard flag: true while a programmatic edit is mutating the active text view.
     /// Prevents delegate callbacks from downgrading the mutation origin to `.userTyping`.
     private var isApplyingExternalEdit: Bool = false
@@ -224,6 +232,8 @@ public final class EditorSession {
     private let analysisDelay: Duration = .milliseconds(300)
 
     private let autosaveDelay: Duration = .seconds(1)
+    private static let saveRecoveryFallbackThreshold = 2
+    nonisolated private static let maxEmergencyRecoveryCopies = 50
     private let pasteNormalizer = EditorPasteNormalizer()
     /// Formatting actions are explicit user commands, so they should pay the cost of
     /// a synchronous authoritative rehighlight for every note size that the editor
@@ -1566,9 +1576,13 @@ public final class EditorSession {
         guard var currentNote = note, (isDirty || force) else { return }
         if isSaving {
             savePendingAfterCurrentWrite = true
+            if force {
+                forceSavePendingAfterCurrentWrite = true
+            }
             return
         }
 
+        let forceVersionSnapshotForThisSave = force
         isSaving = true
         savePendingAfterCurrentWrite = false
         isSavingToFileSystem = true
@@ -1582,8 +1596,10 @@ public final class EditorSession {
                 self?.isSavingToFileSystem = false
             }
             if savePendingAfterCurrentWrite || isDirty {
+                let replayForce = forceSavePendingAfterCurrentWrite
                 savePendingAfterCurrentWrite = false
-                scheduleAutosave()
+                forceSavePendingAfterCurrentWrite = false
+                scheduleAutosave(force: replayForce)
             }
         }
 
@@ -1618,9 +1634,12 @@ public final class EditorSession {
 
             note = currentNote
             // Only clear dirty if content hasn't changed since snapshot
-            if currentText == textSnapshot {
+            let savedSnapshotStillCurrent = currentText == textSnapshot
+            if savedSnapshotStillCurrent {
                 isDirty = false
             }
+            consecutiveSaveFailures = 0
+            postSaveHealthChanged(state: "recovered", url: savedURL)
             errorMessage = nil
             QuartzDiagnostics.info(
                 category: "EditorSave",
@@ -1639,35 +1658,81 @@ public final class EditorSession {
                 content: textSnapshot
             )
 
-            // Save version snapshot only if 5+ minutes since last snapshot
-            if let vaultRoot = vaultRootURL, shouldSaveVersionSnapshot() {
-                lastSnapshotDate = Date()
-                let content = textSnapshot
-                let url = savedURL
-                Task.detached(priority: .utility) {
-                    VersionHistoryService().saveSnapshot(for: url, content: content, vaultRoot: vaultRoot)
-                }
+            if savedSnapshotStillCurrent {
+                let forceSnapshot = forceVersionSnapshotForThisSave || forceSavePendingAfterCurrentWrite
+                scheduleVersionSnapshotIfNeeded(
+                    noteURL: savedURL,
+                    content: textSnapshot,
+                    force: forceSnapshot
+                )
+                savePendingAfterCurrentWrite = false
+                forceSavePendingAfterCurrentWrite = false
             }
         } catch {
-            errorMessage = error.localizedDescription
-            QuartzDiagnostics.error(
-                category: "EditorSave",
-                "save failed url=\(currentNote.fileURL.lastPathComponent) error=\(error.localizedDescription)"
+            consecutiveSaveFailures += 1
+            let fallbackResult = await attemptEmergencySaveIfNeeded(
+                note: currentNote,
+                textSnapshot: textSnapshot,
+                originalError: error
             )
-            scheduleAutosave()
+            var primarySaveRemainsFailed = true
+            switch fallbackResult {
+            case .primaryFileSaved:
+                primarySaveRemainsFailed = false
+                updateSavedContentHashes(for: currentNote)
+                note = currentNote
+                let savedSnapshotStillCurrent = currentText == textSnapshot
+                if savedSnapshotStillCurrent {
+                    isDirty = false
+                }
+                consecutiveSaveFailures = 0
+                errorMessage = String(localized: "Saved using emergency local file recovery because iCloud coordination timed out.", bundle: .module)
+                postSaveHealthChanged(state: "recovered", url: currentNote.fileURL)
+                await DomainEventBus.shared.publish(.noteSaved(url: currentNote.fileURL, timestamp: Date()))
+                NotificationCenter.default.post(name: .quartzNoteSaved, object: currentNote.fileURL)
+                scheduleExplicitRelationshipRefresh(
+                    forceGraphPublish: true,
+                    sourceURL: currentNote.fileURL,
+                    content: textSnapshot
+                )
+                if savedSnapshotStillCurrent {
+                    scheduleVersionSnapshotIfNeeded(
+                        noteURL: currentNote.fileURL,
+                        content: textSnapshot,
+                        force: forceVersionSnapshotForThisSave || forceSavePendingAfterCurrentWrite
+                    )
+                    savePendingAfterCurrentWrite = false
+                    forceSavePendingAfterCurrentWrite = false
+                }
+            case .recoveryCopySaved(let recoveryURL):
+                errorMessage = String(localized: "iCloud save is blocked. Your edits are preserved in an emergency recovery copy: \(recoveryURL.lastPathComponent)", bundle: .module)
+                postSaveHealthChanged(state: "failed", url: currentNote.fileURL, error: error)
+            case .notAttempted, .failed:
+                errorMessage = error.localizedDescription
+                postSaveHealthChanged(state: "failed", url: currentNote.fileURL, error: error)
+            }
+            if primarySaveRemainsFailed {
+                if forceVersionSnapshotForThisSave {
+                    forceSavePendingAfterCurrentWrite = true
+                }
+                QuartzDiagnostics.error(
+                    category: "EditorSave",
+                    "save failed url=\(currentNote.fileURL.lastPathComponent) failures=\(consecutiveSaveFailures) nextRetrySeconds=\(autosaveRetryDelaySeconds()) error=\(error.localizedDescription)"
+                )
+            } else {
+                QuartzDiagnostics.warning(
+                    category: "EditorSave",
+                    "primary save recovered by emergency direct write url=\(currentNote.fileURL.lastPathComponent)"
+                )
+            }
         }
     }
 
     /// Explicit save triggered by user action (Cmd+S, toolbar button).
     public func manualSave() async {
-        // Always save a snapshot on manual save
-        if let vaultRoot = vaultRootURL, let noteURL = note?.fileURL {
-            lastSnapshotDate = Date()
-            let content = currentText
-            Task.detached(priority: .utility) {
-                VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
-            }
-        }
+        // Manual save should force a version snapshot, but only after the
+        // primary save has succeeded. Under iCloud coordination failure, version
+        // history work must not compete with the primary save.
         await save(force: true)
     }
 
@@ -2066,16 +2131,232 @@ public final class EditorSession {
 
     // MARK: - Autosave
 
-    private func scheduleAutosave() {
+    private func autosaveRetryDelaySeconds() -> Int {
+        guard consecutiveSaveFailures > 0 else { return 1 }
+        return min(60, max(5, 5 * (1 << min(consecutiveSaveFailures - 1, 3))))
+    }
+
+    private func scheduleVersionSnapshotIfNeeded(noteURL: URL, content: String, force: Bool) {
+        guard let vaultRoot = vaultRootURL,
+              force || shouldSaveVersionSnapshot() else {
+            return
+        }
+        lastSnapshotDate = Date()
+        Task.detached(priority: .utility) {
+            VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
+        }
+    }
+
+    private func scheduleAutosave(force: Bool = false) {
         autosaveTask?.cancel()
         let capturedNoteURL = note?.fileURL
+        let retryDelay = consecutiveSaveFailures == 0 ? autosaveDelay : .seconds(autosaveRetryDelaySeconds())
         autosaveTask = Task { [weak self] in
-            try? await Task.sleep(for: self?.autosaveDelay ?? .seconds(1))
+            try? await Task.sleep(for: retryDelay)
             guard !Task.isCancelled else { return }
             // Verify we're still on the same note (prevents saving wrong note after switch)
             guard let self, self.note?.fileURL == capturedNoteURL else { return }
-            await self.save()
+            await self.save(force: force)
         }
+    }
+
+    private enum EmergencySaveResult {
+        case notAttempted
+        case primaryFileSaved
+        case recoveryCopySaved(URL)
+        case failed
+    }
+
+    private func attemptEmergencySaveIfNeeded(
+        note: NoteDocument,
+        textSnapshot: String,
+        originalError: Error
+    ) async -> EmergencySaveResult {
+        guard isCoordinationTimeout(originalError),
+              consecutiveSaveFailures >= Self.saveRecoveryFallbackThreshold,
+              let data = serializedData(for: note) else {
+            return .notAttempted
+        }
+
+        if isSafeEmergencyPrimaryWriteURL(note.fileURL) {
+            do {
+                let noteURL = note.fileURL
+                try await Task.detached(priority: .userInitiated) {
+                    try Self.createParentDirectoryIfNeeded(for: noteURL)
+                    try data.write(to: noteURL, options: .atomic)
+                }.value
+                QuartzDiagnostics.warning(
+                    category: "EditorSave",
+                    "emergency primary write succeeded url=\(note.fileURL.lastPathComponent) after coordination timeout failures=\(consecutiveSaveFailures)"
+                )
+                return .primaryFileSaved
+            } catch {
+                return await writeEmergencyRecoveryCopyResult(
+                    data: data,
+                    sourceURL: note.fileURL,
+                    textLength: (textSnapshot as NSString).length,
+                    primaryError: error
+                )
+            }
+        }
+
+        QuartzDiagnostics.warning(
+            category: "EditorSave",
+            "emergency primary write skipped for non-vault note url=\(note.fileURL.lastPathComponent)"
+        )
+        return await writeEmergencyRecoveryCopyResult(
+            data: data,
+            sourceURL: note.fileURL,
+            textLength: (textSnapshot as NSString).length,
+            primaryError: originalError
+        )
+    }
+
+    private func writeEmergencyRecoveryCopyResult(
+        data: Data,
+        sourceURL: URL,
+        textLength: Int,
+        primaryError: Error
+    ) async -> EmergencySaveResult {
+        do {
+            let recoveryURL = try await Task.detached(priority: .userInitiated) {
+                try Self.writeEmergencyRecoveryCopy(
+                    data: data,
+                    sourceURL: sourceURL,
+                    textLength: textLength
+                )
+            }.value
+            QuartzDiagnostics.error(
+                category: "EditorSave",
+                "emergency recovery copy written url=\(sourceURL.lastPathComponent) recovery=\(recoveryURL.path(percentEncoded: false)) primaryError=\(primaryError.localizedDescription)"
+            )
+            return .recoveryCopySaved(recoveryURL)
+        } catch {
+            QuartzDiagnostics.error(
+                category: "EditorSave",
+                "emergency recovery failed url=\(sourceURL.lastPathComponent) error=\(error.localizedDescription)"
+            )
+            return .failed
+        }
+    }
+
+    private func serializedData(for note: NoteDocument) -> Data? {
+        let yamlString = try? frontmatterParser.serialize(note.frontmatter)
+        let rawContent: String
+        if let yamlString, !yamlString.isEmpty {
+            rawContent = "---\n\(yamlString)---\n\n\(note.body)"
+        } else {
+            rawContent = note.body
+        }
+        return rawContent.data(using: .utf8)
+    }
+
+    private func updateSavedContentHashes(for note: NoteDocument) {
+        guard let data = serializedData(for: note) else { return }
+        lastSavedContentHash = SHA256.hash(data: data)
+        lastKnownDiskContentHash = lastSavedContentHash
+    }
+
+    nonisolated private static func createParentDirectoryIfNeeded(for url: URL) throws {
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+    }
+
+    private func isSafeEmergencyPrimaryWriteURL(_ url: URL) -> Bool {
+        guard let vaultRootURL else { return false }
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let canonicalVaultRoot = CanonicalNoteIdentity.canonicalFileURL(for: vaultRootURL)
+        guard canonicalURL.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame else {
+            return false
+        }
+
+        let rootComponents = canonicalVaultRoot.standardizedFileURL.pathComponents
+        let noteComponents = canonicalURL.standardizedFileURL.pathComponents
+        guard noteComponents.count > rootComponents.count else { return false }
+        return zip(rootComponents, noteComponents).allSatisfy(==)
+    }
+
+    nonisolated private static func writeEmergencyRecoveryCopy(data: Data, sourceURL: URL, textLength: Int) throws -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let directory = appSupport
+            .appending(path: "olli.QuartzNotes", directoryHint: .isDirectory)
+            .appending(path: "EmergencySaves", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let sourceName = sanitizedRecoveryFileStem(sourceURL.deletingPathExtension().lastPathComponent)
+        let fileName = "\(timestamp)__\(UUID().uuidString)__\(sourceName)__\(textLength)chars.md"
+        let recoveryURL = directory.appending(path: fileName)
+        try data.write(to: recoveryURL, options: .withoutOverwriting)
+        pruneEmergencyRecoveryCopies(in: directory, keeping: maxEmergencyRecoveryCopies)
+        return recoveryURL
+    }
+
+    nonisolated private static func pruneEmergencyRecoveryCopies(in directory: URL, keeping maximumCount: Int) {
+        guard maximumCount > 0,
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+              ),
+              files.count > maximumCount else {
+            return
+        }
+
+        let sortedFiles = files.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if lhsDate == rhsDate {
+                return lhs.lastPathComponent < rhs.lastPathComponent
+            }
+            return lhsDate < rhsDate
+        }
+        let excessCount = files.count - maximumCount
+        for staleURL in sortedFiles.prefix(excessCount) {
+            try? FileManager.default.removeItem(at: staleURL)
+        }
+        QuartzDiagnostics.warning(
+            category: "EditorSave",
+            "emergency recovery copies pruned count=\(excessCount) remainingLimit=\(maximumCount)"
+        )
+    }
+
+    nonisolated private static func sanitizedRecoveryFileStem(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "_"
+        }
+        let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        return String((sanitized.isEmpty ? "note" : sanitized).prefix(80))
+    }
+
+    private func isCoordinationTimeout(_ error: Error) -> Bool {
+        if let writerError = error as? CoordinatedFileWriterError,
+           case .timeout = writerError {
+            return true
+        }
+        if let fileError = error as? FileSystemError,
+           case .iCloudTimeout = fileError {
+            return true
+        }
+        return error.localizedDescription.localizedCaseInsensitiveContains("File coordination timed out")
+    }
+
+    private func postSaveHealthChanged(state: String, url: URL, error: Error? = nil) {
+        var userInfo: [AnyHashable: Any] = [
+            "state": state,
+            "url": url,
+            "consecutiveFailures": consecutiveSaveFailures
+        ]
+        if let error {
+            userInfo["error"] = error.localizedDescription
+        }
+        NotificationCenter.default.post(
+            name: .quartzEditorSaveHealthChanged,
+            object: url,
+            userInfo: userInfo
+        )
     }
 
     // MARK: - Word Count

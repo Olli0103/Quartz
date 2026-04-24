@@ -59,6 +59,65 @@ struct VectorEmbeddingBinaryTests {
         #expect(count == 0)
     }
 
+    @Test("missing iCloud-backed index defers rebuild instead of loading as empty")
+    func missingICloudIndexDefersRebuild() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appending(path: "Library", directoryHint: .isDirectory)
+            .appending(path: "Mobile Documents", directoryHint: .isDirectory)
+            .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
+            .appending(path: "EmbeddingTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let quartz = base.appending(path: ".quartz", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: quartz, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: quartz.appending(path: "search-index.json"))
+
+        let service = VectorEmbeddingService(vaultURL: base)
+        do {
+            try await service.loadIndex()
+            Issue.record("A missing iCloud-backed embedding index should defer the sweep instead of loading as a valid empty index")
+        } catch let error as EmbeddingIndexError {
+            guard case .indexUnavailable(let reason) = error else {
+                Issue.record("Unexpected embedding index error: \(error)")
+                return
+            }
+            #expect(reason.contains("iCloud-backed vault"))
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
+    @Test("brand-new iCloud-backed vault without prior quartz state can start empty")
+    func brandNewICloudVaultCanStartEmpty() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appending(path: "Library", directoryHint: .isDirectory)
+            .appending(path: "Mobile Documents", directoryHint: .isDirectory)
+            .appending(path: "com~apple~CloudDocs", directoryHint: .isDirectory)
+            .appending(path: "NewEmbeddingVault-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let service = VectorEmbeddingService(vaultURL: base)
+        try await service.loadIndex()
+
+        let count = await service.entryCount
+        #expect(count == 0)
+    }
+
+    @Test("diagnostics and loader use the same canonical index path")
+    func canonicalIndexPathMatchesServicePath() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        let expected = CanonicalNoteIdentity.canonicalFileURL(for: vault)
+            .appending(path: ".quartz", directoryHint: .isDirectory)
+            .appending(path: "embeddings.idx")
+
+        #expect(VectorEmbeddingService.indexFileURL(for: vault) == expected)
+        #expect(await service.indexFileURL == expected)
+    }
+
     @Test("loadIndex with corrupted data throws")
     func corruptedData() async throws {
         let vault = try makeTempVault()
@@ -154,11 +213,13 @@ struct VectorEmbeddingBinaryTests {
     func errorDescriptions() {
         let corrupted = EmbeddingIndexError.corruptedIndex
         let unsupported = EmbeddingIndexError.unsupportedVersion(99)
+        let unavailable = EmbeddingIndexError.indexUnavailable("missing due to iCloud materialization")
         let trailing = EmbeddingIndexError.trailingDataAfterDeclaredEntries(declaredEntries: 0, trailingBytes: 128)
 
         #expect(corrupted.errorDescription != nil)
         #expect(unsupported.errorDescription != nil)
         #expect(unsupported.errorDescription!.contains("99"))
+        #expect(unavailable.errorDescription?.contains("iCloud") == true)
         #expect(trailing.errorDescription?.contains("trailing bytes") == true)
     }
 }

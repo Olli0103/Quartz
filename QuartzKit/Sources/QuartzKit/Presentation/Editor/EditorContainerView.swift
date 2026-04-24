@@ -573,6 +573,13 @@ public struct EditorContainerView: View {
             if session.isSaving {
                 ProgressView()
                     .controlSize(.small)
+            } else if let error = session.errorMessage, session.isDirty {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(error)
             }
         }
         .padding(.horizontal, 20)

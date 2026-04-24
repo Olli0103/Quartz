@@ -189,6 +189,111 @@ struct AutosaveReliabilityTests {
         #expect(saveCount >= 2, "The second save request should not be dropped while the first write is active")
     }
 
+    @Test("Manual save during active save snapshots replayed latest content")
+    @MainActor func manualSaveDuringActiveSaveSnapshotsLatestContent() async throws {
+        let vaultRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionReplay-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let noteURL = vaultRoot.appending(path: "note-a.md")
+        try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultRoot) }
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = vaultRoot
+
+        await mock.simulateDelay(0.3, for: .saveNote)
+        await session.loadNote(at: noteURL)
+        session.textDidChange("First snapshot")
+
+        let saveTask = Task { @MainActor in
+            await session.save()
+        }
+
+        try? await Task.sleep(for: .milliseconds(50))
+        session.textDidChange("Latest manual save content")
+        await session.manualSave()
+
+        await saveTask.value
+        await mock.simulateDelay(0, for: .saveNote)
+
+        let versionService = VersionHistoryService()
+        var versions: [NoteVersion] = []
+        for _ in 0..<80 {
+            versions = versionService.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+            let finalContent = await mock.getContent(for: noteURL)
+            if finalContent == "Latest manual save content", !versions.isEmpty {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let finalContent = await mock.getContent(for: noteURL)
+        #expect(finalContent == "Latest manual save content")
+        #expect(!versions.isEmpty, "Manual save replay should create a version snapshot after the latest primary save")
+        if let newest = versions.first,
+           let snapshotData = try? Data(contentsOf: newest.snapshotURL),
+           let snapshot = String(data: snapshotData, encoding: .utf8) {
+            #expect(snapshot == "Latest manual save content", "Forced snapshot must use the replayed latest content, not the in-flight stale save")
+        }
+    }
+
+    @Test("Manual save during active unchanged save is satisfied without duplicate replay")
+    @MainActor func manualSaveDuringActiveUnchangedSaveDoesNotDuplicateReplay() async throws {
+        let vaultRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionNoDuplicate-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let noteURL = vaultRoot.appending(path: "note-a.md")
+        try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultRoot) }
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = vaultRoot
+
+        await mock.simulateDelay(0.3, for: .saveNote)
+        await session.loadNote(at: noteURL)
+        session.textDidChange("Saved once")
+
+        let saveTask = Task { @MainActor in
+            await session.save()
+        }
+
+        try? await Task.sleep(for: .milliseconds(50))
+        await session.manualSave()
+        await saveTask.value
+        await mock.simulateDelay(0, for: .saveNote)
+
+        try? await Task.sleep(for: .milliseconds(1500))
+
+        let saveCount = await mock.operations.filter { $0.0 == .saveNote }.count
+        let versions = VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+        #expect(saveCount == 1, "A manual save with unchanged text should be satisfied by the active write")
+        #expect(versions.count == 1, "The active write should create one forced snapshot, not a duplicate replay snapshot")
+    }
+
     // MARK: - Fast Back-and-Forth
 
     @Test("Fast note switching preserves all edits")
