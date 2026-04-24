@@ -208,6 +208,17 @@ public final class VaultAccessManager {
         return VaultConfig(name: vaultName, rootURL: url)
     }
 
+    /// Records an already-opened vault as the active vault for diagnostics and cleanup.
+    ///
+    /// Use this when the access scope has already been established by a restore,
+    /// picker, onboarding panel, or UI-test fixture path. New user-selected vaults
+    /// should prefer `openVault(at:name:)`, which starts access and persists the bookmark.
+    public func registerActiveVault(_ vault: VaultConfig) {
+        activeVaultURL = vault.rootURL
+        lastError = nil
+        logger.info("Registered active vault: \(vault.name)")
+    }
+
     /// Stops accessing the currently active vault.
     public func closeActiveVault() {
         if let url = activeVaultURL {

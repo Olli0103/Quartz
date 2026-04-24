@@ -70,12 +70,12 @@ struct AppearanceManagerTests {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    @Test("Editor font scale defaults to 1.0")
+    @Test("Editor font scale defaults to typography default")
     @MainActor
     func defaultFontScale() {
         let defaults = UserDefaults(suiteName: "test.appearance.\(UUID().uuidString)")!
         let manager = AppearanceManager(defaults: defaults)
-        #expect(manager.editorFontScale == 1.0)
+        #expect(manager.editorFontScale == Double(EditorTypography.defaultFontSize) / 16.0)
     }
 
     @Test("Theme colorScheme mapping")
@@ -120,4 +120,3 @@ struct FocusModeManagerTests {
         #expect(!manager.isTypewriterModeActive)
     }
 }
-

@@ -167,7 +167,7 @@ public actor IntelligenceEngineCoordinator {
 
         logger.info("File moved: \(oldURL.lastPathComponent) → \(newURL.lastPathComponent)")
 
-        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL] in
+        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL, logger] in
             await extractionService?.handleNoteRelocation(from: oldURL, to: newURL)
             guard let embedding = embeddingService else {
                 await semanticService?.handleNoteRelocation(from: oldURL, to: newURL)
@@ -180,11 +180,25 @@ public actor IntelligenceEngineCoordinator {
 
             // Index at new location with coordinated read
             let newID = VectorEmbeddingService.stableNoteID(for: newURL, vaultRoot: vaultRootURL)
-            if let content = try? CoordinatedFileWriter.shared.readString(from: newURL) {
-                try? await embedding.indexNote(noteID: newID, content: content)
-                try? await embedding.saveIndex()
-                await semanticService?.handleNoteRelocation(from: oldURL, to: newURL)
-            } else {
+            do {
+                let content = try CoordinatedFileWriter.shared.readString(from: newURL)
+                do {
+                    try await embedding.indexNote(noteID: newID, content: content)
+                    try await embedding.saveIndex()
+                    await semanticService?.handleNoteRelocation(from: oldURL, to: newURL)
+                } catch {
+                    logger.error("Failed to persist relocated embedding index: \(error.localizedDescription)")
+                    QuartzDiagnostics.error(
+                        category: "IntelligenceEngine",
+                        "Failed to persist relocated embedding index: \(error.localizedDescription)"
+                    )
+                }
+            } catch {
+                logger.warning("Failed to read relocated note: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "IntelligenceEngine",
+                    "Failed to read relocated note: \(error.localizedDescription)"
+                )
                 await semanticService?.handleNoteDeletion(at: oldURL)
             }
         }
@@ -196,13 +210,21 @@ public actor IntelligenceEngineCoordinator {
 
         logger.info("File deleted: \(url.lastPathComponent)")
 
-        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL] in
+        Task.detached(priority: .utility) { [embeddingService, semanticService, extractionService, vaultRootURL, logger] in
             await semanticService?.handleNoteDeletion(at: url)
             await extractionService?.handleNoteDeletion(at: url)
             guard let embedding = embeddingService else { return }
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRootURL)
             await embedding.removeNote(stableID)
-            try? await embedding.saveIndex()
+            do {
+                try await embedding.saveIndex()
+            } catch {
+                logger.error("Failed to persist embedding deletion: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
+                    category: "IntelligenceEngine",
+                    "Failed to persist embedding deletion: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -262,11 +284,14 @@ public actor IntelligenceEngineCoordinator {
         guard let embedding = embeddingService else { return }
 
         // CRITICAL: Use coordinated read to prevent race with iCloud
-        guard let content = try? CoordinatedFileWriter.shared.readString(from: url) else {
-            logger.warning("Failed to read file: \(url.lastPathComponent)")
+        let content: String
+        do {
+            content = try CoordinatedFileWriter.shared.readString(from: url)
+        } catch {
+            logger.warning("Failed to read file \(url.lastPathComponent): \(error.localizedDescription)")
             QuartzDiagnostics.warning(
                 category: "IntelligenceEngine",
-                "Failed to read file: \(url.lastPathComponent)"
+                "Failed to read file \(url.lastPathComponent): \(error.localizedDescription)"
             )
             return
         }

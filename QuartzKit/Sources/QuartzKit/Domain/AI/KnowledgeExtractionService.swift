@@ -556,12 +556,20 @@ public actor KnowledgeExtractionService {
     /// Writes state to disk atomically.
     private func saveStateToDisk() {
         let url = stateFileURL
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(state) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(state)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            logger.error("Failed to persist AI concept index: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "KnowledgeExtraction",
+                "Failed to persist AI concept index: \(error.localizedDescription)"
+            )
+        }
     }
 
     /// Debounced save for on-save extraction path.

@@ -718,11 +718,15 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         #if os(macOS)
+        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         typeKeyInFocusedMacEditor("a", modifierFlags: .command, file: file, line: line)
-        #endif
         typeTextInFocusedMacEditor(text, file: file, line: line)
+        #else
+        let editor = focusEditor(file: file, line: line)
+        selectAllEditorTextOnTouchPlatform(editor: editor)
+        editor.typeText(text)
+        #endif
         assertEditorContains(text, file: file, line: line)
         return editor
     }
@@ -732,8 +736,8 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         #if os(macOS)
+        let editor = focusMacEditorForKeyboardInput(file: file, line: line)
         typeKeyInFocusedMacEditor("a", modifierFlags: .command, file: file, line: line)
         typeKeyInFocusedMacEditor(
             XCUIKeyboardKey.delete.rawValue,
@@ -741,9 +745,24 @@ class QuartzUITestCase: XCTestCase {
             file: file,
             line: line
         )
+        #else
+        let editor = focusEditor(file: file, line: line)
+        selectAllEditorTextOnTouchPlatform(editor: editor)
+        editor.typeText(XCUIKeyboardKey.delete.rawValue)
         #endif
         return editor
     }
+
+    #if os(iOS)
+    @MainActor
+    private func selectAllEditorTextOnTouchPlatform(editor: XCUIElement) {
+        editor.press(forDuration: 0.6)
+        let selectAll = app.menuItems["Select All"].firstMatch
+        if selectAll.waitForExistence(timeout: 2) {
+            selectAll.tap()
+        }
+    }
+    #endif
 
     #if os(macOS)
     @MainActor
@@ -1033,9 +1052,9 @@ class QuartzUITestCase: XCTestCase {
         #endif
 
         let candidates = [
-            app.buttons["New Note"],
             element(matchingIdentifier: "note-list-new-note"),
             element(matchingIdentifier: "sidebar-new-note"),
+            app.buttons["New Note"].firstMatch,
         ]
 
         for candidate in candidates {
@@ -1197,6 +1216,7 @@ class QuartzUITestCase: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        #if os(macOS)
         triggerMacToolbarMenuAction(
             menuIdentifier: "editor-toolbar-overflow-menu",
             actionIdentifier: "editor-toolbar-\(actionIdentifier)",
@@ -1205,6 +1225,31 @@ class QuartzUITestCase: XCTestCase {
             file: file,
             line: line
         )
+        #else
+        let menu = element(matchingIdentifier: "editor-toolbar-overflow-menu")
+        XCTAssertTrue(
+            menu.waitForExistence(timeout: timeout),
+            "Overflow formatting menu must exist before triggering '\(fallbackLabel)'",
+            file: file,
+            line: line
+        )
+        interact(with: menu)
+
+        let identifiedAction = element(matchingIdentifier: "editor-toolbar-\(actionIdentifier)")
+        if identifiedAction.waitForExistence(timeout: timeout) {
+            interact(with: identifiedAction)
+            return
+        }
+
+        let labeledAction = app.buttons[fallbackLabel]
+        XCTAssertTrue(
+            labeledAction.waitForExistence(timeout: timeout),
+            "Overflow formatting action '\(fallbackLabel)' must exist",
+            file: file,
+            line: line
+        )
+        interact(with: labeledAction)
+        #endif
     }
 
     @MainActor

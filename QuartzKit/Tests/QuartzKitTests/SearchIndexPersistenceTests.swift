@@ -73,6 +73,26 @@ struct SearchIndexPersistenceTests {
         #expect(fp1 != fp2)
     }
 
+    @Test("Fingerprint changes when file size changes even if modification date is preserved")
+    func fingerprintIncludesFileSize() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fp-size-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("a.md")
+        let preservedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try "short".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp1 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        try "much longer content".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp2 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        #expect(fp1 != fp2)
+    }
+
     @Test("Empty fingerprint is deterministic")
     func emptyFingerprint() {
         let fp1 = VaultSearchIndex.computeFingerprint(for: [])

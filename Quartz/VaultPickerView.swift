@@ -145,28 +145,23 @@ struct VaultPickerView: View {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            guard url.startAccessingSecurityScopedResource() else {
+            do {
+                let vault = try VaultAccessManager.shared.openVault(at: url)
+                onVaultSelected(vault)
+                dismiss()
+            } catch {
+                Logger(subsystem: "com.quartz", category: "VaultPicker")
+                    .warning("Failed to open selected vault: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
+                    category: "VaultPicker",
+                    "Failed to open selected vault: \(error.localizedDescription)"
+                )
                 #if os(macOS)
                 errorMessage = String(localized: "Unable to access the selected folder. Grant Full Disk Access in System Settings.")
                 #else
                 errorMessage = String(localized: "Unable to access the selected folder. Please re-select from the Files app.")
                 #endif
-                return
             }
-
-            let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-            do {
-                try VaultAccessManager.shared.persistBookmark(for: url, vaultName: vault.name)
-            } catch {
-                Logger(subsystem: "com.quartz", category: "VaultPicker")
-                    .warning("Failed to persist bookmark: \(error.localizedDescription)")
-                QuartzDiagnostics.warning(
-                    category: "VaultPicker",
-                    "Failed to persist bookmark: \(error.localizedDescription)"
-                )
-            }
-            onVaultSelected(vault)
-            dismiss()
 
         case .failure:
             #if os(macOS)
@@ -203,19 +198,21 @@ struct VaultPickerView: View {
                 return
             }
 
-            let vault = VaultConfig(name: name, rootURL: vaultURL)
             do {
-                try VaultAccessManager.shared.persistBookmark(for: vaultURL, vaultName: vault.name)
+                let vault = try VaultAccessManager.shared.openVault(at: vaultURL, name: name)
+                parentURL.stopAccessingSecurityScopedResource()
+                onVaultSelected(vault)
+                dismiss()
             } catch {
                 Logger(subsystem: "com.quartz", category: "VaultPicker")
-                    .warning("Failed to persist bookmark: \(error.localizedDescription)")
-                QuartzDiagnostics.warning(
+                    .warning("Failed to register created vault: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
                     category: "VaultPicker",
-                    "Failed to persist bookmark: \(error.localizedDescription)"
+                    "Failed to register created vault: \(error.localizedDescription)"
                 )
+                parentURL.stopAccessingSecurityScopedResource()
+                errorMessage = String(localized: "Could not save vault access: \(error.localizedDescription)")
             }
-            onVaultSelected(vault)
-            dismiss()
 
         case .failure:
             errorMessage = String(localized: "Could not access the selected location.")

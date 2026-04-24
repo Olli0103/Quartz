@@ -125,6 +125,17 @@ public final class ContentViewModel {
         QuartzDiagnostics.info(category: "IndexingTelemetry", diagnosticsMessage)
     }
 
+    nonisolated private static func logIndexingFailure(
+        _ operation: String,
+        error: Error,
+        noteURL: URL? = nil
+    ) {
+        let noteDescription = noteURL.map { " for \($0.lastPathComponent)" } ?? ""
+        let message = "\(operation)\(noteDescription) failed: \(error.localizedDescription)"
+        indexingTelemetryLogger.error("\(message, privacy: .public)")
+        QuartzDiagnostics.error(category: "IndexingTelemetry", message)
+    }
+
     // MARK: - Vault Loading
 
     /// Loads a vault: creates sidebar VM, search index, builds the file tree, and indexes notes.
@@ -385,7 +396,11 @@ public final class ContentViewModel {
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }
             let embeddingLoadStart = DispatchTime.now().uptimeNanoseconds
-            try? await embedding.loadIndex()
+            do {
+                try await embedding.loadIndex()
+            } catch {
+                Self.logIndexingFailure("embedding index load", error: error)
+            }
             let loadedEmbeddingEntries = await embedding.entryCount
             Self.logIndexingStage(
                 "embedding index load",
@@ -888,8 +903,12 @@ public final class ContentViewModel {
             let liveText = session.currentText
             if !liveText.isEmpty {
                 let stableID = VectorEmbeddingService.stableNoteID(for: noteURL, vaultRoot: vaultRoot)
-                try? await embeddingService.indexNote(noteID: stableID, content: liveText)
-                try? await embeddingService.saveIndex()
+                do {
+                    try await embeddingService.indexNote(noteID: stableID, content: liveText)
+                    try await embeddingService.saveIndex()
+                } catch {
+                    Self.logIndexingFailure("just-in-time embedding update", error: error, noteURL: noteURL)
+                }
             }
         }
 
@@ -1110,10 +1129,25 @@ public final class ContentViewModel {
         Task.detached(priority: .utility) {
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
             // CRITICAL: Use coordinated read to prevent race with iCloud sync
-            let content = liveText ?? (try? CoordinatedFileWriter.shared.readString(from: url))
+            let content: String?
+            if let liveText {
+                content = liveText
+            } else {
+                do {
+                    content = try CoordinatedFileWriter.shared.readString(from: url)
+                } catch {
+                    Self.logIndexingFailure("embedding note read", error: error, noteURL: url)
+                    content = nil
+                }
+            }
             if let content, !content.isEmpty {
-                try? await embedding.indexNote(noteID: stableID, content: content)
-                try? await embedding.saveIndex()
+                do {
+                    try await embedding.indexNote(noteID: stableID, content: content)
+                    try await embedding.saveIndex()
+                } catch {
+                    Self.logIndexingFailure("embedding note update", error: error, noteURL: url)
+                    return
+                }
                 let isCurrentGeneration = await MainActor.run { [weak self] in
                     self?.isCurrentRelationshipGeneration(generation, vaultRoot: vaultRoot) ?? false
                 }
@@ -1135,7 +1169,11 @@ public final class ContentViewModel {
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                 await embedding.removeNote(stableID)
             }
-            try? await embedding.saveIndex()
+            do {
+                try await embedding.saveIndex()
+            } catch {
+                Self.logIndexingFailure("embedding deletion save", error: error)
+            }
         }
     }
 
@@ -1150,11 +1188,25 @@ public final class ContentViewModel {
             // Index at new stableID with coordinated read
             let newID = VectorEmbeddingService.stableNoteID(for: newURL, vaultRoot: vaultRoot)
             // CRITICAL: Use coordinated read to prevent race with iCloud sync
-            let content = try? CoordinatedFileWriter.shared.readString(from: newURL)
-            if let content, !content.isEmpty {
-                try? await embedding.indexNote(noteID: newID, content: content)
+            let content: String?
+            do {
+                content = try CoordinatedFileWriter.shared.readString(from: newURL)
+            } catch {
+                Self.logIndexingFailure("embedding relocation read", error: error, noteURL: newURL)
+                content = nil
             }
-            try? await embedding.saveIndex()
+            if let content, !content.isEmpty {
+                do {
+                    try await embedding.indexNote(noteID: newID, content: content)
+                } catch {
+                    Self.logIndexingFailure("embedding relocation index", error: error, noteURL: newURL)
+                }
+            }
+            do {
+                try await embedding.saveIndex()
+            } catch {
+                Self.logIndexingFailure("embedding relocation save", error: error, noteURL: newURL)
+            }
         }
     }
 
@@ -1378,14 +1430,24 @@ public final class ContentViewModel {
                 guard isCurrentGeneration else { break }
 
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
-                let content = try? CoordinatedFileWriter.shared.readString(from: url)
+                let content: String?
+                do {
+                    content = try CoordinatedFileWriter.shared.readString(from: url)
+                } catch {
+                    Self.logIndexingFailure("embedding sweep note read", error: error, noteURL: url)
+                    content = nil
+                }
                 if let content, !content.isEmpty {
-                    try? await embedding.indexNote(noteID: stableID, content: content)
-                    indexedNotes += 1
-                    changedNotesSinceCheckpoint += 1
-                    if changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
-                        try? await embedding.saveIndex()
-                        changedNotesSinceCheckpoint = 0
+                    do {
+                        try await embedding.indexNote(noteID: stableID, content: content)
+                        indexedNotes += 1
+                        changedNotesSinceCheckpoint += 1
+                        if changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
+                            try await embedding.saveIndex()
+                            changedNotesSinceCheckpoint = 0
+                        }
+                    } catch {
+                        Self.logIndexingFailure("embedding sweep update/checkpoint", error: error, noteURL: url)
                     }
                 }
 
@@ -1410,7 +1472,11 @@ public final class ContentViewModel {
                 self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) ?? false
             }
             guard isCurrentGeneration else { return }
-            try? await embedding.saveIndex()
+            do {
+                try await embedding.saveIndex()
+            } catch {
+                Self.logIndexingFailure("embedding sweep final save", error: error)
+            }
             Self.logIndexingStage(
                 "embedding sweep",
                 startedAt: indexingStart,

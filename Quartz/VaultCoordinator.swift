@@ -53,6 +53,7 @@ public final class VaultCoordinator {
         workspaceStore: WorkspaceStore,
         onComplete: (() -> Void)? = nil
     ) {
+        VaultAccessManager.shared.registerActiveVault(vault)
         appState.switchVault(to: vault)
         viewModel?.loadVault(vault, noteListStore: noteListStore)
         workspaceStore.selectedNoteURL = nil
@@ -80,13 +81,19 @@ public final class VaultCoordinator {
         workspaceStore: WorkspaceStore,
         onComplete: (() -> Void)? = nil
     ) -> Bool {
-        guard url.startAccessingSecurityScopedResource() else {
-            appState.showError(String(localized: "Unable to access the selected folder. Please try again."))
+        let vault: VaultConfig
+        do {
+            vault = try VaultAccessManager.shared.openVault(at: url)
+        } catch {
+            appState.showError(error.localizedDescription)
+            logger.error("Failed to open selected vault: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VaultCoordinator",
+                "Failed to open selected vault: \(error.localizedDescription)"
+            )
             return false
         }
 
-        let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-        persistBookmark(for: url, vaultName: vault.name)
         QuartzFeedback.success()
         openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
         return true
@@ -107,9 +114,18 @@ public final class VaultCoordinator {
             return false
         }
 
-        _ = url.startAccessingSecurityScopedResource()
-        let vault = VaultConfig(name: url.lastPathComponent, rootURL: url)
-        persistBookmark(for: url, vaultName: vault.name)
+        let vault: VaultConfig
+        do {
+            vault = try VaultAccessManager.shared.openVault(at: url)
+        } catch {
+            appState.showError(error.localizedDescription)
+            logger.error("Failed to register created vault: \(error.localizedDescription)")
+            QuartzDiagnostics.error(
+                category: "VaultCoordinator",
+                "Failed to register created vault: \(error.localizedDescription)"
+            )
+            return false
+        }
         QuartzFeedback.success()
         openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
         return true
@@ -146,10 +162,20 @@ public final class VaultCoordinator {
         // Fallback: check if another device synced an iCloud vault via KVStore
         if let iCloudVault = VaultAccessManager.shared.resolveICloudVault() {
             logger.info("Resolved iCloud vault from remote device: \(iCloudVault.name)")
-            persistBookmark(for: iCloudVault.rootURL, vaultName: iCloudVault.name)
+            let vault: VaultConfig
+            do {
+                vault = try VaultAccessManager.shared.openVault(at: iCloudVault.rootURL, name: iCloudVault.name)
+            } catch {
+                logger.warning("Failed to open iCloud-synced vault: \(error.localizedDescription)")
+                QuartzDiagnostics.warning(
+                    category: "VaultCoordinator",
+                    "Failed to open iCloud-synced vault: \(error.localizedDescription)"
+                )
+                return nil
+            }
             UserDefaults.standard.set(true, forKey: "quartz.hasCompletedOnboarding")
-            openVault(iCloudVault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
-            return iCloudVault
+            openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+            return vault
         }
 
         return nil

@@ -357,23 +357,34 @@ public actor VaultSearchIndex {
             .appending(path: "search-index.json")
     }
 
-    /// Computes a SHA256 fingerprint from note URLs and modification dates.
+    /// Computes a SHA256 fingerprint from note URLs, modification dates, and file sizes.
     /// Uses the same approach as `GraphCache.computeFingerprint`.
     public static func computeFingerprint(for noteURLs: [URL]) -> String {
         let fm = FileManager.default
-        var pairs: [(String, TimeInterval)] = []
+        var pairs: [(String, TimeInterval, UInt64)] = []
         for url in noteURLs {
             let mtime: TimeInterval
+            let fileSize: UInt64
             if let attrs = try? fm.attributesOfItem(atPath: url.path(percentEncoded: false)),
                let date = attrs[.modificationDate] as? Date {
                 mtime = date.timeIntervalSince1970
+                if let size = attrs[.size] as? NSNumber {
+                    fileSize = size.uint64Value
+                } else if let size = attrs[.size] as? UInt64 {
+                    fileSize = size
+                } else if let size = attrs[.size] as? Int {
+                    fileSize = UInt64(max(size, 0))
+                } else {
+                    fileSize = 0
+                }
             } else {
                 mtime = 0
+                fileSize = 0
             }
-            pairs.append((url.absoluteString, mtime))
+            pairs.append((url.absoluteString, mtime, fileSize))
         }
         pairs.sort { $0.0 < $1.0 }
-        let data = pairs.flatMap { "\($0.0):\($0.1)".utf8 }
+        let data = pairs.flatMap { "\($0.0):\($0.1):\($0.2)".utf8 }
         let hash = SHA256.hash(data: Data(data))
         return hash.map { String(format: "%02x", $0) }.joined()
     }

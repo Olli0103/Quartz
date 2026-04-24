@@ -209,7 +209,6 @@ struct ContentView: View {
             #if os(iOS)
             VaultPickerView { vault in
                 QuartzFeedback.success()
-                vaultCoordinator?.persistBookmark(for: vault.rootURL, vaultName: vault.name)
                 openVault(vault)
             }
             #else
