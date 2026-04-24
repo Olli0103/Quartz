@@ -1365,6 +1365,9 @@ public final class ContentViewModel {
             let indexingStart = DispatchTime.now().uptimeNanoseconds
             var pendingNoteURLs: [URL] = []
             pendingNoteURLs.reserveCapacity(noteURLs.count)
+            var pendingMissingMTime = 0
+            var pendingNeverIndexed = 0
+            var pendingModifiedAfterIndex = 0
 
             for url in noteURLs {
                 guard !Task.isCancelled else { break }
@@ -1375,12 +1378,18 @@ public final class ContentViewModel {
 
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                 let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                if let mtime,
-                   let lastIndexed = await embedding.lastIndexedDate(for: stableID),
-                   mtime <= lastIndexed {
+                let lastIndexed = await embedding.lastIndexedDate(for: stableID)
+                if let mtime, let lastIndexed, mtime <= lastIndexed {
                     continue
                 }
 
+                if mtime == nil {
+                    pendingMissingMTime += 1
+                } else if lastIndexed == nil {
+                    pendingNeverIndexed += 1
+                } else {
+                    pendingModifiedAfterIndex += 1
+                }
                 pendingNoteURLs.append(url)
             }
 
@@ -1407,11 +1416,11 @@ public final class ContentViewModel {
 
             let total = pendingNoteURLs.count
             Self.indexingTelemetryLogger.info(
-                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding"
+                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding (neverIndexed=\(pendingNeverIndexed), modified=\(pendingModifiedAfterIndex), missingMTime=\(pendingMissingMTime))"
             )
             QuartzDiagnostics.info(
                 category: "IndexingTelemetry",
-                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding"
+                "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding reason.neverIndexed=\(pendingNeverIndexed) reason.modifiedAfterIndex=\(pendingModifiedAfterIndex) reason.missingMTime=\(pendingMissingMTime)"
             )
             await MainActor.run { [weak self] in
                 guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
@@ -1461,11 +1470,14 @@ public final class ContentViewModel {
                         "Embedding sweep progress: \(current)/\(total) pending notes processed"
                     )
                 }
-                await MainActor.run { [weak self] in
-                    let progress = (current: current, total: total)
-                    self?.indexingProgress = progress
-                    self?.sidebarViewModel?.indexingProgress = progress
+                if current == total || current.isMultiple(of: 10) {
+                    await MainActor.run { [weak self] in
+                        let progress = (current: current, total: total)
+                        self?.indexingProgress = progress
+                        self?.sidebarViewModel?.indexingProgress = progress
+                    }
                 }
+                await Task.yield()
             }
 
             let isCurrentGeneration = await MainActor.run { [weak self] in

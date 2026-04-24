@@ -155,6 +155,40 @@ struct AutosaveReliabilityTests {
         #expect(saveCount >= 1, "At least one save should have occurred")
     }
 
+    @Test("Save request during active save is replayed after current write")
+    @MainActor func saveRequestDuringActiveSaveIsReplayed() async {
+        let (session, mock, noteAURL, _) = await makeSession()
+
+        await mock.simulateDelay(0.3, for: .saveNote)
+        await session.loadNote(at: noteAURL)
+        session.textDidChange("First snapshot")
+
+        let saveTask = Task { @MainActor in
+            await session.save()
+        }
+
+        try? await Task.sleep(for: .milliseconds(50))
+        session.textDidChange("This is a test")
+        await session.save()
+
+        await saveTask.value
+        await mock.simulateDelay(0, for: .saveNote)
+
+        for _ in 0..<80 {
+            if await mock.getContent(for: noteAURL) == "This is a test", session.isDirty == false {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let finalContent = await mock.getContent(for: noteAURL)
+        let saveCount = await mock.operations.filter { $0.0 == .saveNote }.count
+        #expect(finalContent == "This is a test", "Latest text typed during a save must be persisted by the replayed save")
+        #expect(session.isDirty == false, "Dirty indicator must clear after replayed save")
+        #expect(session.isSaving == false, "Save spinner must stop after replayed save")
+        #expect(saveCount >= 2, "The second save request should not be dropped while the first write is active")
+    }
+
     // MARK: - Fast Back-and-Forth
 
     @Test("Fast note switching preserves all edits")

@@ -90,13 +90,31 @@ public actor VectorEmbeddingService {
         guard FileManager.default.fileExists(atPath: indexURL.path()) else {
             index = []
             logger.info("loadIndex: no index file found, starting fresh")
+            QuartzDiagnostics.info(
+                category: "Embeddings",
+                "loadIndex missing path=\(indexURL.path(percentEncoded: false))"
+            )
             return
         }
 
         let data = try CoordinatedFileWriter.shared.read(from: indexURL)
-        index = try Self.decodeBinary(data)
+        do {
+            index = try Self.decodeBinary(data)
+        } catch {
+            index = []
+            logger.error("loadIndex: rejected \(self.indexURL.lastPathComponent, privacy: .public) bytes=\(data.count) reason=\(error.localizedDescription, privacy: .public)")
+            QuartzDiagnostics.error(
+                category: "Embeddings",
+                "loadIndex rejected bytes=\(data.count) reason=\(error.localizedDescription) path=\(indexURL.path(percentEncoded: false))"
+            )
+            throw error
+        }
         let uniqueNotes = Set(index.map(\.noteID)).count
-        logger.info("loadIndex: loaded \(self.index.count) chunks from \(uniqueNotes) notes")
+        logger.info("loadIndex: loaded \(self.index.count) chunks from \(uniqueNotes) notes bytes=\(data.count)")
+        QuartzDiagnostics.info(
+            category: "Embeddings",
+            "loadIndex loaded chunks=\(index.count) notes=\(uniqueNotes) bytes=\(data.count) path=\(indexURL.path(percentEncoded: false))"
+        )
     }
 
     /// Saves the embedding index to disk (binary format).
@@ -178,6 +196,12 @@ public actor VectorEmbeddingService {
         }
 
         let count = Int(UInt32(littleEndian: try read(UInt32.self)))
+        if count == 0, offset != data.count {
+            throw EmbeddingIndexError.trailingDataAfterDeclaredEntries(
+                declaredEntries: count,
+                trailingBytes: data.count - offset
+            )
+        }
         var entries: [EmbeddingEntry] = []
         entries.reserveCapacity(count)
 
@@ -195,6 +219,9 @@ public actor VectorEmbeddingService {
 
             // embedding
             let embCount = Int(UInt32(littleEndian: try read(UInt32.self)))
+            guard embCount > 0, embCount <= 4096 else {
+                throw EmbeddingIndexError.invalidEmbeddingDimension(embCount)
+            }
             var embedding: [Float] = []
             embedding.reserveCapacity(embCount)
             for _ in 0..<embCount {
@@ -217,6 +244,13 @@ public actor VectorEmbeddingService {
                 embedding: embedding,
                 lastUpdated: lastUpdated
             ))
+        }
+
+        guard offset == data.count else {
+            throw EmbeddingIndexError.trailingDataAfterDeclaredEntries(
+                declaredEntries: count,
+                trailingBytes: data.count - offset
+            )
         }
 
         return entries
@@ -557,6 +591,8 @@ public actor VectorEmbeddingService {
 public enum EmbeddingIndexError: LocalizedError, Sendable {
     case corruptedIndex
     case unsupportedVersion(UInt32)
+    case invalidEmbeddingDimension(Int)
+    case trailingDataAfterDeclaredEntries(declaredEntries: Int, trailingBytes: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -564,6 +600,10 @@ public enum EmbeddingIndexError: LocalizedError, Sendable {
             String(localized: "The embedding index file is corrupted.", bundle: .module)
         case .unsupportedVersion(let v):
             String(localized: "Unsupported embedding index version: \(v)", bundle: .module)
+        case .invalidEmbeddingDimension(let dimension):
+            String(localized: "Invalid embedding vector dimension in index: \(dimension)", bundle: .module)
+        case .trailingDataAfterDeclaredEntries(let declaredEntries, let trailingBytes):
+            String(localized: "Embedding index declared \(declaredEntries) entries but contains \(trailingBytes) trailing bytes.", bundle: .module)
         }
     }
 }

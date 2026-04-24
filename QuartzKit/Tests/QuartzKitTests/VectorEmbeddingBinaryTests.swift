@@ -80,6 +80,39 @@ struct VectorEmbeddingBinaryTests {
         }
     }
 
+    @Test("loadIndex rejects zero declared entries with trailing bytes")
+    func zeroEntryHeaderWithPayloadIsRejected() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let indexDir = vault.appendingPathComponent(".quartz")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+        let indexFile = indexDir.appendingPathComponent("embeddings.idx")
+
+        var data = Data()
+        var version = UInt32(1).littleEndian
+        var count = UInt32(0).littleEndian
+        data.append(Data(bytes: &version, count: 4))
+        data.append(Data(bytes: &count, count: 4))
+        data.append(Data(repeating: 0xA5, count: 256))
+        try data.write(to: indexFile)
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        do {
+            try await service.loadIndex()
+            Issue.record("A non-empty index file that declares zero entries must not silently load as 0 chunks")
+        } catch let error as EmbeddingIndexError {
+            guard case .trailingDataAfterDeclaredEntries(let declaredEntries, let trailingBytes) = error else {
+                Issue.record("Unexpected embedding index error: \(error)")
+                return
+            }
+            #expect(declaredEntries == 0)
+            #expect(trailingBytes == 256)
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
     @Test("removeNote clears entries for that note")
     func removeNote() async throws {
         let vault = try makeTempVault()
@@ -121,9 +154,11 @@ struct VectorEmbeddingBinaryTests {
     func errorDescriptions() {
         let corrupted = EmbeddingIndexError.corruptedIndex
         let unsupported = EmbeddingIndexError.unsupportedVersion(99)
+        let trailing = EmbeddingIndexError.trailingDataAfterDeclaredEntries(declaredEntries: 0, trailingBytes: 128)
 
         #expect(corrupted.errorDescription != nil)
         #expect(unsupported.errorDescription != nil)
         #expect(unsupported.errorDescription!.contains("99"))
+        #expect(trailing.errorDescription?.contains("trailing bytes") == true)
     }
 }

@@ -136,6 +136,11 @@ public final class EditorSession {
     /// when it detects changes that we ourselves triggered.
     private var isSavingToFileSystem: Bool = false
 
+    /// Set when another save/autosave request arrives while a write is in flight.
+    /// The active save replays it after the write completes so edits made during
+    /// slow file coordination are not left dirty without a follow-up save.
+    private var savePendingAfterCurrentWrite: Bool = false
+
     /// Guard flag: true while a programmatic edit is mutating the active text view.
     /// Prevents delegate callbacks from downgrading the mutation origin to `.userTyping`.
     private var isApplyingExternalEdit: Bool = false
@@ -1558,9 +1563,14 @@ public final class EditorSession {
 
     /// Saves the current note immediately.
     public func save(force: Bool = false) async {
-        guard var currentNote = note, (isDirty || force), !isSaving else { return }
+        guard var currentNote = note, (isDirty || force) else { return }
+        if isSaving {
+            savePendingAfterCurrentWrite = true
+            return
+        }
 
         isSaving = true
+        savePendingAfterCurrentWrite = false
         isSavingToFileSystem = true
         defer {
             isSaving = false
@@ -1570,6 +1580,10 @@ public final class EditorSession {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 self?.isSavingToFileSystem = false
+            }
+            if savePendingAfterCurrentWrite || isDirty {
+                savePendingAfterCurrentWrite = false
+                scheduleAutosave()
             }
         }
 
@@ -1608,6 +1622,10 @@ public final class EditorSession {
                 isDirty = false
             }
             errorMessage = nil
+            QuartzDiagnostics.info(
+                category: "EditorSave",
+                "save completed url=\(savedURL.lastPathComponent) chars=\((textSnapshot as NSString).length) dirtyAfter=\(isDirty)"
+            )
 
             // Publish via typed event bus (new pattern per CODEX.md F4)
             await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
@@ -1632,6 +1650,10 @@ public final class EditorSession {
             }
         } catch {
             errorMessage = error.localizedDescription
+            QuartzDiagnostics.error(
+                category: "EditorSave",
+                "save failed url=\(currentNote.fileURL.lastPathComponent) error=\(error.localizedDescription)"
+            )
             scheduleAutosave()
         }
     }
@@ -1925,7 +1947,7 @@ public final class EditorSession {
         )
 
         if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
-            var typing = textView.typingAttributes
+            var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
             typing[.font] = defaultFont
             typing[.foregroundColor] = UIColor.label
             typing[.paragraphStyle] = paragraphStyle
@@ -1935,8 +1957,9 @@ public final class EditorSession {
 
         if case let .heading(level) = typingContext,
            let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .uiKit) {
-            var typing = textView.typingAttributes
+            var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
             typing[.font] = headingFont
+            typing[.foregroundColor] = UIColor.label
             typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
@@ -1945,7 +1968,7 @@ public final class EditorSession {
         // Fallback: read from character before cursor
         guard loc > 0 else { return }
         let attrs = textView.textStorage.attributes(at: max(0, loc - 1), effectiveRange: nil)
-        var typing = textView.typingAttributes
+        var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
         if let font = attrs[.font] as? UIFont { typing[.font] = font }
         if let color = attrs[.foregroundColor] as? UIColor { typing[.foregroundColor] = color }
         typing[.paragraphStyle] = paragraphStyle
@@ -1964,7 +1987,7 @@ public final class EditorSession {
         )
 
         if semanticDocument.isBlankBlock(at: loc) || text.isEmpty {
-            var typing = textView.typingAttributes
+            var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
             typing[.font] = defaultFont
             typing[.foregroundColor] = NSColor.labelColor
             typing[.paragraphStyle] = paragraphStyle
@@ -1974,8 +1997,9 @@ public final class EditorSession {
 
         if case let .heading(level) = typingContext,
            let headingFont = headingFont(for: level, baseFontSize: baseFontSize, platform: .appKit) {
-            var typing = textView.typingAttributes
+            var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
             typing[.font] = headingFont
+            typing[.foregroundColor] = NSColor.labelColor
             typing[.paragraphStyle] = paragraphStyle
             textView.typingAttributes = typing
             return
@@ -1984,12 +2008,26 @@ public final class EditorSession {
         // Fallback: read from character before cursor
         guard loc > 0 else { return }
         let attrs = storage.attributes(at: max(0, loc - 1), effectiveRange: nil)
-        var typing = textView.typingAttributes
+        var typing = sanitizedTypingAttributes(from: textView.typingAttributes)
         if let font = attrs[.font] as? NSFont { typing[.font] = font }
         if let color = attrs[.foregroundColor] as? NSColor { typing[.foregroundColor] = color }
         typing[.paragraphStyle] = paragraphStyle
         textView.typingAttributes = typing
         #endif
+    }
+
+    private func sanitizedTypingAttributes(
+        from attributes: [NSAttributedString.Key: Any]
+    ) -> [NSAttributedString.Key: Any] {
+        var typing = attributes
+        typing.removeValue(forKey: .kern)
+        typing.removeValue(forKey: .quartzTableRowStyle)
+        typing.removeValue(forKey: .backgroundColor)
+        typing.removeValue(forKey: .attachment)
+        typing.removeValue(forKey: .quartzWikiLink)
+        typing.removeValue(forKey: .underlineStyle)
+        typing.removeValue(forKey: .strikethroughStyle)
+        return typing
     }
 
     private enum Platform { case uiKit, appKit }

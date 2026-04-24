@@ -140,6 +140,44 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertFalse(NSFontManager.shared.traits(of: typingFont).contains(.boldFontMask))
     }
 
+    func testTypingAttributesDoNotLeakTableKerningIntoBodyText() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = """
+        ### Summary + Key Outcomes
+
+        | Column 1 | Column 2 | Column 3 |
+        | --- | --- | --- |
+        | Cell 1 | Cell 2 | Cell 3 |
+
+        This is a test
+        """
+        let bodyLocation = (text as NSString).range(of: "This is a test").location
+
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: bodyLocation, length: 0))
+        textView.typingAttributes = [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .kern: CGFloat(72),
+            .quartzTableRowStyle: QuartzTableRowStyle.header.rawValue,
+            .backgroundColor: NSColor.controlBackgroundColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        session.activeTextView = textView
+        session.highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.textDidChange(text)
+
+        let spans = await session.highlighter?.parse(text) ?? []
+        session.applyHighlightSpansForTesting(spans)
+        session.selectionDidChange(NSRange(location: bodyLocation, length: 0))
+
+        XCTAssertNil(textView.typingAttributes[.kern], "Table kerning must not leak into later typed words")
+        XCTAssertNil(textView.typingAttributes[.quartzTableRowStyle], "Table row style must not leak into body typing")
+        XCTAssertNil(textView.typingAttributes[.backgroundColor], "Table background must not leak into body typing")
+        XCTAssertNil(textView.typingAttributes[.underlineStyle], "Overlay underline must not leak into body typing")
+    }
+
     func testCloseAndReopenReappliesParagraphAttributesAfterStateDrift() async throws {
         let provider = MockVaultProvider()
         let url = URL(fileURLWithPath: "/tmp/editor-rendering-regression.md")
