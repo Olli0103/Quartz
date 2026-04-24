@@ -357,11 +357,15 @@ public actor VaultSearchIndex {
             .appending(path: "search-index.json")
     }
 
-    /// Computes a SHA256 fingerprint from note URLs, modification dates, and file sizes.
-    /// Uses the same approach as `GraphCache.computeFingerprint`.
+    /// Computes a SHA256 fingerprint from note URLs, metadata, and note bytes.
+    ///
+    /// The content digest is intentionally part of the persisted-cache fingerprint.
+    /// Sync and restore tools can preserve modification dates and file sizes while
+    /// changing bytes; hashing the raw file stream prevents stale search bodies from
+    /// being reused in that case without rebuilding the full parsed search index.
     public static func computeFingerprint(for noteURLs: [URL]) -> String {
         let fm = FileManager.default
-        var pairs: [(String, TimeInterval, UInt64)] = []
+        var pairs: [(String, TimeInterval, UInt64, String)] = []
         for url in noteURLs {
             let mtime: TimeInterval
             let fileSize: UInt64
@@ -381,12 +385,29 @@ public actor VaultSearchIndex {
                 mtime = 0
                 fileSize = 0
             }
-            pairs.append((url.absoluteString, mtime, fileSize))
+            pairs.append((url.absoluteString, mtime, fileSize, contentDigest(for: url)))
         }
         pairs.sort { $0.0 < $1.0 }
-        let data = pairs.flatMap { "\($0.0):\($0.1):\($0.2)".utf8 }
+        let data = pairs.flatMap { "\($0.0):\($0.1):\($0.2):\($0.3)".utf8 }
         let hash = SHA256.hash(data: Data(data))
         return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func contentDigest(for url: URL) -> String {
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+
+            var hasher = SHA256()
+            while true {
+                let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+                if chunk.isEmpty { break }
+                hasher.update(data: chunk)
+            }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        } catch {
+            return "unreadable"
+        }
     }
 
     /// Loads the cached index from disk.

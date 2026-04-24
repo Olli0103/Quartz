@@ -93,6 +93,103 @@ struct SearchIndexPersistenceTests {
         #expect(fp1 != fp2)
     }
 
+    @Test("Fingerprint changes when same-size content changes and modification date is preserved")
+    func fingerprintIncludesContentDigest() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fp-content-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("a.md")
+        let preservedDate = Date(timeIntervalSince1970: 1_700_000_001)
+        try "Body token alpha.\n".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp1 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        try "Body token bravo.\n".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp2 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        #expect(fp1 != fp2)
+    }
+
+    @Test("Fingerprint remains stable when content and metadata are unchanged")
+    func fingerprintStableForUnchangedContent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fp-stable-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("a.md")
+        let preservedDate = Date(timeIntervalSince1970: 1_700_000_002)
+        let content = "Stable body content.\n"
+        try content.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp1 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        try content.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: preservedDate], ofItemAtPath: file.path(percentEncoded: false))
+        let fp2 = VaultSearchIndex.computeFingerprint(for: [file])
+
+        #expect(fp1 == fp2)
+    }
+
+    @Test("Same-size preserved-mtime content changes rebuild cached search index")
+    func sameSizePreservedMtimeContentChangeRebuildsCache() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("search-cache-content-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appending(path: ".quartz"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("same-size.md")
+        let preservedDate = Date(timeIntervalSince1970: 1_700_000_003)
+        try Self.writeSearchNote(body: "Body token alpha.\n", to: noteURL, modificationDate: preservedDate)
+
+        let parser = FrontmatterParser()
+        let provider = CountingFileSystemVaultProvider(frontmatterParser: parser)
+        let firstTree = try await provider.loadFileTree(at: root)
+        let firstIndex = VaultSearchIndex(vaultProvider: provider)
+        await firstIndex.buildIndex(fromPreloadedTree: firstTree, at: root)
+
+        let initialReads = await provider.readCount()
+        #expect(initialReads == 1)
+        #expect(await firstIndex.search(query: "alpha").count == 1)
+
+        try Self.writeSearchNote(body: "Body token bravo.\n", to: noteURL, modificationDate: preservedDate)
+
+        let secondTree = try await provider.loadFileTree(at: root)
+        let secondIndex = VaultSearchIndex(vaultProvider: provider)
+        await secondIndex.buildIndex(fromPreloadedTree: secondTree, at: root)
+
+        #expect(await provider.readCount() == initialReads + 1)
+        #expect(await secondIndex.latestBuildSource == .rebuild)
+        #expect(await secondIndex.search(query: "alpha").isEmpty)
+        #expect(await secondIndex.search(query: "bravo").count == 1)
+    }
+
+    @Test("Fingerprinting many small notes is bounded")
+    func fingerprintManySmallNotesSanity() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fp-many-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let urls = try (0..<256).map { index in
+            let file = root.appendingPathComponent("note-\(index).md")
+            try String(repeating: "Note \(index) content.\n", count: 32)
+                .write(to: file, atomically: true, encoding: .utf8)
+            return file
+        }
+
+        let start = ContinuousClock.now
+        let fingerprint = VaultSearchIndex.computeFingerprint(for: urls)
+        let elapsed = start.duration(to: .now)
+
+        #expect(fingerprint.count == 64)
+        #expect(elapsed < .seconds(5))
+    }
+
     @Test("Empty fingerprint is deterministic")
     func emptyFingerprint() {
         let fp1 = VaultSearchIndex.computeFingerprint(for: [])
@@ -139,6 +236,21 @@ struct SearchIndexPersistenceTests {
         }
 
         return root
+    }
+
+    private static func writeSearchNote(body: String, to url: URL, modificationDate: Date) throws {
+        let content = """
+        ---
+        title: Same Size
+        tags: [test]
+        ---
+        \(body)
+        """
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modificationDate],
+            ofItemAtPath: url.path(percentEncoded: false)
+        )
     }
 }
 
