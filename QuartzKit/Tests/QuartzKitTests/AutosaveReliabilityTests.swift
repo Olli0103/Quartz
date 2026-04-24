@@ -294,6 +294,126 @@ struct AutosaveReliabilityTests {
         #expect(versions.count == 1, "The active write should create one forced snapshot, not a duplicate replay snapshot")
     }
 
+    @Test("Repeated meaningful manual saves create readable version history")
+    @MainActor func repeatedMeaningfulManualSavesCreateVersionHistory() async throws {
+        let vaultRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionMeaningful-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let noteURL = vaultRoot.appending(path: "note-a.md")
+        try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultRoot) }
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = vaultRoot
+
+        await session.loadNote(at: noteURL)
+        session.textDidChange("Saved version one")
+        await session.manualSave()
+        session.textDidChange("Saved version two")
+        await session.manualSave()
+
+        let versionService = VersionHistoryService()
+        var versions: [NoteVersion] = []
+        for _ in 0..<80 {
+            versions = versionService.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+            if versions.count == 2 { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let contents = try versions.map { try versionService.readFullText(from: $0) }
+        #expect(Set(contents) == Set(["Saved version one", "Saved version two"]))
+        #expect(await mock.getContent(for: noteURL) == "Saved version two")
+        #expect(session.isDirty == false)
+    }
+
+    @Test("Primary save failure does not create false version")
+    @MainActor func primarySaveFailureDoesNotCreateFalseVersion() async throws {
+        let vaultRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionFailedPrimary-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let noteURL = vaultRoot.appending(path: "note-a.md")
+        try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vaultRoot) }
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = vaultRoot
+
+        await session.loadNote(at: noteURL)
+        session.textDidChange("Unsaved failed content")
+        await mock.simulateError(.networkUnavailable, for: .saveNote)
+        await session.manualSave()
+
+        try? await Task.sleep(for: .milliseconds(200))
+
+        let versions = VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+        #expect(versions.isEmpty, "Version History must not pretend failed primary saves created versions")
+        #expect(session.isDirty == true)
+    }
+
+    @Test("Version snapshot failure does not poison successful primary save")
+    @MainActor func versionSnapshotFailureDoesNotPoisonPrimarySave() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionSnapshotFailure-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let fileVaultRoot = tempRoot.appending(path: "not-a-directory")
+        try "blocking file".write(to: fileVaultRoot, atomically: true, encoding: .utf8)
+        let noteURL = tempRoot.appending(path: "note-a.md")
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        session.vaultRootURL = fileVaultRoot
+
+        await session.loadNote(at: noteURL)
+        session.textDidChange("Primary save succeeds despite version failure")
+        await session.manualSave()
+
+        try? await Task.sleep(for: .milliseconds(200))
+
+        #expect(await mock.getContent(for: noteURL) == "Primary save succeeds despite version failure")
+        #expect(session.isDirty == false)
+        #expect(session.errorMessage == nil)
+        let versions = VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: fileVaultRoot)
+        #expect(versions.isEmpty, "Snapshot failure should not create partial versions")
+    }
+
     // MARK: - Fast Back-and-Forth
 
     @Test("Fast note switching preserves all edits")

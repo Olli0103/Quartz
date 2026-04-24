@@ -40,6 +40,55 @@ struct VersionHistoryPersistenceTests {
         }
     }
 
+    @Test("Rapid meaningful snapshots do not overwrite each other")
+    func rapidMeaningfulSnapshotsDoNotOverwrite() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("rapid.md")
+        try "content".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "v1", vaultRoot: root))
+        #expect(service.saveSnapshot(for: noteURL, content: "v2", vaultRoot: root))
+        #expect(service.saveSnapshot(for: noteURL, content: "v3", vaultRoot: root))
+
+        let versions = service.fetchVersions(for: noteURL, vaultRoot: root)
+        let contents = try versions.map { try service.readFullText(from: $0) }
+        #expect(versions.count == 3)
+        #expect(Set(contents) == Set(["v1", "v2", "v3"]))
+    }
+
+    @Test("Duplicate plaintext snapshots are skipped")
+    func duplicatePlaintextSnapshotsSkipped() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("duplicate.md")
+        try "content".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "same", vaultRoot: root))
+        #expect(service.saveSnapshot(for: noteURL, content: "same", vaultRoot: root) == false)
+
+        let versions = service.fetchVersions(for: noteURL, vaultRoot: root)
+        #expect(versions.count == 1)
+    }
+
+    @Test("Snapshot write failure reports false without creating a version")
+    func snapshotWriteFailureReturnsFalse() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileRoot = root.appendingPathComponent("not-a-directory")
+        try "blocking file".write(to: fileRoot, atomically: true, encoding: .utf8)
+        let noteURL = fileRoot.appendingPathComponent("blocked.md")
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "cannot write", vaultRoot: fileRoot) == false)
+        #expect(service.fetchVersions(for: noteURL, vaultRoot: fileRoot).isEmpty)
+    }
+
     @Test("Multiple snapshots sorted by date, encryption works")
     func multipleAndEncryption() throws {
         let root = try makeTempVault()
@@ -77,6 +126,29 @@ struct VersionHistoryPersistenceTests {
             let decrypted = try service.readText(from: enc, encryptionKey: key)
             #expect(decrypted == "secret")
         }
+    }
+
+    @Test("Restore writes selected version content to note")
+    func restoreWritesSelectedVersionContent() async throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("restore.md")
+        try "current".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "restored body", vaultRoot: root))
+
+        let versions = service.fetchVersions(for: noteURL, vaultRoot: root)
+        guard let version = versions.first else {
+            Issue.record("Expected a version to restore")
+            return
+        }
+
+        try await service.restore(version: version, to: noteURL)
+
+        let restored = try String(contentsOf: noteURL, encoding: .utf8)
+        #expect(restored == "restored body")
     }
 
     @Test("No versions for nonexistent note, max snapshots constant")

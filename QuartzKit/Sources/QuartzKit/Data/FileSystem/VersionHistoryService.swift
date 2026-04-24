@@ -39,6 +39,12 @@ public struct NoteVersion: Identifiable, Sendable {
     }
 }
 
+public extension Notification.Name {
+    /// Posted after a note's version-history snapshot set changes.
+    /// `object` is the note URL and `userInfo["vaultRoot"]` is the vault root URL.
+    static let quartzVersionHistoryDidChange = Notification.Name("quartzVersionHistoryDidChange")
+}
+
 /// Lightweight version history for Markdown notes.
 ///
 /// Since `NSFileVersion` only works for iCloud-synced or NSDocument-managed files,
@@ -86,12 +92,13 @@ public struct VersionHistoryService: Sendable {
     ///   - encryptionKey: Optional encryption key. If provided, snapshot is encrypted with AES-256-GCM.
     ///
     /// - Note: Uses `NSFileCoordinator` for iCloud safety.
+    @discardableResult
     public func saveSnapshot(
         for noteURL: URL,
         content: String,
         vaultRoot: URL,
         encryptionKey: SymmetricKey? = nil
-    ) {
+    ) -> Bool {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
 
@@ -104,16 +111,28 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "Failed to create snapshot directory: \(error.localizedDescription)"
             )
-            return
+            return false
+        }
+
+        if encryptionKey == nil,
+           let latest = fetchVersions(for: noteURL, vaultRoot: vaultRoot).first,
+           (try? readFullText(from: latest)) == content {
+            QuartzDiagnostics.info(
+                category: "VersionHistory",
+                "Skipped duplicate snapshot for \(noteURL.lastPathComponent)"
+            )
+            return false
         }
 
         // Create snapshot with ISO8601 timestamp filename
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
 
         // Use different extension for encrypted vs plain snapshots
         let fileExtension = encryptionKey != nil ? Self.encryptedExtension : Self.plainExtension
-        let snapshotURL = snapshotDir.appending(path: "\(timestamp).\(fileExtension)")
+        let snapshotURL = snapshotDir.appending(path: "\(timestamp)__\(UUID().uuidString).\(fileExtension)")
 
         guard var data = content.data(using: .utf8) else {
             Self.logger.error("Failed to encode snapshot content as UTF-8")
@@ -121,7 +140,7 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "Failed to encode snapshot content as UTF-8"
             )
-            return
+            return false
         }
 
         // Encrypt if key is provided
@@ -134,7 +153,7 @@ public struct VersionHistoryService: Sendable {
                         category: "VersionHistory",
                         "Failed to combine encrypted snapshot data"
                     )
-                    return
+                    return false
                 }
                 data = combined
             } catch {
@@ -143,17 +162,19 @@ public struct VersionHistoryService: Sendable {
                     category: "VersionHistory",
                     "Failed to encrypt snapshot: \(error.localizedDescription)"
                 )
-                return
+                return false
             }
         }
 
         // Use file coordination for iCloud safety
         let coordinator = NSFileCoordinator()
         var coordinatorError: NSError?
+        var writeSucceeded = false
 
         coordinator.coordinate(writingItemAt: snapshotURL, options: .forReplacing, error: &coordinatorError) { coordinatedURL in
             do {
                 try data.write(to: coordinatedURL, options: .atomic)
+                writeSucceeded = true
             } catch {
                 Self.logger.error("Failed to write snapshot: \(error.localizedDescription)")
                 QuartzDiagnostics.error(
@@ -169,12 +190,28 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "File coordination failed for snapshot: \(error.localizedDescription)"
             )
+            return false
+        }
+
+        guard writeSucceeded else {
+            QuartzDiagnostics.error(
+                category: "VersionHistory",
+                "Snapshot write did not complete for \(noteURL.lastPathComponent)"
+            )
+            return false
         }
 
         // Prune old snapshots (async to avoid blocking)
         Task.detached(priority: .utility) { [self] in
             self.pruneSnapshots(in: snapshotDir, keep: Self.maxSnapshotsPerNote)
         }
+
+        NotificationCenter.default.post(
+            name: .quartzVersionHistoryDidChange,
+            object: noteURL,
+            userInfo: ["vaultRoot": vaultRoot]
+        )
+        return true
     }
 
     // MARK: - Fetch Versions
@@ -354,29 +391,10 @@ public struct VersionHistoryService: Sendable {
             data = try AES.GCM.open(sealedBox, using: key)
         }
 
-        // Use NSFileCoordinator for safe write
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let coordinator = NSFileCoordinator()
-            var coordinatorError: NSError?
-
-            coordinator.coordinate(
-                writingItemAt: noteURL,
-                options: .forReplacing,
-                error: &coordinatorError
-            ) { coordinatedURL in
-                do {
-                    try data.write(to: coordinatedURL, options: .atomic)
-                    Self.logger.info("Restored version from \(version.date.formatted()) to \(noteURL.lastPathComponent)")
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-
-            if let error = coordinatorError {
-                continuation.resume(throwing: error)
-            }
-        }
+        try await Task.detached(priority: .userInitiated) {
+            try CoordinatedFileWriter.shared.write(data, to: noteURL)
+        }.value
+        Self.logger.info("Restored version from \(version.date.formatted()) to \(noteURL.lastPathComponent)")
     }
 
     // MARK: - Helpers

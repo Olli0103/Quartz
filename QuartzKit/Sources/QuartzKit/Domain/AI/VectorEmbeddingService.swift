@@ -404,6 +404,30 @@ public actor VectorEmbeddingService {
         Set(index.map(\.noteID))
     }
 
+    /// Why a note needs embedding work during a sweep.
+    public enum PendingReason: String, Sendable {
+        case neverIndexed
+        case modifiedAfterIndex
+        case missingModificationDate
+    }
+
+    /// Returns the pending reason for a note, or `nil` when the persisted index is current.
+    public func pendingReason(
+        for url: URL,
+        vaultRoot: URL,
+        modificationDate mtime: Date?
+    ) -> PendingReason? {
+        let stableID = Self.stableNoteID(for: url, vaultRoot: vaultRoot)
+        let lastIndexed = lastIndexedDate(for: stableID)
+        guard let mtime else {
+            return .missingModificationDate
+        }
+        guard let lastIndexed else {
+            return .neverIndexed
+        }
+        return mtime <= lastIndexed ? nil : .modifiedAfterIndex
+    }
+
     // MARK: - Memory Management
 
     /// Index health status for memory monitoring.
@@ -537,8 +561,18 @@ public actor VectorEmbeddingService {
     /// This ensures the same file always maps to the same UUID across app launches,
     /// unlike `FileNode.id` which is regenerated each time the tree is built.
     public static func stableNoteID(for url: URL, vaultRoot: URL) -> UUID {
-        let relative = url.path(percentEncoded: false)
-            .replacingOccurrences(of: vaultRoot.path(percentEncoded: false), with: "")
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let canonicalVaultRoot = CanonicalNoteIdentity.canonicalFileURL(for: vaultRoot)
+        let notePath = canonicalURL.path(percentEncoded: false)
+        let rootPath = canonicalVaultRoot.path(percentEncoded: false)
+        let relative: String
+        if notePath == rootPath {
+            relative = "/"
+        } else if notePath.hasPrefix(rootPath + "/") {
+            relative = String(notePath.dropFirst(rootPath.count))
+        } else {
+            relative = notePath
+        }
         let hash = SHA256.hash(data: Data(relative.utf8))
         let bytes = Array(hash.prefix(16))
         return UUID(uuid: (

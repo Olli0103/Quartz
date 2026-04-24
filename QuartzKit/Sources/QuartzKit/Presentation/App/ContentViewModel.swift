@@ -1605,18 +1605,21 @@ public final class ContentViewModel {
                 }
                 guard isCurrentGeneration else { return }
 
-                let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                 let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-                let lastIndexed = await embedding.lastIndexedDate(for: stableID)
-                if let mtime, let lastIndexed, mtime <= lastIndexed {
+                guard let pendingReason = await embedding.pendingReason(
+                    for: url,
+                    vaultRoot: vaultRoot,
+                    modificationDate: mtime
+                ) else {
                     continue
                 }
 
-                if mtime == nil {
+                switch pendingReason {
+                case .missingModificationDate:
                     pendingMissingMTime += 1
-                } else if lastIndexed == nil {
+                case .neverIndexed:
                     pendingNeverIndexed += 1
-                } else {
+                case .modifiedAfterIndex:
                     pendingModifiedAfterIndex += 1
                 }
                 pendingNoteURLs.append(url)

@@ -56,6 +56,15 @@ public struct VersionHistoryView: View {
                     }
                 }
                 .task { await loadVersions() }
+                .onReceive(NotificationCenter.default.publisher(for: .quartzVersionHistoryDidChange)) { notification in
+                    guard let changedNoteURL = notification.object as? URL,
+                          changedNoteURL.standardizedFileURL == noteURL.standardizedFileURL,
+                          let changedVaultRoot = notification.userInfo?["vaultRoot"] as? URL,
+                          changedVaultRoot.standardizedFileURL == vaultRoot.standardizedFileURL else {
+                        return
+                    }
+                    Task { await loadVersions() }
+                }
         }
         #if os(macOS)
         .frame(minWidth: 700, minHeight: 500)

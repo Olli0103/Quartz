@@ -1,0 +1,205 @@
+import Testing
+import Foundation
+@testable import QuartzKit
+
+@Suite("Embedding Resume Persistence")
+struct EmbeddingResumePersistenceTests {
+    private func makeTempVault() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EmbeddingResume-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeNotes(count: Int, in vault: URL) throws -> [URL] {
+        var urls: [URL] = []
+        for index in 0..<count {
+            let url = vault.appending(path: "note-\(index).md")
+            let body = """
+            # Note \(index)
+
+            This is a realistic note body for embedding resume tests. It includes enough ordinary prose
+            for NaturalLanguage sentence embeddings to produce at least one chunk for the note.
+            """
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func modificationDate(for url: URL) throws -> Date {
+        let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+        return try #require(values.contentModificationDate)
+    }
+
+    private func pendingSummary(
+        service: VectorEmbeddingService,
+        urls: [URL],
+        vaultRoot: URL
+    ) async throws -> [VectorEmbeddingService.PendingReason: Int] {
+        var summary: [VectorEmbeddingService.PendingReason: Int] = [:]
+        for url in urls {
+            let mtime = try modificationDate(for: url)
+            if let reason = await service.pendingReason(for: url, vaultRoot: vaultRoot, modificationDate: mtime) {
+                summary[reason, default: 0] += 1
+            }
+        }
+        return summary
+    }
+
+    @Test("Valid persisted index loads chunks and excludes indexed notes after restart")
+    func validIndexLoadExcludesAlreadyIndexedNotes() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let notes = try makeNotes(count: 12, in: vault)
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        for url in notes.prefix(5) {
+            let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
+            try await service.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
+        }
+        try await service.saveIndex()
+
+        let restarted = VectorEmbeddingService(vaultURL: vault)
+        try await restarted.loadIndex()
+
+        #expect(await restarted.entryCount > 0)
+        #expect(await restarted.indexedNoteCount == 5)
+
+        let summary = try await pendingSummary(service: restarted, urls: notes, vaultRoot: vault)
+        #expect(summary[.neverIndexed] == 7)
+        #expect(summary[.modifiedAfterIndex] == nil)
+        #expect(summary[.missingModificationDate] == nil)
+    }
+
+    @Test("Partial checkpoint resumes from remaining notes after service recreation")
+    func partialCheckpointResumesFromRemainingNotes() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let notes = try makeNotes(count: 10, in: vault)
+
+        let firstRun = VectorEmbeddingService(vaultURL: vault)
+        for url in notes.prefix(4) {
+            let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
+            try await firstRun.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
+        }
+        try await firstRun.saveIndex()
+
+        let resumed = VectorEmbeddingService(vaultURL: vault)
+        try await resumed.loadIndex()
+
+        let initialPending = try await pendingSummary(service: resumed, urls: notes, vaultRoot: vault)
+        #expect(initialPending[.neverIndexed] == 6)
+
+        for url in notes {
+            let mtime = try modificationDate(for: url)
+            guard await resumed.pendingReason(for: url, vaultRoot: vault, modificationDate: mtime) != nil else {
+                continue
+            }
+            let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
+            try await resumed.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
+        }
+        try await resumed.saveIndex()
+
+        let finalRun = VectorEmbeddingService(vaultURL: vault)
+        try await finalRun.loadIndex()
+
+        #expect(await finalRun.indexedNoteCount == notes.count)
+        let finalPending = try await pendingSummary(service: finalRun, urls: notes, vaultRoot: vault)
+        #expect(finalPending.isEmpty)
+    }
+
+    @Test("Stable note IDs survive canonical vault path differences across restart")
+    func stableNoteIDsSurviveCanonicalPathDifferences() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let note = try makeNotes(count: 1, in: vault)[0]
+
+        let canonicalID = VectorEmbeddingService.stableNoteID(for: note, vaultRoot: vault)
+        let nonCanonicalRoot = vault
+            .appending(path: "subdir", directoryHint: .isDirectory)
+            .appending(path: "..", directoryHint: .isDirectory)
+        let nonCanonicalNote = nonCanonicalRoot.appending(path: note.lastPathComponent)
+        let restartedID = VectorEmbeddingService.stableNoteID(for: nonCanonicalNote, vaultRoot: nonCanonicalRoot)
+
+        #expect(restartedID == canonicalID)
+    }
+
+    @Test("Modified note is the only pending note after persisted index reload")
+    func modifiedNoteIsOnlyPendingAfterReload() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let notes = try makeNotes(count: 6, in: vault)
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        for url in notes {
+            let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
+            try await service.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
+        }
+        try await service.saveIndex()
+
+        try await Task.sleep(for: .milliseconds(20))
+        try "Changed content after checkpoint".write(to: notes[2], atomically: true, encoding: .utf8)
+
+        let restarted = VectorEmbeddingService(vaultURL: vault)
+        try await restarted.loadIndex()
+        let summary = try await pendingSummary(service: restarted, urls: notes, vaultRoot: vault)
+
+        #expect(summary[.modifiedAfterIndex] == 1)
+        #expect(summary[.neverIndexed] == nil)
+    }
+
+    @MainActor
+    @Test("Save pressure pauses embedding sweep and recovery resumes it")
+    func savePressurePausesAndRecoveryResumesEmbeddingSweep() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let notes = try makeNotes(count: 10, in: vault)
+
+        let parser = FrontmatterParser()
+        let provider = FileSystemVaultProvider(frontmatterParser: parser)
+        ServiceContainer.shared.reset()
+        ServiceContainer.shared.bootstrap(vaultProvider: provider, frontmatterParser: parser)
+
+        let viewModel = ContentViewModel(appState: AppState())
+        viewModel.loadVault(VaultConfig(name: "Embedding Resume", rootURL: vault))
+
+        NotificationCenter.default.post(
+            name: .quartzEditorSaveHealthChanged,
+            object: notes[0],
+            userInfo: ["state": "failed"]
+        )
+
+        try await Task.sleep(for: .seconds(1))
+        let pausedCount = await viewModel.embeddingService?.indexedNoteCount ?? 0
+        #expect(pausedCount == 0)
+
+        NotificationCenter.default.post(
+            name: .quartzEditorSaveHealthChanged,
+            object: notes[0],
+            userInfo: ["state": "recovered"]
+        )
+
+        let resumed = await waitUntil(timeout: .seconds(12)) {
+            let indexed = await viewModel.embeddingService?.indexedNoteCount ?? 0
+            return indexed == notes.count
+        }
+        #expect(resumed)
+    }
+
+    @MainActor
+    private func waitUntil(
+        timeout: Duration,
+        pollInterval: Duration = .milliseconds(50),
+        condition: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() {
+                return true
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+        return await condition()
+    }
+}

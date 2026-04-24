@@ -409,14 +409,6 @@ public final class EditorSession {
             await save(force: true)
         }
 
-        // Save a snapshot of the previous note before switching
-        if let previousNoteURL = note?.fileURL, let vaultRoot = vaultRootURL, !currentText.isEmpty {
-            let content = currentText
-            Task.detached(priority: .utility) {
-                VersionHistoryService().saveSnapshot(for: previousNoteURL, content: content, vaultRoot: vaultRoot)
-            }
-        }
-
         cancelAllTasks()
         stopFileWatching()
 
@@ -463,14 +455,6 @@ public final class EditorSession {
         // Reset readiness state (F8 handshake)
         resetReadinessState()
         saveViewStateForCurrentNote()
-
-        // Save a final snapshot if there are unsaved changes
-        if isDirty, let noteURL = note?.fileURL, let vaultRoot = vaultRootURL {
-            let content = currentText
-            Task.detached(priority: .utility) {
-                VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
-            }
-        }
 
         cancelAllTasks()
         stopFileWatching()
