@@ -265,6 +265,10 @@ public actor DiagnosticExportService {
         for (key, value) in recoveryInfo {
             mergedAdditionalInfo[key] = value
         }
+        if let effectiveAIStatus = Self.effectiveAIIndexStatus(from: subsystemDiagnostics) {
+            mergedAdditionalInfo["aiIndex.status"] = effectiveAIStatus
+            mergedAdditionalInfo["aiIndex.statusSource"] = "subsystemDiagnostics"
+        }
         if let diagnosticsLogLocation {
             mergedAdditionalInfo["diagnosticsLogPath"] = diagnosticsLogLocation
         }
@@ -284,6 +288,19 @@ public actor DiagnosticExportService {
             recentDiagnosticsLog: recentDiagnosticsLog,
             additionalInfo: mergedAdditionalInfo
         )
+    }
+
+    private static func effectiveAIIndexStatus(from snapshot: SubsystemDiagnosticsSnapshot) -> String? {
+        guard let aiState = snapshot.currentState[.aiIndexing] else { return nil }
+        if let liveStatus = aiState["aiIndexing"],
+           liveStatus != "idle" {
+            return liveStatus
+        }
+        if let lastStatus = aiState["lastAIIndexingStatus"],
+           lastStatus != "idle" {
+            return lastStatus
+        }
+        return aiState["aiIndexing"] ?? aiState["lastAIIndexingStatus"]
     }
 
     /// Exports the diagnostic report to a shareable format.

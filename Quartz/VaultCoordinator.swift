@@ -52,6 +52,7 @@ public final class VaultCoordinator {
         noteListStore: NoteListStore,
         workspaceStore: WorkspaceStore,
         clearSelection: Bool = true,
+        userInitiated: Bool = false,
         onComplete: (() -> Void)? = nil
     ) {
         DeveloperDiagnostics.loadVaultConfiguration(from: vault.rootURL)
@@ -61,7 +62,10 @@ public final class VaultCoordinator {
             name: "vaultOpenStarted",
             reasonCode: clearSelection ? "vault.manualOpen" : "vault.restoreOpen",
             vaultName: vault.name,
-            metadata: ["selectionPolicy": clearSelection ? "cleared" : "preserved"]
+            metadata: [
+                "selectionPolicy": clearSelection ? "cleared" : "preserved",
+                "userInitiated": String(userInitiated)
+            ]
         )
         VaultAccessManager.shared.registerActiveVault(vault)
         appState.switchVault(to: vault)
@@ -77,7 +81,10 @@ public final class VaultCoordinator {
             name: "vaultOpenCompleted",
             reasonCode: clearSelection ? "vault.manualOpenCompleted" : "vault.restoreCompleted",
             vaultName: vault.name,
-            metadata: ["selectionPolicy": clearSelection ? "cleared" : "preserved"]
+            metadata: [
+                "selectionPolicy": clearSelection ? "cleared" : "preserved",
+                "userInitiated": String(userInitiated)
+            ]
         )
 
         if Self.isUITestShellMode {
@@ -123,7 +130,14 @@ public final class VaultCoordinator {
         }
 
         QuartzFeedback.success()
-        openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+        openVault(
+            vault,
+            viewModel: viewModel,
+            noteListStore: noteListStore,
+            workspaceStore: workspaceStore,
+            userInitiated: true,
+            onComplete: onComplete
+        )
         return true
     }
 
@@ -155,7 +169,14 @@ public final class VaultCoordinator {
             return false
         }
         QuartzFeedback.success()
-        openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+        openVault(
+            vault,
+            viewModel: viewModel,
+            noteListStore: noteListStore,
+            workspaceStore: workspaceStore,
+            userInitiated: true,
+            onComplete: onComplete
+        )
         return true
     }
 

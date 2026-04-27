@@ -232,6 +232,32 @@ struct MarkdownParserTests {
         #expect(!table.isEmpty, "Table should produce tableRowStyle spans")
     }
 
+    @Test("Table insertion near top does not apply table style to H1")
+    func tableInsertedOnLineFourDoesNotStyleHeading() async {
+        let markdown = """
+        # Note 2026-04-27
+
+        Intro paragraph.
+        | A | B |
+        |---|---|
+        | 1 | 2 |
+
+        ## Follow up
+        Body text.
+        """
+        let nsText = markdown as NSString
+        let headingRange = nsText.lineRange(for: NSRange(location: 0, length: 0))
+        let highlighter = MarkdownASTHighlighter()
+        let spans = await highlighter.parse(markdown)
+        let tableSpans = spans.filter { $0.tableRowStyle != nil }
+        let tableSpansOnHeading = spans.filter {
+            $0.tableRowStyle != nil && NSIntersectionRange($0.range, headingRange).length > 0
+        }
+
+        #expect(!tableSpans.isEmpty)
+        #expect(tableSpansOnHeading.isEmpty)
+    }
+
     @Test("Local images resolve to attachment spans")
     func localImageAttachmentSpans() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

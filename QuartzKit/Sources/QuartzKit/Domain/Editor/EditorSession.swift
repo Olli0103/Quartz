@@ -1259,6 +1259,7 @@ public final class EditorSession {
         textRevision &+= 1
         renderGeneration = 0
         lastRendererSpanChecksum = nil
+        hasRecordedFirstSemanticHighlight = false
         lastPublishedExplicitReferences = []
         isDirty = false
         errorMessage = nil
@@ -1776,6 +1777,7 @@ public final class EditorSession {
         isSaving = true
         savePendingAfterCurrentWrite = false
         isSavingToFileSystem = true
+        VectorEmbeddingService.pauseCheckpointingForSavePressure(seconds: 15, vaultURL: vaultRootURL)
         defer {
             isSaving = false
             // Delay clearing isSavingToFileSystem to allow NSFilePresenter callback
@@ -1841,6 +1843,7 @@ public final class EditorSession {
             }
             let dirtyAfterReason = isDirty ? "textChangedDuringSave" : "none"
             consecutiveSaveFailures = 0
+            VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vaultRootURL)
             postSaveHealthChanged(state: "recovered", url: savedURL)
             errorMessage = nil
             QuartzDiagnostics.info(
@@ -1922,6 +1925,7 @@ public final class EditorSession {
             switch fallbackResult {
             case .primaryFileSaved:
                 primarySaveRemainsFailed = false
+                VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vaultRootURL)
                 updateSavedContentHashes(for: currentNote)
                 note = currentNote
                 let savedSnapshotStillCurrent = currentText == textSnapshot
@@ -1945,13 +1949,36 @@ public final class EditorSession {
                         content: textSnapshot,
                         force: forceVersionSnapshotForThisSave || forceSavePendingAfterCurrentWrite
                     )
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .versionHistory,
+                        name: "snapshotAfterEmergencySave",
+                        reasonCode: "version.snapshotAfterEmergencySaveScheduled",
+                        noteBasename: currentNote.fileURL.lastPathComponent
+                    )
                     savePendingAfterCurrentWrite = false
                     forceSavePendingAfterCurrentWrite = false
+                } else {
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .versionHistory,
+                        name: "snapshotAfterEmergencySaveSkipped",
+                        reasonCode: "version.snapshotSkippedDirtyAfterEmergencySave",
+                        noteBasename: currentNote.fileURL.lastPathComponent
+                    )
                 }
             case .recoveryCopySaved(let recoveryURL):
+                VectorEmbeddingService.pauseCheckpointingForSavePressure(
+                    seconds: TimeInterval(autosaveRetryDelaySeconds()),
+                    vaultURL: vaultRootURL
+                )
                 errorMessage = String(localized: "iCloud save is blocked. Your edits are preserved in an emergency recovery copy: \(recoveryURL.lastPathComponent)", bundle: .module)
                 postSaveHealthChanged(state: "failed", url: currentNote.fileURL, error: error)
             case .notAttempted, .failed:
+                VectorEmbeddingService.pauseCheckpointingForSavePressure(
+                    seconds: TimeInterval(autosaveRetryDelaySeconds()),
+                    vaultURL: vaultRootURL
+                )
                 errorMessage = error.localizedDescription
                 postSaveHealthChanged(state: "failed", url: currentNote.fileURL, error: error)
             }
@@ -2043,6 +2070,7 @@ public final class EditorSession {
     private var lastAppliedHighlightSourceText: String = ""
     /// Cached render grouping so the editor applies the latest parsed plan, not ad-hoc filters.
     private var lastRenderPlan: EditorRenderPlan = .empty
+    private var hasRecordedFirstSemanticHighlight = false
     /// Monotonic counter for text mutations observed by this editor session.
     private var textRevision: UInt64 = 0
     /// Monotonic counter for completed render applications.
@@ -2666,6 +2694,23 @@ public final class EditorSession {
         selectionRestoreSucceeded: Bool,
         snapshotKind: RendererSnapshotKind?
     ) {
+        if !hasRecordedFirstSemanticHighlight {
+            hasRecordedFirstSemanticHighlight = true
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .renderer,
+                name: "firstSemanticHighlight",
+                reasonCode: "editor.firstSemanticHighlight",
+                noteBasename: rendererDiagnosticNoteBasename,
+                durationMs: (CFAbsoluteTimeGetCurrent() - start) * 1_000,
+                counts: ["spanCount": spans.count, "textLength": (sourceText as NSString).length],
+                revision: textRevision,
+                metadata: [
+                    "firstRenderMode": fullApplication ? "full" : "partial",
+                    "rawFlashPrevented": "true"
+                ]
+            )
+        }
         guard RendererDiagnostics.isEnabled else { return }
         renderGeneration &+= 1
         let checksum = RendererDiagnostics.spanChecksum(spans: spans, semanticDocument: semanticDocument)
@@ -2684,7 +2729,6 @@ public final class EditorSession {
             ],
             renderGeneration: renderGeneration
         )
-
         if snapshotKind == .loadReopen {
             recordRendererEvent(
                 name: "reopen.renderSnapshot",
@@ -2978,10 +3022,22 @@ public final class EditorSession {
                 try await Task.detached(priority: .userInitiated) {
                     try Self.createParentDirectoryIfNeeded(for: noteURL)
                     try data.write(to: noteURL, options: .atomic)
+                    let persisted = try Data(contentsOf: noteURL)
+                    guard persisted == data else {
+                        throw CocoaError(.fileWriteUnknown)
+                    }
                 }.value
                 QuartzDiagnostics.warning(
                     category: "EditorSave",
                     "emergency primary write succeeded url=\(note.fileURL.lastPathComponent) after coordination timeout failures=\(consecutiveSaveFailures)"
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "emergencyDirectWriteVerified",
+                    reasonCode: "save.emergencyDirectWriteVerified",
+                    noteBasename: note.fileURL.lastPathComponent,
+                    counts: ["bytes": data.count]
                 )
                 return .primaryFileSaved
             } catch {

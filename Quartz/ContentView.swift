@@ -694,7 +694,8 @@ struct ContentView: View {
             vault,
             viewModel: viewModel,
             noteListStore: noteListStore,
-            workspaceStore: workspaceStore
+            workspaceStore: workspaceStore,
+            userInitiated: true
         ) { restoreSelectedNoteIfNeeded() }
 
         #if os(macOS)

@@ -47,6 +47,50 @@ struct VectorEmbeddingBinaryTests {
         #expect(countAfter == countBefore)
     }
 
+    @Test("unchanged index does not rewrite embeddings checkpoint")
+    func unchangedIndexDoesNotRewriteCheckpoint() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: UUID(), content: "Stable note content for checkpoint gating")
+        try await service.saveIndex()
+
+        let indexFile = VectorEmbeddingService.indexFileURL(for: vault)
+        let firstModified = try #require(
+            FileManager.default.attributesOfItem(atPath: indexFile.path(percentEncoded: false))[.modificationDate] as? Date
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        try await service.saveIndex(force: true)
+        let secondModified = try #require(
+            FileManager.default.attributesOfItem(atPath: indexFile.path(percentEncoded: false))[.modificationDate] as? Date
+        )
+
+        #expect(secondModified == firstModified)
+    }
+
+    @Test("save pressure pauses dirty checkpoint and resumes after recovery")
+    func savePressurePausesDirtyCheckpointAndResumes() async throws {
+        let vault = try makeTempVault()
+        defer {
+            VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vault)
+            try? FileManager.default.removeItem(at: vault)
+        }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: UUID(), content: "Dirty content that should wait for save recovery")
+        VectorEmbeddingService.pauseCheckpointingForSavePressure(seconds: 60, vaultURL: vault)
+
+        try await service.saveIndex(force: true)
+        let indexFile = VectorEmbeddingService.indexFileURL(for: vault)
+        #expect(!FileManager.default.fileExists(atPath: indexFile.path(percentEncoded: false)))
+
+        VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vault)
+        try await service.saveIndex(force: true)
+        #expect(FileManager.default.fileExists(atPath: indexFile.path(percentEncoded: false)))
+    }
+
     @Test("loadIndex with no file returns empty index")
     func loadNonexistent() async throws {
         let vault = try makeTempVault()

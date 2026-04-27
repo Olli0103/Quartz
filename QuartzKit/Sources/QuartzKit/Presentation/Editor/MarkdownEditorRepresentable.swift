@@ -293,6 +293,15 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
     }
 
     public func makeUIView(context: Context) -> UITextView {
+        let mountStarted = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "editorFirstMount",
+            reasonCode: "editor.firstMount",
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: ["platform": "UIKit"]
+        )
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, container) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
@@ -301,7 +310,8 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         textView.editorSession = session
 
         let baseFont = EditorFontFactory.makeFont(family: editorFontFamily, size: baseFontSize)
-        textView.font = UIFontMetrics.default.scaledFont(for: baseFont)
+        let scaledBaseFont = UIFontMetrics.default.scaledFont(for: baseFont)
+        textView.font = scaledBaseFont
         textView.adjustsFontForContentSizeCategory = true
         textView.backgroundColor = .clear
         textView.textContainerInset = UIEdgeInsets(top: 20, left: 18, bottom: 24, right: 18)
@@ -317,8 +327,33 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
             textView.allowsEditingTextAttributes = true
         }
 
-        // One-time initial text load
-        textView.text = session.currentText
+        // One-time initial text load with full base attributes already installed.
+        let baseParagraphStyle = EditorTypography.paragraphStyle(
+            for: nil,
+            baseFontSize: baseFontSize,
+            lineSpacingMultiplier: editorLineSpacing
+        )
+        var baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: scaledBaseFont,
+            .foregroundColor: UIColor.label
+        ]
+        if let baseParagraphStyle {
+            baseAttributes[.paragraphStyle] = baseParagraphStyle
+        }
+        textView.attributedText = NSAttributedString(string: session.currentText, attributes: baseAttributes)
+        textView.typingAttributes = baseAttributes
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "baseAttributesApplied",
+            reasonCode: "editor.baseAttributesApplied",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: [
+                "fontSize": String(format: "%.2f", scaledBaseFont.pointSize),
+                "rawFlashPrevented": "true"
+            ]
+        )
 
         // Add tap gesture for wiki-link navigation
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
@@ -341,6 +376,23 @@ public struct MarkdownEditorRepresentable: UIViewRepresentable {
         if !session.currentText.isEmpty {
             session.highlightImmediately()
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "firstVisibleText",
+            reasonCode: "editor.firstVisibleText",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: ["firstRenderMode": "baseAttributes"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "firstEditableState",
+            reasonCode: "editor.firstEditableState",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            metadata: ["firstRenderMode": "baseAttributes"]
+        )
 
         context.coordinator.textView = textView
         context.coordinator.lastFontScale = editorFontScale
@@ -901,6 +953,15 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
+        let mountStarted = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "editorFirstMount",
+            reasonCode: "editor.firstMount",
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: ["platform": "AppKit"]
+        )
         let contentManager = MarkdownTextKit2Stack.makeContentManager()
         let (_, container) = MarkdownTextKit2Stack.wireTextKit2(contentManager: contentManager)
 
@@ -925,8 +986,33 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
             textView.writingToolsBehavior = .complete
         }
 
-        // One-time initial text load
-        textView.string = session.currentText
+        // One-time initial text load with full base attributes already installed.
+        let baseParagraphStyle = EditorTypography.paragraphStyle(
+            for: nil,
+            baseFontSize: baseFontSize,
+            lineSpacingMultiplier: editorLineSpacing
+        )
+        var baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: textView.font ?? EditorFontFactory.makeFont(family: editorFontFamily, size: baseFontSize),
+            .foregroundColor: NSColor.labelColor
+        ]
+        if let baseParagraphStyle {
+            baseAttributes[.paragraphStyle] = baseParagraphStyle
+        }
+        textView.textStorage?.setAttributedString(NSAttributedString(string: session.currentText, attributes: baseAttributes))
+        textView.typingAttributes = baseAttributes
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "baseAttributesApplied",
+            reasonCode: "editor.baseAttributesApplied",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: [
+                "fontSize": String(format: "%.2f", (baseAttributes[.font] as? NSFont)?.pointSize ?? baseFontSize),
+                "rawFlashPrevented": "true"
+            ]
+        )
 
         // Wire session to text view (weak ref + restoration handshake)
         session.bindActiveTextView(textView)
@@ -944,6 +1030,23 @@ public struct MarkdownEditorRepresentable: NSViewRepresentable {
         if !session.currentText.isEmpty {
             session.highlightImmediately()
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "firstVisibleText",
+            reasonCode: "editor.firstVisibleText",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            counts: ["textLength": (session.currentText as NSString).length],
+            metadata: ["firstRenderMode": "baseAttributes"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .renderer,
+            name: "firstEditableState",
+            reasonCode: "editor.firstEditableState",
+            durationMs: Date().timeIntervalSince(mountStarted) * 1_000,
+            metadata: ["firstRenderMode": "baseAttributes"]
+        )
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false

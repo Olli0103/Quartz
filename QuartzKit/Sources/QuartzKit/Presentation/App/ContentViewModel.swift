@@ -723,6 +723,10 @@ public final class ContentViewModel {
             let pauseUntil = Date().addingTimeInterval(90)
             savePressurePauseUntil = pauseUntil
             savePressureSourceURL = url.map { CanonicalNoteIdentity.canonicalFileURL(for: $0) }
+            VectorEmbeddingService.pauseCheckpointingForSavePressure(
+                seconds: 90,
+                vaultURL: appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL
+            )
             indexingTask?.cancel()
             embeddingReindexTask?.cancel()
             indexingProgress = nil
@@ -751,6 +755,9 @@ public final class ContentViewModel {
             let wasPaused = savePressurePauseUntil != nil
             savePressurePauseUntil = nil
             savePressureSourceURL = nil
+            VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(
+                vaultURL: appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL
+            )
             savePressureResumeTask?.cancel()
             savePressureResumeTask = nil
             if wasPaused {
@@ -778,6 +785,9 @@ public final class ContentViewModel {
                     return
                 }
                 self.savePressureResumeTask = nil
+                VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(
+                    vaultURL: self.appState.currentVault?.rootURL ?? self.sidebarViewModel?.vaultRootURL
+                )
                 self.resumeEmbeddingIndexingAfterSavePressure(reason: "save pressure pause expired")
             }
         }
@@ -1459,7 +1469,7 @@ public final class ContentViewModel {
                 await embedding.removeNote(stableID)
             }
             do {
-                try await embedding.saveIndex()
+                try await embedding.saveIndex(force: true)
             } catch {
                 Self.logIndexingFailure("embedding deletion save", error: error)
             }

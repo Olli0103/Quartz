@@ -150,6 +150,29 @@ struct DiagnosticsExportTests {
         #expect(failedSummary["aiIndex.backoffUntil"] != nil)
     }
 
+    @Test("Diagnostic export reports active AI scan over persisted idle health")
+    func diagnosticExportReportsActiveAIScanOverPersistedIdleHealth() async throws {
+        await SubsystemDiagnostics.resetForTesting()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanPending",
+            reasonCode: "ai.scanPending",
+            counts: ["pendingNotes": 636],
+            metadata: ["status.aiIndexing": "running"]
+        )
+        try await Task.sleep(for: .milliseconds(50))
+
+        let report = await DiagnosticExportService.shared.generateReport(
+            context: "AI status test",
+            error: nil,
+            additionalInfo: ["aiIndex.status": "idle"]
+        )
+
+        #expect(report.additionalInfo["aiIndex.status"] == "running")
+        #expect(report.additionalInfo["aiIndex.statusSource"] == "subsystemDiagnostics")
+    }
+
     @Test("Diagnostic export includes renderer diagnostics section")
     func diagnosticExportIncludesRendererDiagnosticsSection() async throws {
         let rendererEvent = RendererDiagnosticEvent(

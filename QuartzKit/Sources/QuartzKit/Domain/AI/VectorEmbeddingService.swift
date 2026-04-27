@@ -4,6 +4,69 @@ import Accelerate
 import CryptoKit
 import os
 
+private final class EmbeddingCheckpointBackpressure: @unchecked Sendable {
+    private let lock = NSLock()
+    private var globalPauseUntil: Date?
+    private var pausesByVaultRoot: [String: Date] = [:]
+
+    func isPaused(for indexURL: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        if let globalPauseUntil, globalPauseUntil > now {
+            return true
+        }
+        globalPauseUntil = nil
+
+        let vaultRoot = Self.vaultRootPath(forIndexURL: indexURL)
+        if let pauseUntil = pausesByVaultRoot[vaultRoot], pauseUntil > now {
+            return true
+        }
+        pausesByVaultRoot[vaultRoot] = nil
+        return false
+    }
+
+    func pause(for seconds: TimeInterval, vaultURL: URL?) {
+        lock.lock()
+        let candidate = Date().addingTimeInterval(seconds)
+        if let vaultURL {
+            let vaultRoot = Self.vaultRootPath(forVaultURL: vaultURL)
+            if let pauseUntil = pausesByVaultRoot[vaultRoot] {
+                pausesByVaultRoot[vaultRoot] = max(pauseUntil, candidate)
+            } else {
+                pausesByVaultRoot[vaultRoot] = candidate
+            }
+        } else if let pauseUntil = globalPauseUntil {
+            globalPauseUntil = max(pauseUntil, candidate)
+        } else {
+            globalPauseUntil = candidate
+        }
+        lock.unlock()
+    }
+
+    func resume(vaultURL: URL?) {
+        lock.lock()
+        if let vaultURL {
+            pausesByVaultRoot[Self.vaultRootPath(forVaultURL: vaultURL)] = nil
+        } else {
+            globalPauseUntil = nil
+            pausesByVaultRoot.removeAll()
+        }
+        lock.unlock()
+    }
+
+    private static func vaultRootPath(forVaultURL vaultURL: URL) -> String {
+        CanonicalNoteIdentity.canonicalFileURL(for: vaultURL).path(percentEncoded: false)
+    }
+
+    private static func vaultRootPath(forIndexURL indexURL: URL) -> String {
+        indexURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .path(percentEncoded: false)
+    }
+}
+
 // MARK: - Embedding Entry
 
 /// An entry in the vector index.
@@ -42,6 +105,11 @@ public actor VectorEmbeddingService {
     private let chunkSize: Int
     private let language: NLLanguage
     private let logger = Logger(subsystem: "com.quartz", category: "Embeddings")
+    private var hasDirtyIndexChanges = false
+    private var lastPersistedDataDigest: SHA256.Digest?
+    private var lastCheckpointAttempt: Date?
+    private static let checkpointDebounceInterval: TimeInterval = 2
+    private nonisolated static let checkpointBackpressure = EmbeddingCheckpointBackpressure()
 
     /// Maximum recommended entries before performance degrades.
     /// At ~2KB per entry, 50k entries ≈ 100MB RAM.
@@ -49,6 +117,14 @@ public actor VectorEmbeddingService {
 
     /// Dimension of the embedding vectors.
     public var embeddingDimension: Int { 512 }
+
+    public nonisolated static func pauseCheckpointingForSavePressure(seconds: TimeInterval = 90, vaultURL: URL? = nil) {
+        checkpointBackpressure.pause(for: seconds, vaultURL: vaultURL)
+    }
+
+    public nonisolated static func resumeCheckpointingAfterSaveRecovery(vaultURL: URL? = nil) {
+        checkpointBackpressure.resume(vaultURL: vaultURL)
+    }
 
     /// Estimated memory usage in bytes.
     public var estimatedMemoryUsage: Int {
@@ -172,8 +248,12 @@ public actor VectorEmbeddingService {
         let data = try CoordinatedFileWriter.shared.read(from: indexURL)
         do {
             index = try Self.decodeBinary(data)
+            hasDirtyIndexChanges = false
+            lastPersistedDataDigest = SHA256.hash(data: data)
         } catch {
             index = []
+            hasDirtyIndexChanges = false
+            lastPersistedDataDigest = nil
             logger.error("loadIndex: rejected \(self.indexURL.lastPathComponent, privacy: .public) bytes=\(data.count) reason=\(error.localizedDescription, privacy: .public)")
             QuartzDiagnostics.error(
                 category: "Embeddings",
@@ -221,14 +301,57 @@ public actor VectorEmbeddingService {
     }
 
     /// Saves the embedding index to disk (binary format).
-    public func saveIndex() throws {
+    public func saveIndex(force: Bool = false) throws {
         let started = Date()
-        let dir = indexURL.deletingLastPathComponent()
-        try CoordinatedFileWriter.shared.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard hasDirtyIndexChanges else {
+            recordCheckpointSkipped(
+                reason: "noChanges",
+                started: started,
+                counts: ["chunks": index.count]
+            )
+            return
+        }
+
+        if Self.checkpointBackpressure.isPaused(for: indexURL) {
+            recordCheckpointSkipped(
+                reason: "savePressure",
+                started: started,
+                counts: ["chunks": index.count]
+            )
+            return
+        }
+
+        if !force,
+           let lastCheckpointAttempt,
+           Date().timeIntervalSince(lastCheckpointAttempt) < Self.checkpointDebounceInterval {
+            recordCheckpointSkipped(
+                reason: "debounceActive",
+                started: started,
+                counts: ["chunks": index.count],
+                metadata: ["debounceSeconds": String(Self.checkpointDebounceInterval)]
+            )
+            return
+        }
+        lastCheckpointAttempt = Date()
 
         let data = Self.encodeBinary(index)
+        let digest = SHA256.hash(data: data)
+        if let lastPersistedDataDigest, lastPersistedDataDigest == digest {
+            hasDirtyIndexChanges = false
+            recordCheckpointSkipped(
+                reason: "unchangedBytes",
+                started: started,
+                counts: ["chunks": index.count, "bytes": data.count]
+            )
+            return
+        }
+
+        let dir = indexURL.deletingLastPathComponent()
+        try CoordinatedFileWriter.shared.createDirectory(at: dir, withIntermediateDirectories: true)
         do {
             try CoordinatedFileWriter.shared.write(data, to: indexURL)
+            hasDirtyIndexChanges = false
+            lastPersistedDataDigest = digest
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .embeddings,
@@ -250,6 +373,27 @@ public actor VectorEmbeddingService {
             )
             throw error
         }
+    }
+
+    private func recordCheckpointSkipped(
+        reason: String,
+        started: Date,
+        counts: [String: Int],
+        metadata: [String: String] = [:]
+    ) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .embeddings,
+            name: "checkpointSkipped",
+            reasonCode: "embedding.checkpointSkipped.\(reason)",
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: counts,
+            metadata: metadata.merging([
+                "checkpointPath": indexURL.path(percentEncoded: false),
+                "reason": reason,
+                "dirty": String(hasDirtyIndexChanges)
+            ]) { current, _ in current }
+        )
     }
 
     // MARK: - Binary Serialization
@@ -382,16 +526,33 @@ public actor VectorEmbeddingService {
         return entries
     }
 
+    private static func entriesMateriallyEqual(_ lhs: [EmbeddingEntry], _ rhs: [EmbeddingEntry]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        let sortedLHS = lhs.sorted { $0.chunkIndex < $1.chunkIndex }
+        let sortedRHS = rhs.sorted { $0.chunkIndex < $1.chunkIndex }
+        for (left, right) in zip(sortedLHS, sortedRHS) {
+            guard left.noteID == right.noteID,
+                  left.chunkIndex == right.chunkIndex,
+                  left.chunkText == right.chunkText,
+                  left.embedding == right.embedding else {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Maximum content size for indexing (500 KB). Larger documents are truncated.
     private static let maxIndexableContentSize = 500_000
 
     /// Indexes a note: chunk text → generate embeddings → store in index.
     public func indexNote(noteID: UUID, content: String) throws {
-        // Remove old entries
-        let removedCount = index.filter { $0.noteID == noteID }.count
-        index.removeAll { $0.noteID == noteID }
+        let existingEntries = index.filter { $0.noteID == noteID }
 
         guard !content.isEmpty else {
+            if !existingEntries.isEmpty {
+                index.removeAll { $0.noteID == noteID }
+                hasDirtyIndexChanges = true
+            }
             logger.debug("indexNote: empty content for \(noteID), skipped")
             return
         }
@@ -405,7 +566,8 @@ public actor VectorEmbeddingService {
         let chunks = chunkText(truncated)
 
         // Generate embeddings
-        var addedCount = 0
+        var replacementEntries: [EmbeddingEntry] = []
+        replacementEntries.reserveCapacity(chunks.count)
         for (i, chunk) in chunks.enumerated() {
             if let embedding = generateEmbedding(for: chunk) {
                 let entry = EmbeddingEntry(
@@ -414,17 +576,28 @@ public actor VectorEmbeddingService {
                     chunkText: chunk,
                     embedding: embedding
                 )
-                index.append(entry)
-                addedCount += 1
+                replacementEntries.append(entry)
             }
         }
 
-        logger.debug("indexNote: \(noteID) — \(chunks.count) chunks, \(addedCount) embedded (removed \(removedCount) old). Total index: \(self.index.count)")
+        guard !Self.entriesMateriallyEqual(existingEntries, replacementEntries) else {
+            logger.debug("indexNote: \(noteID) unchanged; skipped checkpoint dirtiness. Total index: \(self.index.count)")
+            return
+        }
+
+        index.removeAll { $0.noteID == noteID }
+        index.append(contentsOf: replacementEntries)
+        hasDirtyIndexChanges = true
+        logger.debug("indexNote: \(noteID) — \(chunks.count) chunks, \(replacementEntries.count) embedded (removed \(existingEntries.count) old). Total index: \(self.index.count)")
     }
 
     /// Removes all embeddings for a note.
     public func removeNote(_ noteID: UUID) {
+        let before = index.count
         index.removeAll { $0.noteID == noteID }
+        if index.count != before {
+            hasDirtyIndexChanges = true
+        }
     }
 
     // MARK: - Semantic Search
@@ -507,6 +680,9 @@ public actor VectorEmbeddingService {
         let originalChunks = index.count
         let originalNoteIDs = indexedNoteIDs
         index.removeAll { !knownNoteIDs.contains($0.noteID) }
+        if index.count != originalChunks {
+            hasDirtyIndexChanges = true
+        }
         let remainingNoteIDs = indexedNoteIDs
         return PruneResult(
             removedChunks: originalChunks - index.count,
@@ -589,6 +765,9 @@ public actor VectorEmbeddingService {
         }
         let afterMemory = estimatedMemoryUsage
         let savedMB = (beforeMemory - afterMemory) / (1024 * 1024)
+        if beforeMemory != afterMemory {
+            hasDirtyIndexChanges = true
+        }
         logger.info("compactIndex: cleared chunk text, saved ~\(savedMB)MB")
     }
 
@@ -603,6 +782,7 @@ public actor VectorEmbeddingService {
         let sorted = index.sorted { $0.lastUpdated > $1.lastUpdated }
         index = Array(sorted.prefix(keepCount))
         let removedCount = beforeCount - index.count
+        hasDirtyIndexChanges = true
         logger.info("pruneOldestEntries: removed \(removedCount) old entries, kept \(self.index.count)")
     }
 

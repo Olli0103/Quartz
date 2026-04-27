@@ -773,6 +773,11 @@ public struct DashboardView: View {
             reasonCode: "dashboard.loadStarted"
         )
         guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else {
+            let missingReasons = [
+                vaultProvider == nil ? "vaultProviderMissing" : nil,
+                sidebarViewModel == nil ? "sidebarViewModelMissing" : nil,
+                sidebarViewModel?.vaultRootURL == nil ? "vaultRootMissing" : nil
+            ].compactMap { $0 }.joined(separator: ",")
             SubsystemDiagnostics.record(
                 level: .warning,
                 subsystem: .dashboard,
@@ -781,7 +786,16 @@ public struct DashboardView: View {
                 metadata: [
                     "providerAvailable": String(vaultProvider != nil),
                     "sidebarViewModelAvailable": String(sidebarViewModel != nil),
+                    "partialReason": missingReasons.isEmpty ? "unknown" : missingReasons,
                     "status.dashboard": "partial"
+                ]
+            )
+            SubsystemDiagnostics.updateState(
+                subsystem: .dashboard,
+                values: [
+                    "lastDashboardRefreshStatus": "partial",
+                    "dashboardHydrationState": "partial",
+                    "dashboardPartialReason": missingReasons.isEmpty ? "unknown" : missingReasons
                 ]
             )
             return
@@ -842,12 +856,18 @@ public struct DashboardView: View {
             )
         } catch {
             briefing = nil
+            let isCancellation = error is CancellationError
             SubsystemDiagnostics.record(
                 level: .warning,
                 subsystem: .dashboard,
                 name: "dashboardMetricUnavailable",
                 reasonCode: "dashboard.metricUnavailable",
-                metadata: ["metric": "weeklyBriefing", "error": error.localizedDescription]
+                metadata: [
+                    "metric": "weeklyBriefing",
+                    "error": error.localizedDescription,
+                    "unavailableReason": isCancellation ? "cancelled" : "error",
+                    "status.dashboard": "partial"
+                ]
             )
         }
         briefingLoading = false

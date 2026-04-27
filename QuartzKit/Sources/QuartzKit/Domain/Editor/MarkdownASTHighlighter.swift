@@ -580,6 +580,12 @@ public actor MarkdownASTHighlighter {
             noteURL: noteURL
         )
         spans.append(contentsOf: semanticScan.spans)
+        appendTableSpans(
+            in: markdown,
+            fencedCodeRanges: semanticScan.fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         appendBlockquoteSpans(
             in: markdown,
             fencedCodeRanges: semanticScan.fencedCodeRanges,
@@ -612,6 +618,12 @@ public actor MarkdownASTHighlighter {
             noteURL: noteURL
         )
         spans.append(contentsOf: semanticScan.spans)
+        appendTableSpans(
+            in: markdown,
+            fencedCodeRanges: semanticScan.fencedCodeRanges,
+            baseFontSize: baseFontSize,
+            into: &spans
+        )
         appendBlockquoteSpans(
             in: markdown,
             fencedCodeRanges: semanticScan.fencedCodeRanges,
@@ -662,6 +674,95 @@ public actor MarkdownASTHighlighter {
         return remainder.dropFirst().first == " "
     }
 
+    private static func appendTableSpans(
+        in source: String,
+        fencedCodeRanges: [NSRange],
+        baseFontSize: CGFloat,
+        into spans: inout [HighlightSpan]
+    ) {
+        let nsSource = source as NSString
+        guard nsSource.length > 0 else { return }
+
+        let monoFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
+        let firstLineParagraph = NSMutableParagraphStyle()
+        firstLineParagraph.paragraphSpacingBefore = 8
+        firstLineParagraph.paragraphSpacing = 0
+        firstLineParagraph.lineSpacing = 2
+
+        let tableParagraph = NSMutableParagraphStyle()
+        tableParagraph.paragraphSpacingBefore = 0
+        tableParagraph.paragraphSpacing = 0
+        tableParagraph.lineSpacing = 2
+
+        #if canImport(UIKit)
+        let clearColor: PlatformColor = UIColor.clear
+        #elseif canImport(AppKit)
+        let clearColor: PlatformColor = NSColor.clear
+        #endif
+
+        var cursor = 0
+        var candidateRows: [(range: NSRange, text: String)] = []
+
+        func flushCandidateRows() {
+            guard candidateRows.count >= 2,
+                  Self.isTableDividerLine(candidateRows[1].text) else {
+                candidateRows.removeAll(keepingCapacity: true)
+                return
+            }
+
+            var bodyRowIndex = 0
+            for (index, row) in candidateRows.enumerated() {
+                let rowRange = row.range
+                guard rowRange.length > 0 else { continue }
+                let paragraph = index == 0 ? firstLineParagraph : tableParagraph
+                let style: QuartzTableRowStyle
+                let color: PlatformColor?
+                if index == 0 {
+                    style = .header
+                    color = nil
+                } else if index == 1 {
+                    style = .divider
+                    color = clearColor
+                } else {
+                    style = bodyRowIndex.isMultiple(of: 2) ? .bodyEven : .bodyOdd
+                    color = nil
+                    bodyRowIndex += 1
+                }
+                spans.append(HighlightSpan(
+                    range: rowRange,
+                    font: monoFont,
+                    color: color,
+                    traits: FontTraits(bold: false, italic: false),
+                    backgroundColor: nil,
+                    strikethrough: false,
+                    paragraphStyle: paragraph,
+                    tableRowStyle: style
+                ))
+            }
+            candidateRows.removeAll(keepingCapacity: true)
+        }
+
+        while cursor < nsSource.length {
+            let fullLineRange = nsSource.lineRange(for: NSRange(location: cursor, length: 0))
+            let contentRange = lineRangeWithoutNewlines(fullLineRange, in: nsSource)
+            let line = nsSource.substring(with: contentRange)
+            let isInFence = fencedCodeRanges.contains {
+                NSIntersectionRange($0, contentRange).length > 0
+            }
+
+            if !isInFence, MarkdownTableNavigation.isTableRow(line) {
+                candidateRows.append((range: fullLineRange, text: line))
+            } else {
+                flushCandidateRows()
+            }
+
+            let next = fullLineRange.location + fullLineRange.length
+            guard next > cursor else { break }
+            cursor = next
+        }
+        flushCandidateRows()
+    }
+
     /// Chunked parsing for large documents (100KB+).
     /// The previous top-level child walk reused subtree-local `SourceRange` values
     /// against the full-document resolver, which corrupted heading ranges on long
@@ -709,168 +810,8 @@ public actor MarkdownASTHighlighter {
             }
             if markup is Strikethrough { return }
             if markup is Markdown.Table {
-                let tableRange = expandedTableRange(in: source, around: nsRange)
-                // Rich table rendering: monospaced font, zebra stripes, dynamic kerning
-                // for perfect column alignment without mutating the markdown source.
-                let monoFont = EditorFontFactory.makeCodeFont(size: baseFontSize * 0.9)
-                // NO bold font — all rows use identical monoFont for perfect column alignment.
-                // Header is distinguished by background color only (via drawBackground).
-
-                // Monospaced character width — all chars are the same width
-                let monoCharWidth = monospacedCharacterWidth(for: monoFont)
-
-                let mutedColor: PlatformColor
-                let clearColor: PlatformColor
-                #if canImport(UIKit)
-                mutedColor = UIColor.tertiaryLabel
-                clearColor = UIColor.clear
-                #elseif canImport(AppKit)
-                mutedColor = NSColor.tertiaryLabelColor
-                clearColor = NSColor.clear
-                #endif
-
-                // Paragraph styles
-                let firstLineParagraph = NSMutableParagraphStyle()
-                firstLineParagraph.paragraphSpacingBefore = 8
-                firstLineParagraph.paragraphSpacing = 0
-                firstLineParagraph.lineSpacing = 2
-                firstLineParagraph.headIndent = 0
-                firstLineParagraph.firstLineHeadIndent = 0
-
-                let tableParagraph = NSMutableParagraphStyle()
-                tableParagraph.paragraphSpacingBefore = 0
-                tableParagraph.paragraphSpacing = 0
-                tableParagraph.lineSpacing = 2
-                tableParagraph.headIndent = 0
-                tableParagraph.firstLineHeadIndent = 0
-
-                // --- Phase 1: Parse all lines into cells, compute max column widths ---
-                let tableText = (source as NSString).substring(with: tableRange)
-                let tableLines = tableText.components(separatedBy: .newlines)
-
-                var parsedRows: [[String]] = []
-                for line in tableLines {
-                    if line.isEmpty {
-                        parsedRows.append([])
-                    } else {
-                        // Parse ALL rows including the divider — we need cell widths for kerning
-                        parsedRows.append(Self.splitTableRow(line))
-                    }
-                }
-
-                // Max character width per column (skip divider line for width calc)
-                var maxColWidths: [Int] = []
-                for (lineIdx, cells) in parsedRows.enumerated() {
-                    let isDivider = lineIdx == 1 && tableLines.count > 1 && Self.isTableDividerLine(tableLines[lineIdx])
-                    if isDivider { continue } // divider dashes don't count toward column width
-                    for (colIdx, cell) in cells.enumerated() {
-                        if colIdx >= maxColWidths.count {
-                            maxColWidths.append(cell.count)
-                        } else if cell.count > maxColWidths[colIdx] {
-                            maxColWidths[colIdx] = cell.count
-                        }
-                    }
-                }
-
-                // --- Phase 2: Emit spans with dynamic kerning ---
-                var lineOffset = tableRange.location
-                var bodyRowIndex = 0
-
-                for (lineIdx, line) in tableLines.enumerated() {
-                    let lineLength = (line as NSString).length
-                    guard lineLength > 0 else {
-                        lineOffset += lineLength + 1
-                        continue
-                    }
-
-                    let hasTrailingNewline = (lineOffset + lineLength) < (tableRange.location + tableRange.length)
-                    let spanLength = hasTrailingNewline ? lineLength + 1 : lineLength
-                    let lineRange = NSRange(location: lineOffset, length: spanLength)
-
-                    let isDividerLine = lineIdx == 1 && Self.isTableDividerLine(line)
-                    let isHeaderLine = lineIdx == 0
-                    let paraStyle = lineIdx == 0 ? firstLineParagraph : tableParagraph
-
-                    // --- Primary span (font, paragraph, table row style) ---
-                    if isDividerLine {
-                        // Divider: ALL text invisible (dashes AND pipes).
-                        // drawBackground paints a clean 1px separator line.
-                        spans.append(HighlightSpan(
-                            range: lineRange, font: monoFont, color: clearColor,
-                            traits: FontTraits(bold: false, italic: false),
-                            backgroundColor: nil, strikethrough: false,
-                            paragraphStyle: paraStyle, tableRowStyle: .divider
-                        ))
-                    } else if isHeaderLine {
-                        // Header: same monoFont (NOT bold) — distinguished by bg color only
-                        spans.append(HighlightSpan(
-                            range: lineRange, font: monoFont, color: nil,
-                            traits: FontTraits(bold: false, italic: false),
-                            backgroundColor: nil, strikethrough: false,
-                            paragraphStyle: paraStyle, tableRowStyle: .header
-                        ))
-                    } else {
-                        let rowStyle: QuartzTableRowStyle = (bodyRowIndex % 2 == 0) ? .bodyEven : .bodyOdd
-                        spans.append(HighlightSpan(
-                            range: lineRange, font: monoFont, color: nil,
-                            traits: FontTraits(bold: false, italic: false),
-                            backgroundColor: nil, strikethrough: false,
-                            paragraphStyle: paraStyle, tableRowStyle: rowStyle
-                        ))
-                        bodyRowIndex += 1
-                    }
-
-                    // --- Overlay: dim pipe characters (skip divider — fully invisible) ---
-                    if !isDividerLine {
-                        let rowRevealRange = lineRange
-                        for (charIdx, ch) in line.enumerated() {
-                            if ch == "|" {
-                                spans.append(HighlightSpan(
-                                    range: NSRange(location: lineOffset + charIdx, length: 1),
-                                    font: monoFont,
-                                    color: mutedColor,
-                                    traits: FontTraits(bold: false, italic: false),
-                                    backgroundColor: nil, strikethrough: false,
-                                    isOverlay: true,
-                                    overlayVisibilityBehavior: .concealWhenInactive(revealRange: rowRevealRange)
-                                ))
-                            }
-                        }
-                    }
-
-                    // --- Dynamic kerning: stretch cells to align columns ---
-                    // Applies to ALL rows including the divider so pipes align vertically.
-                    let cells = parsedRows[lineIdx]
-                    var scanIdx = 0
-                    if line.hasPrefix("|") { scanIdx = 1 }
-
-                    for (colIdx, cell) in cells.enumerated() {
-                        guard colIdx < maxColWidths.count else { break }
-                        let maxW = maxColWidths[colIdx]
-                        let missing = maxW - cell.count
-
-                        if missing > 0, cell.count > 0 {
-                            let lastCharInCell = scanIdx + cell.count - 1
-                            if lastCharInCell >= 0, lastCharInCell < lineLength {
-                                let kernAmount = CGFloat(missing) * monoCharWidth
-                                spans.append(HighlightSpan(
-                                    range: NSRange(location: lineOffset + lastCharInCell, length: 1),
-                                    font: monoFont,
-                                    color: nil,
-                                    traits: FontTraits(bold: false, italic: false),
-                                    backgroundColor: nil, strikethrough: false,
-                                    isOverlay: true,
-                                    kern: kernAmount
-                                ))
-                            }
-                        }
-
-                        scanIdx += cell.count + 1
-                    }
-
-                    lineOffset += lineLength + 1
-                }
-
+                // Table node ranges can drift onto unrelated lines. The
+                // line-authoritative table pass emits all table row spans.
                 return
             }
             if markup is BlockQuote {
@@ -1017,7 +958,9 @@ public actor MarkdownASTHighlighter {
         let safeLocation = min(max(range.location, 0), max(length - 1, 0))
         let seedLine = nsSource.lineRange(for: NSRange(location: safeLocation, length: 0))
         let seedText = nsSource.substring(with: seedLine)
-        guard MarkdownTableNavigation.isTableRow(seedText) else { return range }
+        guard MarkdownTableNavigation.isTableRow(seedText) else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
 
         var startLine = seedLine
         while startLine.location > 0 {
