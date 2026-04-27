@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import QuartzKit
 
-@Suite("Embedding Resume Persistence")
+@Suite("Embedding Resume Persistence", .serialized)
 struct EmbeddingResumePersistenceTests {
     private func makeTempVault() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -194,7 +194,10 @@ struct EmbeddingResumePersistenceTests {
     @Test("Save pressure pauses embedding sweep and recovery resumes it")
     func savePressurePausesAndRecoveryResumesEmbeddingSweep() async throws {
         let vault = try makeTempVault()
-        defer { try? FileManager.default.removeItem(at: vault) }
+        defer {
+            ServiceContainer.shared.reset()
+            try? FileManager.default.removeItem(at: vault)
+        }
         let notes = try makeNotes(count: 10, in: vault)
 
         let parser = FrontmatterParser()
@@ -226,6 +229,49 @@ struct EmbeddingResumePersistenceTests {
             return indexed == notes.count
         }
         #expect(resumed)
+    }
+
+    @MainActor
+    @Test("Editor save completes while embedding sweep is active")
+    func editorSaveCompletesWhileEmbeddingSweepIsActive() async throws {
+        let vault = try makeTempVault()
+        defer {
+            ServiceContainer.shared.reset()
+            try? FileManager.default.removeItem(at: vault)
+        }
+        let notes = try makeNotes(count: 80, in: vault)
+
+        let parser = FrontmatterParser()
+        let provider = FileSystemVaultProvider(frontmatterParser: parser)
+        ServiceContainer.shared.reset()
+        ServiceContainer.shared.bootstrap(vaultProvider: provider, frontmatterParser: parser)
+
+        let viewModel = ContentViewModel(appState: AppState())
+        viewModel.loadVault(VaultConfig(name: "Save During Indexing", rootURL: vault))
+
+        guard let session = viewModel.editorSession else {
+            Issue.record("Expected editor session after vault load")
+            return
+        }
+
+        let noteURL = notes[0]
+        await session.loadNote(at: noteURL)
+        let editedText = """
+        # Save During Indexing
+
+        This edit must persist while the embedding sweep is still warming the vault.
+        """
+        session.textDidChange(editedText)
+
+        let start = Date()
+        await session.manualSave()
+        let elapsed = Date().timeIntervalSince(start)
+
+        let diskText = try String(contentsOf: noteURL, encoding: .utf8)
+        #expect(diskText.contains("This edit must persist while the embedding sweep is still warming the vault."))
+        #expect(session.isDirty == false)
+        #expect(session.errorMessage == nil)
+        #expect(elapsed < 2.0, "Editor save should remain bounded while background embedding work is active")
     }
 
     @MainActor

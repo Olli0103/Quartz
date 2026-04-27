@@ -116,11 +116,22 @@ public actor VectorEmbeddingService {
 
     /// Loads the embedding index from disk (binary format).
     public func loadIndex() throws {
+        let started = Date()
         let path = indexURL.path(percentEncoded: false)
         let exists = FileManager.default.fileExists(atPath: path)
         QuartzDiagnostics.info(
             category: "Embeddings",
             "loadIndex pathCheck exists=\(exists) path=\(path)"
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .embeddings,
+            name: "indexLoadStarted",
+            reasonCode: "embedding.loadStarted",
+            metadata: [
+                "indexPath": path,
+                "pathExists": String(exists)
+            ]
         )
 
         guard exists else {
@@ -133,11 +144,27 @@ public actor VectorEmbeddingService {
                     category: "Embeddings",
                     "loadIndex deferred path=\(path) reason=iCloudIndexUnavailable action=skipSweepAndRetryLater"
                 )
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .embeddings,
+                    name: "indexUnavailableDeferred",
+                    reasonCode: "embedding.indexMissingDeferred",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    metadata: ["indexPath": path, "rebuildAction": "skipSweepAndRetryLater"]
+                )
                 throw EmbeddingIndexError.indexUnavailable(message)
             }
             QuartzDiagnostics.info(
                 category: "Embeddings",
                 "loadIndex missing path=\(path) reason=noPersistedIndexFound action=rebuildMayCreateFileLater"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .embeddings,
+                name: "indexMissing",
+                reasonCode: "embedding.indexMissing",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: ["indexPath": path, "rebuildAction": "rebuildMayCreateFileLater"]
             )
             return
         }
@@ -152,6 +179,15 @@ public actor VectorEmbeddingService {
                 category: "Embeddings",
                 "loadIndex rejected bytes=\(data.count) reason=\(error.localizedDescription) path=\(indexURL.path(percentEncoded: false))"
             )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .embeddings,
+                name: "indexLoadRejected",
+                reasonCode: "embedding.indexRejectedMalformed",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: ["bytes": data.count],
+                metadata: ["indexPath": path, "error": error.localizedDescription]
+            )
             throw error
         }
         let uniqueNotes = Set(index.map(\.noteID)).count
@@ -160,15 +196,60 @@ public actor VectorEmbeddingService {
             category: "Embeddings",
             "loadIndex loaded chunks=\(index.count) notes=\(uniqueNotes) bytes=\(data.count) path=\(indexURL.path(percentEncoded: false))"
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .embeddings,
+            name: "indexLoadCompleted",
+            reasonCode: "embedding.loadCompleted",
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: [
+                "chunks": index.count,
+                "notes": uniqueNotes,
+                "bytes": data.count
+            ],
+            metadata: ["indexPath": path, "status.embeddingIndex": "loaded"]
+        )
+        SubsystemDiagnostics.updateState(
+            subsystem: .embeddings,
+            values: [
+                "embeddingIndexStatus": "loaded",
+                "loadedChunks": String(index.count),
+                "loadedNotes": String(uniqueNotes),
+                "indexPath": path
+            ]
+        )
     }
 
     /// Saves the embedding index to disk (binary format).
     public func saveIndex() throws {
+        let started = Date()
         let dir = indexURL.deletingLastPathComponent()
         try CoordinatedFileWriter.shared.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let data = Self.encodeBinary(index)
-        try CoordinatedFileWriter.shared.write(data, to: indexURL)
+        do {
+            try CoordinatedFileWriter.shared.write(data, to: indexURL)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .embeddings,
+                name: "checkpointSaved",
+                reasonCode: "embedding.checkpointSaved",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: ["chunks": index.count, "bytes": data.count],
+                metadata: ["checkpointPath": indexURL.path(percentEncoded: false)]
+            )
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .embeddings,
+                name: "checkpointFailed",
+                reasonCode: "embedding.checkpointFailed",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: ["chunks": index.count, "bytes": data.count],
+                metadata: ["checkpointPath": indexURL.path(percentEncoded: false), "error": error.localizedDescription]
+            )
+            throw error
+        }
     }
 
     // MARK: - Binary Serialization

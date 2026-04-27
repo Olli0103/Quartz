@@ -96,10 +96,29 @@ public actor KnowledgeExtractionService {
     // MARK: - On-Save Extraction
 
     public func scheduleExtraction(for noteURL: URL) {
-        guard isEnabled else { return }
+        guard isEnabled else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "extractionSkipped",
+                reasonCode: "ai.disabled",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["status.aiIndexing": "disabled"]
+            )
+            return
+        }
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
         pendingURLs.insert(canonicalURL)
         requestedRevisionByURL[canonicalURL, default: 0] &+= 1
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .aiIndexing,
+            name: "extractionScheduled",
+            reasonCode: "ai.extractionScheduled",
+            noteBasename: canonicalURL.lastPathComponent,
+            generation: serviceGeneration,
+            verbose: true
+        )
         debounceTask?.cancel()
         let generation = serviceGeneration
         debounceTask = Task { [weak self] in
@@ -112,10 +131,36 @@ public actor KnowledgeExtractionService {
     // MARK: - Vault Scan
 
     public func startVaultScan() {
-        guard isEnabled else { return }
-        guard !isScanRunning else { return }
+        guard isEnabled else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanSkipped",
+                reasonCode: "ai.disabled",
+                metadata: ["status.aiIndexing": "disabled"]
+            )
+            return
+        }
+        guard !isScanRunning else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanSkipped",
+                reasonCode: "ai.scanAlreadyRunning",
+                metadata: ["status.aiIndexing": "running"]
+            )
+            return
+        }
         scanTask?.cancel()
         let generation = serviceGeneration
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanScheduled",
+            reasonCode: "ai.scanScheduled",
+            generation: generation,
+            metadata: ["status.aiIndexing": "running"]
+        )
         scanTask = Task(priority: .utility) { [weak self] in
             await self?.runVaultScan(expectedGeneration: generation)
         }
@@ -134,6 +179,13 @@ public actor KnowledgeExtractionService {
         scanTask = nil
         isScanRunning = false
         scanProgress = nil
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanStopped",
+            reasonCode: "ai.scanStopped",
+            metadata: ["status.aiIndexing": "idle"]
+        )
     }
 
     /// Cancels queued save/scan work and invalidates suspended older extractions so they
@@ -149,6 +201,14 @@ public actor KnowledgeExtractionService {
         saveDebouncTask = nil
         isScanRunning = false
         scanProgress = nil
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "backgroundWorkInvalidated",
+            reasonCode: "ai.vaultSwitchCancellation",
+            generation: serviceGeneration,
+            metadata: ["status.aiIndexing": "idle"]
+        )
         hasRestoredPersistedConceptsForCurrentGeneration = false
     }
 
@@ -250,6 +310,14 @@ public actor KnowledgeExtractionService {
         guard serviceGeneration == expectedGeneration else { return }
         let scanStart = DispatchTime.now().uptimeNanoseconds
         isScanRunning = true
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanStarted",
+            reasonCode: "ai.scanStarted",
+            generation: expectedGeneration,
+            metadata: ["status.aiIndexing": "running"]
+        )
         defer {
             if serviceGeneration == expectedGeneration {
                 isScanRunning = false
@@ -266,7 +334,18 @@ public actor KnowledgeExtractionService {
         guard serviceGeneration == expectedGeneration else { return }
 
         let noteURLs = collectMarkdownFiles(in: vaultRootURL)
-        guard !noteURLs.isEmpty else { return }
+        guard !noteURLs.isEmpty else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanCompleted",
+                reasonCode: "ai.scanNoNotes",
+                counts: ["totalNotes": 0],
+                generation: expectedGeneration,
+                metadata: ["status.aiIndexing": "idle"]
+            )
+            return
+        }
 
         let unprocessed = noteURLs.filter { url in
             let relPath = relativePath(for: url)
@@ -277,10 +356,28 @@ public actor KnowledgeExtractionService {
 
         guard !unprocessed.isEmpty else {
             logger.info("Vault scan: all \(noteURLs.count) notes already indexed")
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanCompleted",
+                reasonCode: "ai.scanNoPendingNotes",
+                counts: ["totalNotes": noteURLs.count, "pendingNotes": 0],
+                generation: expectedGeneration,
+                metadata: ["status.aiIndexing": "idle"]
+            )
             return
         }
 
         logger.info("Vault scan: \(unprocessed.count)/\(noteURLs.count) need processing")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanPending",
+            reasonCode: "ai.scanPending",
+            counts: ["pendingNotes": unprocessed.count, "totalNotes": noteURLs.count],
+            generation: expectedGeneration,
+            metadata: ["status.aiIndexing": "running"]
+        )
 
         for (index, noteURL) in unprocessed.enumerated() {
             guard !Task.isCancelled, serviceGeneration == expectedGeneration else { break }
@@ -325,6 +422,16 @@ public actor KnowledgeExtractionService {
             category: "KnowledgeExtraction",
             "Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms"
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "conceptScanCompleted",
+            reasonCode: "ai.scanCompleted",
+            durationMs: Double(elapsedMilliseconds),
+            counts: ["processedNotes": unprocessed.count, "totalNotes": noteURLs.count],
+            generation: expectedGeneration,
+            metadata: ["status.aiIndexing": "idle"]
+        )
 
         await MainActor.run {
             NotificationCenter.default.post(name: .quartzConceptScanProgress, object: nil)
@@ -347,7 +454,19 @@ public actor KnowledgeExtractionService {
 
         let content: String
         // CRITICAL: Use coordinated read to prevent race with iCloud sync
-        do { content = try CoordinatedFileWriter.shared.readString(from: canonicalNoteURL) } catch { return }
+        do {
+            content = try CoordinatedFileWriter.shared.readString(from: canonicalNoteURL)
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "extractionFailed",
+                reasonCode: "ai.failedRead",
+                noteBasename: canonicalNoteURL.lastPathComponent,
+                metadata: ["error": error.localizedDescription]
+            )
+            return
+        }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > 50 else {
@@ -416,6 +535,14 @@ public actor KnowledgeExtractionService {
             QuartzDiagnostics.warning(
                 category: "KnowledgeExtraction",
                 "Extraction failed: \(error.localizedDescription)"
+            )
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "extractionFailed",
+                reasonCode: Self.aiFailureReasonCode(for: error),
+                noteBasename: canonicalNoteURL.lastPathComponent,
+                metadata: ["error": error.localizedDescription]
             )
         }
     }
@@ -569,7 +696,23 @@ public actor KnowledgeExtractionService {
                 category: "KnowledgeExtraction",
                 "Failed to persist AI concept index: \(error.localizedDescription)"
             )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .aiIndexing,
+                name: "conceptIndexSaveFailed",
+                reasonCode: "ai.conceptIndexFailed",
+                metadata: ["error": error.localizedDescription, "indexPath": url.path(percentEncoded: false)]
+            )
         }
+    }
+
+    private static func aiFailureReasonCode(for error: Error) -> String {
+        let message = error.localizedDescription.lowercased()
+        if message.contains("404") { return "ai.http404" }
+        if message.contains("timed out") || message.contains("timeout") { return "ai.timeout" }
+        if message.contains("network") || message.contains("offline") { return "ai.networkLost" }
+        if message.contains("backoff") { return "ai.backoff" }
+        return "ai.extractionFailed"
     }
 
     /// Debounced save for on-save extraction path.

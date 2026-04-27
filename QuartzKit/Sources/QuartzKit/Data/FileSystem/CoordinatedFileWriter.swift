@@ -77,6 +77,15 @@ public struct CoordinatedFileWriter: Sendable {
     ///     callbacks to our own presenter, which could cause a deadlock.
     public func read(from url: URL, filePresenter: NSFilePresenter? = nil) throws -> Data {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let started = Date()
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .fileCoordination,
+            name: "coordinatedReadStarted",
+            noteBasename: canonicalURL.lastPathComponent,
+            metadata: ["url": canonicalURL.path(percentEncoded: false)],
+            verbose: true
+        )
         var coordinatorError: NSError?
         var readError: NSError?
         var result: Data?
@@ -95,12 +104,38 @@ public struct CoordinatedFileWriter: Sendable {
         }
 
         if let error = coordinatorError ?? readError {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .fileCoordination,
+                name: "coordinatedReadFailed",
+                reasonCode: "fileCoordination.readFailed",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: ["error": error.localizedDescription]
+            )
             throw error
         }
 
         guard let data = result else {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .fileCoordination,
+                name: "coordinatedReadFailed",
+                reasonCode: "fileCoordination.emptyResult",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000
+            )
             throw CocoaError(.fileReadUnknown)
         }
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .fileCoordination,
+            name: "coordinatedReadFinished",
+            noteBasename: canonicalURL.lastPathComponent,
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: ["bytes": data.count],
+            verbose: true
+        )
         return data
     }
 
@@ -130,6 +165,16 @@ public struct CoordinatedFileWriter: Sendable {
                       filePresenter: NSFilePresenter? = nil) throws {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
         let state = CoordinatedWriteState()
+        let started = Date()
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .fileCoordination,
+            name: "coordinatedWriteStarted",
+            noteBasename: canonicalURL.lastPathComponent,
+            counts: ["bytes": data.count],
+            metadata: ["url": canonicalURL.path(percentEncoded: false)],
+            verbose: true
+        )
 
         let coordinator = SendableFileCoordinator(value: NSFileCoordinator(filePresenter: filePresenter))
 
@@ -165,16 +210,54 @@ public struct CoordinatedFileWriter: Sendable {
             // Cancel the coordination if it's taking too long
             state.markTimedOut()
             coordinator.value.cancel()
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .fileCoordination,
+                name: "coordinatedWriteTimeout",
+                reasonCode: "save.coordinationTimeout",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: [
+                    "timeoutSeconds": String(timeout),
+                    "recoveryAction": "coordinationCancelled"
+                ]
+            )
             throw CoordinatedFileWriterError.timeout(url: canonicalURL, timeout: timeout)
         }
 
         if let error = state.error {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .fileCoordination,
+                name: "coordinatedWriteFailed",
+                reasonCode: "fileCoordination.writeFailed",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: ["error": error.localizedDescription]
+            )
             throw error
         }
 
         if !state.didComplete {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .fileCoordination,
+                name: "coordinatedWriteFailed",
+                reasonCode: "fileCoordination.unknownFailure",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000
+            )
             throw CoordinatedFileWriterError.unknownFailure(url: canonicalURL)
         }
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .fileCoordination,
+            name: "coordinatedWriteFinished",
+            noteBasename: canonicalURL.lastPathComponent,
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: ["bytes": data.count],
+            verbose: true
+        )
     }
 
     /// Creates a directory in a coordinated manner.

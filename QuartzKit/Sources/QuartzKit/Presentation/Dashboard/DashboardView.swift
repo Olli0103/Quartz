@@ -764,16 +764,63 @@ public struct DashboardView: View {
     // MARK: - Data Loading
 
     private func loadDashboardData() async {
-        guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else { return }
+        let started = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .dashboard,
+            name: "dashboardLoadStarted",
+            reasonCode: "dashboard.loadStarted"
+        )
+        guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .dashboard,
+                name: "dashboardLoadFailed",
+                reasonCode: "dashboard.partialState",
+                metadata: [
+                    "providerAvailable": String(vaultProvider != nil),
+                    "sidebarViewModelAvailable": String(sidebarViewModel != nil),
+                    "status.dashboard": "partial"
+                ]
+            )
+            return
+        }
 
         let recent = vm.recentNotes(limit: 15)
-        guard !recent.isEmpty else { return }
+        guard !recent.isEmpty else {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .dashboard,
+                name: "dashboardLoadFinished",
+                reasonCode: "dashboard.partialState",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: ["recentNotes": 0, "totalNotes": noteCount],
+                metadata: ["status.dashboard": "empty", "freshness": "noRecentNotes"]
+            )
+            SubsystemDiagnostics.updateState(
+                subsystem: .dashboard,
+                values: [
+                    "lastDashboardRefreshStatus": "empty",
+                    "dashboardHydrationState": "partial",
+                    "noteCount": String(noteCount)
+                ]
+            )
+            return
+        }
 
         actionItemsLoading = true
         let taskActor = DashboardTaskActor(vaultProvider: provider)
         let allTasks = await taskActor.parseOpenTasks(from: recent.map(\.url))
         actionItems = allTasks
         actionItemsLoading = false
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .dashboard,
+            name: "dashboardTasksLoaded",
+            reasonCode: "dashboard.metricAvailable",
+            counts: ["actionItems": allTasks.count, "recentNotes": recent.count],
+            verbose: true
+        )
 
         var contents: [(title: String, body: String)] = []
         for note in recent.prefix(10) {
@@ -790,8 +837,46 @@ public struct DashboardView: View {
             briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents, vaultRoot: vaultRoot)
         } catch {
             briefing = nil
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .dashboard,
+                name: "dashboardMetricUnavailable",
+                reasonCode: "dashboard.metricUnavailable",
+                metadata: ["metric": "weeklyBriefing", "error": error.localizedDescription]
+            )
         }
         briefingLoading = false
+        let state = briefing == nil ? "partial" : "fullyHydrated"
+        SubsystemDiagnostics.record(
+            level: briefing == nil ? .warning : .info,
+            subsystem: .dashboard,
+            name: "dashboardLoadFinished",
+            reasonCode: briefing == nil ? "dashboard.partialState" : "dashboard.loadFinished",
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: [
+                "noteCount": noteCount,
+                "folderCount": folderCount,
+                "recentNotes": recent.count,
+                "actionItems": actionItems.count,
+                "briefingInputs": contents.count
+            ],
+            metadata: [
+                "status.dashboard": state,
+                "dataSources": "vaultTree,recentNotes,tasks,aiBriefing"
+            ]
+        )
+        SubsystemDiagnostics.updateState(
+            subsystem: .dashboard,
+            values: [
+                "lastDashboardRefreshStatus": state,
+                "dashboardHydrationState": state,
+                "noteCount": String(noteCount),
+                "folderCount": String(folderCount),
+                "recentNotes": String(recent.count),
+                "actionItems": String(actionItems.count),
+                "aiBriefing": briefing == nil ? "unavailable" : "available"
+            ]
+        )
     }
 
     private func toggleTask(_ item: DashboardTaskItem) {
