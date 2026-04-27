@@ -9,6 +9,7 @@ public struct EditorSettingsView: View {
 
     @AppStorage("quartz.editor.autosaveEnabled") private var autosaveEnabled = true
     @AppStorage("quartz.editor.spellCheckEnabled") private var spellCheckEnabled = true
+    @AppStorage(RendererDiagnostics.userDefaultsKey) private var rendererDiagnosticsEnabled = false
 
     public init() {}
 
@@ -49,6 +50,17 @@ public struct EditorSettingsView: View {
                 Toggle(String(localized: "Spell Check", bundle: .module), isOn: $spellCheckEnabled)
             } header: {
                 Text(String(localized: "Behavior", bundle: .module))
+            }
+
+            if DeveloperDiagnostics.isEnabled {
+                Section {
+                    Toggle(String(localized: "Enable Renderer Diagnostics", bundle: .module), isOn: $rendererDiagnosticsEnabled)
+                    Text(String(localized: "Developer Diagnostics Mode is enabled by hidden diagnostics configuration.", bundle: .module))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text(String(localized: "Developer Diagnostics", bundle: .module))
+                }
             }
 
             Section {

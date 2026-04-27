@@ -128,4 +128,47 @@ struct SecurityScopedURLTests {
         #expect(mgr.lastVaultName == "RetryVault")
         #expect(mgr.hasActiveVault == false)
     }
+
+    @Test("failed restore clears stale active vault URL")
+    @MainActor func failedRestoreClearsStaleActiveVaultURL() throws {
+        let mgr = VaultAccessManager.shared
+        mgr.clearBookmark()
+        mgr.resetTestingOverrides()
+
+        let oldVault = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stale-active-vault-\(UUID().uuidString)")
+        let retryVault = FileManager.default.temporaryDirectory
+            .appendingPathComponent("retry-active-vault-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: oldVault, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: retryVault, withIntermediateDirectories: true)
+        defer {
+            mgr.resetTestingOverrides()
+            mgr.clearBookmark()
+            try? FileManager.default.removeItem(at: oldVault)
+            try? FileManager.default.removeItem(at: retryVault)
+        }
+
+        mgr.registerActiveVault(VaultConfig(name: "OldVault", rootURL: oldVault))
+        #expect(mgr.hasActiveVault == true)
+
+        try mgr.persistBookmark(for: retryVault, vaultName: "RetryVault")
+        mgr.bookmarkResolverOverride = { _ in
+            VaultAccessManager.ResolvedBookmark(url: retryVault, isStale: false)
+        }
+        mgr.securityScopeAccessOverride = { _ in false }
+
+        do {
+            _ = try mgr.restoreLastVault()
+            Issue.record("Expected security-scoped restore to fail")
+        } catch let error as VaultAccessError {
+            guard case .securityScopeAccessDenied = error else {
+                Issue.record("Unexpected vault access error: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        #expect(mgr.hasPersistedBookmark == true)
+        #expect(mgr.lastVaultName == "RetryVault")
+        #expect(mgr.hasActiveVault == false)
+    }
 }

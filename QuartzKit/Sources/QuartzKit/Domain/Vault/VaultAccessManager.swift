@@ -78,6 +78,13 @@ public final class VaultAccessManager {
 
             UserDefaults.standard.set(bookmarkData, forKey: bookmarkKey)
             UserDefaults.standard.set(vaultName, forKey: nameKey)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "bookmarkPersisted",
+                reasonCode: "vault.bookmarkPersisted",
+                vaultName: vaultName
+            )
 
             // Sync vault identity to iCloud for cross-device detection.
             // Security-scoped bookmarks are device-specific, but the vault path is not.
@@ -103,17 +110,39 @@ public final class VaultAccessManager {
     /// - Throws: `VaultAccessError` if bookmark exists but cannot be restored.
     public func restoreLastVault() throws -> VaultConfig? {
         guard let bookmarkData = UserDefaults.standard.data(forKey: bookmarkKey) else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "vaultRestoreSkipped",
+                reasonCode: "vault.noBookmark"
+            )
             return nil
         }
+        activeVaultURL = nil
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "bookmarkExists",
+            reasonCode: "vault.bookmarkExists"
+        )
 
         do {
             let resolved = try resolveBookmark(from: bookmarkData)
             let url = resolved.url
             let isStale = resolved.isStale
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "bookmarkResolved",
+                reasonCode: isStale ? "vault.bookmarkStale" : "vault.bookmarkResolved",
+                vaultName: url.lastPathComponent,
+                metadata: ["isStale": String(isStale)]
+            )
 
             guard startAccessingSecurityScopedResource(for: url) else {
                 let accessError = VaultAccessError.securityScopeAccessDenied(url)
                 lastError = accessError
+                activeVaultURL = nil
                 logger.warning(
                     "Security-scoped access denied for persisted vault \(url.lastPathComponent, privacy: .public); preserving bookmark for retry"
                 )
@@ -121,8 +150,22 @@ public final class VaultAccessManager {
                     category: "VaultAccessManager",
                     "Security-scoped access denied for persisted vault \(url.lastPathComponent); preserving bookmark for retry"
                 )
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .vaultRestore,
+                    name: "securityScopeStartFailed",
+                    reasonCode: "vault.securityScopeFailed",
+                    vaultName: url.lastPathComponent
+                )
                 throw accessError
             }
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "securityScopeStartSucceeded",
+                reasonCode: "vault.securityScopeStarted",
+                vaultName: url.lastPathComponent
+            )
 
             // Refresh stale bookmarks
             if isStale {
@@ -142,6 +185,14 @@ public final class VaultAccessManager {
             let name = UserDefaults.standard.string(forKey: nameKey) ?? url.lastPathComponent
             activeVaultURL = url
             lastError = nil
+            SubsystemDiagnostics.updateState(
+                subsystem: .vaultRestore,
+                values: [
+                    "activeVaultName": name,
+                    "securityScopeStatus": "active",
+                    "persistedBookmarkExists": "true"
+                ]
+            )
 
             logger.info("Restored vault: \(name)")
             return VaultConfig(name: name, rootURL: url)
@@ -159,6 +210,13 @@ public final class VaultAccessManager {
                 category: "VaultAccessManager",
                 "Failed to resolve persisted vault bookmark; preserving bookmark for retry: \(error.localizedDescription)"
             )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .vaultRestore,
+                name: "bookmarkResolveFailed",
+                reasonCode: "vault.restoreFailed",
+                metadata: ["error": error.localizedDescription]
+            )
             throw accessError
         }
     }
@@ -174,6 +232,12 @@ public final class VaultAccessManager {
         activeVaultURL = nil
         lastError = nil
         logger.info("Cleared vault bookmark and iCloud sync")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "activeVaultCleared",
+            reasonCode: "vault.bookmarkCleared"
+        )
     }
 
     /// Checks if a persisted bookmark exists.
@@ -197,14 +261,37 @@ public final class VaultAccessManager {
         guard startAccessingSecurityScopedResource(for: url) else {
             let accessError = VaultAccessError.securityScopeAccessDenied(url)
             lastError = accessError
+            activeVaultURL = nil
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .vaultRestore,
+                name: "securityScopeStartFailed",
+                reasonCode: "vault.securityScopeFailed",
+                vaultName: url.lastPathComponent
+            )
             throw accessError
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "securityScopeStartSucceeded",
+            reasonCode: "vault.securityScopeStarted",
+            vaultName: url.lastPathComponent
+        )
 
         let vaultName = name ?? url.lastPathComponent
         try persistBookmark(for: url, vaultName: vaultName)
 
         activeVaultURL = url
         lastError = nil
+        SubsystemDiagnostics.updateState(
+            subsystem: .vaultRestore,
+            values: [
+                "activeVaultName": vaultName,
+                "securityScopeStatus": "active",
+                "persistedBookmarkExists": "true"
+            ]
+        )
         return VaultConfig(name: vaultName, rootURL: url)
     }
 
@@ -217,6 +304,14 @@ public final class VaultAccessManager {
         activeVaultURL = vault.rootURL
         lastError = nil
         logger.info("Registered active vault: \(vault.name)")
+        SubsystemDiagnostics.updateState(
+            subsystem: .vaultRestore,
+            values: [
+                "activeVaultName": vault.name,
+                "securityScopeStatus": "activeOrPreauthorized",
+                "persistedBookmarkExists": String(hasPersistedBookmark)
+            ]
+        )
     }
 
     /// Stops accessing the currently active vault.
@@ -224,8 +319,19 @@ public final class VaultAccessManager {
         if let url = activeVaultURL {
             url.stopAccessingSecurityScopedResource()
             logger.info("Closed vault: \(url.lastPathComponent)")
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "securityScopeStopCalled",
+                reasonCode: "vault.securityScopeStopped",
+                vaultName: url.lastPathComponent
+            )
         }
         activeVaultURL = nil
+        SubsystemDiagnostics.updateState(
+            subsystem: .vaultRestore,
+            values: ["securityScopeStatus": "inactive"]
+        )
     }
 
     internal func resetTestingOverrides() {

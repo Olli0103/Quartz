@@ -237,8 +237,17 @@ public final class GraphViewModel {
         aiConceptExtractionEnabled: Bool = true,
         coverageMode: GraphCoverageMode = .recent
     ) async {
+        let buildStarted = Date()
         isLoading = true
         graphTruncationNote = nil
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .graph,
+            name: "graphBuildStarted",
+            reasonCode: "graph.buildStarted",
+            vaultName: vaultRootURL?.lastPathComponent,
+            metadata: ["coverageMode": coverageMode.rawValue]
+        )
 
         let collected = collectNotes(from: fileTree)
         totalNoteCount = collected.count
@@ -246,6 +255,15 @@ public final class GraphViewModel {
         guard !collected.isEmpty else {
             displayedNoteCount = 0
             isLoading = false
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .graph,
+                name: "graphBuildFinished",
+                reasonCode: "graph.partialData",
+                durationMs: Date().timeIntervalSince(buildStarted) * 1_000,
+                counts: ["totalVaultNotes": 0, "displayedNoteNodes": 0],
+                metadata: ["coverageMode": coverageMode.rawValue, "status.graph": "empty"]
+            )
             return
         }
 
@@ -260,6 +278,18 @@ public final class GraphViewModel {
             graphTruncationNote = String(
                 localized: "Showing \(allNotes.count) of \(collected.count) notes in Recent mode. Switch to Full Vault to render every note.",
                 bundle: .module
+            )
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .graph,
+                name: "graphCoverageCapped",
+                reasonCode: "graph.coverageCapped",
+                counts: [
+                    "totalVaultNotes": collected.count,
+                    "displayedNoteNodes": allNotes.count,
+                    "hiddenNoteNodes": collected.count - allNotes.count
+                ],
+                metadata: ["coverageMode": coverageMode.rawValue, "capReason": "recent cap"]
             )
         } else {
             graphTruncationNote = String(
@@ -390,7 +420,25 @@ public final class GraphViewModel {
 
         rebuildNodeIndex()
         if !hasCompletePreservedLayout {
+            let layoutStarted = Date()
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .graph,
+                name: "graphLayoutStarted",
+                reasonCode: "graph.layoutStarted",
+                counts: ["nodes": nodes.count, "edges": edges.count],
+                verbose: true
+            )
             layoutGraph(iterations: min(32, GraphLayoutPolicy.layoutIterations(forNodeCount: nodes.count)))
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .graph,
+                name: "graphLayoutStable",
+                reasonCode: "graph.layoutStable",
+                durationMs: Date().timeIntervalSince(layoutStarted) * 1_000,
+                counts: ["nodes": nodes.count, "edges": edges.count],
+                metadata: ["status.graphLayout": "stable"]
+            )
         }
         stopSimulation()
 
@@ -417,6 +465,44 @@ public final class GraphViewModel {
 
         isLoading = false
         buildVersion &+= 1
+        let explicitEdges = edges.filter { !$0.isSemantic && !$0.isConcept }.count
+        let semanticEdges = edges.filter(\.isSemantic).count
+        let conceptEdges = edges.filter(\.isConcept).count
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .graph,
+            name: "graphBuildFinished",
+            reasonCode: "graph.buildFinished",
+            durationMs: Date().timeIntervalSince(buildStarted) * 1_000,
+            counts: [
+                "totalVaultNotes": totalNoteCount,
+                "displayedNoteNodes": displayedNoteCount,
+                "hiddenNoteNodes": max(0, totalNoteCount - displayedNoteCount),
+                "conceptNodes": nodes.filter(\.isConcept).count,
+                "explicitEdges": explicitEdges,
+                "semanticEdges": semanticEdges,
+                "conceptEdges": conceptEdges
+            ],
+            generation: UInt64(buildVersion),
+            metadata: [
+                "coverageMode": coverageMode.rawValue,
+                "status.graph": "ready",
+                "layoutStatus": hasCompletePreservedLayout ? "cachedPositionsUsed" : "stabilized"
+            ]
+        )
+        SubsystemDiagnostics.updateState(
+            subsystem: .graph,
+            values: [
+                "lastGraphBuildStatus": "ready",
+                "coverageMode": coverageMode.rawValue,
+                "displayedNotes": String(displayedNoteCount),
+                "totalNotes": String(totalNoteCount),
+                "explicitEdges": String(explicitEdges),
+                "semanticEdges": String(semanticEdges),
+                "conceptEdges": String(conceptEdges),
+                "layoutStatus": hasCompletePreservedLayout ? "cachedPositionsUsed" : "stable"
+            ]
+        )
     }
 
     private func rebuildNodeIndex() {

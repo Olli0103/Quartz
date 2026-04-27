@@ -51,14 +51,34 @@ public final class VaultCoordinator {
         viewModel: ContentViewModel?,
         noteListStore: NoteListStore,
         workspaceStore: WorkspaceStore,
+        clearSelection: Bool = true,
         onComplete: (() -> Void)? = nil
     ) {
+        DeveloperDiagnostics.loadVaultConfiguration(from: vault.rootURL)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "vaultOpenStarted",
+            reasonCode: clearSelection ? "vault.manualOpen" : "vault.restoreOpen",
+            vaultName: vault.name,
+            metadata: ["selectionPolicy": clearSelection ? "cleared" : "preserved"]
+        )
         VaultAccessManager.shared.registerActiveVault(vault)
         appState.switchVault(to: vault)
         viewModel?.loadVault(vault, noteListStore: noteListStore)
-        workspaceStore.selectedNoteURL = nil
+        if clearSelection {
+            workspaceStore.selectedNoteURL = nil
+        }
 
         logger.info("Opened vault: \(vault.name)")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "vaultOpenCompleted",
+            reasonCode: clearSelection ? "vault.manualOpenCompleted" : "vault.restoreCompleted",
+            vaultName: vault.name,
+            metadata: ["selectionPolicy": clearSelection ? "cleared" : "preserved"]
+        )
 
         if Self.isUITestShellMode {
             onComplete?()
@@ -90,6 +110,14 @@ public final class VaultCoordinator {
             QuartzDiagnostics.error(
                 category: "VaultCoordinator",
                 "Failed to open selected vault: \(error.localizedDescription)"
+            )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .vaultRestore,
+                name: "vaultOpenFailed",
+                reasonCode: "vault.restoreFailed",
+                vaultName: url.lastPathComponent,
+                metadata: ["error": error.localizedDescription]
             )
             return false
         }
@@ -144,18 +172,47 @@ public final class VaultCoordinator {
         onComplete: (() -> Void)? = nil
     ) async -> VaultConfig? {
         hasAttemptedRestoration = true
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "vaultRestoreStarted",
+            reasonCode: VaultAccessManager.shared.hasPersistedBookmark ? "vault.bookmarkExists" : "vault.noBookmark",
+            metadata: ["persistedBookmarkExists": String(VaultAccessManager.shared.hasPersistedBookmark)]
+        )
 
         do {
             if let vault = try await VaultAccessManager.shared.restoreLastVaultWithRetry(maxAttempts: 2) {
-                openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+                openVault(
+                    vault,
+                    viewModel: viewModel,
+                    noteListStore: noteListStore,
+                    workspaceStore: workspaceStore,
+                    clearSelection: false,
+                    onComplete: onComplete
+                )
                 logger.info("Restored vault: \(vault.name)")
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "vaultRestoreCompleted",
+                    reasonCode: "vault.restoreCompleted",
+                    vaultName: vault.name
+                )
                 return vault
             }
         } catch {
             logger.warning("Failed to restore vault: \(error.localizedDescription)")
+            appState.showError(error.localizedDescription)
             QuartzDiagnostics.warning(
                 category: "VaultCoordinator",
                 "Failed to restore vault: \(error.localizedDescription)"
+            )
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .vaultRestore,
+                name: "vaultRestoreFailed",
+                reasonCode: "vault.restoreFailed",
+                metadata: ["error": error.localizedDescription]
             )
         }
 
@@ -174,8 +231,27 @@ public final class VaultCoordinator {
                 return nil
             }
             UserDefaults.standard.set(true, forKey: "quartz.hasCompletedOnboarding")
-            openVault(vault, viewModel: viewModel, noteListStore: noteListStore, workspaceStore: workspaceStore, onComplete: onComplete)
+            openVault(
+                vault,
+                viewModel: viewModel,
+                noteListStore: noteListStore,
+                workspaceStore: workspaceStore,
+                clearSelection: false,
+                onComplete: onComplete
+            )
             return vault
+        }
+
+        if VaultAccessManager.shared.hasPersistedBookmark {
+            QuartzDiagnostics.warning(
+                category: "VaultCoordinator",
+                "Persisted vault bookmark exists but no vault could be restored"
+            )
+        } else {
+            QuartzDiagnostics.warning(
+                category: "VaultCoordinator",
+                "Vault restore skipped because no persisted bookmark exists"
+            )
         }
 
         return nil
@@ -216,8 +292,19 @@ public final class VaultCoordinator {
 
     /// Closes the current vault and prepares for a new one.
     public func closeCurrentVault() {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "closeVaultStarted",
+            vaultName: appState.currentVault?.name
+        )
         VaultAccessManager.shared.closeActiveVault()
         appState.currentVault = nil
         logger.info("Closed current vault")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "closeVaultCompleted"
+        )
     }
 }

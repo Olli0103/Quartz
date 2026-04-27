@@ -237,8 +237,17 @@ public actor VaultSearchIndex {
     // MARK: - Private
 
     private func buildIndex(fromPreloadedTree nodes: [FileNode], at root: URL, forceRebuild: Bool) async {
+        let started = Date()
         vaultRoot = root
         let noteURLs = collectNoteURLs(from: nodes)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .indexing,
+            name: "searchIndexBuildStarted",
+            reasonCode: forceRebuild ? "indexing.searchCacheRebuild" : "indexing.searchBuildStarted",
+            vaultName: root.lastPathComponent,
+            counts: ["notes": noteURLs.count]
+        )
         let fingerprint = Self.computeFingerprint(for: noteURLs)
 
         if !forceRebuild,
@@ -247,12 +256,48 @@ public actor VaultSearchIndex {
             entries = cached.entries
             lastBuildSource = .cache
             logger.info("Loaded search index from cache (\(cached.entries.count) entries)")
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .indexing,
+                name: "searchIndexCacheHit",
+                reasonCode: "indexing.searchCacheHit",
+                vaultName: root.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: ["indexedNotes": cached.entries.count, "totalNotes": noteURLs.count],
+                metadata: ["status.searchIndex": "cacheHit"]
+            )
+            SubsystemDiagnostics.updateState(
+                subsystem: .indexing,
+                values: [
+                    "searchIndexStatus": "cacheHit",
+                    "indexedNotes": String(cached.entries.count),
+                    "totalNotes": String(noteURLs.count)
+                ]
+            )
             return
         }
 
         entries.removeAll(keepingCapacity: true)
         await indexNodes(nodes)
         lastBuildSource = .rebuild
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .indexing,
+            name: "searchIndexRebuilt",
+            reasonCode: "indexing.searchCacheRebuild",
+            vaultName: root.lastPathComponent,
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: ["indexedNotes": entries.count, "totalNotes": noteURLs.count],
+            metadata: ["status.searchIndex": "rebuilt", "rebuildReason": forceRebuild ? "forced" : "cache missing or fingerprint mismatch"]
+        )
+        SubsystemDiagnostics.updateState(
+            subsystem: .indexing,
+            values: [
+                "searchIndexStatus": "rebuilt",
+                "indexedNotes": String(entries.count),
+                "totalNotes": String(noteURLs.count)
+            ]
+        )
     }
 
     private func indexNodes(_ nodes: [FileNode]) async {

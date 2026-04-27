@@ -414,6 +414,65 @@ struct AutosaveReliabilityTests {
         #expect(versions.isEmpty, "Snapshot failure should not create partial versions")
     }
 
+    @Test("Failed version snapshot does not throttle next successful autosave snapshot")
+    @MainActor func failedVersionSnapshotDoesNotThrottleNextSuccessfulAutosaveSnapshot() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appending(path: "QuartzVersionSnapshotRetry-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let invalidVaultRoot = tempRoot.appending(path: "not-a-directory")
+        try "blocking file".write(to: invalidVaultRoot, atomically: true, encoding: .utf8)
+        let validVaultRoot = tempRoot.appending(path: "vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: validVaultRoot, withIntermediateDirectories: true)
+        let noteURL = validVaultRoot.appending(path: "note-a.md")
+
+        let mock = AdvancedMockVaultProvider()
+        let note = NoteDocument(
+            fileURL: noteURL,
+            frontmatter: Frontmatter(title: "Note A", createdAt: Date(), modifiedAt: Date()),
+            body: "Original",
+            isDirty: false
+        )
+        await mock.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: mock,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+
+        session.vaultRootURL = invalidVaultRoot
+        await session.loadNote(at: noteURL)
+        session.textDidChange("First edit snapshots into invalid root")
+        await session.save()
+
+        var invalidSnapshotSettled = false
+        for _ in 0..<20 {
+            try await Task.sleep(for: .milliseconds(25))
+            if VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: invalidVaultRoot).isEmpty {
+                invalidSnapshotSettled = true
+                break
+            }
+        }
+        #expect(invalidSnapshotSettled)
+        #expect(session.isDirty == false)
+
+        session.vaultRootURL = validVaultRoot
+        session.textDidChange("Second edit should create a retry snapshot")
+        await session.save()
+
+        var versions: [NoteVersion] = []
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(25))
+            versions = VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: validVaultRoot)
+            if !versions.isEmpty { break }
+        }
+
+        #expect(!versions.isEmpty, "A failed snapshot attempt must not suppress the next successful save for 5 minutes")
+        #expect(session.isDirty == false)
+    }
+
     // MARK: - Fast Back-and-Forth
 
     @Test("Fast note switching preserves all edits")

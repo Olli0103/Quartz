@@ -29,9 +29,7 @@ public actor QuartzDiagnosticsStore {
 
     public func record(level: Level, category: String, message: String) {
         guard let logURL = ensureLogURL() else { return }
-        let normalizedMessage = message
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\n", with: " \\n ")
+        let normalizedMessage = DiagnosticPrivacy.sanitizeFreeformMessage(message)
         let line = "\(formatter.string(from: Date())) [\(level.rawValue.uppercased())] [\(category)] \(normalizedMessage)\n"
         guard let data = line.data(using: .utf8) else { return }
 
@@ -142,24 +140,28 @@ public actor QuartzDiagnosticsStore {
 
 public enum QuartzDiagnostics {
     public static func info(category: String, _ message: String) {
+        SubsystemDiagnostics.recordLegacy(level: .info, category: category, message: message)
         Task(priority: .utility) {
             await QuartzDiagnosticsStore.shared.record(level: .info, category: category, message: message)
         }
     }
 
     public static func warning(category: String, _ message: String) {
+        SubsystemDiagnostics.recordLegacy(level: .warning, category: category, message: message)
         Task(priority: .utility) {
             await QuartzDiagnosticsStore.shared.record(level: .warning, category: category, message: message)
         }
     }
 
     public static func error(category: String, _ message: String) {
+        SubsystemDiagnostics.recordLegacy(level: .error, category: category, message: message)
         Task(priority: .utility) {
             await QuartzDiagnosticsStore.shared.record(level: .error, category: category, message: message)
         }
     }
 
     public static func fault(category: String, _ message: String) {
+        SubsystemDiagnostics.recordLegacy(level: .error, category: category, message: message)
         Task(priority: .utility) {
             await QuartzDiagnosticsStore.shared.record(level: .fault, category: category, message: message)
         }

@@ -248,6 +248,10 @@ public final class EditorSession {
 
     /// Last time a version snapshot was saved for the current note.
     private var lastSnapshotDate: Date?
+    /// Prevents duplicate background snapshot writes while the previous attempt is
+    /// still running. Failed attempts must not advance ``lastSnapshotDate``.
+    private var isVersionSnapshotInFlight = false
+    private var pendingVersionSnapshot: (noteURL: URL, content: String, force: Bool)?
 
     // MARK: - Init
 
@@ -414,6 +418,8 @@ public final class EditorSession {
 
         // Reset version history throttle for new note
         lastSnapshotDate = nil
+        isVersionSnapshotInFlight = false
+        pendingVersionSnapshot = nil
 
         // Clear undo stack so previous note's history doesn't bleed through
         clearUndoStack()
@@ -479,6 +485,9 @@ public final class EditorSession {
         formattingState = .empty
         lastSavedContentHash = nil
         lastKnownDiskContentHash = nil
+        textRevision = 0
+        renderGeneration = 0
+        lastRendererSpanChecksum = nil
         lastPublishedExplicitReferences = []
         pendingNoteNavigationRequest = nil
 
@@ -566,7 +575,18 @@ public final class EditorSession {
         scheduleExplicitRelationshipRefresh(forceGraphPublish: contentChanged)
         guard contentChanged else { return }
 
+        textRevision &+= 1
+        let oldLength = (previousText as NSString).length
+        let newLength = (newText as NSString).length
+
         if isApplyingExternalEdit {
+            recordRendererTextMutation(
+                name: "textDidChange",
+                oldLength: oldLength,
+                newLength: newLength,
+                changedRange: currentTransaction?.editedRange,
+                origin: currentTransaction?.origin.rawValue ?? "externalEdit"
+            )
             updateTypingAttributes()
             isDirty = true
             scheduleAutosave()
@@ -583,6 +603,14 @@ public final class EditorSession {
             origin: .userTyping,
             editedRange: NSRange(location: max(editLocation, 0), length: editLen < 0 ? -editLen : 0),
             replacementLength: max(editLen, 0)
+        )
+
+        recordRendererTextMutation(
+            name: "textDidChange",
+            oldLength: oldLength,
+            newLength: newLength,
+            changedRange: currentTransaction?.editedRange,
+            origin: "userTyping"
         )
 
         updateTypingAttributes()
@@ -829,8 +857,16 @@ public final class EditorSession {
     /// All user-facing formatting sources must resolve through this method before mutation.
     public func handleFormattingAction(_ action: FormattingAction, source: FormattingInvocationSource) {
         let selection = resolvedFormattingSelection(for: action, source: source)
+        let revisionBefore = textRevision
         prepareFormattingInvocation(selection, source: source)
         applyFormatting(action, selectedRange: selection)
+        recordRendererFormattingAction(
+            action: action,
+            source: source,
+            selectionBefore: selection,
+            selectionAfter: resolvedFormattingSelection(),
+            revisionBefore: revisionBefore
+        )
         finalizeFormattingInvocation(source: source)
     }
 
@@ -882,12 +918,31 @@ public final class EditorSession {
         // For small notes, pay the synchronous parse cost immediately so the user sees
         // the styled result now, not one async turn later.
         if currentText.count <= Self.synchronousFormattingHighlightThreshold {
+            let parseStart = CFAbsoluteTimeGetCurrent()
+            recordRendererEvent(
+                name: "parseStart",
+                metadata: [
+                    "parseMode": "forced",
+                    "reason": "formatting.\(action.rawValue)"
+                ],
+                range: edit.range
+            )
             let spans = MarkdownASTHighlighter.parseImmediately(
                 currentText,
                 baseFontSize: highlighterBaseFontSize,
                 fontFamily: highlighterFontFamily,
                 vaultRootURL: vaultRootURL,
                 noteURL: note?.fileURL
+            )
+            recordRendererEvent(
+                name: "parseFinish",
+                metadata: [
+                    "parseMode": "forced",
+                    "reason": "formatting.\(action.rawValue)",
+                    "durationMs": "\(Int((CFAbsoluteTimeGetCurrent() - parseStart) * 1_000))",
+                    "spanCount": "\(spans.count)"
+                ],
+                range: edit.range
             )
             applyHighlightSpansForced(spans)
             return
@@ -901,8 +956,27 @@ public final class EditorSession {
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
+            let parseStart = CFAbsoluteTimeGetCurrent()
+            self.recordRendererEvent(
+                name: "parseStart",
+                metadata: [
+                    "parseMode": "forced",
+                    "reason": "formatting.\(action.rawValue)"
+                ],
+                range: edit.range
+            )
             let spans = await highlighter.parse(text)
             guard !Task.isCancelled else { return }
+            self.recordRendererEvent(
+                name: "parseFinish",
+                metadata: [
+                    "parseMode": "forced",
+                    "reason": "formatting.\(action.rawValue)",
+                    "durationMs": "\(Int((CFAbsoluteTimeGetCurrent() - parseStart) * 1_000))",
+                    "spanCount": "\(spans.count)"
+                ],
+                range: edit.range
+            )
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpansForced(spans)
             }
@@ -1147,6 +1221,9 @@ public final class EditorSession {
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: requestedURL)
         note = loaded
         currentText = loaded.body
+        textRevision &+= 1
+        renderGeneration = 0
+        lastRendererSpanChecksum = nil
         lastPublishedExplicitReferences = []
         isDirty = false
         errorMessage = nil
@@ -1174,6 +1251,20 @@ public final class EditorSession {
 
         applyPendingRestorationStateIfPossible()
         refreshInNoteSearchResultsForCurrentEditorState(revealSelection: false, focusEditor: false)
+
+        if RendererDiagnostics.isEnabled {
+            let loadedLength = (loaded.body as NSString).length
+            RendererDiagnostics.record(RendererDiagnosticEvent(
+                name: "reopen.loadedText",
+                noteBasename: canonicalURL.lastPathComponent,
+                textRevision: textRevision,
+                renderGeneration: renderGeneration,
+                metadata: [
+                    "loadedTextLength": "\(loadedLength)",
+                    "textChecksum": RendererDiagnostics.textChecksum(loaded.body)
+                ]
+            ))
+        }
 
         if clearUndoHistory {
             clearUndoStack()
@@ -1254,12 +1345,15 @@ public final class EditorSession {
     /// Used after formatting actions where stale overlay attributes may have shifted.
     private func applyHighlightSpansForced(_ spans: [HighlightSpan]) {
         guard !isComposing else { return }
+        let diagnosticStart = CFAbsoluteTimeGetCurrent()
+        recordRendererHighlightApplyStart(spans: spans, fullApplication: true)
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
         lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        recordRendererSemanticState(spans: spans, editedRange: currentTransaction?.editedRange)
         inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
@@ -1276,6 +1370,7 @@ public final class EditorSession {
         guard storageLength > 0 else { return }
 
         let savedSelection = textView.selectedRange
+        var selectionRestoreSucceeded = true
 
         let baseFontSize = highlighterBaseFontSize
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
@@ -1335,8 +1430,17 @@ public final class EditorSession {
             let len = (textView.text ?? "").count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.selectedRange = savedSelection
+            } else {
+                selectionRestoreSucceeded = false
             }
         }
+        completeRendererHighlightApply(
+            start: diagnosticStart,
+            spans: spans,
+            appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
+            fullApplication: true,
+            selectionRestoreSucceeded: selectionRestoreSucceeded
+        )
         updateTypingAttributes()
 
         #elseif canImport(AppKit)
@@ -1347,6 +1451,7 @@ public final class EditorSession {
         guard storageLength > 0 else { return }
 
         let savedSelection = textView.selectedRange()
+        var selectionRestoreSucceeded = true
 
         let baseFontSize = highlighterBaseFontSize
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
@@ -1406,8 +1511,17 @@ public final class EditorSession {
             let len = textView.string.count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.setSelectedRange(savedSelection)
+            } else {
+                selectionRestoreSucceeded = false
             }
         }
+        completeRendererHighlightApply(
+            start: diagnosticStart,
+            spans: spans,
+            appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
+            fullApplication: true,
+            selectionRestoreSucceeded: selectionRestoreSucceeded
+        )
         updateTypingAttributes()
         #endif
     }
@@ -1432,6 +1546,8 @@ public final class EditorSession {
         origin: MutationOrigin = .formatting
     ) {
         guard !isComposing else { return }
+        let previousText = currentText
+        let revisionBeforeMutation = textRevision
         isApplyingExternalEdit = true
         defer { isApplyingExternalEdit = false }
 
@@ -1533,6 +1649,16 @@ public final class EditorSession {
         #endif
 
         synchronizeSnapshotFromActiveTextView()
+        if currentText != previousText, textRevision == revisionBeforeMutation {
+            textRevision &+= 1
+            recordRendererTextMutation(
+                name: "textDidChange",
+                oldLength: (previousText as NSString).length,
+                newLength: (currentText as NSString).length,
+                changedRange: range,
+                origin: origin.rawValue
+            )
+        }
 
         isDirty = true
         scheduleAutosave()
@@ -1563,10 +1689,32 @@ public final class EditorSession {
             if force {
                 forceSavePendingAfterCurrentWrite = true
             }
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "saveReplayRequested",
+                reasonCode: "save.replayQueued",
+                noteBasename: note?.fileURL.lastPathComponent,
+                revision: textRevision,
+                metadata: ["force": String(force)]
+            )
             return
         }
 
         let forceVersionSnapshotForThisSave = force
+        let saveStarted = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "saveStarted",
+            reasonCode: force ? "save.manualRequested" : "save.autosaveStarted",
+            noteBasename: currentNote.fileURL.lastPathComponent,
+            revision: textRevision,
+            metadata: [
+                "dirtyBefore": String(isDirty),
+                "force": String(force)
+            ]
+        )
         isSaving = true
         savePendingAfterCurrentWrite = false
         isSavingToFileSystem = true
@@ -1583,6 +1731,15 @@ public final class EditorSession {
                 let replayForce = forceSavePendingAfterCurrentWrite
                 savePendingAfterCurrentWrite = false
                 forceSavePendingAfterCurrentWrite = false
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "saveReplayExecuted",
+                    reasonCode: "save.replaySatisfied",
+                    noteBasename: currentNote.fileURL.lastPathComponent,
+                    revision: textRevision,
+                    metadata: ["force": String(replayForce), "dirty": String(isDirty)]
+                )
                 scheduleAutosave(force: replayForce)
             }
         }
@@ -1629,6 +1786,21 @@ public final class EditorSession {
                 category: "EditorSave",
                 "save completed url=\(savedURL.lastPathComponent) chars=\((textSnapshot as NSString).length) dirtyAfter=\(isDirty)"
             )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "saveCompleted",
+                reasonCode: isDirty ? "save.dirtyAfterTrue" : "save.completedClean",
+                noteBasename: savedURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(saveStarted) * 1_000,
+                counts: ["characters": (textSnapshot as NSString).length],
+                revision: textRevision,
+                metadata: [
+                    "dirtyAfter": String(isDirty),
+                    "dirtyAfterReason": savedSnapshotStillCurrent ? "none" : "textChangedDuringSave"
+                ]
+            )
+            recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
 
             // Publish via typed event bus (new pattern per CODEX.md F4)
             await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
@@ -1672,6 +1844,7 @@ public final class EditorSession {
                 consecutiveSaveFailures = 0
                 errorMessage = String(localized: "Saved using emergency local file recovery because iCloud coordination timed out.", bundle: .module)
                 postSaveHealthChanged(state: "recovered", url: currentNote.fileURL)
+                recordRendererSaveSnapshot(noteURL: currentNote.fileURL, textSnapshot: textSnapshot)
                 await DomainEventBus.shared.publish(.noteSaved(url: currentNote.fileURL, timestamp: Date()))
                 NotificationCenter.default.post(name: .quartzNoteSaved, object: currentNote.fileURL)
                 scheduleExplicitRelationshipRefresh(
@@ -1703,10 +1876,34 @@ public final class EditorSession {
                     category: "EditorSave",
                     "save failed url=\(currentNote.fileURL.lastPathComponent) failures=\(consecutiveSaveFailures) nextRetrySeconds=\(autosaveRetryDelaySeconds()) error=\(error.localizedDescription)"
                 )
+                SubsystemDiagnostics.record(
+                    level: .error,
+                    subsystem: .save,
+                    name: "saveFailed",
+                    reasonCode: isCoordinationTimeout(error) ? "save.coordinationTimeout" : "save.failed",
+                    noteBasename: currentNote.fileURL.lastPathComponent,
+                    durationMs: Date().timeIntervalSince(saveStarted) * 1_000,
+                    counts: ["failureCount": consecutiveSaveFailures],
+                    revision: textRevision,
+                    metadata: [
+                        "error": error.localizedDescription,
+                        "nextRetrySeconds": String(autosaveRetryDelaySeconds()),
+                        "dirtyAfter": String(isDirty)
+                    ]
+                )
             } else {
                 QuartzDiagnostics.warning(
                     category: "EditorSave",
                     "primary save recovered by emergency direct write url=\(currentNote.fileURL.lastPathComponent)"
+                )
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .save,
+                    name: "saveRecovered",
+                    reasonCode: "save.emergencyDirectWrite",
+                    noteBasename: currentNote.fileURL.lastPathComponent,
+                    durationMs: Date().timeIntervalSince(saveStarted) * 1_000,
+                    revision: textRevision
                 )
             }
         }
@@ -1717,13 +1914,20 @@ public final class EditorSession {
         // Manual save should force a version snapshot, but only after the
         // primary save has succeeded. Under iCloud coordination failure, version
         // history work must not compete with the primary save.
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "manualSaveRequested",
+            reasonCode: "save.manualRequested",
+            noteBasename: note?.fileURL.lastPathComponent,
+            revision: textRevision
+        )
         await save(force: true)
     }
 
     /// Returns true if enough time has passed since the last snapshot.
     private func shouldSaveVersionSnapshot() -> Bool {
         guard let lastDate = lastSnapshotDate else {
-            lastSnapshotDate = Date()
             return true // Create snapshot on first save of this editing session
         }
         return Date().timeIntervalSince(lastDate) >= Self.versionSnapshotInterval
@@ -1752,6 +1956,12 @@ public final class EditorSession {
     private var lastAppliedHighlightSourceText: String = ""
     /// Cached render grouping so the editor applies the latest parsed plan, not ad-hoc filters.
     private var lastRenderPlan: EditorRenderPlan = .empty
+    /// Monotonic counter for text mutations observed by this editor session.
+    private var textRevision: UInt64 = 0
+    /// Monotonic counter for completed render applications.
+    private var renderGeneration: UInt64 = 0
+    /// Latest semantic span checksum captured while renderer diagnostics were enabled.
+    private var lastRendererSpanChecksum: String?
 
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     /// Uses incremental parsing when the current transaction supports it.
@@ -1760,11 +1970,33 @@ public final class EditorSession {
 
         // Capture transaction info for the incremental path
         let transaction = currentTransaction
+        let parseMode = transaction?.prefersIncrementalHighlight == true ? "incremental" : "full"
+        let scheduleRevision = textRevision
+        let cancelPrevious = highlightTask != nil
+        recordRendererEvent(
+            name: "scheduleHighlight",
+            metadata: [
+                "parseMode": parseMode,
+                "reason": transaction?.origin.rawValue ?? "post-edit",
+                "cancelPrevious": "\(cancelPrevious)"
+            ],
+            textRevision: scheduleRevision,
+            renderGeneration: renderGeneration,
+            range: transaction?.editedRange
+        )
 
         highlightTask?.cancel()
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
+            let parseStart = CFAbsoluteTimeGetCurrent()
+            self.recordRendererEvent(
+                name: "parseStart",
+                metadata: ["parseMode": parseMode],
+                textRevision: scheduleRevision,
+                renderGeneration: self.renderGeneration,
+                range: transaction?.editedRange
+            )
 
             let spans: [HighlightSpan]
             if let tx = transaction, tx.prefersIncrementalHighlight {
@@ -1784,6 +2016,18 @@ public final class EditorSession {
             }
 
             guard !Task.isCancelled else { return }
+            let durationMs = Int((CFAbsoluteTimeGetCurrent() - parseStart) * 1_000)
+            self.recordRendererEvent(
+                name: "parseFinish",
+                metadata: [
+                    "parseMode": parseMode,
+                    "durationMs": "\(durationMs)",
+                    "spanCount": "\(spans.count)"
+                ],
+                textRevision: scheduleRevision,
+                renderGeneration: self.renderGeneration,
+                range: transaction?.editedRange
+            )
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpans(spans)
             }
@@ -1794,12 +2038,41 @@ public final class EditorSession {
     public func highlightImmediately(priority: TaskPriority = .utility) {
         guard !isComposing else { return }
 
+        let scheduleRevision = textRevision
+        recordRendererEvent(
+            name: "scheduleHighlight",
+            metadata: [
+                "parseMode": "load-reopen",
+                "reason": "highlightImmediately",
+                "cancelPrevious": "\(highlightTask != nil)"
+            ],
+            textRevision: scheduleRevision,
+            renderGeneration: renderGeneration
+        )
         highlightTask?.cancel()
         highlightTask = Task(priority: priority) { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
             let text = self.currentText
+            let parseStart = CFAbsoluteTimeGetCurrent()
+            self.recordRendererEvent(
+                name: "parseStart",
+                metadata: ["parseMode": "load-reopen"],
+                textRevision: scheduleRevision,
+                renderGeneration: self.renderGeneration
+            )
             let spans = await highlighter.parse(text)
             guard !Task.isCancelled else { return }
+            let durationMs = Int((CFAbsoluteTimeGetCurrent() - parseStart) * 1_000)
+            self.recordRendererEvent(
+                name: "parseFinish",
+                metadata: [
+                    "parseMode": "load-reopen",
+                    "durationMs": "\(durationMs)",
+                    "spanCount": "\(spans.count)"
+                ],
+                textRevision: scheduleRevision,
+                renderGeneration: self.renderGeneration
+            )
             await MainActor.run { [weak self] in
                 self?.applyHighlightSpansForced(spans)
             }
@@ -1809,12 +2082,15 @@ public final class EditorSession {
     /// Applies highlight spans to the native text view with IME guard.
     private func applyHighlightSpans(_ spans: [HighlightSpan]) {
         guard !isComposing else { return }
+        let diagnosticStart = CFAbsoluteTimeGetCurrent()
+        recordRendererHighlightApplyStart(spans: spans, fullApplication: false)
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
         lastAppliedHighlightSourceText = currentText
         semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
+        recordRendererSemanticState(spans: spans, editedRange: currentTransaction?.editedRange)
         inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
@@ -1831,6 +2107,7 @@ public final class EditorSession {
         guard storageLength > 0 else { return }
 
         let savedSelection = textView.selectedRange
+        var selectionRestoreSucceeded = true
 
         let baseFontSize = highlighterBaseFontSize
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
@@ -1892,8 +2169,17 @@ public final class EditorSession {
             let len = (textView.text ?? "").count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.selectedRange = savedSelection
+            } else {
+                selectionRestoreSucceeded = false
             }
         }
+        completeRendererHighlightApply(
+            start: diagnosticStart,
+            spans: spans,
+            appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
+            fullApplication: false,
+            selectionRestoreSucceeded: selectionRestoreSucceeded
+        )
         updateTypingAttributes()
 
         #elseif canImport(AppKit)
@@ -1904,6 +2190,7 @@ public final class EditorSession {
         guard storageLength > 0 else { return }
 
         let savedSelection = textView.selectedRange()
+        var selectionRestoreSucceeded = true
 
         let baseFontSize = highlighterBaseFontSize
         let defaultFont = EditorFontFactory.makeFont(family: highlighterFontFamily, size: baseFontSize)
@@ -1965,8 +2252,17 @@ public final class EditorSession {
             let len = textView.string.count
             if savedSelection.location <= len && savedSelection.location + savedSelection.length <= len {
                 textView.setSelectedRange(savedSelection)
+            } else {
+                selectionRestoreSucceeded = false
             }
         }
+        completeRendererHighlightApply(
+            start: diagnosticStart,
+            spans: spans,
+            appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
+            fullApplication: false,
+            selectionRestoreSucceeded: selectionRestoreSucceeded
+        )
         updateTypingAttributes()
         #endif
     }
@@ -2068,6 +2364,9 @@ public final class EditorSession {
     private func sanitizedTypingAttributes(
         from attributes: [NSAttributedString.Key: Any]
     ) -> [NSAttributedString.Key: Any] {
+        let unsafeBefore = RendererDiagnostics.isEnabled
+            ? RendererDiagnostics.unsafeTypingAttributeKeys(in: attributes)
+            : []
         var typing = attributes
         typing.removeValue(forKey: .kern)
         typing.removeValue(forKey: .quartzTableRowStyle)
@@ -2076,6 +2375,14 @@ public final class EditorSession {
         typing.removeValue(forKey: .quartzWikiLink)
         typing.removeValue(forKey: .underlineStyle)
         typing.removeValue(forKey: .strikethroughStyle)
+        typing.removeValue(forKey: .link)
+        if RendererDiagnostics.isEnabled {
+            recordRendererTypingAttributes(
+                before: attributes,
+                after: typing,
+                unsafeBefore: unsafeBefore
+            )
+        }
         return typing
     }
 
@@ -2113,6 +2420,222 @@ public final class EditorSession {
         applyHighlightSpans(spans)
     }
 
+    // MARK: - Renderer Diagnostics
+
+    private var rendererDiagnosticNoteBasename: String? {
+        note?.fileURL.lastPathComponent
+    }
+
+    private func recordRendererEvent(
+        level: RendererDiagnosticLevel = .info,
+        name: String,
+        metadata: [String: String] = [:],
+        textRevision: UInt64? = nil,
+        renderGeneration: UInt64? = nil,
+        range: NSRange? = nil
+    ) {
+        guard RendererDiagnostics.isEnabled else { return }
+        RendererDiagnostics.record(RendererDiagnosticEvent(
+            level: level,
+            name: name,
+            noteBasename: rendererDiagnosticNoteBasename,
+            affectedRange: range.map(RendererDiagnosticRange.init),
+            lineRange: range.flatMap(rendererDiagnosticLineRange),
+            textRevision: textRevision ?? self.textRevision,
+            renderGeneration: renderGeneration ?? self.renderGeneration,
+            metadata: metadata
+        ))
+    }
+
+    private func recordRendererTextMutation(
+        name: String,
+        oldLength: Int,
+        newLength: Int,
+        changedRange: NSRange?,
+        origin: String
+    ) {
+        guard RendererDiagnostics.isEnabled else { return }
+        recordRendererEvent(
+            name: name,
+            metadata: [
+                "origin": origin,
+                "oldTextLength": "\(oldLength)",
+                "newTextLength": "\(newLength)",
+                "selection": rendererRangeDescription(cursorPosition)
+            ],
+            range: changedRange
+        )
+    }
+
+    private func recordRendererFormattingAction(
+        action: FormattingAction,
+        source: FormattingInvocationSource,
+        selectionBefore: NSRange,
+        selectionAfter: NSRange,
+        revisionBefore: UInt64
+    ) {
+        guard RendererDiagnostics.isEnabled else { return }
+        recordRendererEvent(
+            name: "formattingAction",
+            metadata: [
+                "action": action.rawValue,
+                "source": source.rawValue,
+                "selectionBefore": rendererRangeDescription(selectionBefore),
+                "selectionAfter": rendererRangeDescription(selectionAfter),
+                "usedEditorMutationPipeline": "true",
+                "textRevisionBefore": "\(revisionBefore)",
+                "textRevisionAfter": "\(textRevision)"
+            ],
+            textRevision: textRevision,
+            range: currentTransaction?.editedRange
+        )
+    }
+
+    private func recordRendererHighlightApplyStart(spans: [HighlightSpan], fullApplication: Bool) {
+        guard RendererDiagnostics.isEnabled else { return }
+        recordRendererEvent(
+            name: "applyHighlightSpansStart",
+            metadata: [
+                "application": fullApplication ? "full" : "partial",
+                "spanCount": "\(spans.count)",
+                "sourceTextLength": "\((currentText as NSString).length)"
+            ]
+        )
+    }
+
+    private func completeRendererHighlightApply(
+        start: CFAbsoluteTime,
+        spans: [HighlightSpan],
+        appliedRangeCount: Int,
+        fullApplication: Bool,
+        selectionRestoreSucceeded: Bool
+    ) {
+        guard RendererDiagnostics.isEnabled else { return }
+        renderGeneration &+= 1
+        let checksum = RendererDiagnostics.spanChecksum(spans: spans, semanticDocument: semanticDocument)
+        lastRendererSpanChecksum = checksum
+        let textChecksum = RendererDiagnostics.textChecksum(currentText)
+        recordRendererEvent(
+            name: "applyHighlightSpansFinish",
+            metadata: [
+                "application": fullApplication ? "full" : "partial",
+                "attributeRangesApplied": "\(appliedRangeCount)",
+                "selectionRestore": selectionRestoreSucceeded ? "success" : "failure",
+                "durationMs": "\(Int((CFAbsoluteTimeGetCurrent() - start) * 1_000))",
+                "spanChecksum": checksum,
+                "textChecksum": textChecksum,
+                "textLength": "\((currentText as NSString).length)"
+            ],
+            renderGeneration: renderGeneration
+        )
+
+        recordRendererEvent(
+            name: "reopen.renderSnapshot",
+            metadata: [
+                "spanChecksum": checksum,
+                "textChecksum": textChecksum,
+                "loadedTextLength": "\((currentText as NSString).length)"
+            ],
+            renderGeneration: renderGeneration
+        )
+    }
+
+    private func recordRendererSemanticState(spans: [HighlightSpan], editedRange: NSRange?) {
+        guard RendererDiagnostics.isEnabled else { return }
+        var metadata = RendererDiagnostics.spanSummary(
+            spans: spans,
+            semanticDocument: semanticDocument,
+            markdown: currentText,
+            editedRange: editedRange
+        )
+        metadata["spanChecksum"] = RendererDiagnostics.spanChecksum(spans: spans, semanticDocument: semanticDocument)
+        recordRendererEvent(
+            name: "semanticSpans",
+            metadata: metadata,
+            range: editedRange
+        )
+
+        let signals = RendererDiagnostics.detectCorruptionSignals(
+            spans: spans,
+            semanticDocument: semanticDocument,
+            markdown: currentText,
+            noteBasename: rendererDiagnosticNoteBasename,
+            editedRange: editedRange,
+            textRevision: textRevision,
+            renderGeneration: renderGeneration
+        )
+        signals.forEach(RendererDiagnostics.record)
+    }
+
+    private func recordRendererTypingAttributes(
+        before: [NSAttributedString.Key: Any],
+        after: [NSAttributedString.Key: Any],
+        unsafeBefore: [String]
+    ) {
+        guard RendererDiagnostics.isEnabled else { return }
+        let unsafeAfter = RendererDiagnostics.unsafeTypingAttributeKeys(in: after)
+        recordRendererEvent(
+            level: unsafeAfter.isEmpty ? .info : .warning,
+            name: unsafeBefore.isEmpty && unsafeAfter.isEmpty
+                ? "typingAttributes"
+                : "corruption.unsafeTypingAttributes",
+            metadata: [
+                "beforeKeys": RendererDiagnostics.attributeKeys(before).joined(separator: ","),
+                "afterKeys": RendererDiagnostics.attributeKeys(after).joined(separator: ","),
+                "unsafeBeforeKeys": unsafeBefore.joined(separator: ","),
+                "unsafeAfterKeys": unsafeAfter.joined(separator: ","),
+                "unsafeStripped": "\(!unsafeBefore.isEmpty && unsafeAfter.isEmpty)",
+                "corruptionSignal": unsafeAfter.isEmpty ? "false" : "true"
+            ],
+            range: cursorPosition
+        )
+    }
+
+    private func recordRendererSaveSnapshot(noteURL: URL, textSnapshot: String) {
+        guard RendererDiagnostics.isEnabled else { return }
+        recordRendererEvent(
+            name: "save.renderSnapshot",
+            metadata: [
+                "textLength": "\((textSnapshot as NSString).length)",
+                "textChecksum": RendererDiagnostics.textChecksum(textSnapshot),
+                "spanChecksum": lastRendererSpanChecksum ?? RendererDiagnostics.spanChecksum(spans: lastAppliedHighlightSpans, semanticDocument: semanticDocument)
+            ],
+            renderGeneration: renderGeneration,
+            range: nil
+        )
+    }
+
+    private func rendererDiagnosticLineRange(for range: NSRange) -> RendererDiagnosticLineRange? {
+        let nsText = currentText as NSString
+        guard nsText.length > 0,
+              range.location != NSNotFound,
+              range.location >= 0 else {
+            return nil
+        }
+        let start = min(range.location, max(nsText.length - 1, 0))
+        let end = min(max(NSMaxRange(range) - 1, start), max(nsText.length - 1, 0))
+        return RendererDiagnosticLineRange(
+            start: rendererLineNumber(containing: start, in: nsText),
+            end: rendererLineNumber(containing: end, in: nsText)
+        )
+    }
+
+    private func rendererLineNumber(containing location: Int, in text: NSString) -> Int {
+        var line = 1
+        var cursor = 0
+        while cursor < min(location, text.length) {
+            if text.character(at: cursor) == 10 {
+                line += 1
+            }
+            cursor += 1
+        }
+        return line
+    }
+
+    private func rendererRangeDescription(_ range: NSRange) -> String {
+        "\(range.location):\(range.length)"
+    }
+
     // MARK: - Autosave
 
     private func autosaveRetryDelaySeconds() -> Int {
@@ -2121,13 +2644,98 @@ public final class EditorSession {
     }
 
     private func scheduleVersionSnapshotIfNeeded(noteURL: URL, content: String, force: Bool) {
-        guard let vaultRoot = vaultRootURL,
-              force || shouldSaveVersionSnapshot() else {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "snapshotRequested",
+            reasonCode: force ? "version.snapshotRequestedForce" : "version.snapshotRequested",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["contentLength": (content as NSString).length]
+        )
+        guard let vaultRoot = vaultRootURL else {
+            QuartzDiagnostics.warning(
+                category: "VersionHistory",
+                "Skipped version snapshot for \(noteURL.lastPathComponent) reason=missingVaultRoot"
+            )
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .versionHistory,
+                name: "snapshotSkipped",
+                reasonCode: "version.snapshotSkippedMissingVaultRoot",
+                noteBasename: noteURL.lastPathComponent
+            )
             return
         }
-        lastSnapshotDate = Date()
+        guard force || shouldSaveVersionSnapshot() else {
+            QuartzDiagnostics.info(
+                category: "VersionHistory",
+                "Skipped version snapshot for \(noteURL.lastPathComponent) reason=throttled"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "snapshotThrottled",
+                reasonCode: "version.snapshotThrottled",
+                noteBasename: noteURL.lastPathComponent
+            )
+            return
+        }
+        guard !isVersionSnapshotInFlight else {
+            pendingVersionSnapshot = (noteURL, content, force)
+            QuartzDiagnostics.info(
+                category: "VersionHistory",
+                "Deferred version snapshot for \(noteURL.lastPathComponent) reason=snapshotInFlight"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "pendingSnapshotQueued",
+                reasonCode: "version.pendingSnapshotQueued",
+                noteBasename: noteURL.lastPathComponent
+            )
+            return
+        }
+        isVersionSnapshotInFlight = true
         Task.detached(priority: .utility) {
-            VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
+            let started = Date()
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "snapshotStarted",
+                reasonCode: "version.snapshotStarted",
+                noteBasename: noteURL.lastPathComponent
+            )
+            let created = VersionHistoryService().saveSnapshot(for: noteURL, content: content, vaultRoot: vaultRoot)
+            SubsystemDiagnostics.record(
+                level: created ? .info : .warning,
+                subsystem: .versionHistory,
+                name: created ? "snapshotCreatedAfterSaveSuccess" : "snapshotFailedOrSkipped",
+                reasonCode: created ? "version.snapshotCreated" : "version.snapshotFailed",
+                noteBasename: noteURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.isVersionSnapshotInFlight = false
+                if created {
+                    self.lastSnapshotDate = Date()
+                }
+                if let pending = self.pendingVersionSnapshot {
+                    self.pendingVersionSnapshot = nil
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .versionHistory,
+                        name: "pendingSnapshotReplayed",
+                        reasonCode: "version.pendingSnapshotReplayed",
+                        noteBasename: pending.noteURL.lastPathComponent
+                    )
+                    self.scheduleVersionSnapshotIfNeeded(
+                        noteURL: pending.noteURL,
+                        content: pending.content,
+                        force: pending.force
+                    )
+                }
+            }
         }
     }
 
@@ -2135,6 +2743,17 @@ public final class EditorSession {
         autosaveTask?.cancel()
         let capturedNoteURL = note?.fileURL
         let retryDelay = consecutiveSaveFailures == 0 ? autosaveDelay : .seconds(autosaveRetryDelaySeconds())
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .save,
+            name: "autosaveScheduled",
+            reasonCode: consecutiveSaveFailures == 0 ? "save.autosaveScheduled" : "save.failureBackoff",
+            noteBasename: capturedNoteURL?.lastPathComponent,
+            counts: ["failureCount": consecutiveSaveFailures],
+            revision: textRevision,
+            metadata: ["force": String(force)],
+            verbose: true
+        )
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: retryDelay)
             guard !Task.isCancelled else { return }

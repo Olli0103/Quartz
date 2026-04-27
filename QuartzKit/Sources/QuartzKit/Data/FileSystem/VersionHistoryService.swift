@@ -111,6 +111,14 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "Failed to create snapshot directory: \(error.localizedDescription)"
             )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "snapshotFailed",
+                reasonCode: "version.snapshotFailed",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["error": error.localizedDescription]
+            )
             return false
         }
 
@@ -120,6 +128,13 @@ public struct VersionHistoryService: Sendable {
             QuartzDiagnostics.info(
                 category: "VersionHistory",
                 "Skipped duplicate snapshot for \(noteURL.lastPathComponent)"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "snapshotSkippedDuplicate",
+                reasonCode: "version.snapshotSkippedDuplicate",
+                noteBasename: noteURL.lastPathComponent
             )
             return false
         }
@@ -139,6 +154,14 @@ public struct VersionHistoryService: Sendable {
             QuartzDiagnostics.error(
                 category: "VersionHistory",
                 "Failed to encode snapshot content as UTF-8"
+            )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "snapshotFailed",
+                reasonCode: "version.snapshotFailed",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["error": "utf8EncodingFailed"]
             )
             return false
         }
@@ -190,6 +213,14 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "File coordination failed for snapshot: \(error.localizedDescription)"
             )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "snapshotFailed",
+                reasonCode: "version.snapshotFailed",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["error": error.localizedDescription]
+            )
             return false
         }
 
@@ -197,6 +228,14 @@ public struct VersionHistoryService: Sendable {
             QuartzDiagnostics.error(
                 category: "VersionHistory",
                 "Snapshot write did not complete for \(noteURL.lastPathComponent)"
+            )
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "snapshotFailed",
+                reasonCode: "version.snapshotFailed",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["error": "writeDidNotComplete"]
             )
             return false
         }
@@ -210,6 +249,18 @@ public struct VersionHistoryService: Sendable {
             name: .quartzVersionHistoryDidChange,
             object: noteURL,
             userInfo: ["vaultRoot": vaultRoot]
+        )
+        QuartzDiagnostics.info(
+            category: "VersionHistory",
+            "Created snapshot for \(noteURL.lastPathComponent)"
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "snapshotCreated",
+            reasonCode: "version.snapshotCreated",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: ["snapshotStorage": snapshotURL.lastPathComponent]
         )
         return true
     }

@@ -75,6 +75,8 @@ public final class ContentViewModel {
     /// Until this date, background embedding sweeps should stay paused because
     /// editor saves are failing and user data safety has priority over indexing.
     private var savePressurePauseUntil: Date?
+    /// Canonical note URL that caused the current save-pressure pause.
+    private var savePressureSourceURL: URL?
     /// Whether the current vault has completed its authoritative explicit relationship hydration.
     private var hasHydratedExplicitRelationships = false
     /// Whether the pending repair task must refresh the sidebar tree before rebuilding.
@@ -130,6 +132,15 @@ public final class ContentViewModel {
             indexingTelemetryLogger.info("\(stage, privacy: .public) finished in \(elapsed) ms")
         }
         QuartzDiagnostics.info(category: "IndexingTelemetry", diagnosticsMessage)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: stage.localizedCaseInsensitiveContains("embedding") ? .embeddings : .indexing,
+            name: "indexingStageFinished",
+            reasonCode: stage.localizedCaseInsensitiveContains("cache") ? "indexing.searchCacheHit" : "indexing.stageFinished",
+            durationMs: Double(elapsed),
+            counts: noteCount.map { ["notes": $0] } ?? [:],
+            metadata: ["stage": stage, "detail": detail ?? ""]
+        )
     }
 
     nonisolated private static func logIndexingFailure(
@@ -141,6 +152,28 @@ public final class ContentViewModel {
         let message = "\(operation)\(noteDescription) failed: \(error.localizedDescription)"
         indexingTelemetryLogger.error("\(message, privacy: .public)")
         QuartzDiagnostics.error(category: "IndexingTelemetry", message)
+        SubsystemDiagnostics.record(
+            level: .error,
+            subsystem: operation.localizedCaseInsensitiveContains("embedding") ? .embeddings : .indexing,
+            name: "indexingOperationFailed",
+            reasonCode: operation.localizedCaseInsensitiveContains("embedding") ? "embedding.sweepFailed" : "indexing.failed",
+            noteBasename: noteURL?.lastPathComponent,
+            metadata: ["operation": operation, "error": error.localizedDescription]
+        )
+    }
+
+    nonisolated private static func readNoteTextForBackgroundIndexing(at url: URL) throws -> String {
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        let data: Data
+        do {
+            data = try Data(contentsOf: canonicalURL, options: [.mappedIfSafe])
+        } catch {
+            data = try Data(contentsOf: canonicalURL)
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return text
     }
 
     // MARK: - Vault Loading
@@ -174,6 +207,7 @@ public final class ContentViewModel {
         savePressureResumeTask?.cancel()
         savePressureResumeTask = nil
         savePressurePauseUntil = nil
+        savePressureSourceURL = nil
         hasLoadedEmbeddingIndexForCurrentVault = false
         hasHydratedExplicitRelationships = false
         explicitRelationshipRepairNeedsSidebarRefresh = false
@@ -256,6 +290,9 @@ public final class ContentViewModel {
         session.graphEdgeStore = graphEdgeStore
         editorSession = session
         startRelationshipLifecycleObserver(for: vault.rootURL)
+        // Install save/index observers before vault hydration can start embedding work.
+        startEmbeddingReindexObserver()
+        startNoteLifecycleObservers()
 
         // Phase: editor mounted
         startupCoordinator.advance(to: StartupCoordinator.StartupPhase.editorMounted)
@@ -473,10 +510,6 @@ public final class ContentViewModel {
             cloudSyncStatus = .notApplicable
         }
 
-        // Observe note saves for debounced embedding re-indexing (5s after last save)
-        startEmbeddingReindexObserver()
-        startNoteLifecycleObservers()
-
         // Auto-backup check (runs in background if enabled)
         scheduleAutoBackupIfNeeded(vaultRoot: vault.rootURL)
 
@@ -649,23 +682,47 @@ public final class ContentViewModel {
         let saveHealthObserver = NotificationCenter.default.addObserver(
             forName: .quartzEditorSaveHealthChanged,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] notification in
             guard let self else { return }
             let state = notification.userInfo?["state"] as? String
             let url = notification.object as? URL
-            Task { @MainActor in
-                self.handleEditorSaveHealthChanged(state: state, url: url)
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self.handleEditorSaveHealthChanged(state: state, url: url)
+                }
+            } else {
+                Task { @MainActor in
+                    self.handleEditorSaveHealthChanged(state: state, url: url)
+                }
             }
         }
         noteLifecycleObservers.append(saveHealthObserver)
     }
 
     private func handleEditorSaveHealthChanged(state: String?, url: URL?) {
+        if let url,
+           let vaultRoot = appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL {
+            let notePath = CanonicalNoteIdentity.canonicalFileURL(for: url).path(percentEncoded: false)
+            let vaultPath = CanonicalNoteIdentity.canonicalFileURL(for: vaultRoot).path(percentEncoded: false)
+            guard notePath.hasPrefix(vaultPath) else {
+                SubsystemDiagnostics.record(
+                    level: .debug,
+                    subsystem: .embeddings,
+                    name: "savePressureIgnored",
+                    reasonCode: "embedding.staleGenerationIgnored",
+                    noteBasename: url.lastPathComponent,
+                    metadata: ["reason": "noteOutsideCurrentVault"],
+                    verbose: true
+                )
+                return
+            }
+        }
         if state == "failed" {
             let wasPaused = savePressurePauseUntil.map { $0 > Date() } ?? false
             let pauseUntil = Date().addingTimeInterval(90)
             savePressurePauseUntil = pauseUntil
+            savePressureSourceURL = url.map { CanonicalNoteIdentity.canonicalFileURL(for: $0) }
             indexingTask?.cancel()
             embeddingReindexTask?.cancel()
             indexingProgress = nil
@@ -678,8 +735,22 @@ public final class ContentViewModel {
             }
             scheduleSavePressureResume(at: pauseUntil)
         } else if state == "recovered" {
+            if let savePressureSourceURL,
+               url.map({ CanonicalNoteIdentity.canonicalFileURL(for: $0) }) != savePressureSourceURL {
+                SubsystemDiagnostics.record(
+                    level: .debug,
+                    subsystem: .embeddings,
+                    name: "savePressureRecoveryIgnored",
+                    reasonCode: "embedding.staleGenerationIgnored",
+                    noteBasename: url?.lastPathComponent,
+                    metadata: ["reason": "recoveredNoteDidNotCausePause"],
+                    verbose: true
+                )
+                return
+            }
             let wasPaused = savePressurePauseUntil != nil
             savePressurePauseUntil = nil
+            savePressureSourceURL = nil
             savePressureResumeTask?.cancel()
             savePressureResumeTask = nil
             if wasPaused {
@@ -1345,13 +1416,13 @@ public final class ContentViewModel {
         let extractionService = self.knowledgeExtractionService
         Task.detached(priority: .utility) {
             let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
-            // CRITICAL: Use coordinated read to prevent race with iCloud sync
+            // Background indexing is best-effort and must not compete with editor saves.
             let content: String?
             if let liveText {
                 content = liveText
             } else {
                 do {
-                    content = try CoordinatedFileWriter.shared.readString(from: url)
+                    content = try Self.readNoteTextForBackgroundIndexing(at: url)
                 } catch {
                     Self.logIndexingFailure("embedding note read", error: error, noteURL: url)
                     content = nil
@@ -1406,10 +1477,10 @@ public final class ContentViewModel {
             await embedding.removeNote(oldID)
             // Index at new stableID with coordinated read
             let newID = VectorEmbeddingService.stableNoteID(for: newURL, vaultRoot: vaultRoot)
-            // CRITICAL: Use coordinated read to prevent race with iCloud sync
+            // Background indexing is best-effort and must not compete with editor saves.
             let content: String?
             do {
-                content = try CoordinatedFileWriter.shared.readString(from: newURL)
+                content = try Self.readNoteTextForBackgroundIndexing(at: newURL)
             } catch {
                 Self.logIndexingFailure("embedding relocation read", error: error, noteURL: newURL)
                 content = nil
@@ -1658,6 +1729,14 @@ public final class ContentViewModel {
                     category: "IndexingTelemetry",
                     "Embedding sweep skipped: 0/\(noteURLs.count) notes need re-embedding"
                 )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .embeddings,
+                    name: "sweepSkipped",
+                    reasonCode: "embedding.noPendingNotes",
+                    counts: ["totalNotes": noteURLs.count, "pendingNotes": 0],
+                    generation: UInt64(generation)
+                )
                 await MainActor.run { [weak self] in
                     guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
                     self?.indexingProgress = nil
@@ -1681,6 +1760,28 @@ public final class ContentViewModel {
                 category: "IndexingTelemetry",
                 "Embedding sweep start: \(total)/\(noteURLs.count) notes need re-embedding reason.neverIndexed=\(pendingNeverIndexed) reason.modifiedAfterIndex=\(pendingModifiedAfterIndex) reason.missingMTime=\(pendingMissingMTime)"
             )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .embeddings,
+                name: "sweepStarted",
+                reasonCode: "embedding.sweepStarted",
+                counts: [
+                    "pendingNotes": total,
+                    "totalNotes": noteURLs.count,
+                    "neverIndexed": pendingNeverIndexed,
+                    "modifiedAfterIndex": pendingModifiedAfterIndex,
+                    "missingModificationDate": pendingMissingMTime
+                ],
+                generation: UInt64(generation)
+            )
+            SubsystemDiagnostics.updateState(
+                subsystem: .embeddings,
+                values: [
+                    "embeddingSweepStatus": "running",
+                    "pendingNotes": String(total),
+                    "totalNotes": String(noteURLs.count)
+                ]
+            )
             await MainActor.run { [weak self] in
                 guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }
                 let progress = (current: 0, total: total)
@@ -1702,7 +1803,7 @@ public final class ContentViewModel {
                 let stableID = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vaultRoot)
                 let content: String?
                 do {
-                    content = try CoordinatedFileWriter.shared.readString(from: url)
+                    content = try Self.readNoteTextForBackgroundIndexing(at: url)
                 } catch {
                     Self.logIndexingFailure("embedding sweep note read", error: error, noteURL: url)
                     content = nil
@@ -1735,6 +1836,15 @@ public final class ContentViewModel {
                     QuartzDiagnostics.info(
                         category: "IndexingTelemetry",
                         "Embedding sweep progress: \(current)/\(total) pending notes processed"
+                    )
+                    SubsystemDiagnostics.record(
+                        level: .debug,
+                        subsystem: .embeddings,
+                        name: "sweepProgress",
+                        reasonCode: "embedding.sweepProgress",
+                        counts: ["current": current, "total": total],
+                        generation: UInt64(generation),
+                        verbose: true
                     )
                 }
                 if current == total || current.isMultiple(of: 10) {
@@ -1777,6 +1887,23 @@ public final class ContentViewModel {
                 startedAt: indexingStart,
                 noteCount: total,
                 detail: "\(indexedNotes) notes indexed"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .embeddings,
+                name: "sweepCompleted",
+                reasonCode: "embedding.sweepCompleted",
+                counts: ["indexedNotes": indexedNotes, "pendingNotes": total],
+                generation: UInt64(generation),
+                metadata: ["status.embeddingSweep": "completed"]
+            )
+            SubsystemDiagnostics.updateState(
+                subsystem: .embeddings,
+                values: [
+                    "embeddingSweepStatus": "completed",
+                    "indexedNotes": String(indexedNotes),
+                    "pendingNotes": "0"
+                ]
             )
             await MainActor.run { [weak self] in
                 guard self?.isCurrentIndexingRun(runID, generation: generation, vaultRoot: vaultRoot) == true else { return }

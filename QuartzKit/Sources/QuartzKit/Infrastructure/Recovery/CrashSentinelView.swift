@@ -251,6 +251,9 @@ public actor DiagnosticExportService {
         let recoveryInfo = await gatherRecoveryInfo()
         let recentDiagnosticsLog = await diagnosticsStore.recentLogText(limitBytes: 65_536)
         let diagnosticsLogLocation = await diagnosticsStore.logFileURL()?.path(percentEncoded: false)
+        let rendererDiagnostics = await RendererDiagnostics.snapshot()
+        let subsystemDiagnostics = await SubsystemDiagnostics.snapshot()
+        let developerDiagnostics = DeveloperDiagnostics.status()
 
         var mergedAdditionalInfo = additionalInfo.mapValues { String(describing: $0) }
         for (key, value) in vaultInfo {
@@ -275,6 +278,9 @@ public actor DiagnosticExportService {
             deviceInfo: deviceInfo,
             appInfo: appInfo,
             memoryInfo: memoryInfo,
+            developerDiagnostics: developerDiagnostics,
+            subsystemDiagnostics: subsystemDiagnostics,
+            rendererDiagnostics: rendererDiagnostics,
             recentDiagnosticsLog: recentDiagnosticsLog,
             additionalInfo: mergedAdditionalInfo
         )
@@ -324,6 +330,26 @@ public actor DiagnosticExportService {
         \(report.additionalInfo.map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
 
         ───────────────────────────────────────────────────────────────
+        DEVELOPER DIAGNOSTICS MODE
+        ───────────────────────────────────────────────────────────────
+        \(developerDiagnosticsText(report.developerDiagnostics))
+
+        ───────────────────────────────────────────────────────────────
+        SUBSYSTEM HEALTH SUMMARY
+        ───────────────────────────────────────────────────────────────
+        \(subsystemHealthText(report.subsystemDiagnostics))
+
+        ───────────────────────────────────────────────────────────────
+        CROSS-SUBSYSTEM DIAGNOSTICS
+        ───────────────────────────────────────────────────────────────
+        \(subsystemDiagnosticsText(report.subsystemDiagnostics))
+
+        ───────────────────────────────────────────────────────────────
+        RENDERER DIAGNOSTICS
+        ───────────────────────────────────────────────────────────────
+        \(rendererDiagnosticsText(report.rendererDiagnostics))
+
+        ───────────────────────────────────────────────────────────────
         RECENT DIAGNOSTICS LOG
         ───────────────────────────────────────────────────────────────
         \(report.recentDiagnosticsLog)
@@ -332,6 +358,154 @@ public actor DiagnosticExportService {
         END OF REPORT
         ═══════════════════════════════════════════════════════════════
         """
+    }
+
+    private func developerDiagnosticsText(_ status: DeveloperDiagnosticsStatus) -> String {
+        """
+        Status: \(status.enabled ? "enabled" : "disabled")
+        Source: \(status.source)
+        Supported config files: \(status.supportedConfigFiles.joined(separator: ", "))
+        Supported keys: \(status.supportedKeys.joined(separator: ", "))
+        Flags:
+        \(status.flags.sorted { $0.key < $1.key }.map { "- \($0.key): \($0.value)" }.joined(separator: "\n"))
+        \(status.invalidConfigWarning.map { "Config warning: \($0)" } ?? "Config warning: none")
+        """
+    }
+
+    private func subsystemHealthText(_ snapshot: SubsystemDiagnosticsSnapshot) -> String {
+        DiagnosticsSubsystem.allCases.map { subsystem in
+            let state = snapshot.currentState[subsystem] ?? [:]
+            let warning = state["lastWarningOrError"].map { " warning=\($0)" } ?? ""
+            let duration = state["lastDurationMs"].map { " durationMs=\($0)" } ?? ""
+            let event = state["lastEvent"] ?? "none"
+            return "\(subsystem.displayName): lastEvent=\(event)\(warning)\(duration)"
+        }.joined(separator: "\n")
+    }
+
+    private func subsystemDiagnosticsText(_ snapshot: SubsystemDiagnosticsSnapshot) -> String {
+        var sections: [String] = []
+        let slowText = snapshot.topSlowOperations.isEmpty
+            ? "None captured."
+            : subsystemEventsText(snapshot.topSlowOperations)
+        sections.append("Top slow operations:\n\(slowText)")
+
+        let repeatedText = snapshot.repeatedEventSummaries.isEmpty
+            ? "None captured."
+            : subsystemEventsText(snapshot.repeatedEventSummaries)
+        sections.append("Repeated event summaries:\n\(repeatedText)")
+
+        for subsystem in DiagnosticsSubsystem.allCases {
+            let warnings = snapshot.warningsAndErrorsBySubsystem[subsystem] ?? []
+            let recent = snapshot.eventsBySubsystem[subsystem] ?? []
+            let state = snapshot.currentState[subsystem] ?? [:]
+            let stateText = state.isEmpty
+                ? "No current state captured."
+                : state.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+            sections.append("""
+            \(subsystem.displayName)
+            State: \(stateText)
+            Warnings/errors:
+            \(subsystemEventsText(warnings))
+            Recent events:
+            \(subsystemEventsText(recent))
+            """)
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func subsystemEventsText(_ events: [SubsystemDiagnosticEvent]) -> String {
+        guard !events.isEmpty else { return "None captured." }
+        return events.map { event in
+            var parts: [String] = [
+                event.timestamp.formatted(),
+                "[\(event.level.rawValue.uppercased())]",
+                event.name
+            ]
+            if let reasonCode = event.reasonCode {
+                parts.append("reason=\(reasonCode)")
+            }
+            if let noteBasename = event.noteBasename {
+                parts.append("note=\(noteBasename)")
+            }
+            if let vaultName = event.vaultName {
+                parts.append("vault=\(vaultName)")
+            }
+            if let durationMs = event.durationMs {
+                parts.append("durationMs=\(String(format: "%.1f", durationMs))")
+            }
+            if let generation = event.generation {
+                parts.append("generation=\(generation)")
+            }
+            if let revision = event.revision {
+                parts.append("revision=\(revision)")
+            }
+            if !event.counts.isEmpty {
+                parts.append(event.counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            }
+            if !event.metadata.isEmpty {
+                parts.append(event.metadata.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
+            }
+            return parts.joined(separator: " ")
+        }.joined(separator: "\n")
+    }
+
+    private func rendererDiagnosticsText(_ snapshot: RendererDiagnosticsSnapshot) -> String {
+        guard snapshot.enabled else {
+            return "Status: disabled\nEnable: \(snapshot.enablementHint)"
+        }
+
+        return """
+        Status: enabled
+
+        Last render durations:
+        \(snapshot.lastRenderDurations.isEmpty ? "None captured." : snapshot.lastRenderDurations.joined(separator: "\n"))
+
+        Last span checksums:
+        \(snapshot.lastSpanChecksums.isEmpty ? "None captured." : snapshot.lastSpanChecksums.joined(separator: "\n"))
+
+        Last warnings/errors:
+        \(diagnosticEventsText(snapshot.warningsAndErrors))
+
+        Last detected corruption signals:
+        \(diagnosticEventsText(snapshot.corruptionSignals))
+
+        Last renderer events:
+        \(diagnosticEventsText(snapshot.lastEvents))
+        """
+    }
+
+    private func diagnosticEventsText(_ events: [RendererDiagnosticEvent]) -> String {
+        guard !events.isEmpty else { return "None captured." }
+        return events.map { event in
+            var parts: [String] = [
+                event.timestamp.formatted(),
+                "[\(event.level.rawValue.uppercased())]",
+                event.name
+            ]
+            if let noteBasename = event.noteBasename {
+                parts.append("note=\(noteBasename)")
+            }
+            if let range = event.affectedRange {
+                parts.append("range=\(range.location):\(range.length)")
+            }
+            if let lineRange = event.lineRange {
+                parts.append("lines=\(lineRange.start)-\(lineRange.end)")
+            }
+            if let textRevision = event.textRevision {
+                parts.append("textRevision=\(textRevision)")
+            }
+            if let renderGeneration = event.renderGeneration {
+                parts.append("renderGeneration=\(renderGeneration)")
+            }
+            if !event.metadata.isEmpty {
+                let metadata = event.metadata
+                    .sorted { $0.key < $1.key }
+                    .map { "\($0.key)=\($0.value)" }
+                    .joined(separator: " ")
+                parts.append(metadata)
+            }
+            return parts.joined(separator: " ")
+        }.joined(separator: "\n")
     }
 
     // MARK: - Private Helpers
@@ -499,6 +673,9 @@ public struct DiagnosticReport: Sendable, Codable {
     public let deviceInfo: DeviceInfo
     public let appInfo: AppInfo
     public let memoryInfo: MemoryInfo
+    public let developerDiagnostics: DeveloperDiagnosticsStatus
+    public let subsystemDiagnostics: SubsystemDiagnosticsSnapshot
+    public let rendererDiagnostics: RendererDiagnosticsSnapshot
     public let recentDiagnosticsLog: String
     public let additionalInfo: [String: String]
 }
