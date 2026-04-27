@@ -286,6 +286,11 @@ public actor MarkdownASTHighlighter {
         self.lineSpacing = lineSpacing
         if let vaultRootURL { self.vaultRootURL = vaultRootURL }
         if let noteURL { self.noteURL = noteURL }
+        resetCache()
+    }
+
+    /// Clears cached parse state when the active note or renderer context changes.
+    public func resetCache() {
         parseTask?.cancel()
         parseTask = nil
         cachedMarkdown = nil
@@ -370,7 +375,19 @@ public actor MarkdownASTHighlighter {
         preEditLength: Int
     ) async -> [HighlightSpan] {
         // Fall back to full parse if no cache
-        guard !cachedSpans.isEmpty else {
+        guard let cachedSource = cachedMarkdown, !cachedSpans.isEmpty else {
+            return await parse(markdown)
+        }
+
+        let nsMarkdown = markdown as NSString
+        let nsCachedMarkdown = cachedSource as NSString
+        let docLength = nsMarkdown.length
+        let expectedPreviousLength = docLength - editRange.length + preEditLength
+
+        guard expectedPreviousLength == nsCachedMarkdown.length,
+              editRange.location >= 0,
+              editRange.length >= 0,
+              editRange.location + editRange.length <= docLength else {
             return await parse(markdown)
         }
 
@@ -386,9 +403,6 @@ public actor MarkdownASTHighlighter {
         if ASTDirtyRegionTracker.containsCodeFenceBoundary(in: markdown, range: dirtyRange) {
             return await parse(markdown)
         }
-
-        let nsMarkdown = markdown as NSString
-        let docLength = nsMarkdown.length
 
         // Validate dirty range
         guard dirtyRange.location >= 0,
@@ -431,6 +445,17 @@ public actor MarkdownASTHighlighter {
 
         // Compute length delta for shifting spans after the dirty region
         let lengthDelta = editRange.length - preEditLength
+        let oldDirtyEnd = dirtyRange.location + dirtyRange.length - lengthDelta
+        guard oldDirtyEnd >= 0,
+              oldDirtyEnd <= nsCachedMarkdown.length,
+              Self.incrementalCacheMatches(
+                cachedMarkdown: cachedSource,
+                markdown: markdown,
+                dirtyRange: dirtyRange,
+                oldDirtyEnd: oldDirtyEnd
+              ) else {
+            return await parse(markdown)
+        }
 
         // Merge: keep spans before dirty range, insert new spans, shift spans after
         var merged: [HighlightSpan] = []
@@ -446,7 +471,6 @@ public actor MarkdownASTHighlighter {
         merged.append(contentsOf: offsetSpans)
 
         // 3. Spans entirely after the dirty range (shifted by length delta)
-        let oldDirtyEnd = dirtyRange.location + dirtyRange.length - lengthDelta
         for span in cachedSpans {
             if span.range.location >= oldDirtyEnd {
                 let shifted = NSRange(
@@ -481,6 +505,50 @@ public actor MarkdownASTHighlighter {
         let sortedMerged = Self.sortSpans(merged)
         cachedSpans = sortedMerged
         return sortedMerged
+    }
+
+    private static func incrementalCacheMatches(
+        cachedMarkdown: String,
+        markdown: String,
+        dirtyRange: NSRange,
+        oldDirtyEnd: Int
+    ) -> Bool {
+        let nsNew = markdown as NSString
+        let nsOld = cachedMarkdown as NSString
+        let newLength = nsNew.length
+        let oldLength = nsOld.length
+
+        guard dirtyRange.location <= oldLength,
+              dirtyRange.location <= newLength,
+              oldDirtyEnd <= oldLength,
+              dirtyRange.location + dirtyRange.length <= newLength else {
+            return false
+        }
+
+        let contextLimit = 256
+        let prefixLength = min(dirtyRange.location, contextLimit)
+        if prefixLength > 0 {
+            let prefixLocation = dirtyRange.location - prefixLength
+            let range = NSRange(location: prefixLocation, length: prefixLength)
+            guard nsOld.substring(with: range) == nsNew.substring(with: range) else {
+                return false
+            }
+        }
+
+        let newSuffixStart = dirtyRange.location + dirtyRange.length
+        guard newSuffixStart <= newLength else { return false }
+        let oldSuffixAvailable = oldLength - oldDirtyEnd
+        let newSuffixAvailable = newLength - newSuffixStart
+        let suffixLength = min(contextLimit, min(oldSuffixAvailable, newSuffixAvailable))
+        if suffixLength > 0 {
+            let oldRange = NSRange(location: oldDirtyEnd, length: suffixLength)
+            let newRange = NSRange(location: newSuffixStart, length: suffixLength)
+            guard nsOld.substring(with: oldRange) == nsNew.substring(with: newRange) else {
+                return false
+            }
+        }
+
+        return true
     }
 
     private static func parseSync(_ markdown: String, baseFontSize: CGFloat, fontFamily: AppearanceManager.EditorFontFamily, vaultRootURL: URL?, noteURL: URL?) -> [HighlightSpan] {

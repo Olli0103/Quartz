@@ -51,6 +51,7 @@ struct E2EChatFlowTests {
             .noProviderConfigured,
             .noRelevantContent,
             .indexEmpty,
+            .notReady("provider unavailable"),
             .providerError("timeout")
         ]
 

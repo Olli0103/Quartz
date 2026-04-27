@@ -149,6 +149,13 @@ public final class EditorSession {
     /// as an explicit save after the current write completes.
     private var forceSavePendingAfterCurrentWrite = false
 
+    /// First outstanding save request timestamp. Used only for diagnostics so
+    /// slow saves can be split into debounce/queue time versus actual write time.
+    private var pendingSaveRequestedAt: Date?
+
+    private var autosaveDiagnosticSignature: String?
+    private var autosaveDiagnosticRepeatCount = 0
+
     /// Guard flag: true while a programmatic edit is mutating the active text view.
     /// Prevents delegate callbacks from downgrading the mutation origin to `.userTyping`.
     private var isApplyingExternalEdit: Bool = false
@@ -415,6 +422,7 @@ public final class EditorSession {
 
         cancelAllTasks()
         stopFileWatching()
+        await highlighter?.resetCache()
 
         // Reset version history throttle for new note
         lastSnapshotDate = nil
@@ -464,6 +472,9 @@ public final class EditorSession {
 
         cancelAllTasks()
         stopFileWatching()
+        if let highlighter {
+            Task { await highlighter.resetCache() }
+        }
         clearUndoStack()
 
         note = nil
@@ -927,8 +938,10 @@ public final class EditorSession {
                 ],
                 range: edit.range
             )
+            let parseText = currentText
+            let parseRevision = textRevision
             let spans = MarkdownASTHighlighter.parseImmediately(
-                currentText,
+                parseText,
                 baseFontSize: highlighterBaseFontSize,
                 fontFamily: highlighterFontFamily,
                 vaultRootURL: vaultRootURL,
@@ -944,7 +957,13 @@ public final class EditorSession {
                 ],
                 range: edit.range
             )
-            applyHighlightSpansForced(spans)
+            applyHighlightSpansForced(
+                spans,
+                sourceText: parseText,
+                sourceRevision: parseRevision,
+                editedRange: edit.range,
+                parseMode: "forced"
+            )
             return
         }
 
@@ -953,9 +972,11 @@ public final class EditorSession {
         // Run highlight IMMEDIATELY with NO DIFF for larger notes once parsing completes.
         // Formatting actions are infrequent, so this can bypass the regular debounced path.
         highlightTask?.cancel()
+        let scheduledText = currentText
+        let scheduledRevision = textRevision
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
-            let text = self.currentText
+            let text = scheduledText
             let parseStart = CFAbsoluteTimeGetCurrent()
             self.recordRendererEvent(
                 name: "parseStart",
@@ -978,7 +999,13 @@ public final class EditorSession {
                 range: edit.range
             )
             await MainActor.run { [weak self] in
-                self?.applyHighlightSpansForced(spans)
+                self?.applyHighlightSpansForced(
+                    spans,
+                    sourceText: text,
+                    sourceRevision: scheduledRevision,
+                    editedRange: edit.range,
+                    parseMode: "forced"
+                )
             }
         }
     }
@@ -990,14 +1017,22 @@ public final class EditorSession {
             return
         }
 
+        let parseText = currentText
+        let parseRevision = textRevision
         let spans = MarkdownASTHighlighter.parseImmediately(
-            currentText,
+            parseText,
             baseFontSize: highlighterBaseFontSize,
             fontFamily: highlighterFontFamily,
             vaultRootURL: vaultRootURL,
             noteURL: note?.fileURL
         )
-        applyHighlightSpansForced(spans)
+        applyHighlightSpansForced(
+            spans,
+            sourceText: parseText,
+            sourceRevision: parseRevision,
+            editedRange: currentTransaction?.editedRange,
+            parseMode: "forced"
+        )
     }
 
     private func applyOptimisticFormattingPreview(action: FormattingAction, edit: MarkdownFormatEdit) {
@@ -1343,17 +1378,31 @@ public final class EditorSession {
 
     /// Applies highlight spans WITHOUT diffing — forces all attributes to be rewritten.
     /// Used after formatting actions where stale overlay attributes may have shifted.
-    private func applyHighlightSpansForced(_ spans: [HighlightSpan]) {
+    private func applyHighlightSpansForced(
+        _ spans: [HighlightSpan],
+        sourceText: String? = nil,
+        sourceRevision: UInt64? = nil,
+        editedRange: NSRange? = nil,
+        parseMode: String = "forced",
+        snapshotKind: RendererSnapshotKind? = nil
+    ) {
         guard !isComposing else { return }
+        guard validateHighlightApplication(
+            sourceText: sourceText,
+            sourceRevision: sourceRevision,
+            editedRange: editedRange,
+            parseMode: parseMode
+        ) else { return }
+        let appliedText = sourceText ?? currentText
         let diagnosticStart = CFAbsoluteTimeGetCurrent()
-        recordRendererHighlightApplyStart(spans: spans, fullApplication: true)
+        recordRendererHighlightApplyStart(spans: spans, fullApplication: true, sourceText: appliedText)
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
-        lastAppliedHighlightSourceText = currentText
-        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
+        lastAppliedHighlightSourceText = appliedText
+        semanticDocument = EditorSemanticDocument.build(markdown: appliedText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
-        recordRendererSemanticState(spans: spans, editedRange: currentTransaction?.editedRange)
+        recordRendererSemanticState(spans: spans, markdown: appliedText, editedRange: editedRange ?? currentTransaction?.editedRange)
         inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
@@ -1437,9 +1486,11 @@ public final class EditorSession {
         completeRendererHighlightApply(
             start: diagnosticStart,
             spans: spans,
+            sourceText: appliedText,
             appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
             fullApplication: true,
-            selectionRestoreSucceeded: selectionRestoreSucceeded
+            selectionRestoreSucceeded: selectionRestoreSucceeded,
+            snapshotKind: snapshotKind
         )
         updateTypingAttributes()
 
@@ -1518,9 +1569,11 @@ public final class EditorSession {
         completeRendererHighlightApply(
             start: diagnosticStart,
             spans: spans,
+            sourceText: appliedText,
             appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
             fullApplication: true,
-            selectionRestoreSucceeded: selectionRestoreSucceeded
+            selectionRestoreSucceeded: selectionRestoreSucceeded,
+            snapshotKind: snapshotKind
         )
         updateTypingAttributes()
         #endif
@@ -1684,7 +1737,9 @@ public final class EditorSession {
     /// Saves the current note immediately.
     public func save(force: Bool = false) async {
         guard var currentNote = note, (isDirty || force) else { return }
+        let saveRequestDate = pendingSaveRequestedAt ?? Date()
         if isSaving {
+            pendingSaveRequestedAt = pendingSaveRequestedAt ?? Date()
             savePendingAfterCurrentWrite = true
             if force {
                 forceSavePendingAfterCurrentWrite = true
@@ -1703,6 +1758,8 @@ public final class EditorSession {
 
         let forceVersionSnapshotForThisSave = force
         let saveStarted = Date()
+        let queueWaitMs = max(0, saveStarted.timeIntervalSince(saveRequestDate) * 1_000)
+        pendingSaveRequestedAt = nil
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .save,
@@ -1712,7 +1769,8 @@ public final class EditorSession {
             revision: textRevision,
             metadata: [
                 "dirtyBefore": String(isDirty),
-                "force": String(force)
+                "force": String(force),
+                "queueWaitMs": String(format: "%.1f", queueWaitMs)
             ]
         )
         isSaving = true
@@ -1757,7 +1815,9 @@ public final class EditorSession {
 
         do {
             let savedURL = currentNote.fileURL
+            let writeStarted = Date()
             try await vaultProvider.saveNote(currentNote, filePresenter: filePresenter)
+            let writeMs = Date().timeIntervalSince(writeStarted) * 1_000
 
             // Compute and store content hash for echo suppression.
             // Hash the FULL serialized content (frontmatter + body) to match what's on disk.
@@ -1779,6 +1839,7 @@ public final class EditorSession {
             if savedSnapshotStillCurrent {
                 isDirty = false
             }
+            let dirtyAfterReason = isDirty ? "textChangedDuringSave" : "none"
             consecutiveSaveFailures = 0
             postSaveHealthChanged(state: "recovered", url: savedURL)
             errorMessage = nil
@@ -1789,19 +1850,22 @@ public final class EditorSession {
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .save,
-                name: "saveCompleted",
-                reasonCode: isDirty ? "save.dirtyAfterTrue" : "save.completedClean",
+                name: "savePrimaryPersisted",
+                reasonCode: savedSnapshotStillCurrent ? "save.primaryPersistedClean" : "save.primaryPersistedDirtyAfter",
                 noteBasename: savedURL.lastPathComponent,
-                durationMs: Date().timeIntervalSince(saveStarted) * 1_000,
+                durationMs: writeMs,
                 counts: ["characters": (textSnapshot as NSString).length],
                 revision: textRevision,
                 metadata: [
                     "dirtyAfter": String(isDirty),
-                    "dirtyAfterReason": savedSnapshotStillCurrent ? "none" : "textChangedDuringSave"
+                    "dirtyAfterReason": dirtyAfterReason,
+                    "queueWaitMs": String(format: "%.1f", queueWaitMs),
+                    "writeMs": String(format: "%.1f", writeMs)
                 ]
             )
             recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
 
+            let postSaveStarted = Date()
             // Publish via typed event bus (new pattern per CODEX.md F4)
             await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
 
@@ -1824,6 +1888,29 @@ public final class EditorSession {
                 savePendingAfterCurrentWrite = false
                 forceSavePendingAfterCurrentWrite = false
             }
+            let postSaveMs = Date().timeIntervalSince(postSaveStarted) * 1_000
+            let totalMs = Date().timeIntervalSince(saveStarted) * 1_000
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "saveCompleted",
+                reasonCode: isDirty ? "save.dirtyAfterTrue" : "save.completedClean",
+                noteBasename: savedURL.lastPathComponent,
+                durationMs: totalMs,
+                counts: ["characters": (textSnapshot as NSString).length],
+                revision: textRevision,
+                metadata: [
+                    "dirtyAfter": String(isDirty),
+                    "dirtyAfterReason": dirtyAfterReason,
+                    "queueWaitMs": String(format: "%.1f", queueWaitMs),
+                    "writeMs": String(format: "%.1f", writeMs),
+                    "snapshotMs": "0.0",
+                    "snapshotMode": "async",
+                    "postSaveMs": String(format: "%.1f", postSaveMs),
+                    "totalMs": String(format: "%.1f", totalMs),
+                    "snapshotScheduling": savedSnapshotStillCurrent ? "scheduledOrThrottled" : "skippedDirtyAfter"
+                ]
+            )
         } catch {
             consecutiveSaveFailures += 1
             let fallbackResult = await attemptEmergencySaveIfNeeded(
@@ -1963,6 +2050,10 @@ public final class EditorSession {
     /// Latest semantic span checksum captured while renderer diagnostics were enabled.
     private var lastRendererSpanChecksum: String?
 
+    private enum RendererSnapshotKind {
+        case loadReopen
+    }
+
     /// Schedules a debounced highlight pass. Skips if IME is composing.
     /// Uses incremental parsing when the current transaction supports it.
     public func scheduleHighlight() {
@@ -1972,6 +2063,7 @@ public final class EditorSession {
         let transaction = currentTransaction
         let parseMode = transaction?.prefersIncrementalHighlight == true ? "incremental" : "full"
         let scheduleRevision = textRevision
+        let scheduledText = currentText
         let cancelPrevious = highlightTask != nil
         recordRendererEvent(
             name: "scheduleHighlight",
@@ -1988,7 +2080,7 @@ public final class EditorSession {
         highlightTask?.cancel()
         highlightTask = Task { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
-            let text = self.currentText
+            let text = scheduledText
             let parseStart = CFAbsoluteTimeGetCurrent()
             self.recordRendererEvent(
                 name: "parseStart",
@@ -2029,7 +2121,13 @@ public final class EditorSession {
                 range: transaction?.editedRange
             )
             await MainActor.run { [weak self] in
-                self?.applyHighlightSpans(spans)
+                self?.applyHighlightSpans(
+                    spans,
+                    sourceText: text,
+                    sourceRevision: scheduleRevision,
+                    editedRange: transaction?.editedRange,
+                    parseMode: parseMode
+                )
             }
         }
     }
@@ -2039,6 +2137,7 @@ public final class EditorSession {
         guard !isComposing else { return }
 
         let scheduleRevision = textRevision
+        let scheduledText = currentText
         recordRendererEvent(
             name: "scheduleHighlight",
             metadata: [
@@ -2052,7 +2151,7 @@ public final class EditorSession {
         highlightTask?.cancel()
         highlightTask = Task(priority: priority) { [weak self] in
             guard let self, let highlighter = self.highlighter else { return }
-            let text = self.currentText
+            let text = scheduledText
             let parseStart = CFAbsoluteTimeGetCurrent()
             self.recordRendererEvent(
                 name: "parseStart",
@@ -2074,23 +2173,43 @@ public final class EditorSession {
                 renderGeneration: self.renderGeneration
             )
             await MainActor.run { [weak self] in
-                self?.applyHighlightSpansForced(spans)
+                self?.applyHighlightSpansForced(
+                    spans,
+                    sourceText: text,
+                    sourceRevision: scheduleRevision,
+                    editedRange: nil,
+                    parseMode: "load-reopen",
+                    snapshotKind: .loadReopen
+                )
             }
         }
     }
 
     /// Applies highlight spans to the native text view with IME guard.
-    private func applyHighlightSpans(_ spans: [HighlightSpan]) {
+    private func applyHighlightSpans(
+        _ spans: [HighlightSpan],
+        sourceText: String? = nil,
+        sourceRevision: UInt64? = nil,
+        editedRange: NSRange? = nil,
+        parseMode: String = "post-edit"
+    ) {
         guard !isComposing else { return }
+        guard validateHighlightApplication(
+            sourceText: sourceText,
+            sourceRevision: sourceRevision,
+            editedRange: editedRange,
+            parseMode: parseMode
+        ) else { return }
+        let appliedText = sourceText ?? currentText
         let diagnosticStart = CFAbsoluteTimeGetCurrent()
-        recordRendererHighlightApplyStart(spans: spans, fullApplication: false)
+        recordRendererHighlightApplyStart(spans: spans, fullApplication: false, sourceText: appliedText)
         isApplyingHighlights = true
         defer { isApplyingHighlights = false }
         lastAppliedHighlightSpans = spans
-        lastAppliedHighlightSourceText = currentText
-        semanticDocument = EditorSemanticDocument.build(markdown: currentText, spans: spans)
+        lastAppliedHighlightSourceText = appliedText
+        semanticDocument = EditorSemanticDocument.build(markdown: appliedText, spans: spans)
         lastRenderPlan = EditorRenderPlan(spans: spans)
-        recordRendererSemanticState(spans: spans, editedRange: currentTransaction?.editedRange)
+        recordRendererSemanticState(spans: spans, markdown: appliedText, editedRange: editedRange ?? currentTransaction?.editedRange)
         inspectorStore.setHeadings(authoritativeHeadingItems())
         formattingState = FormattingState.detect(
             in: currentText,
@@ -2176,9 +2295,11 @@ public final class EditorSession {
         completeRendererHighlightApply(
             start: diagnosticStart,
             spans: spans,
+            sourceText: appliedText,
             appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
             fullApplication: false,
-            selectionRestoreSucceeded: selectionRestoreSucceeded
+            selectionRestoreSucceeded: selectionRestoreSucceeded,
+            snapshotKind: nil
         )
         updateTypingAttributes()
 
@@ -2259,9 +2380,11 @@ public final class EditorSession {
         completeRendererHighlightApply(
             start: diagnosticStart,
             spans: spans,
+            sourceText: appliedText,
             appliedRangeCount: segments.count + lastRenderPlan.overlaySpans.count + lastRenderPlan.attachmentSpans.count,
             fullApplication: false,
-            selectionRestoreSucceeded: selectionRestoreSucceeded
+            selectionRestoreSucceeded: selectionRestoreSucceeded,
+            snapshotKind: nil
         )
         updateTypingAttributes()
         #endif
@@ -2491,14 +2614,45 @@ public final class EditorSession {
         )
     }
 
-    private func recordRendererHighlightApplyStart(spans: [HighlightSpan], fullApplication: Bool) {
+    private func validateHighlightApplication(
+        sourceText: String?,
+        sourceRevision: UInt64?,
+        editedRange: NSRange?,
+        parseMode: String
+    ) -> Bool {
+        guard let sourceText, let sourceRevision else { return true }
+        guard sourceRevision == textRevision, sourceText == currentText else {
+            let sourceLength = (sourceText as NSString).length
+            let currentLength = (currentText as NSString).length
+            recordRendererEvent(
+                level: .warning,
+                name: "highlightSkippedStaleParseResult",
+                metadata: [
+                    "reason": "renderer.staleParseResult",
+                    "parseMode": parseMode,
+                    "sourceRevision": "\(sourceRevision)",
+                    "currentRevision": "\(textRevision)",
+                    "sourceLength": "\(sourceLength)",
+                    "currentLength": "\(currentLength)",
+                    "corruptionSignal": "false"
+                ],
+                textRevision: textRevision,
+                renderGeneration: renderGeneration,
+                range: editedRange
+            )
+            return false
+        }
+        return true
+    }
+
+    private func recordRendererHighlightApplyStart(spans: [HighlightSpan], fullApplication: Bool, sourceText: String) {
         guard RendererDiagnostics.isEnabled else { return }
         recordRendererEvent(
             name: "applyHighlightSpansStart",
             metadata: [
                 "application": fullApplication ? "full" : "partial",
                 "spanCount": "\(spans.count)",
-                "sourceTextLength": "\((currentText as NSString).length)"
+                "sourceLength": "\((sourceText as NSString).length)"
             ]
         )
     }
@@ -2506,15 +2660,17 @@ public final class EditorSession {
     private func completeRendererHighlightApply(
         start: CFAbsoluteTime,
         spans: [HighlightSpan],
+        sourceText: String,
         appliedRangeCount: Int,
         fullApplication: Bool,
-        selectionRestoreSucceeded: Bool
+        selectionRestoreSucceeded: Bool,
+        snapshotKind: RendererSnapshotKind?
     ) {
         guard RendererDiagnostics.isEnabled else { return }
         renderGeneration &+= 1
         let checksum = RendererDiagnostics.spanChecksum(spans: spans, semanticDocument: semanticDocument)
         lastRendererSpanChecksum = checksum
-        let textChecksum = RendererDiagnostics.textChecksum(currentText)
+        let textChecksum = RendererDiagnostics.textChecksum(sourceText)
         recordRendererEvent(
             name: "applyHighlightSpansFinish",
             metadata: [
@@ -2524,28 +2680,30 @@ public final class EditorSession {
                 "durationMs": "\(Int((CFAbsoluteTimeGetCurrent() - start) * 1_000))",
                 "spanChecksum": checksum,
                 "textChecksum": textChecksum,
-                "textLength": "\((currentText as NSString).length)"
+                "textLength": "\((sourceText as NSString).length)"
             ],
             renderGeneration: renderGeneration
         )
 
-        recordRendererEvent(
-            name: "reopen.renderSnapshot",
-            metadata: [
-                "spanChecksum": checksum,
-                "textChecksum": textChecksum,
-                "loadedTextLength": "\((currentText as NSString).length)"
-            ],
-            renderGeneration: renderGeneration
-        )
+        if snapshotKind == .loadReopen {
+            recordRendererEvent(
+                name: "reopen.renderSnapshot",
+                metadata: [
+                    "spanChecksum": checksum,
+                    "textChecksum": textChecksum,
+                    "loadedTextLength": "\((sourceText as NSString).length)"
+                ],
+                renderGeneration: renderGeneration
+            )
+        }
     }
 
-    private func recordRendererSemanticState(spans: [HighlightSpan], editedRange: NSRange?) {
+    private func recordRendererSemanticState(spans: [HighlightSpan], markdown: String, editedRange: NSRange?) {
         guard RendererDiagnostics.isEnabled else { return }
         var metadata = RendererDiagnostics.spanSummary(
             spans: spans,
             semanticDocument: semanticDocument,
-            markdown: currentText,
+            markdown: markdown,
             editedRange: editedRange
         )
         metadata["spanChecksum"] = RendererDiagnostics.spanChecksum(spans: spans, semanticDocument: semanticDocument)
@@ -2558,7 +2716,7 @@ public final class EditorSession {
         let signals = RendererDiagnostics.detectCorruptionSignals(
             spans: spans,
             semanticDocument: semanticDocument,
-            markdown: currentText,
+            markdown: markdown,
             noteBasename: rendererDiagnosticNoteBasename,
             editedRange: editedRange,
             textRevision: textRevision,
@@ -2667,6 +2825,11 @@ public final class EditorSession {
             return
         }
         guard force || shouldSaveVersionSnapshot() else {
+            let now = Date()
+            let secondsRemaining = lastSnapshotDate
+                .map { max(0, Self.versionSnapshotInterval - now.timeIntervalSince($0)) } ?? 0
+            let nextEligible = lastSnapshotDate
+                .map { $0.addingTimeInterval(Self.versionSnapshotInterval) }
             QuartzDiagnostics.info(
                 category: "VersionHistory",
                 "Skipped version snapshot for \(noteURL.lastPathComponent) reason=throttled"
@@ -2676,7 +2839,12 @@ public final class EditorSession {
                 subsystem: .versionHistory,
                 name: "snapshotThrottled",
                 reasonCode: "version.snapshotThrottled",
-                noteBasename: noteURL.lastPathComponent
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "secondsUntilNextEligible": String(format: "%.0f", secondsRemaining),
+                    "nextEligibleAt": nextEligible.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown",
+                    "lastSnapshotAt": lastSnapshotDate.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown"
+                ]
             )
             return
         }
@@ -2743,17 +2911,40 @@ public final class EditorSession {
         autosaveTask?.cancel()
         let capturedNoteURL = note?.fileURL
         let retryDelay = consecutiveSaveFailures == 0 ? autosaveDelay : .seconds(autosaveRetryDelaySeconds())
-        SubsystemDiagnostics.record(
-            level: .debug,
-            subsystem: .save,
-            name: "autosaveScheduled",
-            reasonCode: consecutiveSaveFailures == 0 ? "save.autosaveScheduled" : "save.failureBackoff",
-            noteBasename: capturedNoteURL?.lastPathComponent,
-            counts: ["failureCount": consecutiveSaveFailures],
-            revision: textRevision,
-            metadata: ["force": String(force)],
-            verbose: true
-        )
+        pendingSaveRequestedAt = pendingSaveRequestedAt ?? Date()
+        let signature = [
+            capturedNoteURL?.lastPathComponent ?? "none",
+            String(force),
+            String(consecutiveSaveFailures)
+        ].joined(separator: "|")
+        if signature == autosaveDiagnosticSignature {
+            autosaveDiagnosticRepeatCount += 1
+        } else {
+            autosaveDiagnosticSignature = signature
+            autosaveDiagnosticRepeatCount = 1
+        }
+        let shouldRecordAutosaveDiagnostic = autosaveDiagnosticRepeatCount == 1
+            || autosaveDiagnosticRepeatCount == 4
+            || autosaveDiagnosticRepeatCount.isMultiple(of: 25)
+        if shouldRecordAutosaveDiagnostic {
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .save,
+                name: autosaveDiagnosticRepeatCount == 1 ? "autosaveScheduled" : "autosaveRescheduledSummary",
+                reasonCode: consecutiveSaveFailures == 0 ? "save.autosaveScheduled" : "save.failureBackoff",
+                noteBasename: capturedNoteURL?.lastPathComponent,
+                counts: [
+                    "failureCount": consecutiveSaveFailures,
+                    "rescheduleCount": autosaveDiagnosticRepeatCount
+                ],
+                revision: textRevision,
+                metadata: [
+                    "force": String(force),
+                    "debounceMs": String(format: "%.0f", Double(retryDelay.components.seconds) * 1_000)
+                ],
+                verbose: true
+            )
+        }
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: retryDelay)
             guard !Task.isCancelled else { return }

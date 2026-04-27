@@ -52,6 +52,18 @@ public struct VaultChatView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
+                    if session.streamingState != .idle {
+                        Button {
+                            QuartzFeedback.primaryAction()
+                            session.cancel()
+                        } label: {
+                            Image(systemName: "stop.circle")
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                        .accessibilityLabel(String(localized: "Stop Vault Chat response", bundle: .module))
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
                     Button {
                         QuartzFeedback.destructive()
                         session.clear()

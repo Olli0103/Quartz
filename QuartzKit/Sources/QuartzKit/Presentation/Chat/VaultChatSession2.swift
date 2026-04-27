@@ -31,6 +31,10 @@ public final class VaultChatSession2 {
     /// Error from the last send attempt.
     public var error: VaultChatError?
 
+    /// Last readiness state checked before a request. Exposed for a clear
+    /// degraded/not-ready UI and diagnostics.
+    public private(set) var readinessState: VaultChatReadinessState = .ready
+
     public enum StreamingState: Sendable {
         case idle
         case waiting      // Request sent, no tokens yet
@@ -42,9 +46,11 @@ public final class VaultChatSession2 {
     private let chatService: VaultChatService
     private let noteResolver: @Sendable (UUID) -> String?
     private var streamTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
 
     /// 30fps batching interval — 33ms between SwiftUI state flushes.
     private static let batchInterval: UInt64 = 33_000_000 // nanoseconds
+    private static let requestTimeout: Duration = .seconds(45)
 
     // MARK: - Init
 
@@ -75,6 +81,7 @@ public final class VaultChatSession2 {
 
         // Cancel any in-flight stream
         streamTask?.cancel()
+        timeoutTask?.cancel()
 
         // Append user message
         let userMessage = VaultChatMessage2(role: .user, content: trimmed)
@@ -93,11 +100,47 @@ public final class VaultChatSession2 {
         error = nil
 
         let resolver = noteResolver
+        let started = Date()
 
         streamTask = Task { [weak self] in
             guard let self else { return }
 
             do {
+                let readiness = await self.chatService.readiness()
+                self.readinessState = readiness.state
+                SubsystemDiagnostics.record(
+                    level: readiness.state == .ready ? .info : .warning,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatReadinessChecked",
+                    reasonCode: readiness.state == .ready ? "ai.vaultChatReady" : "ai.vaultChatNotReady",
+                    counts: ["indexedChunks": readiness.indexedChunkCount],
+                    metadata: [
+                        "status.vaultChat": readiness.state.rawValue,
+                        "retrievalMode": readiness.retrievalMode.rawValue,
+                        "reason": readiness.reason
+                    ]
+                )
+                guard readiness.state == .ready else {
+                    self.error = .notReady(readiness.reason)
+                    self.streamingContent = ""
+                    self.currentCitations = []
+                    self.streamingState = .idle
+                    self.timeoutTask?.cancel()
+                    return
+                }
+
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatRequestStarted",
+                    reasonCode: "ai.vaultChatStarted",
+                    counts: ["questionLength": trimmed.count],
+                    metadata: [
+                        "status.vaultChat": "running",
+                        "retrievalMode": readiness.retrievalMode.rawValue
+                    ]
+                )
+
                 let (citations, tokenStream) = try await self.chatService.streamAsk(
                     trimmed,
                     chatHistory: Array(history),
@@ -148,6 +191,16 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.timeoutTask?.cancel()
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatRequestCompleted",
+                    reasonCode: "ai.vaultChatCompleted",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    counts: ["citationCount": citations.count, "responseLength": finalContent.count],
+                    metadata: ["status.vaultChat": "idle"]
+                )
 
             } catch is CancellationError {
                 let partial = self.streamingContent
@@ -163,6 +216,15 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.timeoutTask?.cancel()
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatCancelled",
+                    reasonCode: "ai.cancelled",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    metadata: ["status.vaultChat": "cancelled"]
+                )
 
             } catch let chatError as VaultChatError {
                 self.error = chatError
@@ -179,6 +241,18 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.timeoutTask?.cancel()
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatRequestFailed",
+                    reasonCode: "ai.providerFailed",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    metadata: [
+                        "status.vaultChat": "failed",
+                        "error": chatError.localizedDescription
+                    ]
+                )
 
             } catch {
                 self.error = .providerError(error.localizedDescription)
@@ -195,7 +269,36 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.timeoutTask?.cancel()
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "vaultChatRequestFailed",
+                    reasonCode: "ai.providerFailed",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    metadata: [
+                        "status.vaultChat": "failed",
+                        "error": error.localizedDescription
+                    ]
+                )
             }
+        }
+        timeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.requestTimeout)
+            guard !Task.isCancelled, let self, self.streamingState != .idle else { return }
+            self.error = .providerError(String(localized: "Vault Chat timed out. Check the AI provider configuration or try again.", bundle: .module))
+            self.streamTask?.cancel()
+            self.streamingContent = ""
+            self.currentCitations = []
+            self.streamingState = .idle
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "vaultChatTimedOut",
+                reasonCode: "ai.timeout",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: ["status.vaultChat": "timedOut"]
+            )
         }
     }
 
@@ -203,11 +306,32 @@ public final class VaultChatSession2 {
     public func clear() {
         streamTask?.cancel()
         streamTask = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
         messages.removeAll()
         streamingContent = ""
         currentCitations = []
         streamingState = .idle
         error = nil
+        readinessState = .ready
+    }
+
+    /// Cancels the active request without clearing chat history.
+    public func cancel() {
+        streamTask?.cancel()
+        streamTask = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        streamingContent = ""
+        currentCitations = []
+        streamingState = .idle
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChatCancelled",
+            reasonCode: "ai.cancelled",
+            metadata: ["status.vaultChat": "cancelled"]
+        )
     }
 
     /// Retries the last user question by removing the failed AI response and re-sending.

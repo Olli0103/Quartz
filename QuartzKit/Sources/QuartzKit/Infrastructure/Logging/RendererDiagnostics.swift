@@ -105,12 +105,13 @@ public struct RendererDiagnosticsSnapshot: Codable, Sendable, Equatable {
 
 public actor RendererDiagnosticsStore {
     public static let shared = RendererDiagnosticsStore()
+    public static let defaultCapacity = 300
 
     private var capacity: Int
     private var events: [RendererDiagnosticEvent] = []
     private var lastSpanChecksumByTextChecksum: [String: String] = [:]
 
-    public init(capacity: Int = 300) {
+    public init(capacity: Int = defaultCapacity) {
         self.capacity = max(1, capacity)
     }
 
@@ -120,6 +121,7 @@ public actor RendererDiagnosticsStore {
     }
 
     public func reset() {
+        capacity = Self.defaultCapacity
         events.removeAll()
         lastSpanChecksumByTextChecksum.removeAll()
     }
@@ -369,18 +371,6 @@ public enum RendererDiagnostics {
             textRevision: textRevision,
             renderGeneration: renderGeneration
         ))
-
-        if let editedRange, renderGeneration < textRevision {
-            events.append(warning(
-                name: "corruption.staleRenderGeneration",
-                noteBasename: noteBasename,
-                range: editedRange,
-                markdown: nsMarkdown,
-                spanType: "renderGeneration",
-                textRevision: textRevision,
-                renderGeneration: renderGeneration
-            ))
-        }
 
         return events
     }

@@ -18,6 +18,45 @@ public actor VaultChatService {
         self.providerRegistry = providerRegistry
     }
 
+    public func readiness() async -> VaultChatReadiness {
+        let provider = await providerRegistry.selectedProvider
+        guard let provider, provider.isConfigured else {
+            return VaultChatReadiness(
+                state: .aiProviderUnavailable,
+                retrievalMode: .unavailable,
+                indexedChunkCount: await embeddingService.entryCount,
+                reason: String(localized: "No AI provider is configured.", bundle: .module)
+            )
+        }
+
+        let indexedCount = await embeddingService.entryCount
+        guard indexedCount > 0 else {
+            return VaultChatReadiness(
+                state: .embeddingsUnavailable,
+                retrievalMode: .unavailable,
+                indexedChunkCount: indexedCount,
+                reason: String(localized: "The embedding index is empty or still loading.", bundle: .module)
+            )
+        }
+
+        let reachability = provider.reachability
+        if reachability == .unreachable {
+            return VaultChatReadiness(
+                state: .aiProviderUnavailable,
+                retrievalMode: .hybrid,
+                indexedChunkCount: indexedCount,
+                reason: String(localized: "The selected AI provider is not reachable.", bundle: .module)
+            )
+        }
+
+        return VaultChatReadiness(
+            state: .ready,
+            retrievalMode: .hybrid,
+            indexedChunkCount: indexedCount,
+            reason: "ready"
+        )
+    }
+
     /// Asks a question to the entire vault.
     ///
     /// - Parameters:
@@ -296,6 +335,43 @@ public struct VaultAnswer: Sendable {
     }
 }
 
+public enum VaultChatReadinessState: String, Sendable, Codable, Equatable {
+    case ready
+    case degradedSearchOnly
+    case embeddingsUnavailable
+    case aiProviderUnavailable
+    case failedConfig
+    case indexingInProgress
+    case noVault
+}
+
+public enum VaultChatRetrievalMode: String, Sendable, Codable, Equatable {
+    case hybrid
+    case embeddings
+    case search
+    case degraded
+    case unavailable
+}
+
+public struct VaultChatReadiness: Sendable, Equatable {
+    public let state: VaultChatReadinessState
+    public let retrievalMode: VaultChatRetrievalMode
+    public let indexedChunkCount: Int
+    public let reason: String
+
+    public init(
+        state: VaultChatReadinessState,
+        retrievalMode: VaultChatRetrievalMode,
+        indexedChunkCount: Int,
+        reason: String
+    ) {
+        self.state = state
+        self.retrievalMode = retrievalMode
+        self.indexedChunkCount = indexedChunkCount
+        self.reason = reason
+    }
+}
+
 /// A source in a vault response.
 public struct VaultSource: Identifiable, Sendable {
     public let id = UUID()
@@ -338,6 +414,7 @@ public enum VaultChatError: LocalizedError, Sendable {
     case noProviderConfigured
     case noRelevantContent
     case indexEmpty
+    case notReady(String)
     case providerError(String)
 
     public var errorDescription: String? {
@@ -345,6 +422,7 @@ public enum VaultChatError: LocalizedError, Sendable {
         case .noProviderConfigured: String(localized: "No AI provider configured. Add an API key in Settings.", bundle: .module)
         case .noRelevantContent: String(localized: "No relevant notes found for your question. Try rephrasing.", bundle: .module)
         case .indexEmpty: String(localized: "No notes have been indexed yet. Please index your vault first.", bundle: .module)
+        case .notReady(let msg): String(localized: "Vault Chat is not ready: \(msg)", bundle: .module)
         case .providerError(let msg): String(localized: "AI error: \(msg)", bundle: .module)
         }
     }

@@ -12,7 +12,36 @@ public struct AIIndexState: Codable, Sendable {
     /// Map of concept string → set of relative note paths that discuss it.
     public var conceptEdges: [String: Set<String>] = [:]
 
+    /// Last known AI indexing health. Persisted so a failing provider does not
+    /// look healthy after relaunch.
+    public var lastStatus: String?
+    public var lastFailureReason: String?
+    public var lastFailureAt: Date?
+    public var lastSuccessAt: Date?
+    public var backoffUntil: Date?
+
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case processedTimestamps
+        case conceptEdges
+        case lastStatus
+        case lastFailureReason
+        case lastFailureAt
+        case lastSuccessAt
+        case backoffUntil
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        processedTimestamps = try container.decodeIfPresent([String: Date].self, forKey: .processedTimestamps) ?? [:]
+        conceptEdges = try container.decodeIfPresent([String: Set<String>].self, forKey: .conceptEdges) ?? [:]
+        lastStatus = try container.decodeIfPresent(String.self, forKey: .lastStatus)
+        lastFailureReason = try container.decodeIfPresent(String.self, forKey: .lastFailureReason)
+        lastFailureAt = try container.decodeIfPresent(Date.self, forKey: .lastFailureAt)
+        lastSuccessAt = try container.decodeIfPresent(Date.self, forKey: .lastSuccessAt)
+        backoffUntil = try container.decodeIfPresent(Date.self, forKey: .backoffUntil)
+    }
 }
 
 // MARK: - Knowledge Extraction Service
@@ -59,6 +88,9 @@ public actor KnowledgeExtractionService {
     private var isScanRunning = false
     public private(set) var scanProgress: ScanProgress?
     private var saveDebouncTask: Task<Void, Never>?
+    private var aiBackoffUntil: Date?
+    private var aiFailureStatus: String?
+    private var lastAIFailureReason: String?
 
     public struct ScanProgress: Sendable {
         public let current: Int
@@ -91,6 +123,10 @@ public actor KnowledgeExtractionService {
         self.scanInterval = scanInterval
         self.extractionOverride = extractionOverride
         self.state = Self.loadState(from: vaultRootURL)
+        self.aiBackoffUntil = state.backoffUntil
+        self.aiFailureStatus = state.lastStatus
+        self.lastAIFailureReason = state.lastFailureReason
+        Self.publishPersistedAIHealth(state)
     }
 
     // MARK: - On-Save Extraction
@@ -104,6 +140,20 @@ public actor KnowledgeExtractionService {
                 reasonCode: "ai.disabled",
                 noteBasename: noteURL.lastPathComponent,
                 metadata: ["status.aiIndexing": "disabled"]
+            )
+            return
+        }
+        if isAIBackoffActive() {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "extractionSkipped",
+                reasonCode: "ai.backoff",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "status.aiIndexing": aiFailureStatus ?? "backoff",
+                    "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+                ]
             )
             return
         }
@@ -138,6 +188,19 @@ public actor KnowledgeExtractionService {
                 name: "conceptScanSkipped",
                 reasonCode: "ai.disabled",
                 metadata: ["status.aiIndexing": "disabled"]
+            )
+            return
+        }
+        if isAIBackoffActive() {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "conceptScanSkipped",
+                reasonCode: "ai.backoff",
+                metadata: [
+                    "status.aiIndexing": aiFailureStatus ?? "backoff",
+                    "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+                ]
             )
             return
         }
@@ -186,6 +249,24 @@ public actor KnowledgeExtractionService {
             reasonCode: "ai.scanStopped",
             metadata: ["status.aiIndexing": "idle"]
         )
+    }
+
+    public func retryAIIndexingNow() {
+        aiBackoffUntil = nil
+        aiFailureStatus = nil
+        lastAIFailureReason = nil
+        state.backoffUntil = nil
+        state.lastStatus = "idle"
+        state.lastFailureReason = nil
+        saveStateToDisk()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "retryRequested",
+            reasonCode: "ai.retryRequested",
+            metadata: ["status.aiIndexing": "idle"]
+        )
+        startVaultScan()
     }
 
     /// Cancels queued save/scan work and invalidates suspended older extractions so they
@@ -294,6 +375,7 @@ public actor KnowledgeExtractionService {
 
         for noteURL in urls {
             guard serviceGeneration == expectedGeneration else { break }
+            guard !isAIBackoffActive() else { break }
             let revision = currentRevision(for: noteURL)
             await extractConcepts(
                 for: noteURL,
@@ -403,6 +485,22 @@ public actor KnowledgeExtractionService {
                 expectedGeneration: expectedGeneration,
                 expectedRevision: revision
             )
+
+            if isAIBackoffActive() {
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "conceptScanPaused",
+                    reasonCode: "ai.backoff",
+                    counts: ["processedNotes": index + 1, "pendingNotes": unprocessed.count - index - 1],
+                    generation: expectedGeneration,
+                    metadata: [
+                        "status.aiIndexing": aiFailureStatus ?? "backoff",
+                        "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+                    ]
+                )
+                break
+            }
 
             // Save state every 5 notes (resilient to crashes mid-scan)
             if serviceGeneration == expectedGeneration, (index + 1) % 5 == 0 {
@@ -536,13 +634,19 @@ public actor KnowledgeExtractionService {
                 category: "KnowledgeExtraction",
                 "Extraction failed: \(error.localizedDescription)"
             )
+            let reasonCode = Self.aiFailureReasonCode(for: error)
+            registerAIFailure(reasonCode: reasonCode)
             SubsystemDiagnostics.record(
                 level: .warning,
                 subsystem: .aiIndexing,
                 name: "extractionFailed",
-                reasonCode: Self.aiFailureReasonCode(for: error),
+                reasonCode: reasonCode,
                 noteBasename: canonicalNoteURL.lastPathComponent,
-                metadata: ["error": error.localizedDescription]
+                metadata: [
+                    "error": error.localizedDescription,
+                    "status.aiIndexing": aiFailureStatus ?? "failed",
+                    "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "none"
+                ]
             )
         }
     }
@@ -560,6 +664,12 @@ public actor KnowledgeExtractionService {
         ) else { return }
 
         await updateConceptsAndState(for: noteURL, concepts: concepts)
+        state.lastStatus = "running"
+        state.lastSuccessAt = Date()
+        if !isAIBackoffActive() {
+            state.lastFailureReason = nil
+            state.backoffUntil = nil
+        }
 
         if !concepts.isEmpty {
             logger.info("[\(noteURL.lastPathComponent)] \(concepts.joined(separator: ", "))")
@@ -713,6 +823,107 @@ public actor KnowledgeExtractionService {
         if message.contains("network") || message.contains("offline") { return "ai.networkLost" }
         if message.contains("backoff") { return "ai.backoff" }
         return "ai.extractionFailed"
+    }
+
+    private func registerAIFailure(reasonCode: String) {
+        let backoffSeconds: TimeInterval
+        switch reasonCode {
+        case "ai.http404":
+            aiFailureStatus = "failedConfiguration"
+            backoffSeconds = 60 * 60
+        case "ai.timeout", "ai.networkLost", "ai.backoff":
+            aiFailureStatus = "backoff"
+            backoffSeconds = 5 * 60
+        default:
+            aiFailureStatus = "failed"
+            backoffSeconds = 60
+        }
+        aiBackoffUntil = Date().addingTimeInterval(backoffSeconds)
+        lastAIFailureReason = reasonCode
+        state.lastStatus = aiFailureStatus
+        state.lastFailureReason = reasonCode
+        state.lastFailureAt = Date()
+        state.backoffUntil = aiBackoffUntil
+        saveStateToDisk()
+        SubsystemDiagnostics.updateState(
+            subsystem: .aiIndexing,
+            values: [
+                "lastAIIndexingStatus": aiFailureStatus ?? "failed",
+                "lastAIFailureReason": reasonCode,
+                "aiBackoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+            ]
+        )
+    }
+
+    private func isAIBackoffActive(now: Date = Date()) -> Bool {
+        guard let aiBackoffUntil else { return false }
+        if aiBackoffUntil > now {
+            return true
+        }
+        self.aiBackoffUntil = nil
+        aiFailureStatus = nil
+        state.backoffUntil = nil
+        state.lastStatus = "idle"
+        saveStateToDisk()
+        SubsystemDiagnostics.updateState(
+            subsystem: .aiIndexing,
+            values: [
+                "lastAIIndexingStatus": "idle",
+                "aiBackoffUntil": "none"
+            ]
+        )
+        return false
+    }
+
+    private nonisolated static func publishPersistedAIHealth(_ state: AIIndexState) {
+        var values: [String: String] = [
+            "lastAIIndexingStatus": state.lastStatus ?? "idle",
+            "processedNoteCount": String(state.processedTimestamps.count),
+            "conceptCount": String(state.conceptEdges.count)
+        ]
+        if let reason = state.lastFailureReason {
+            values["lastAIFailureReason"] = reason
+        }
+        if let backoffUntil = state.backoffUntil {
+            values["aiBackoffUntil"] = Self.iso8601String(backoffUntil)
+            if backoffUntil > Date() {
+                values["lastAIIndexingStatus"] = state.lastStatus ?? "backoff"
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "persistedBackoffLoaded",
+                    reasonCode: state.lastFailureReason ?? "ai.backoff",
+                    metadata: values
+                )
+            }
+        }
+        SubsystemDiagnostics.updateState(subsystem: .aiIndexing, values: values)
+    }
+
+    public nonisolated static func persistedHealthSummary(vaultRootURL: URL) -> [String: String] {
+        let state = loadState(from: vaultRootURL)
+        var summary: [String: String] = [
+            "aiIndex.status": state.lastStatus ?? "idle",
+            "aiIndex.processedNotes": String(state.processedTimestamps.count),
+            "aiIndex.concepts": String(state.conceptEdges.count)
+        ]
+        if let reason = state.lastFailureReason {
+            summary["aiIndex.lastFailureReason"] = reason
+        }
+        if let backoffUntil = state.backoffUntil {
+            summary["aiIndex.backoffUntil"] = iso8601String(backoffUntil)
+        }
+        if let lastFailureAt = state.lastFailureAt {
+            summary["aiIndex.lastFailureAt"] = iso8601String(lastFailureAt)
+        }
+        if let lastSuccessAt = state.lastSuccessAt {
+            summary["aiIndex.lastSuccessAt"] = iso8601String(lastSuccessAt)
+        }
+        return summary
+    }
+
+    private static func iso8601String(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
 
     /// Debounced save for on-save extraction path.

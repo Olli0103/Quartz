@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 // MARK: - Dashboard Command Center
@@ -834,7 +835,11 @@ public struct DashboardView: View {
         briefingLoading = true
         let service = DashboardBriefingService(providerRegistry: AIProviderRegistry.shared)
         do {
-            briefing = try await service.generateWeeklyBriefing(recentNoteContents: contents, vaultRoot: vaultRoot)
+            briefing = try await generateBriefingWithTimeout(
+                service: service,
+                contents: contents,
+                vaultRoot: vaultRoot
+            )
         } catch {
             briefing = nil
             SubsystemDiagnostics.record(
@@ -879,6 +884,34 @@ public struct DashboardView: View {
         )
     }
 
+    private func generateBriefingWithTimeout(
+        service: DashboardBriefingService,
+        contents: [(title: String, body: String)],
+        vaultRoot: URL
+    ) async throws -> String? {
+        let raceState = BriefingTimeoutRaceState()
+        return try await withCheckedThrowingContinuation { continuation in
+            let workTask = Task {
+                do {
+                    let result = try await service.generateWeeklyBriefing(
+                        recentNoteContents: contents,
+                        vaultRoot: vaultRoot
+                    )
+                    raceState.resume(continuation, with: .success(result))
+                } catch {
+                    raceState.resume(continuation, with: .failure(error))
+                }
+            }
+
+            let timeoutTask = Task {
+                try? await Task.sleep(for: .seconds(3))
+                raceState.resume(continuation, with: .failure(CancellationError()))
+            }
+
+            raceState.setTasks(workTask: workTask, timeoutTask: timeoutTask)
+        }
+    }
+
     private func toggleTask(_ item: DashboardTaskItem) {
         togglingTaskID = item.id
         let toggleService = DashboardTaskToggleService()
@@ -892,6 +925,47 @@ public struct DashboardView: View {
             } catch {}
             await MainActor.run { togglingTaskID = nil }
         }
+    }
+}
+
+private final class BriefingTimeoutRaceState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didResume = false
+    private var workTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    func setTasks(workTask: Task<Void, Never>, timeoutTask: Task<Void, Never>) {
+        lock.lock()
+        let alreadyResumed = didResume
+        if !alreadyResumed {
+            self.workTask = workTask
+            self.timeoutTask = timeoutTask
+        }
+        lock.unlock()
+
+        if alreadyResumed {
+            workTask.cancel()
+            timeoutTask.cancel()
+        }
+    }
+
+    func resume(
+        _ continuation: CheckedContinuation<String?, any Error>,
+        with result: Result<String?, any Error>
+    ) {
+        lock.lock()
+        guard !didResume else {
+            lock.unlock()
+            return
+        }
+        didResume = true
+        let workTask = workTask
+        let timeoutTask = timeoutTask
+        lock.unlock()
+
+        workTask?.cancel()
+        timeoutTask?.cancel()
+        continuation.resume(with: result)
     }
 }
 

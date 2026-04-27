@@ -351,6 +351,10 @@ public enum DeveloperDiagnostics {
             verboseDashboardKey,
             includeDebugTimingsKey
         ].forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        Task {
+            await SubsystemDiagnosticsStore.shared.setCapacity(SubsystemDiagnosticsStore.defaultCapacity)
+            await RendererDiagnosticsStore.shared.setCapacity(RendererDiagnosticsStore.defaultCapacity)
+        }
     }
 
     private static func apply(_ config: FileConfig, source: String) {
@@ -412,13 +416,14 @@ public struct SubsystemDiagnosticsSnapshot: Codable, Sendable, Equatable {
 
 public actor SubsystemDiagnosticsStore {
     public static let shared = SubsystemDiagnosticsStore()
+    public static let defaultCapacity = 500
 
     private var capacity: Int
     private var events: [SubsystemDiagnosticEvent] = []
     private var repeatedCounts: [String: Int] = [:]
     private var currentState: [DiagnosticsSubsystem: [String: String]] = [:]
 
-    public init(capacity: Int = 500) {
+    public init(capacity: Int = defaultCapacity) {
         self.capacity = max(1, capacity)
     }
 
@@ -428,6 +433,7 @@ public actor SubsystemDiagnosticsStore {
     }
 
     public func reset() {
+        capacity = Self.defaultCapacity
         events.removeAll()
         repeatedCounts.removeAll()
         currentState.removeAll()

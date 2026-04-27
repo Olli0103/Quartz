@@ -294,6 +294,38 @@ struct AutosaveReliabilityTests {
         #expect(versions.count == 1, "The active write should create one forced snapshot, not a duplicate replay snapshot")
     }
 
+    @Test("Save diagnostics include timing breakdown and consistent dirty reason")
+    @MainActor func saveDiagnosticsIncludeTimingBreakdownAndConsistentDirtyReason() async throws {
+        let (session, _, noteAURL, _) = await makeSession()
+
+        await session.loadNote(at: noteAURL)
+        session.textDidChange("Save diagnostics content")
+        await session.manualSave()
+
+        var saveCompleted: SubsystemDiagnosticEvent?
+        for _ in 0..<60 {
+            let snapshot = await SubsystemDiagnostics.snapshot()
+            saveCompleted = (snapshot.eventsBySubsystem[.save] ?? [])
+                .last {
+                    $0.name == "saveCompleted"
+                    && $0.noteBasename == noteAURL.lastPathComponent
+                    && $0.metadata["totalMs"] != nil
+                }
+            if saveCompleted != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(saveCompleted != nil)
+        #expect(saveCompleted?.metadata["queueWaitMs"] != nil)
+        #expect(saveCompleted?.metadata["writeMs"] != nil)
+        #expect(saveCompleted?.metadata["snapshotMs"] != nil)
+        #expect(saveCompleted?.metadata["snapshotMode"] == "async")
+        #expect(saveCompleted?.metadata["postSaveMs"] != nil)
+        #expect(saveCompleted?.metadata["totalMs"] != nil)
+        #expect(saveCompleted?.metadata["dirtyAfter"] == "false")
+        #expect(saveCompleted?.metadata["dirtyAfterReason"] == "none")
+    }
+
     @Test("Repeated meaningful manual saves create readable version history")
     @MainActor func repeatedMeaningfulManualSavesCreateVersionHistory() async throws {
         let vaultRoot = FileManager.default.temporaryDirectory

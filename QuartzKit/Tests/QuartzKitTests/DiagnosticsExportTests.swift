@@ -64,9 +64,7 @@ struct DiagnosticsExportTests {
           "verboseSaveDiagnosticsEnabled": true,
           "verboseGraphDiagnosticsEnabled": true,
           "verboseDashboardDiagnosticsEnabled": true,
-          "includeDebugTimings": true,
-          "maxRendererEvents": 12,
-          "maxSubsystemEvents": 14
+          "includeDebugTimings": true
         }
         """
         try config.write(to: quartz.appendingPathComponent("developer-diagnostics.json"), atomically: true, encoding: .utf8)
@@ -119,6 +117,37 @@ struct DiagnosticsExportTests {
         let snapshot = await store.snapshot()
         #expect(snapshot.recentEvents.count <= 5)
         #expect(snapshot.repeatedEventSummaries.contains { $0.name == "saveFailed.repeated" })
+    }
+
+    @Test("AI index health decodes legacy state and exports persisted backoff")
+    func aiIndexHealthDecodesLegacyStateAndExportsBackoff() async throws {
+        let vault = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quartz-ai-health-\(UUID().uuidString)", isDirectory: true)
+        let quartz = vault.appendingPathComponent(".quartz", isDirectory: true)
+        try FileManager.default.createDirectory(at: quartz, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let legacy = #"{"processedTimestamps":{"a.md":"2026-04-27T10:00:00Z"},"conceptEdges":{}}"#
+        try legacy.write(to: quartz.appendingPathComponent("ai_index.json"), atomically: true, encoding: .utf8)
+        let legacySummary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: vault)
+        #expect(legacySummary["aiIndex.status"] == "idle")
+        #expect(legacySummary["aiIndex.processedNotes"] == "1")
+
+        var state = AIIndexState()
+        state.lastStatus = "failedConfiguration"
+        state.lastFailureReason = "ai.http404"
+        state.backoffUntil = Date(timeIntervalSince1970: 1_777_777_777)
+        state.processedTimestamps = ["a.md": Date(timeIntervalSince1970: 1_777_777_000)]
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(state)
+        try data.write(to: quartz.appendingPathComponent("ai_index.json"), options: .atomic)
+
+        let failedSummary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: vault)
+        #expect(failedSummary["aiIndex.status"] == "failedConfiguration")
+        #expect(failedSummary["aiIndex.lastFailureReason"] == "ai.http404")
+        #expect(failedSummary["aiIndex.backoffUntil"] != nil)
     }
 
     @Test("Diagnostic export includes renderer diagnostics section")

@@ -623,6 +623,10 @@ public actor DiagnosticExportService {
                     info["vault.\(fileName).modified"] = timestampFormatter.string(from: modifiedDate)
                 }
             }
+
+            for (key, value) in KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: activeVaultURL) {
+                info[key] = value
+            }
         }
 
         if let lastError = manager.lastError?.localizedDescription {

@@ -97,6 +97,16 @@ public actor IntelligenceEngineCoordinator {
         }
         observerTokens.append(presenterToken)
 
+        let noteSavedToken = NotificationCenter.default.addObserver(
+            forName: .quartzNoteSaved,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let url = notification.object as? URL else { return }
+            Task { await self?.handleFileChange(at: url, source: .editorSave) }
+        }
+        observerTokens.append(noteSavedToken)
+
         domainEventTask = Task { [weak self] in
             let stream = await DomainEventBus.shared.subscribe()
             for await event in stream {
@@ -286,7 +296,12 @@ public actor IntelligenceEngineCoordinator {
         // CRITICAL: Use coordinated read to prevent race with iCloud
         let content: String
         do {
-            content = try CoordinatedFileWriter.shared.readString(from: url)
+            let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+            guard FileManager.default.fileExists(atPath: canonicalURL.path(percentEncoded: false)) else {
+                logger.debug("Skipping unavailable file \(canonicalURL.lastPathComponent)")
+                return
+            }
+            content = try CoordinatedFileWriter.shared.readString(from: canonicalURL)
         } catch {
             logger.warning("Failed to read file \(url.lastPathComponent): \(error.localizedDescription)")
             QuartzDiagnostics.warning(

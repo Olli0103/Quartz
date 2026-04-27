@@ -118,6 +118,31 @@ struct RendererDiagnosticsTests {
         let snapshot = await store.snapshot(enabled: true)
         #expect(snapshot.corruptionSignals.contains { $0.name == "corruption.loadReopenSpanChecksumMismatch" })
     }
+
+    @Test("Render and text counters alone do not create stale generation warnings")
+    func renderAndTextCountersDoNotCreateStaleWarnings() {
+        let markdown = "### Heading\n\nBody"
+        let spans = MarkdownASTHighlighter.parseImmediately(
+            markdown,
+            baseFontSize: 14,
+            fontFamily: .system,
+            vaultRootURL: nil,
+            noteURL: nil
+        )
+        let semantic = EditorSemanticDocument.build(markdown: markdown, spans: spans)
+
+        let signals = RendererDiagnostics.detectCorruptionSignals(
+            spans: spans,
+            semanticDocument: semantic,
+            markdown: markdown,
+            noteBasename: "Note.md",
+            editedRange: NSRange(location: 4, length: 0),
+            textRevision: 20,
+            renderGeneration: 1
+        )
+
+        #expect(!signals.contains { $0.name == "corruption.staleRenderGeneration" })
+    }
 }
 
 private func testFont() -> PlatformFont {

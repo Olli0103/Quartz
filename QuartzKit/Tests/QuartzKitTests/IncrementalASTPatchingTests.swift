@@ -216,6 +216,30 @@ struct IncrementalASTPatchingTests {
             "Table span count: full=\(fullTable.count) vs inc=\(incTable.count)")
     }
 
+    @Test("Incompatible incremental cache falls back instead of carrying table spans")
+    func incompatibleCacheFallsBackWithoutTableBleed() async {
+        let original = "# Old\n\n| A | B |\n|---|---|\n| 1 | 2 |"
+        var edited = "### Heading\n\nParagraph without table"
+        if (edited as NSString).length < (original as NSString).length {
+            edited += String(repeating: " ", count: (original as NSString).length - (edited as NSString).length)
+        }
+        if (edited as NSString).length > (original as NSString).length {
+            edited = (edited as NSString).substring(to: (original as NSString).length)
+        }
+
+        let highlighter = MarkdownASTHighlighter()
+        _ = await highlighter.parse(original)
+        let incremental = await highlighter.parseIncremental(
+            edited,
+            editRange: NSRange(location: 2, length: 1),
+            preEditLength: 1
+        )
+        let full = await MarkdownASTHighlighter().parse(edited)
+
+        #expect(incremental.filter { $0.tableRowStyle != nil }.isEmpty)
+        #expect(incremental.count == full.count)
+    }
+
     @Test("Inline LaTeX: overlay span count parity")
     func inlineLatex() async {
         let original = "The formula $E=mc^2$ is famous"

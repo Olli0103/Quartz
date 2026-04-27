@@ -59,6 +59,7 @@ struct VoiceOverChatTests {
             .noProviderConfigured,
             .noRelevantContent,
             .indexEmpty,
+            .notReady("provider unavailable"),
             .providerError("API timeout")
         ]
 
@@ -116,7 +117,7 @@ struct VoiceOverChatTests {
 
     @Test("VaultChatError descriptions contain actionable guidance")
     func errorDescriptionsActionable() {
-        let errors: [VaultChatError] = [.noProviderConfigured, .noRelevantContent, .indexEmpty, .providerError("timeout")]
+        let errors: [VaultChatError] = [.noProviderConfigured, .noRelevantContent, .indexEmpty, .notReady("provider unavailable"), .providerError("timeout")]
         for error in errors {
             let desc = error.errorDescription ?? ""
             #expect(desc.count > 5, "Error '\(error)' description should be long enough to be actionable for VoiceOver")
