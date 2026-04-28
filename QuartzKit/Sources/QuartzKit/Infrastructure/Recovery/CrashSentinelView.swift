@@ -228,13 +228,26 @@ public actor DiagnosticExportService {
     public static let shared = DiagnosticExportService()
 
     private let diagnosticsStore: QuartzDiagnosticsStore
+    private let subsystemDiagnosticsProvider: @Sendable () async -> SubsystemDiagnosticsSnapshot
 
-    private init(diagnosticsStore: QuartzDiagnosticsStore = .shared) {
+    private init(
+        diagnosticsStore: QuartzDiagnosticsStore = .shared,
+        subsystemDiagnosticsProvider: @escaping @Sendable () async -> SubsystemDiagnosticsSnapshot = {
+            await SubsystemDiagnostics.snapshot()
+        }
+    ) {
         self.diagnosticsStore = diagnosticsStore
+        self.subsystemDiagnosticsProvider = subsystemDiagnosticsProvider
     }
 
-    internal init(testingDiagnosticsStore diagnosticsStore: QuartzDiagnosticsStore) {
+    internal init(
+        testingDiagnosticsStore diagnosticsStore: QuartzDiagnosticsStore,
+        subsystemDiagnosticsProvider: @escaping @Sendable () async -> SubsystemDiagnosticsSnapshot = {
+            await SubsystemDiagnostics.snapshot()
+        }
+    ) {
         self.diagnosticsStore = diagnosticsStore
+        self.subsystemDiagnosticsProvider = subsystemDiagnosticsProvider
     }
 
     /// Generates a diagnostic report for the current app state.
@@ -252,7 +265,7 @@ public actor DiagnosticExportService {
         let recentDiagnosticsLog = await diagnosticsStore.recentLogText(limitBytes: 65_536)
         let diagnosticsLogLocation = await diagnosticsStore.logFileURL()?.path(percentEncoded: false)
         let rendererDiagnostics = await RendererDiagnostics.snapshot()
-        let subsystemDiagnostics = await SubsystemDiagnostics.snapshot()
+        let subsystemDiagnostics = await subsystemDiagnosticsProvider()
         let developerDiagnostics = DeveloperDiagnostics.status()
 
         var mergedAdditionalInfo = additionalInfo.mapValues { String(describing: $0) }

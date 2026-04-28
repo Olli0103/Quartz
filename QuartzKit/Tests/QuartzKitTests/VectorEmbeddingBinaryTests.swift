@@ -91,6 +91,93 @@ struct VectorEmbeddingBinaryTests {
         #expect(FileManager.default.fileExists(atPath: indexFile.path(percentEncoded: false)))
     }
 
+    @Test("automatic checkpoint rejects catastrophic shrink and preserves existing index")
+    func automaticCheckpointRejectsCatastrophicShrink() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        var noteIDs: [UUID] = []
+        let healthy = VectorEmbeddingService(vaultURL: vault)
+        for index in 0..<12 {
+            let id = UUID()
+            noteIDs.append(id)
+            try await healthy.indexNote(noteID: id, content: "Healthy persisted note \(index) with enough content for a stable embedding chunk.")
+        }
+        try await healthy.saveIndex(force: true)
+        let healthyChunks = await healthy.entryCount
+        #expect(healthyChunks >= 10)
+
+        let shrinking = VectorEmbeddingService(vaultURL: vault)
+        try await shrinking.loadIndex()
+        for id in noteIDs.dropFirst() {
+            await shrinking.removeNote(id)
+        }
+
+        do {
+            try await shrinking.saveIndex(force: true)
+            Issue.record("Automatic checkpoint should reject replacing a healthy index with a tiny partial index")
+        } catch let error as EmbeddingIndexError {
+            guard case .shrinkingCheckpointRejected = error else {
+                Issue.record("Unexpected embedding error: \(error)")
+                return
+            }
+        }
+
+        let reloaded = VectorEmbeddingService(vaultURL: vault)
+        try await reloaded.loadIndex()
+        #expect(await reloaded.entryCount == healthyChunks)
+        #expect(await reloaded.indexedNoteCount == 12)
+    }
+
+    @Test("explicit rebuild may replace a larger index with a smaller index")
+    func explicitRebuildMayReplaceLargeIndex() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        var noteIDs: [UUID] = []
+        let service = VectorEmbeddingService(vaultURL: vault)
+        for index in 0..<12 {
+            let id = UUID()
+            noteIDs.append(id)
+            try await service.indexNote(noteID: id, content: "Explicit rebuild source note \(index) with enough content for embedding.")
+        }
+        try await service.saveIndex(force: true)
+
+        for id in noteIDs.dropFirst() {
+            await service.removeNote(id)
+        }
+        try await service.saveIndex(force: true, explicitRebuild: true)
+
+        let reloaded = VectorEmbeddingService(vaultURL: vault)
+        try await reloaded.loadIndex()
+        #expect(await reloaded.indexedNoteCount == 1)
+    }
+
+    @Test("checkpoint creates backup and backup can restore index")
+    func checkpointBackupRestoresIndex() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let firstID = UUID()
+        let secondID = UUID()
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: firstID, content: "First checkpoint note with durable content.")
+        try await service.saveIndex(force: true)
+        try await service.indexNote(noteID: secondID, content: "Second checkpoint note creates a backup before replacement.")
+        try await service.saveIndex(force: true)
+
+        let backupURL = VectorEmbeddingService.backupIndexFileURL(for: vault)
+        #expect(FileManager.default.fileExists(atPath: backupURL.path(percentEncoded: false)))
+
+        let indexURL = VectorEmbeddingService.indexFileURL(for: vault)
+        try Data([0x01, 0x02, 0x03]).write(to: indexURL, options: .atomic)
+
+        let restored = VectorEmbeddingService(vaultURL: vault)
+        let didRestore = try await restored.restoreIndexFromBackup()
+        #expect(didRestore)
+        #expect(await restored.indexedNoteCount == 1)
+    }
+
     @Test("loadIndex with no file returns empty index")
     func loadNonexistent() async throws {
         let vault = try makeTempVault()

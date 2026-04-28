@@ -55,6 +55,7 @@ public enum AIIndexingStatus: String, Sendable {
     case completedWithPending
     case disabled
     case failed
+    case providerSlow
 }
 
 public enum AIConceptScanMode: String, Sendable {
@@ -91,6 +92,7 @@ public actor KnowledgeExtractionService {
     private let executionPolicy: AIExecutionPolicy?
     private let debounceInterval: Duration
     private let scanInterval: Duration
+    private let automaticMaxPerNoteDurationMs: UInt64
     private let extractionOverride: (@Sendable (String) async -> [String])?
     private let logger = Logger(subsystem: "com.quartz", category: "KnowledgeExtraction")
 
@@ -122,6 +124,7 @@ public actor KnowledgeExtractionService {
 
     private static let automaticMaxNotesPerScan = 25
     private static let automaticMaxDurationSeconds: UInt64 = 60
+    public static let defaultAutomaticMaxPerNoteDurationMs: UInt64 = 12_000
     public static let automaticMaxNotesPerScanForTesting = automaticMaxNotesPerScan
 
     public struct ScanProgress: Sendable {
@@ -146,6 +149,7 @@ public actor KnowledgeExtractionService {
         executionPolicy: AIExecutionPolicy? = nil,
         debounceInterval: Duration = .seconds(5),
         scanInterval: Duration = .seconds(2),
+        automaticMaxPerNoteDurationMs: UInt64 = KnowledgeExtractionService.defaultAutomaticMaxPerNoteDurationMs,
         extractionOverride: (@Sendable (String) async -> [String])? = nil
     ) {
         self.edgeStore = edgeStore
@@ -153,6 +157,7 @@ public actor KnowledgeExtractionService {
         self.executionPolicy = executionPolicy
         self.debounceInterval = debounceInterval
         self.scanInterval = scanInterval
+        self.automaticMaxPerNoteDurationMs = automaticMaxPerNoteDurationMs
         self.extractionOverride = extractionOverride
         self.state = Self.loadState(from: vaultRootURL)
         self.aiBackoffUntil = state.backoffUntil
@@ -419,7 +424,7 @@ public actor KnowledgeExtractionService {
             guard serviceGeneration == expectedGeneration else { break }
             guard !isAIBackoffActive() else { break }
             let revision = currentRevision(for: noteURL)
-            await extractConcepts(
+            _ = await extractConcepts(
                 for: noteURL,
                 expectedGeneration: expectedGeneration,
                 expectedRevision: revision
@@ -519,7 +524,9 @@ public actor KnowledgeExtractionService {
 
         var processedCount = 0
         var pausedForBackoff = false
+        var pausedForProviderSlow = false
         var budgetReached = false
+        var stoppedReason = "none"
 
         for (index, noteURL) in budgetedURLs.enumerated() {
             guard !Task.isCancelled, serviceGeneration == expectedGeneration else { break }
@@ -544,15 +551,42 @@ public actor KnowledgeExtractionService {
             }
 
             let revision = currentRevision(for: noteURL)
-            await extractConcepts(
+            let outcome = await extractConcepts(
                 for: noteURL,
                 expectedGeneration: expectedGeneration,
-                expectedRevision: revision
+                expectedRevision: revision,
+                automaticTimeoutMs: mode == .automatic ? automaticMaxPerNoteDurationMs : nil
             )
-            processedCount = index + 1
+            if outcome == .processed {
+                processedCount += 1
+            }
+
+            if outcome == .providerSlow {
+                pausedForProviderSlow = true
+                stoppedReason = "providerSlow"
+                updateAIStatus(AIIndexingStatus.providerSlow.rawValue)
+                let remaining = max(0, unprocessed.count - processedCount)
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "ai.scanPausedProviderSlow",
+                    reasonCode: "ai.scanPausedProviderSlow",
+                    durationMs: Double((DispatchTime.now().uptimeNanoseconds - scanStart) / 1_000_000),
+                    counts: ["processedNotes": processedCount, "pendingNotes": remaining, "totalNotes": noteURLs.count],
+                    generation: expectedGeneration,
+                    metadata: [
+                        "status.aiIndexing": AIIndexingStatus.providerSlow.rawValue,
+                        "scanMode": mode.rawValue,
+                        "ai.automaticScanStoppedReason": stoppedReason,
+                        "ai.maxPerNoteDurationMs": String(automaticMaxPerNoteDurationMs)
+                    ]
+                )
+                break
+            }
 
             if isAIBackoffActive() {
                 pausedForBackoff = true
+                stoppedReason = "backoff"
                 updateAIStatus(aiFailureStatus ?? AIIndexingStatus.backoff.rawValue)
                 SubsystemDiagnostics.record(
                     level: .warning,
@@ -564,6 +598,7 @@ public actor KnowledgeExtractionService {
                     metadata: [
                         "status.aiIndexing": aiFailureStatus ?? "backoff",
                         "scanMode": mode.rawValue,
+                        "ai.automaticScanStoppedReason": stoppedReason,
                         "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
                     ]
                 )
@@ -574,7 +609,10 @@ public actor KnowledgeExtractionService {
                     reasonCode: "ai.backoff",
                     counts: ["processedNotes": processedCount, "pendingNotes": max(0, unprocessed.count - processedCount)],
                     generation: expectedGeneration,
-                    metadata: ["status.aiIndexing": aiFailureStatus ?? "backoff"]
+                    metadata: [
+                        "status.aiIndexing": aiFailureStatus ?? "backoff",
+                        "ai.automaticScanStoppedReason": stoppedReason
+                    ]
                 )
                 break
             }
@@ -592,10 +630,13 @@ public actor KnowledgeExtractionService {
         guard serviceGeneration == expectedGeneration else { return }
         saveStateToDisk()
         let elapsedMilliseconds = (DispatchTime.now().uptimeNanoseconds - scanStart) / 1_000_000
-        guard !pausedForBackoff else { return }
+        guard !pausedForBackoff, !pausedForProviderSlow else { return }
 
         if mode == .automatic, processedCount < unprocessed.count {
             budgetReached = true
+            if stoppedReason == "none" {
+                stoppedReason = processedCount >= Self.automaticMaxNotesPerScan ? "maxNotes" : "maxDuration"
+            }
         }
 
         if budgetReached {
@@ -616,7 +657,9 @@ public actor KnowledgeExtractionService {
                 generation: expectedGeneration,
                 metadata: [
                     "status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue,
-                    "scanMode": mode.rawValue
+                    "scanMode": mode.rawValue,
+                    "ai.automaticScanStoppedReason": stoppedReason,
+                    "ai.maxPerNoteDurationMs": String(automaticMaxPerNoteDurationMs)
                 ]
             )
             SubsystemDiagnostics.record(
@@ -627,7 +670,10 @@ public actor KnowledgeExtractionService {
                 durationMs: Double(elapsedMilliseconds),
                 counts: ["processedNotes": processedCount, "pendingNotes": remaining, "totalNotes": noteURLs.count],
                 generation: expectedGeneration,
-                metadata: ["status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue]
+                metadata: [
+                    "status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue,
+                    "ai.automaticScanStoppedReason": stoppedReason
+                ]
             )
         } else {
             updateAIStatus(AIIndexingStatus.idle.rawValue)
@@ -665,17 +711,26 @@ public actor KnowledgeExtractionService {
 
     // MARK: - Core Extraction
 
+    private enum ExtractionOutcome: Sendable {
+        case processed
+        case skipped
+        case providerSlow
+    }
+
+    private struct AIExtractionTimeoutError: Error {}
+
     private func extractConcepts(
         for noteURL: URL,
         expectedGeneration: UInt64? = nil,
-        expectedRevision: UInt64? = nil
-    ) async {
+        expectedRevision: UInt64? = nil,
+        automaticTimeoutMs: UInt64? = nil
+    ) async -> ExtractionOutcome {
         let canonicalNoteURL = CanonicalNoteIdentity.canonicalFileURL(for: noteURL)
         guard generationAndRevisionAreCurrent(
             for: canonicalNoteURL,
             expectedGeneration: expectedGeneration,
             expectedRevision: expectedRevision
-        ) else { return }
+        ) else { return .skipped }
 
         let content: String
         // CRITICAL: Use coordinated read to prevent race with iCloud sync
@@ -690,7 +745,7 @@ public actor KnowledgeExtractionService {
                 noteBasename: canonicalNoteURL.lastPathComponent,
                 metadata: ["error": error.localizedDescription]
             )
-            return
+            return .skipped
         }
 
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -701,52 +756,83 @@ public actor KnowledgeExtractionService {
                 expectedGeneration: expectedGeneration,
                 expectedRevision: expectedRevision
             )
-            return
+            return .processed
         }
 
         let inputText = String(trimmed.prefix(3000))
 
         if let extractionOverride {
-            let concepts = await extractionOverride(inputText)
+            let concepts: [String]
+            do {
+                concepts = try await runAutomaticExtractionWithTimeoutIfNeeded(
+                    timeoutMs: automaticTimeoutMs,
+                    noteURL: canonicalNoteURL
+                ) {
+                    await extractionOverride(inputText)
+                }
+            } catch is AIExtractionTimeoutError {
+                registerProviderSlow(noteURL: canonicalNoteURL, timeoutMs: automaticTimeoutMs ?? 0)
+                return .providerSlow
+            } catch {
+                return .skipped
+            }
             await commitConceptUpdate(
                 for: canonicalNoteURL,
                 concepts: concepts,
                 expectedGeneration: expectedGeneration,
                 expectedRevision: expectedRevision
             )
-            return
+            return .processed
         }
 
         // Per CODEX.md F9: Route through AIExecutionPolicy for consistent circuit breaker/fallback
         if let policy = executionPolicy {
-            let concepts = await policy.extractConcepts(
-                from: inputText,
-                model: nil,
-                systemPrompt: Self.systemPrompt
-            )
+            let concepts: [String]
+            do {
+                concepts = try await runAutomaticExtractionWithTimeoutIfNeeded(
+                    timeoutMs: automaticTimeoutMs,
+                    noteURL: canonicalNoteURL
+                ) {
+                    await policy.extractConcepts(
+                        from: inputText,
+                        model: nil,
+                        systemPrompt: Self.systemPrompt
+                    )
+                }
+            } catch is AIExtractionTimeoutError {
+                registerProviderSlow(noteURL: canonicalNoteURL, timeoutMs: automaticTimeoutMs ?? 0)
+                return .providerSlow
+            } catch {
+                return .skipped
+            }
             await commitConceptUpdate(
                 for: canonicalNoteURL,
                 concepts: concepts,
                 expectedGeneration: expectedGeneration,
                 expectedRevision: expectedRevision
             )
-            return
+            return .processed
         }
 
         // Legacy path: direct provider access (for backward compatibility)
         let registry = await AIProviderRegistry.shared
-        guard let provider = await registry.selectedProvider, provider.isConfigured else { return }
+        guard let provider = await registry.selectedProvider, provider.isConfigured else { return .skipped }
         let modelID = await registry.selectedModelID
 
         do {
-            let response = try await provider.chat(
-                messages: [
-                    AIMessage(role: .system, content: Self.systemPrompt),
-                    AIMessage(role: .user, content: inputText)
-                ],
-                model: modelID,
-                temperature: 0.3
-            )
+            let response = try await runAutomaticExtractionWithTimeoutIfNeeded(
+                timeoutMs: automaticTimeoutMs,
+                noteURL: canonicalNoteURL
+            ) {
+                try await provider.chat(
+                    messages: [
+                        AIMessage(role: .system, content: Self.systemPrompt),
+                        AIMessage(role: .user, content: inputText)
+                    ],
+                    model: modelID,
+                    temperature: 0.3
+                )
+            }
 
             let concepts = parseConcepts(from: response.content)
             await commitConceptUpdate(
@@ -755,6 +841,10 @@ public actor KnowledgeExtractionService {
                 expectedGeneration: expectedGeneration,
                 expectedRevision: expectedRevision
             )
+            return .processed
+        } catch is AIExtractionTimeoutError {
+            registerProviderSlow(noteURL: canonicalNoteURL, timeoutMs: automaticTimeoutMs ?? 0)
+            return .providerSlow
         } catch {
             logger.warning("Extraction failed: \(error.localizedDescription)")
             QuartzDiagnostics.warning(
@@ -775,6 +865,29 @@ public actor KnowledgeExtractionService {
                     "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "none"
                 ]
             )
+            return .skipped
+        }
+    }
+
+    private func runAutomaticExtractionWithTimeoutIfNeeded<T: Sendable>(
+        timeoutMs: UInt64?,
+        noteURL: URL,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        guard let timeoutMs else {
+            return try await operation()
+        }
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutMs * 1_000_000)
+                throw AIExtractionTimeoutError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 
@@ -1074,6 +1187,45 @@ public actor KnowledgeExtractionService {
             "lastAIFailureReason": reasonCode,
             "aiBackoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
         ])
+    }
+
+    private func registerProviderSlow(noteURL: URL, timeoutMs: UInt64) {
+        let backoffSeconds: TimeInterval = 5 * 60
+        aiFailureStatus = AIIndexingStatus.providerSlow.rawValue
+        aiBackoffUntil = Date().addingTimeInterval(backoffSeconds)
+        lastAIFailureReason = "ai.providerSlow"
+        state.lastStatus = aiFailureStatus
+        state.lastFailureReason = "ai.providerSlow"
+        state.lastFailureAt = Date()
+        state.backoffUntil = aiBackoffUntil
+        saveStateToDisk()
+        updateAIStatus(AIIndexingStatus.providerSlow.rawValue, extra: [
+            "lastAIFailureReason": "ai.providerSlow",
+            "aiBackoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+        ])
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .aiIndexing,
+            name: "ai.noteTimeout",
+            reasonCode: "ai.noteTimeout",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["ai.maxPerNoteDurationMs": Int(timeoutMs)],
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.providerSlow.rawValue,
+                "ai.maxPerNoteDurationMs": String(timeoutMs)
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .aiIndexing,
+            name: "ai.providerSlow",
+            reasonCode: "ai.providerSlow",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.providerSlow.rawValue,
+                "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+            ]
+        )
     }
 
     private func isAIBackoffActive(now: Date = Date()) -> Bool {

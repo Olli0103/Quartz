@@ -4,6 +4,17 @@ import Foundation
 
 @Suite("Embedding Resume Persistence", .serialized)
 struct EmbeddingResumePersistenceTests {
+    private func makeService(vaultURL: URL) -> VectorEmbeddingService {
+        VectorEmbeddingService(vaultURL: vaultURL, embeddingProvider: { text in
+            let seed = text.utf8.reduce(UInt32(2_166_136_261)) { partial, byte in
+                (partial ^ UInt32(byte)) &* 16_777_619
+            }
+            return (0..<8).map { offset in
+                Float((seed &+ UInt32(offset * 37)) % 1_000) / 1_000
+            }
+        })
+    }
+
     private func makeTempVault() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EmbeddingResume-\(UUID().uuidString)")
@@ -53,14 +64,14 @@ struct EmbeddingResumePersistenceTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let notes = try makeNotes(count: 12, in: vault)
 
-        let service = VectorEmbeddingService(vaultURL: vault)
+        let service = makeService(vaultURL: vault)
         for url in notes.prefix(5) {
             let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
             try await service.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
         }
         try await service.saveIndex()
 
-        let restarted = VectorEmbeddingService(vaultURL: vault)
+        let restarted = makeService(vaultURL: vault)
         try await restarted.loadIndex()
 
         #expect(await restarted.entryCount > 0)
@@ -78,14 +89,14 @@ struct EmbeddingResumePersistenceTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let notes = try makeNotes(count: 10, in: vault)
 
-        let firstRun = VectorEmbeddingService(vaultURL: vault)
+        let firstRun = makeService(vaultURL: vault)
         for url in notes.prefix(4) {
             let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
             try await firstRun.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
         }
         try await firstRun.saveIndex()
 
-        let resumed = VectorEmbeddingService(vaultURL: vault)
+        let resumed = makeService(vaultURL: vault)
         try await resumed.loadIndex()
 
         let initialPending = try await pendingSummary(service: resumed, urls: notes, vaultRoot: vault)
@@ -101,7 +112,7 @@ struct EmbeddingResumePersistenceTests {
         }
         try await resumed.saveIndex()
 
-        let finalRun = VectorEmbeddingService(vaultURL: vault)
+        let finalRun = makeService(vaultURL: vault)
         try await finalRun.loadIndex()
 
         #expect(await finalRun.indexedNoteCount == notes.count)
@@ -131,7 +142,7 @@ struct EmbeddingResumePersistenceTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let notes = try makeNotes(count: 6, in: vault)
 
-        let service = VectorEmbeddingService(vaultURL: vault)
+        let service = makeService(vaultURL: vault)
         for url in notes {
             let id = VectorEmbeddingService.stableNoteID(for: url, vaultRoot: vault)
             try await service.indexNote(noteID: id, content: String(contentsOf: url, encoding: .utf8))
@@ -141,7 +152,7 @@ struct EmbeddingResumePersistenceTests {
         try await Task.sleep(for: .milliseconds(20))
         try "Changed content after checkpoint".write(to: notes[2], atomically: true, encoding: .utf8)
 
-        let restarted = VectorEmbeddingService(vaultURL: vault)
+        let restarted = makeService(vaultURL: vault)
         try await restarted.loadIndex()
         let summary = try await pendingSummary(service: restarted, urls: notes, vaultRoot: vault)
 
@@ -155,7 +166,7 @@ struct EmbeddingResumePersistenceTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let notes = try makeNotes(count: 9, in: vault)
 
-        let legacy = VectorEmbeddingService(vaultURL: vault)
+        let legacy = makeService(vaultURL: vault)
         for url in notes.prefix(4) {
             try await legacy.indexNote(
                 noteID: UUID(),
@@ -164,7 +175,7 @@ struct EmbeddingResumePersistenceTests {
         }
         try await legacy.saveIndex()
 
-        let restarted = VectorEmbeddingService(vaultURL: vault)
+        let restarted = makeService(vaultURL: vault)
         try await restarted.loadIndex()
         #expect(await restarted.entryCount > 0)
         #expect(await restarted.indexedNoteIDOverlapCount(with: Set(notes.map {
@@ -182,7 +193,7 @@ struct EmbeddingResumePersistenceTests {
         }
         try await restarted.saveIndex()
 
-        let secondRestart = VectorEmbeddingService(vaultURL: vault)
+        let secondRestart = makeService(vaultURL: vault)
         try await secondRestart.loadIndex()
         let summary = try await pendingSummary(service: secondRestart, urls: notes, vaultRoot: vault)
         #expect(await secondRestart.indexedNoteCount == 3)

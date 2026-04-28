@@ -483,9 +483,13 @@ public final class GraphViewModel {
         let semanticEdges = edges.filter(\.isSemantic).count
         let conceptEdges = edges.filter(\.isConcept).count
         let largeGraph = totalNoteCount > GraphLayoutPolicy.maxNodesPerGraph
-        let usabilityMode = resolvedCoverageMode == .focus
-            ? "focus"
-            : (resolvedCoverageMode == .fullVault && largeGraph ? "fullVaultDegraded" : resolvedCoverageMode.rawValue)
+        let usabilityMode = Self.diagnosticUsabilityMode(
+            coverageMode: resolvedCoverageMode,
+            largeGraph: largeGraph,
+            focusNodeID: currentNoteID,
+            displayedNoteCount: displayedNoteCount,
+            totalNoteCount: totalNoteCount
+        )
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .graph,
@@ -537,6 +541,25 @@ public final class GraphViewModel {
         for (i, node) in nodes.enumerated() {
             nodeIndex[node.id] = i
         }
+    }
+
+    nonisolated static func diagnosticUsabilityMode(
+        coverageMode: GraphCoverageMode,
+        largeGraph: Bool,
+        focusNodeID: String?,
+        displayedNoteCount: Int,
+        totalNoteCount: Int
+    ) -> String {
+        if coverageMode == .focus {
+            if focusNodeID != nil {
+                return "focus"
+            }
+            return displayedNoteCount < totalNoteCount ? "cappedOverview" : "focusOverview"
+        }
+        if coverageMode == .fullVault, largeGraph {
+            return "fullVaultDegraded"
+        }
+        return coverageMode.rawValue
     }
 
     // MARK: - Concept Hub Nodes

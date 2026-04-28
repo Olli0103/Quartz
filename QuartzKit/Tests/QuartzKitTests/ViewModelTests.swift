@@ -9,9 +9,15 @@ actor MockVaultProvider: VaultProviding {
     var notes: [URL: NoteDocument] = [:]
     var folders: [URL] = []
     var fileTree: [FileNode] = []
+    var loadFileTreeCallCount = 0
+    var loadDelay: Duration?
 
     func loadFileTree(at root: URL) async throws -> [FileNode] {
-        fileTree
+        loadFileTreeCallCount += 1
+        if let loadDelay {
+            try? await Task.sleep(for: loadDelay)
+        }
+        return fileTree
     }
 
     func readNote(at url: URL) async throws -> NoteDocument {
@@ -220,7 +226,7 @@ struct SidebarViewModelTests {
         #expect(vm.vaultRootURL == vaultRoot)
     }
 
-    @Test("same-vault load refreshes without full reload semantics")
+    @Test("same-vault load uses fresh cache until explicit refresh")
     @MainActor
     func sameVaultLoadSkipsFullReloadSemantics() async {
         let provider = MockVaultProvider()
@@ -235,8 +241,31 @@ struct SidebarViewModelTests {
         await provider.setFileTree([second])
         await vm.loadTree(at: vaultRoot)
 
+        #expect(vm.fileTree.map(\.name) == ["a.md"])
+        await vm.refresh()
         #expect(vm.fileTree.map(\.name) == ["b.md"])
         #expect(!vm.isLoading)
+    }
+
+    @Test("concurrent same-vault background refresh requests coalesce")
+    @MainActor
+    func concurrentRefreshRequestsCoalesce() async {
+        let provider = MockVaultProvider()
+        let first = FileNode(name: "a.md", url: vaultRoot.appendingPathComponent("a.md"), nodeType: .note)
+        let second = FileNode(name: "b.md", url: vaultRoot.appendingPathComponent("b.md"), nodeType: .note)
+        await provider.setFileTree([first])
+        await provider.setLoadDelay(.milliseconds(120))
+
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: vaultRoot)
+
+        await provider.setFileTree([second])
+        async let firstRefresh: Void = vm.refresh()
+        async let secondRefresh: Void = vm.refresh()
+        _ = await (firstRefresh, secondRefresh)
+
+        #expect(await provider.loadCount() == 2)
+        #expect(vm.fileTree.map(\.name) == ["b.md"])
     }
 }
 
@@ -268,6 +297,14 @@ struct AppStateTests {
 extension MockVaultProvider {
     func setFileTree(_ tree: [FileNode]) {
         self.fileTree = tree
+    }
+
+    func setLoadDelay(_ delay: Duration?) {
+        self.loadDelay = delay
+    }
+
+    func loadCount() -> Int {
+        loadFileTreeCallCount
     }
 
     func addNote(_ note: NoteDocument) {

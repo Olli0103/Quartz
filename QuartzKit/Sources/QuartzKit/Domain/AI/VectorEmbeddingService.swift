@@ -104,11 +104,14 @@ public actor VectorEmbeddingService {
     private let indexURL: URL
     private let chunkSize: Int
     private let language: NLLanguage
+    private let embeddingProvider: (@Sendable (String) -> [Float]?)?
     private let logger = Logger(subsystem: "com.quartz", category: "Embeddings")
     private var hasDirtyIndexChanges = false
     private var lastPersistedDataDigest: SHA256.Digest?
     private var lastCheckpointAttempt: Date?
-    private static let checkpointDebounceInterval: TimeInterval = 2
+    private static let checkpointDebounceInterval: TimeInterval = 10
+    private static let catastrophicShrinkMinimumOldChunks = 10
+    private static let catastrophicShrinkRatio = 0.5
     private nonisolated static let checkpointBackpressure = EmbeddingCheckpointBackpressure()
 
     /// Maximum recommended entries before performance degrades.
@@ -139,11 +142,13 @@ public actor VectorEmbeddingService {
     public init(
         vaultURL: URL,
         chunkSize: Int = 512,
-        language: NLLanguage = .english
+        language: NLLanguage = .english,
+        embeddingProvider: (@Sendable (String) -> [Float]?)? = nil
     ) {
         self.indexURL = Self.indexFileURL(for: vaultURL)
         self.chunkSize = chunkSize
         self.language = language
+        self.embeddingProvider = embeddingProvider
     }
 
     /// Canonical embedding index URL. Diagnostics and the loader must use this
@@ -155,6 +160,38 @@ public actor VectorEmbeddingService {
     }
 
     public var indexFileURL: URL { indexURL }
+
+    public static func backupIndexFileURL(for vaultURL: URL) -> URL {
+        indexFileURL(for: vaultURL)
+            .deletingLastPathComponent()
+            .appending(path: "embeddings.idx.bak")
+    }
+
+    @discardableResult
+    public func restoreIndexFromBackup() throws -> Bool {
+        let backupURL = indexURL.deletingLastPathComponent().appending(path: "embeddings.idx.bak")
+        guard FileManager.default.fileExists(atPath: backupURL.path(percentEncoded: false)) else {
+            return false
+        }
+        let backupData = try CoordinatedFileWriter.shared.read(from: backupURL)
+        index = try Self.decodeBinary(backupData)
+        try CoordinatedFileWriter.shared.write(backupData, to: indexURL)
+        hasDirtyIndexChanges = false
+        lastPersistedDataDigest = SHA256.hash(data: backupData)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .embeddings,
+            name: "checkpointRestoredFromBackup",
+            reasonCode: "embedding.checkpointRestoredFromBackup",
+            counts: ["chunks": index.count, "notes": Set(index.map(\.noteID)).count, "bytes": backupData.count],
+            metadata: [
+                "checkpointPath": indexURL.path(percentEncoded: false),
+                "backupPath": backupURL.path(percentEncoded: false),
+                "restoredFromBackup": "true"
+            ]
+        )
+        return true
+    }
 
     private static func isLikelyICloudURL(_ url: URL) -> Bool {
         let path = url.path(percentEncoded: false)
@@ -301,7 +338,7 @@ public actor VectorEmbeddingService {
     }
 
     /// Saves the embedding index to disk (binary format).
-    public func saveIndex(force: Bool = false) throws {
+    public func saveIndex(force: Bool = false, explicitRebuild: Bool = false) throws {
         let started = Date()
         guard hasDirtyIndexChanges else {
             recordCheckpointSkipped(
@@ -348,18 +385,109 @@ public actor VectorEmbeddingService {
 
         let dir = indexURL.deletingLastPathComponent()
         try CoordinatedFileWriter.shared.createDirectory(at: dir, withIntermediateDirectories: true)
+        let oldSummary = try existingIndexSummaryIfPresent()
+        let newSummary = IndexSummary(entries: index.count, notes: Set(index.map(\.noteID)).count, bytes: data.count)
+
+        if let oldSummary,
+           !explicitRebuild,
+           isCatastrophicShrink(old: oldSummary, new: newSummary) {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .embeddings,
+                name: "checkpointRejected",
+                reasonCode: "embedding.checkpointRejected.shrinkingIndex",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: [
+                    "oldChunks": oldSummary.entries,
+                    "newChunks": newSummary.entries,
+                    "oldNotes": oldSummary.notes,
+                    "newNotes": newSummary.notes,
+                    "oldBytes": oldSummary.bytes,
+                    "newBytes": newSummary.bytes
+                ],
+                metadata: [
+                    "checkpointPath": indexURL.path(percentEncoded: false),
+                    "explicitRebuild": String(explicitRebuild),
+                    "backupCreated": "false",
+                    "restoredFromBackup": "false"
+                ]
+            )
+            throw EmbeddingIndexError.shrinkingCheckpointRejected(
+                oldChunks: oldSummary.entries,
+                newChunks: newSummary.entries,
+                oldNotes: oldSummary.notes,
+                newNotes: newSummary.notes
+            )
+        }
+
+        let tempURL = dir.appending(path: ".embeddings.idx.\(UUID().uuidString).tmp")
+        try data.write(to: tempURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let validatedEntries = try Self.decodeBinary(try Data(contentsOf: tempURL))
+        guard validatedEntries.count == index.count else {
+            throw EmbeddingIndexError.corruptedIndex
+        }
+
+        var backupCreated = false
+        let backupURL = indexURL.deletingLastPathComponent().appending(path: "embeddings.idx.bak")
+        if FileManager.default.fileExists(atPath: indexURL.path(percentEncoded: false)) {
+            try? FileManager.default.removeItem(at: backupURL)
+            try FileManager.default.copyItem(at: indexURL, to: backupURL)
+            backupCreated = true
+        }
+
         do {
             try CoordinatedFileWriter.shared.write(data, to: indexURL)
+            do {
+                _ = try Self.decodeBinary(try CoordinatedFileWriter.shared.read(from: indexURL))
+            } catch {
+                if backupCreated {
+                    try? CoordinatedFileWriter.shared.write(Data(contentsOf: backupURL), to: indexURL)
+                }
+                SubsystemDiagnostics.record(
+                    level: .error,
+                    subsystem: .embeddings,
+                    name: "checkpointRejected",
+                    reasonCode: "embedding.checkpointRejected.validationFailed",
+                    durationMs: Date().timeIntervalSince(started) * 1_000,
+                    counts: [
+                        "oldChunks": oldSummary?.entries ?? 0,
+                        "newChunks": newSummary.entries,
+                        "oldNotes": oldSummary?.notes ?? 0,
+                        "newNotes": newSummary.notes
+                    ],
+                    metadata: [
+                        "checkpointPath": indexURL.path(percentEncoded: false),
+                        "explicitRebuild": String(explicitRebuild),
+                        "backupCreated": String(backupCreated),
+                        "restoredFromBackup": String(backupCreated),
+                        "error": error.localizedDescription
+                    ]
+                )
+                throw error
+            }
             hasDirtyIndexChanges = false
             lastPersistedDataDigest = digest
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .embeddings,
-                name: "checkpointSaved",
-                reasonCode: "embedding.checkpointSaved",
+                name: "checkpointAccepted",
+                reasonCode: "embedding.checkpointAccepted",
                 durationMs: Date().timeIntervalSince(started) * 1_000,
-                counts: ["chunks": index.count, "bytes": data.count],
-                metadata: ["checkpointPath": indexURL.path(percentEncoded: false)]
+                counts: [
+                    "chunks": index.count,
+                    "bytes": data.count,
+                    "oldChunks": oldSummary?.entries ?? 0,
+                    "newChunks": newSummary.entries,
+                    "oldNotes": oldSummary?.notes ?? 0,
+                    "newNotes": newSummary.notes
+                ],
+                metadata: [
+                    "checkpointPath": indexURL.path(percentEncoded: false),
+                    "explicitRebuild": String(explicitRebuild),
+                    "backupCreated": String(backupCreated),
+                    "restoredFromBackup": "false"
+                ]
             )
         } catch {
             SubsystemDiagnostics.record(
@@ -373,6 +501,29 @@ public actor VectorEmbeddingService {
             )
             throw error
         }
+    }
+
+    private struct IndexSummary: Sendable {
+        let entries: Int
+        let notes: Int
+        let bytes: Int
+    }
+
+    private func existingIndexSummaryIfPresent() throws -> IndexSummary? {
+        guard FileManager.default.fileExists(atPath: indexURL.path(percentEncoded: false)) else {
+            return nil
+        }
+        let data = try CoordinatedFileWriter.shared.read(from: indexURL)
+        let entries = try Self.decodeBinary(data)
+        return IndexSummary(entries: entries.count, notes: Set(entries.map(\.noteID)).count, bytes: data.count)
+    }
+
+    private func isCatastrophicShrink(old: IndexSummary, new: IndexSummary) -> Bool {
+        guard old.entries >= Self.catastrophicShrinkMinimumOldChunks else { return false }
+        let chunkShrink = Double(new.entries) < Double(old.entries) * Self.catastrophicShrinkRatio
+        let noteShrink = old.notes >= Self.catastrophicShrinkMinimumOldChunks
+            && Double(new.notes) < Double(old.notes) * Self.catastrophicShrinkRatio
+        return chunkShrink || noteShrink
     }
 
     private func recordCheckpointSkipped(
@@ -925,6 +1076,10 @@ public actor VectorEmbeddingService {
     }
 
     private func generateEmbedding(for text: String) -> [Float]? {
+        if let embeddingProvider {
+            return embeddingProvider(text)
+        }
+
         let detectedLang = detectLanguage(for: text)
         guard let embedding = getEmbedding(for: detectedLang),
               let vector = embedding.vector(for: text) else {
@@ -965,6 +1120,7 @@ public enum EmbeddingIndexError: LocalizedError, Sendable {
     case indexUnavailable(String)
     case invalidEmbeddingDimension(Int)
     case trailingDataAfterDeclaredEntries(declaredEntries: Int, trailingBytes: Int)
+    case shrinkingCheckpointRejected(oldChunks: Int, newChunks: Int, oldNotes: Int, newNotes: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -978,6 +1134,8 @@ public enum EmbeddingIndexError: LocalizedError, Sendable {
             String(localized: "Invalid embedding vector dimension in index: \(dimension)", bundle: .module)
         case .trailingDataAfterDeclaredEntries(let declaredEntries, let trailingBytes):
             String(localized: "Embedding index declared \(declaredEntries) entries but contains \(trailingBytes) trailing bytes.", bundle: .module)
+        case .shrinkingCheckpointRejected(let oldChunks, let newChunks, let oldNotes, let newNotes):
+            String(localized: "Embedding checkpoint rejected because it would shrink the index from \(oldChunks) chunks/\(oldNotes) notes to \(newChunks) chunks/\(newNotes) notes.", bundle: .module)
         }
     }
 }

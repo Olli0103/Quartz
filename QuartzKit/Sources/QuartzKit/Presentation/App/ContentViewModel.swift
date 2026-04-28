@@ -8,7 +8,7 @@ import OSLog
 @Observable
 @MainActor
 public final class ContentViewModel {
-    nonisolated private static let embeddingCheckpointInterval = 8
+    nonisolated private static let embeddingCheckpointInterval = 100
     nonisolated private static let indexingTelemetryLogger = Logger(subsystem: "com.quartz", category: "IndexingTelemetry")
 
     public var sidebarViewModel: SidebarViewModel?
@@ -701,8 +701,20 @@ public final class ContentViewModel {
     }
 
     private func handleEditorSaveHealthChanged(state: String?, url: URL?) {
-        if let url,
-           let vaultRoot = appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL {
+        guard let vaultRoot = appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL ?? currentVaultRootURL else {
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .embeddings,
+                name: "savePressureIgnored",
+                reasonCode: "embedding.savePressureIgnored.noVault",
+                noteBasename: url?.lastPathComponent,
+                metadata: ["reason": "noVaultRoot"],
+                verbose: true
+            )
+            return
+        }
+
+        if let url {
             let notePath = CanonicalNoteIdentity.canonicalFileURL(for: url).path(percentEncoded: false)
             let vaultPath = CanonicalNoteIdentity.canonicalFileURL(for: vaultRoot).path(percentEncoded: false)
             guard notePath.hasPrefix(vaultPath) else {
@@ -725,7 +737,7 @@ public final class ContentViewModel {
             savePressureSourceURL = url.map { CanonicalNoteIdentity.canonicalFileURL(for: $0) }
             VectorEmbeddingService.pauseCheckpointingForSavePressure(
                 seconds: 90,
-                vaultURL: appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL
+                vaultURL: vaultRoot
             )
             indexingTask?.cancel()
             embeddingReindexTask?.cancel()
@@ -756,7 +768,7 @@ public final class ContentViewModel {
             savePressurePauseUntil = nil
             savePressureSourceURL = nil
             VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(
-                vaultURL: appState.currentVault?.rootURL ?? sidebarViewModel?.vaultRootURL
+                vaultURL: vaultRoot
             )
             savePressureResumeTask?.cancel()
             savePressureResumeTask = nil
@@ -785,9 +797,9 @@ public final class ContentViewModel {
                     return
                 }
                 self.savePressureResumeTask = nil
-                VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(
-                    vaultURL: self.appState.currentVault?.rootURL ?? self.sidebarViewModel?.vaultRootURL
-                )
+                if let vaultRoot = self.appState.currentVault?.rootURL ?? self.sidebarViewModel?.vaultRootURL ?? self.currentVaultRootURL {
+                    VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vaultRoot)
+                }
                 self.resumeEmbeddingIndexingAfterSavePressure(reason: "save pressure pause expired")
             }
         }
@@ -1823,14 +1835,8 @@ public final class ContentViewModel {
                         try await embedding.indexNote(noteID: stableID, content: content)
                         indexedNotes += 1
                         changedNotesSinceCheckpoint += 1
-                        if indexedNotes == 1 || changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
+                        if changedNotesSinceCheckpoint >= Self.embeddingCheckpointInterval {
                             try await embedding.saveIndex()
-                            if indexedNotes == 1 {
-                                QuartzDiagnostics.info(
-                                    category: "IndexingTelemetry",
-                                    "Embedding sweep first checkpoint saved processed=\(i + 1)/\(total) indexedNotes=\(indexedNotes)"
-                                )
-                            }
                             changedNotesSinceCheckpoint = 0
                         }
                     } catch {

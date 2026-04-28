@@ -152,18 +152,14 @@ struct DiagnosticsExportTests {
 
     @Test("Diagnostic export reports active AI scan over persisted idle health")
     func diagnosticExportReportsActiveAIScanOverPersistedIdleHealth() async throws {
-        await SubsystemDiagnostics.resetForTesting()
-        SubsystemDiagnostics.record(
-            level: .info,
-            subsystem: .aiIndexing,
-            name: "conceptScanPending",
-            reasonCode: "ai.scanPending",
-            counts: ["pendingNotes": 636],
-            metadata: ["status.aiIndexing": "running"]
+        let service = DiagnosticExportService(
+            testingDiagnosticsStore: QuartzDiagnosticsStore(logURL: nil),
+            subsystemDiagnosticsProvider: {
+                Self.subsystemSnapshot(aiState: ["aiIndexing": "running"])
+            }
         )
-        try await Task.sleep(for: .milliseconds(50))
 
-        let report = await DiagnosticExportService.shared.generateReport(
+        let report = await service.generateReport(
             context: "AI status test",
             error: nil,
             additionalInfo: ["aiIndex.status": "idle"]
@@ -175,17 +171,18 @@ struct DiagnosticsExportTests {
 
     @Test("Diagnostic export reports AI backoff over stale running state")
     func diagnosticExportReportsAIBackoffOverStaleRunningState() async throws {
-        await SubsystemDiagnostics.resetForTesting()
-        SubsystemDiagnostics.updateState(
-            subsystem: .aiIndexing,
-            values: [
-                "aiIndexing": "running",
-                "lastAIIndexingStatus": "backoff",
-                "lastAIFailureReason": "ai.networkLost"
-            ]
+        let service = DiagnosticExportService(
+            testingDiagnosticsStore: QuartzDiagnosticsStore(logURL: nil),
+            subsystemDiagnosticsProvider: {
+                Self.subsystemSnapshot(aiState: [
+                    "aiIndexing": "running",
+                    "lastAIIndexingStatus": "backoff",
+                    "lastAIFailureReason": "ai.networkLost"
+                ])
+            }
         )
 
-        let report = await DiagnosticExportService.shared.generateReport(
+        let report = await service.generateReport(
             context: "AI backoff status test",
             error: nil,
             additionalInfo: ["aiIndex.status": "idle"]
@@ -193,6 +190,21 @@ struct DiagnosticsExportTests {
 
         #expect(report.additionalInfo["aiIndex.status"] == "backoff")
         #expect(report.additionalInfo["aiIndex.statusSource"] == "subsystemDiagnostics")
+    }
+
+    private static func subsystemSnapshot(aiState: [String: String]) -> SubsystemDiagnosticsSnapshot {
+        SubsystemDiagnosticsSnapshot(
+            recentEvents: [],
+            eventsBySubsystem: DiagnosticsSubsystem.allCases.reduce(into: [:]) { result, subsystem in
+                result[subsystem] = []
+            },
+            warningsAndErrorsBySubsystem: DiagnosticsSubsystem.allCases.reduce(into: [:]) { result, subsystem in
+                result[subsystem] = []
+            },
+            topSlowOperations: [],
+            repeatedEventSummaries: [],
+            currentState: [.aiIndexing: aiState]
+        )
     }
 
     @Test("Diagnostic export includes renderer diagnostics section")

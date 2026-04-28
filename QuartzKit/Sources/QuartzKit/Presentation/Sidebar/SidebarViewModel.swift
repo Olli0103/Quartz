@@ -123,6 +123,9 @@ public final class SidebarViewModel {
     private var tagCacheValid: Bool = false
     private var cachedTreesByRoot: [String: [FileNode]] = [:]
     private var lastTreeFingerprintByRoot: [String: String] = [:]
+    private var lastTreeLoadedAtByRoot: [String: Date] = [:]
+    private var activeBackgroundRefreshRoots: Set<String> = []
+    private static let freshCacheRefreshInterval: TimeInterval = 5
 
     /// Hook for consumers that need immediate access to the authoritative catalog
     /// after sidebar file mutations. KG3 uses this to keep relationship resolution
@@ -207,6 +210,11 @@ public final class SidebarViewModel {
         vaultRoot = root
         errorMessage = nil
 
+        if sameVault, forceReload, !fileTree.isEmpty {
+            await refreshTreeInBackground(at: root, rootKey: rootKey, started: started)
+            return
+        }
+
         if sameVault, !forceReload, !fileTree.isEmpty {
             SubsystemDiagnostics.record(
                 level: .info,
@@ -219,6 +227,21 @@ public final class SidebarViewModel {
                     "treeReloaded": "false"
                 ]
             )
+            if let lastLoaded = lastTreeLoadedAtByRoot[rootKey],
+               Date().timeIntervalSince(lastLoaded) < Self.freshCacheRefreshInterval {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.refreshCoalesced",
+                    reasonCode: "sidebar.refreshCoalesced",
+                    counts: ["sidebar.treeNodeCount": Self.nodeCount(in: fileTree)],
+                    metadata: [
+                        "sidebar.backgroundRefreshReason": "sameVaultCacheFresh",
+                        "sidebar.cacheAgeMs": String(Int(Date().timeIntervalSince(lastLoaded) * 1_000))
+                    ]
+                )
+                return
+            }
             await refreshTreeInBackground(at: root, rootKey: rootKey, started: started)
             return
         }
@@ -240,7 +263,10 @@ public final class SidebarViewModel {
                 name: "sidebar.visibleFromCache",
                 reasonCode: "sidebar.visibleFromCache",
                 counts: ["sidebar.treeNodeCount": Self.nodeCount(in: cached)],
-                metadata: ["root": root.path(percentEncoded: false)]
+                metadata: [
+                    "root": root.path(percentEncoded: false),
+                    "sidebar.cacheAgeMs": String(cacheAgeMs(for: rootKey))
+                ]
             )
             await refreshTreeInBackground(at: root, rootKey: rootKey, started: started)
             return
@@ -292,6 +318,23 @@ public final class SidebarViewModel {
     }
 
     private func refreshTreeInBackground(at root: URL, rootKey: String, started: Date) async {
+        guard !activeBackgroundRefreshRoots.contains(rootKey) else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.refreshSkippedAlreadyRunning",
+                reasonCode: "sidebar.refreshSkippedAlreadyRunning",
+                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: fileTree)],
+                metadata: [
+                    "sidebar.backgroundRefreshReason": "alreadyRunning",
+                    "sidebar.cacheAgeMs": String(cacheAgeMs(for: rootKey))
+                ]
+            )
+            return
+        }
+        activeBackgroundRefreshRoots.insert(rootKey)
+        defer { activeBackgroundRefreshRoots.remove(rootKey) }
+
         isLoading = true
         SubsystemDiagnostics.record(
             level: .info,
@@ -299,21 +342,40 @@ public final class SidebarViewModel {
             name: "sidebar.backgroundRefreshStarted",
             reasonCode: "sidebar.backgroundRefreshStarted",
             counts: ["sidebar.treeNodeCount": Self.nodeCount(in: fileTree)],
-            metadata: ["root": root.path(percentEncoded: false)]
+            metadata: [
+                "root": root.path(percentEncoded: false),
+                "sidebar.backgroundRefreshReason": "cacheRefresh",
+                "sidebar.cacheAgeMs": String(cacheAgeMs(for: rootKey))
+            ]
         )
 
         do {
             let loadedTree = try await vaultProvider.loadFileTree(at: root)
-            let oldFingerprint = lastTreeFingerprintByRoot[rootKey] ?? Self.treeFingerprint(for: fileTree)
+            let oldTree = cachedTreesByRoot[rootKey] ?? fileTree
+            let oldFingerprint = lastTreeFingerprintByRoot[rootKey] ?? Self.treeFingerprint(for: oldTree)
             let newFingerprint = Self.treeFingerprint(for: loadedTree)
-            applyLoadedTree(loadedTree, rootKey: rootKey)
+            let diff = Self.diffCounts(from: oldTree, to: loadedTree)
+            let changed = oldFingerprint != newFingerprint
+            if changed {
+                applyLoadedTree(loadedTree, rootKey: rootKey)
+            } else {
+                cachedTreesByRoot[rootKey] = loadedTree
+                lastTreeFingerprintByRoot[rootKey] = newFingerprint
+                lastTreeLoadedAtByRoot[rootKey] = Date()
+            }
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .vaultRestore,
                 name: "sidebar.diffApplied",
                 reasonCode: "sidebar.diffApplied",
-                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: loadedTree)],
-                metadata: ["changed": String(oldFingerprint != newFingerprint)]
+                counts: [
+                    "sidebar.treeNodeCount": Self.nodeCount(in: loadedTree),
+                    "added": diff.added,
+                    "removed": diff.removed,
+                    "modified": diff.modified,
+                    "moved": diff.moved
+                ],
+                metadata: ["changed": String(changed)]
             )
             SubsystemDiagnostics.record(
                 level: .info,
@@ -338,6 +400,12 @@ public final class SidebarViewModel {
         fileTree = loadedTree
         cachedTreesByRoot[rootKey] = loadedTree
         lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: loadedTree)
+        lastTreeLoadedAtByRoot[rootKey] = Date()
+    }
+
+    private func cacheAgeMs(for rootKey: String) -> Int {
+        guard let loadedAt = lastTreeLoadedAtByRoot[rootKey] else { return -1 }
+        return Int(Date().timeIntervalSince(loadedAt) * 1_000)
     }
 
     private static func cacheKey(for root: URL) -> String {
@@ -361,6 +429,50 @@ public final class SidebarViewModel {
             parts.append("\(node.url.standardizedFileURL.path(percentEncoded: false)):\(node.metadata.modifiedAt.timeIntervalSince1970)")
             if let children = node.children {
                 collectFingerprintParts(from: children, into: &parts)
+            }
+        }
+    }
+
+    private struct SidebarTreeDiff: Sendable {
+        let added: Int
+        let removed: Int
+        let modified: Int
+        let moved: Int
+    }
+
+    private static func diffCounts(from oldTree: [FileNode], to newTree: [FileNode]) -> SidebarTreeDiff {
+        let oldNodes = flattenedNodeSignatures(oldTree)
+        let newNodes = flattenedNodeSignatures(newTree)
+        let oldPaths = Set(oldNodes.keys)
+        let newPaths = Set(newNodes.keys)
+        let common = oldPaths.intersection(newPaths)
+        let modified = common.filter { oldNodes[$0] != newNodes[$0] }.count
+        return SidebarTreeDiff(
+            added: newPaths.subtracting(oldPaths).count,
+            removed: oldPaths.subtracting(newPaths).count,
+            modified: modified,
+            moved: 0
+        )
+    }
+
+    private static func flattenedNodeSignatures(_ nodes: [FileNode]) -> [String: String] {
+        var result: [String: String] = [:]
+        collectNodeSignatures(from: nodes, into: &result)
+        return result
+    }
+
+    private static func collectNodeSignatures(from nodes: [FileNode], into result: inout [String: String]) {
+        for node in nodes {
+            let path = node.url.standardizedFileURL.path(percentEncoded: false)
+            result[path] = [
+                node.name,
+                node.nodeType.rawValue,
+                String(node.metadata.modifiedAt.timeIntervalSince1970),
+                String(node.metadata.fileSize),
+                String(node.metadata.hasConflict)
+            ].joined(separator: ":")
+            if let children = node.children {
+                collectNodeSignatures(from: children, into: &result)
             }
         }
     }

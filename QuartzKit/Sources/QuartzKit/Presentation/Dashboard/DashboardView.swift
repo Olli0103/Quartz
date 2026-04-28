@@ -26,6 +26,7 @@ public struct DashboardView: View {
     @State private var serendipityNote: FileNode?
     @State private var hoveredHeatmapDay: HeatmapDay?
     @State private var dashboardHydrationState: DashboardReadinessState = .waitingForVault
+    @State private var briefingTask: Task<Void, Never>?
 
     private enum DashboardReadinessState: String {
         case waitingForVault
@@ -868,72 +869,107 @@ public struct DashboardView: View {
             verbose: true
         )
 
-        var contents: [(title: String, body: String)] = []
-        for note in recent.prefix(10) {
-            do {
-                let doc = try await provider.readNote(at: note.url)
-                let title = doc.frontmatter.title ?? note.name.replacingOccurrences(of: ".md", with: "")
-                contents.append((title: title, body: doc.body))
-            } catch {}
-        }
-
+        briefingTask?.cancel()
+        briefing = nil
         briefingLoading = true
-        let service = DashboardBriefingService(providerRegistry: AIProviderRegistry.shared)
-        do {
-            briefing = try await generateBriefingWithTimeout(
-                service: service,
-                contents: contents,
-                vaultRoot: vaultRoot
-            )
-        } catch {
-            briefing = nil
-            let isCancellation = error is CancellationError
-            SubsystemDiagnostics.record(
-                level: .info,
-                subsystem: .dashboard,
-                name: "dashboardMetricUnavailable",
-                reasonCode: "dashboard.metricUnavailable",
-                metadata: [
-                    "metric": "weeklyBriefing",
-                    "error": error.localizedDescription,
-                    "unavailableReason": isCancellation ? "cancelled" : "error",
-                    "status.dashboard": DashboardReadinessState.partialNoAI.rawValue
-                ]
-            )
-        }
-        briefingLoading = false
-        let state = briefing == nil ? DashboardReadinessState.partialNoAI.rawValue : DashboardReadinessState.ready.rawValue
-        dashboardHydrationState = briefing == nil ? .partialNoAI : .ready
+        dashboardHydrationState = .partialNoAI
+        startAIBriefingTask(provider: provider, recent: Array(recent.prefix(10)), vaultRoot: vaultRoot)
+
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .dashboard,
-            name: "dashboardLoadFinished",
-            reasonCode: briefing == nil ? "dashboard.partialNoAI" : "dashboard.loadFinished",
+            name: "dashboard.basicLoadFinished",
+            reasonCode: "dashboard.basicLoadFinished",
             durationMs: Date().timeIntervalSince(started) * 1_000,
             counts: [
                 "noteCount": noteCount,
                 "folderCount": folderCount,
                 "recentNotes": recent.count,
-                "actionItems": actionItems.count,
-                "briefingInputs": contents.count
+                "actionItems": actionItems.count
             ],
             metadata: [
-                "status.dashboard": state,
-                "dataSources": "vaultTree,recentNotes,tasks,aiBriefing"
+                "status.dashboard": DashboardReadinessState.partialNoAI.rawValue,
+                "dataSources": "vaultTree,recentNotes,tasks",
+                "dashboard.fullLoadNotBlockedByAI": "true"
             ]
         )
         SubsystemDiagnostics.updateState(
             subsystem: .dashboard,
             values: [
-                "lastDashboardRefreshStatus": state,
-                "dashboardHydrationState": state,
+                "lastDashboardRefreshStatus": DashboardReadinessState.partialNoAI.rawValue,
+                "dashboardHydrationState": DashboardReadinessState.partialNoAI.rawValue,
                 "noteCount": String(noteCount),
                 "folderCount": String(folderCount),
                 "recentNotes": String(recent.count),
                 "actionItems": String(actionItems.count),
-                "aiBriefing": briefing == nil ? "unavailable" : "available"
+                "aiBriefing": "loading",
+                "dashboard.fullLoadNotBlockedByAI": "true"
             ]
         )
+    }
+
+    private func startAIBriefingTask(provider: any VaultProviding, recent: [FileNode], vaultRoot: URL) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .dashboard,
+            name: "dashboard.aiBriefingStarted",
+            reasonCode: "dashboard.aiBriefingStarted",
+            counts: ["briefingInputsRequested": recent.count],
+            metadata: ["dashboard.fullLoadNotBlockedByAI": "true"]
+        )
+        briefingTask = Task {
+            var contents: [(title: String, body: String)] = []
+            for note in recent {
+                guard !Task.isCancelled else { return }
+                do {
+                    let doc = try await provider.readNote(at: note.url)
+                    let title = doc.frontmatter.title ?? note.name.replacingOccurrences(of: ".md", with: "")
+                    contents.append((title: title, body: doc.body))
+                } catch {}
+            }
+
+            let service = DashboardBriefingService(providerRegistry: AIProviderRegistry.shared)
+            do {
+                let result = try await generateBriefingWithTimeout(
+                    service: service,
+                    contents: contents,
+                    vaultRoot: vaultRoot
+                )
+                guard !Task.isCancelled else { return }
+                briefing = result
+                briefingLoading = false
+                dashboardHydrationState = result == nil ? .partialNoAI : .ready
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .dashboard,
+                    name: "dashboard.aiBriefingFinished",
+                    reasonCode: "dashboard.aiBriefingFinished",
+                    counts: ["briefingInputs": contents.count],
+                    metadata: [
+                        "status.dashboard": dashboardHydrationState.rawValue,
+                        "aiBriefing": result == nil ? "unavailable" : "available"
+                    ]
+                )
+            } catch {
+                briefing = nil
+                briefingLoading = false
+                dashboardHydrationState = .partialNoAI
+                let isCancellation = error is CancellationError
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .dashboard,
+                    name: isCancellation ? "dashboard.aiBriefingCancelled" : "dashboard.aiBriefingTimeout",
+                    reasonCode: isCancellation ? "dashboard.aiBriefingCancelled" : "dashboard.aiBriefingTimeout",
+                    counts: ["briefingInputs": contents.count],
+                    metadata: [
+                        "metric": "weeklyBriefing",
+                        "error": error.localizedDescription,
+                        "unavailableReason": isCancellation ? "cancelled" : "error",
+                        "status.dashboard": DashboardReadinessState.partialNoAI.rawValue
+                    ]
+                )
+            }
+        }
     }
 
     private func generateBriefingWithTimeout(
