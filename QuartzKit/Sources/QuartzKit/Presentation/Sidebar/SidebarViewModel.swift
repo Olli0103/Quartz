@@ -121,6 +121,8 @@ public final class SidebarViewModel {
     private var cachedFlatNotes: [FileNode]?
     private var _favoriteURLs: Set<String>?
     private var tagCacheValid: Bool = false
+    private var cachedTreesByRoot: [String: [FileNode]] = [:]
+    private var lastTreeFingerprintByRoot: [String: String] = [:]
 
     /// Hook for consumers that need immediate access to the authoritative catalog
     /// after sidebar file mutations. KG3 uses this to keep relationship resolution
@@ -198,13 +200,83 @@ public final class SidebarViewModel {
     }
 
     /// Loads the file tree for the given vault root URL.
-    public func loadTree(at root: URL) async {
+    public func loadTree(at root: URL, forceReload: Bool = false) async {
+        let started = Date()
+        let rootKey = Self.cacheKey(for: root)
+        let sameVault = vaultRoot.map { Self.cacheKey(for: $0) == rootKey } ?? false
         vaultRoot = root
-        isLoading = true
         errorMessage = nil
 
+        if sameVault, !forceReload, !fileTree.isEmpty {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.fullReloadSkippedSameVault",
+                reasonCode: "sidebar.fullReloadSkippedSameVault",
+                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: fileTree)],
+                metadata: [
+                    "sameVault": "true",
+                    "treeReloaded": "false"
+                ]
+            )
+            await refreshTreeInBackground(at: root, rootKey: rootKey, started: started)
+            return
+        }
+
+        if let cached = cachedTreesByRoot[rootKey], !cached.isEmpty {
+            fileTree = cached
+            isLoading = true
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.cacheHit",
+                reasonCode: "sidebar.cacheHit",
+                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: cached)],
+                metadata: ["root": root.path(percentEncoded: false)]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.visibleFromCache",
+                reasonCode: "sidebar.visibleFromCache",
+                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: cached)],
+                metadata: ["root": root.path(percentEncoded: false)]
+            )
+            await refreshTreeInBackground(at: root, rootKey: rootKey, started: started)
+            return
+        }
+
+        isLoading = true
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.cacheMiss",
+            reasonCode: "sidebar.cacheMiss",
+            metadata: ["root": root.path(percentEncoded: false)]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.fullReloadStarted",
+            reasonCode: "sidebar.fullReloadStarted",
+            metadata: ["root": root.path(percentEncoded: false)]
+        )
+
         do {
-            fileTree = try await vaultProvider.loadFileTree(at: root)
+            let loadedTree = try await vaultProvider.loadFileTree(at: root)
+            applyLoadedTree(loadedTree, rootKey: rootKey)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.backgroundRefreshFinished",
+                reasonCode: "sidebar.fullReloadFinished",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: [
+                    "sidebar.treeNodeCount": Self.nodeCount(in: loadedTree),
+                    "sidebar.loadDurationMs": Int(Date().timeIntervalSince(started) * 1_000)
+                ],
+                metadata: ["treeReloaded": "true"]
+            )
         } catch {
             errorMessage = userFacingMessage(for: error)
         }
@@ -216,7 +288,81 @@ public final class SidebarViewModel {
     /// Reloads the file tree.
     public func refresh() async {
         guard let root = vaultRoot else { return }
-        await loadTree(at: root)
+        await loadTree(at: root, forceReload: true)
+    }
+
+    private func refreshTreeInBackground(at root: URL, rootKey: String, started: Date) async {
+        isLoading = true
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.backgroundRefreshStarted",
+            reasonCode: "sidebar.backgroundRefreshStarted",
+            counts: ["sidebar.treeNodeCount": Self.nodeCount(in: fileTree)],
+            metadata: ["root": root.path(percentEncoded: false)]
+        )
+
+        do {
+            let loadedTree = try await vaultProvider.loadFileTree(at: root)
+            let oldFingerprint = lastTreeFingerprintByRoot[rootKey] ?? Self.treeFingerprint(for: fileTree)
+            let newFingerprint = Self.treeFingerprint(for: loadedTree)
+            applyLoadedTree(loadedTree, rootKey: rootKey)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.diffApplied",
+                reasonCode: "sidebar.diffApplied",
+                counts: ["sidebar.treeNodeCount": Self.nodeCount(in: loadedTree)],
+                metadata: ["changed": String(oldFingerprint != newFingerprint)]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.backgroundRefreshFinished",
+                reasonCode: "sidebar.backgroundRefreshFinished",
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                counts: [
+                    "sidebar.treeNodeCount": Self.nodeCount(in: loadedTree),
+                    "sidebar.loadDurationMs": Int(Date().timeIntervalSince(started) * 1_000)
+                ]
+            )
+        } catch {
+            errorMessage = userFacingMessage(for: error)
+        }
+
+        refreshTrash()
+        isLoading = false
+    }
+
+    private func applyLoadedTree(_ loadedTree: [FileNode], rootKey: String) {
+        fileTree = loadedTree
+        cachedTreesByRoot[rootKey] = loadedTree
+        lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: loadedTree)
+    }
+
+    private static func cacheKey(for root: URL) -> String {
+        root.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
+    }
+
+    private static func nodeCount(in nodes: [FileNode]) -> Int {
+        nodes.reduce(0) { total, node in
+            total + 1 + nodeCount(in: node.children ?? [])
+        }
+    }
+
+    private static func treeFingerprint(for nodes: [FileNode]) -> String {
+        var parts: [String] = []
+        collectFingerprintParts(from: nodes, into: &parts)
+        return parts.sorted().joined(separator: "|")
+    }
+
+    private static func collectFingerprintParts(from nodes: [FileNode], into parts: inout [String]) {
+        for node in nodes {
+            parts.append("\(node.url.standardizedFileURL.path(percentEncoded: false)):\(node.metadata.modifiedAt.timeIntervalSince1970)")
+            if let children = node.children {
+                collectFingerprintParts(from: children, into: &parts)
+            }
+        }
     }
 
     // MARK: - Folder Management

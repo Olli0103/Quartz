@@ -20,6 +20,14 @@ public final class VaultCoordinator {
     private let appState: AppState
     private let logger = Logger(subsystem: "com.quartz", category: "VaultCoordinator")
 
+    public enum VaultOpenReason: String, Sendable {
+        case restoreOpen
+        case userManualOpen
+        case internalRefresh
+        case sameVaultNoOp
+        case settingsDiagnosticsOpen
+    }
+
     // MARK: - State
 
     /// Whether vault restoration has been attempted this session.
@@ -53,24 +61,68 @@ public final class VaultCoordinator {
         workspaceStore: WorkspaceStore,
         clearSelection: Bool = true,
         userInitiated: Bool = false,
+        openReason: VaultOpenReason? = nil,
+        forceReload: Bool = false,
         onComplete: (() -> Void)? = nil
     ) {
+        let sameVault = Self.urlsReferToSameVault(appState.currentVault?.rootURL, vault.rootURL)
+        let resolvedReason = resolveOpenReason(
+            requestedReason: openReason,
+            clearSelection: clearSelection,
+            userInitiated: userInitiated,
+            sameVault: sameVault,
+            forceReload: forceReload
+        )
+        let shouldReloadTree = !(sameVault && !forceReload)
+        let shouldClearSelection = userInitiated && clearSelection && resolvedReason == .userManualOpen
+        let selectionPolicy = shouldClearSelection ? "cleared" : "preserved"
+
         DeveloperDiagnostics.loadVaultConfiguration(from: vault.rootURL)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .vaultRestore,
             name: "vaultOpenStarted",
-            reasonCode: clearSelection ? "vault.manualOpen" : "vault.restoreOpen",
+            reasonCode: "vault.\(resolvedReason.rawValue)",
             vaultName: vault.name,
             metadata: [
-                "selectionPolicy": clearSelection ? "cleared" : "preserved",
-                "userInitiated": String(userInitiated)
+                "openReason": resolvedReason.rawValue,
+                "selectionPolicy": selectionPolicy,
+                "userInitiated": String(userInitiated),
+                "sameVault": String(sameVault),
+                "treeReloaded": String(shouldReloadTree),
+                "treeReloadReason": shouldReloadTree ? (forceReload ? "forceReload" : "newVault") : "sameVaultNoOp"
             ]
         )
+
+        guard shouldReloadTree else {
+            VaultAccessManager.shared.registerActiveVault(vault)
+            if appState.currentVault == nil {
+                appState.switchVault(to: vault)
+            }
+            logger.info("Skipped same-vault reload: \(vault.name)")
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "vaultOpenCompleted",
+                reasonCode: "vault.sameVaultNoOpCompleted",
+                vaultName: vault.name,
+                metadata: [
+                    "openReason": VaultOpenReason.sameVaultNoOp.rawValue,
+                    "selectionPolicy": "preserved",
+                    "userInitiated": String(userInitiated),
+                    "sameVault": "true",
+                    "treeReloaded": "false",
+                    "treeReloadReason": "sameVaultNoOp"
+                ]
+            )
+            completeOpen(onComplete)
+            return
+        }
+
         VaultAccessManager.shared.registerActiveVault(vault)
         appState.switchVault(to: vault)
         viewModel?.loadVault(vault, noteListStore: noteListStore)
-        if clearSelection {
+        if shouldClearSelection {
             workspaceStore.selectedNoteURL = nil
         }
 
@@ -79,14 +131,22 @@ public final class VaultCoordinator {
             level: .info,
             subsystem: .vaultRestore,
             name: "vaultOpenCompleted",
-            reasonCode: clearSelection ? "vault.manualOpenCompleted" : "vault.restoreCompleted",
+            reasonCode: "vault.\(resolvedReason.rawValue)Completed",
             vaultName: vault.name,
             metadata: [
-                "selectionPolicy": clearSelection ? "cleared" : "preserved",
-                "userInitiated": String(userInitiated)
+                "openReason": resolvedReason.rawValue,
+                "selectionPolicy": selectionPolicy,
+                "userInitiated": String(userInitiated),
+                "sameVault": String(sameVault),
+                "treeReloaded": "true",
+                "treeReloadReason": forceReload ? "forceReload" : "newVault"
             ]
         )
 
+        completeOpen(onComplete)
+    }
+
+    private func completeOpen(_ onComplete: (() -> Void)?) {
         if Self.isUITestShellMode {
             onComplete?()
         } else {
@@ -96,6 +156,25 @@ public final class VaultCoordinator {
                 onComplete?()
             }
         }
+    }
+
+    private func resolveOpenReason(
+        requestedReason: VaultOpenReason?,
+        clearSelection: Bool,
+        userInitiated: Bool,
+        sameVault: Bool,
+        forceReload: Bool
+    ) -> VaultOpenReason {
+        if sameVault && !forceReload { return .sameVaultNoOp }
+        if let requestedReason { return requestedReason }
+        if userInitiated { return .userManualOpen }
+        return clearSelection ? .internalRefresh : .restoreOpen
+    }
+
+    private static func urlsReferToSameVault(_ lhs: URL?, _ rhs: URL?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return lhs.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
+            == rhs.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
     }
 
     /// Opens a vault from a URL (e.g., from file picker).
@@ -136,6 +215,7 @@ public final class VaultCoordinator {
             noteListStore: noteListStore,
             workspaceStore: workspaceStore,
             userInitiated: true,
+            openReason: .userManualOpen,
             onComplete: onComplete
         )
         return true
@@ -175,6 +255,7 @@ public final class VaultCoordinator {
             noteListStore: noteListStore,
             workspaceStore: workspaceStore,
             userInitiated: true,
+            openReason: .userManualOpen,
             onComplete: onComplete
         )
         return true
@@ -209,6 +290,7 @@ public final class VaultCoordinator {
                     noteListStore: noteListStore,
                     workspaceStore: workspaceStore,
                     clearSelection: false,
+                    openReason: .restoreOpen,
                     onComplete: onComplete
                 )
                 logger.info("Restored vault: \(vault.name)")
@@ -258,6 +340,7 @@ public final class VaultCoordinator {
                 noteListStore: noteListStore,
                 workspaceStore: workspaceStore,
                 clearSelection: false,
+                openReason: .restoreOpen,
                 onComplete: onComplete
             )
             return vault

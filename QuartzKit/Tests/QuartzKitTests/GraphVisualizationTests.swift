@@ -57,7 +57,9 @@ struct GraphVisualizationTests {
 
         // GraphLayoutPolicy
         #expect(GraphLayoutPolicy.maxNodesPerGraph == 280)
+        #expect(GraphLayoutPolicy.maxFocusNodes == 80)
         #expect(GraphLayoutPolicy.semanticLinkingMaxNodes == 200)
+        #expect(GraphCoverageMode.focus.label == "Focus")
         #expect(GraphCoverageMode.recent.label == "Recent 280")
         #expect(GraphCoverageMode.fullVault.label == "Full Vault")
     }
@@ -101,6 +103,58 @@ struct GraphVisualizationTests {
         #expect(fullViewModel.totalNoteCount == 320)
         #expect(fullViewModel.displayedNoteCount == 320)
         #expect(fullViewModel.graphTruncationNote?.contains("Showing all 320 notes") == true)
+    }
+
+    @MainActor
+    @Test("Focus coverage bounds graph around current note neighborhood")
+    func focusCoverageBoundsNeighborhood() async {
+        let notes = (0..<900).map { index in
+            FileNode(
+                name: "Note-\(index).md",
+                url: URL(fileURLWithPath: "/vault/Note-\(index).md"),
+                nodeType: .note,
+                metadata: FileMetadata(modifiedAt: Date(timeIntervalSince1970: Double(900 - index)))
+            )
+        }
+        let current = URL(fileURLWithPath: "/vault/Note-450.md")
+        let linked = URL(fileURLWithPath: "/vault/Note-700.md")
+        let store = GraphEdgeStore()
+        await store.updateExplicitReferences(
+            for: current,
+            references: [
+                ExplicitNoteReference(
+                    sourceNoteURL: current,
+                    targetNoteURL: linked,
+                    targetNoteName: "Note-700",
+                    insertableTarget: "Note-700",
+                    rawLinkText: "Note-700",
+                    rawTargetText: "Note-700",
+                    displayText: "Note-700",
+                    headingFragment: nil,
+                    matchRange: NSRange(location: 0, length: 12),
+                    lineRange: NSRange(location: 0, length: 12),
+                    context: "[[Note-700]]"
+                )
+            ]
+        )
+
+        let viewModel = GraphViewModel()
+        viewModel.graphEdgeStore = store
+        await viewModel.buildGraph(
+            fileTree: notes,
+            currentNoteURL: current,
+            vaultRootURL: nil,
+            vaultProvider: nil,
+            relatedNotesSimilarityEnabled: false,
+            aiConceptExtractionEnabled: false,
+            coverageMode: .focus
+        )
+
+        #expect(viewModel.activeCoverageMode == .focus)
+        #expect(viewModel.displayedNoteCount <= GraphLayoutPolicy.maxFocusNodes)
+        #expect(viewModel.nodes.contains { $0.url == current })
+        #expect(viewModel.nodes.contains { $0.url == linked })
+        #expect(viewModel.totalNoteCount == 900)
     }
 
     @MainActor

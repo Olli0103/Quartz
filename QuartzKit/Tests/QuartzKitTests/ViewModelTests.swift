@@ -219,6 +219,25 @@ struct SidebarViewModelTests {
         await vm.loadTree(at: vaultRoot)
         #expect(vm.vaultRootURL == vaultRoot)
     }
+
+    @Test("same-vault load refreshes without full reload semantics")
+    @MainActor
+    func sameVaultLoadSkipsFullReloadSemantics() async {
+        let provider = MockVaultProvider()
+        let first = FileNode(name: "a.md", url: vaultRoot.appendingPathComponent("a.md"), nodeType: .note)
+        let second = FileNode(name: "b.md", url: vaultRoot.appendingPathComponent("b.md"), nodeType: .note)
+        await provider.setFileTree([first])
+
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: vaultRoot)
+        #expect(vm.fileTree.map(\.name) == ["a.md"])
+
+        await provider.setFileTree([second])
+        await vm.loadTree(at: vaultRoot)
+
+        #expect(vm.fileTree.map(\.name) == ["b.md"])
+        #expect(!vm.isLoading)
+    }
 }
 
 // MARK: - AppState Tests

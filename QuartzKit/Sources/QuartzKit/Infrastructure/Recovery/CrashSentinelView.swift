@@ -292,6 +292,10 @@ public actor DiagnosticExportService {
 
     private static func effectiveAIIndexStatus(from snapshot: SubsystemDiagnosticsSnapshot) -> String? {
         guard let aiState = snapshot.currentState[.aiIndexing] else { return nil }
+        if let lastStatus = aiState["lastAIIndexingStatus"],
+           ["backoff", "failedConfiguration", "failedConfig", "waitingForNetwork", "paused"].contains(lastStatus) {
+            return lastStatus
+        }
         if let liveStatus = aiState["aiIndexing"],
            liveStatus != "idle" {
             return liveStatus

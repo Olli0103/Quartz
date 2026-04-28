@@ -64,6 +64,8 @@ public struct GraphEdge: Identifiable, Sendable, Equatable {
 public enum GraphLayoutPolicy: Sendable {
     /// Maximum notes included in one graph build (I/O + layout scale with this).
     public static let maxNodesPerGraph = 280
+    /// Maximum notes in the recommended focused neighborhood view.
+    public static let maxFocusNodes = 80
     /// Skip graph-view similarity edges above this count (avoids O(n) embedding similarity work).
     public static let semanticLinkingMaxNodes = 200
 
@@ -85,7 +87,7 @@ public final class GraphViewModel {
     public var graphTruncationNote: String?
     public private(set) var totalNoteCount = 0
     public private(set) var displayedNoteCount = 0
-    public private(set) var activeCoverageMode: GraphCoverageMode = .recent
+    public private(set) var activeCoverageMode: GraphCoverageMode = .focus
     public private(set) var buildVersion = 0
     /// Optional reference to the shared canonical relationship store used by the
     /// inspector and by graph-view convergence for explicit links, related notes,
@@ -235,7 +237,7 @@ public final class GraphViewModel {
         embeddingService: VectorEmbeddingService? = nil,
         relatedNotesSimilarityEnabled: Bool = true,
         aiConceptExtractionEnabled: Bool = true,
-        coverageMode: GraphCoverageMode = .recent
+        coverageMode: GraphCoverageMode = .focus
     ) async {
         let buildStarted = Date()
         isLoading = true
@@ -251,7 +253,10 @@ public final class GraphViewModel {
 
         let collected = collectNotes(from: fileTree)
         totalNoteCount = collected.count
-        activeCoverageMode = coverageMode
+        let resolvedCoverageMode: GraphCoverageMode = collected.count > GraphLayoutPolicy.maxNodesPerGraph
+            ? coverageMode
+            : .fullVault
+        activeCoverageMode = resolvedCoverageMode
         guard !collected.isEmpty else {
             displayedNoteCount = 0
             isLoading = false
@@ -267,56 +272,10 @@ public final class GraphViewModel {
             return
         }
 
-        let allNotes = selectNotesForGraph(
-            collected,
-            coverageMode: coverageMode,
-            limit: GraphLayoutPolicy.maxNodesPerGraph,
-            currentNoteURL: currentNoteURL
-        )
-        displayedNoteCount = allNotes.count
-        if collected.count > allNotes.count {
-            graphTruncationNote = String(
-                localized: "Showing \(allNotes.count) of \(collected.count) notes in Recent mode. Switch to Full Vault to render every note.",
-                bundle: .module
-            )
-            SubsystemDiagnostics.record(
-                level: .warning,
-                subsystem: .graph,
-                name: "graphCoverageCapped",
-                reasonCode: "graph.coverageCapped",
-                counts: [
-                    "totalVaultNotes": collected.count,
-                    "displayedNoteNodes": allNotes.count,
-                    "hiddenNoteNodes": collected.count - allNotes.count
-                ],
-                metadata: ["coverageMode": coverageMode.rawValue, "capReason": "recent cap"]
-            )
-        } else {
-            graphTruncationNote = String(
-                localized: "Showing all \(collected.count) notes in the vault.",
-                bundle: .module
-            )
-        }
-
-        let noteURLs = allNotes.map { CanonicalNoteIdentity.canonicalFileURL(for: $0.url) }
         let fullVaultNoteURLs = collected.map { CanonicalNoteIdentity.canonicalFileURL(for: $0.url) }
 
         let graphCache: GraphCache? = vaultRootURL.map { GraphCache(vaultRoot: $0) }
-        let graphViewFingerprint = graphCache?.computeFingerprint(for: noteURLs)
         let relationshipFingerprint = graphCache?.computeFingerprint(for: fullVaultNoteURLs)
-        let cachedGraphView: GraphCache.CachedGraph.CachedGraphViewSnapshot?
-        if let graphCache, let graphViewFingerprint {
-            cachedGraphView = graphCache.loadGraphViewSnapshotIfValid(fingerprint: graphViewFingerprint)
-        } else {
-            cachedGraphView = nil
-        }
-        let cachedNodeLayouts = Dictionary(
-            uniqueKeysWithValues: (cachedGraphView?.nodes ?? []).map { ($0.id, $0) }
-        )
-        let liveNodeLayouts = Dictionary(
-            uniqueKeysWithValues: nodes.map { ($0.id, CGPoint(x: $0.x, y: $0.y)) }
-        )
-
         let fallbackExplicitReferences: [ExplicitNoteReference]
         if let graphCache, let relationshipFingerprint {
             fallbackExplicitReferences =
@@ -341,6 +300,73 @@ public final class GraphViewModel {
         } else {
             fallbackSemanticConnections = [:]
         }
+
+        let explicitReferences: [ExplicitNoteReference]
+        if let graphEdgeStore {
+            explicitReferences = await graphEdgeStore.allExplicitReferences()
+        } else {
+            explicitReferences = fallbackExplicitReferences
+        }
+
+        let semanticConnections: [URL: [URL]]
+        if relatedNotesSimilarityEnabled {
+            if let graphEdgeStore {
+                semanticConnections = await graphEdgeStore.allSemanticConnections()
+            } else {
+                semanticConnections = fallbackSemanticConnections
+            }
+        } else {
+            semanticConnections = [:]
+        }
+
+        let allNotes = selectNotesForGraph(
+            collected,
+            coverageMode: resolvedCoverageMode,
+            limit: GraphLayoutPolicy.maxNodesPerGraph,
+            currentNoteURL: currentNoteURL,
+            explicitReferences: explicitReferences,
+            semanticConnections: semanticConnections
+        )
+        displayedNoteCount = allNotes.count
+        if collected.count > allNotes.count {
+            let modeDescription = resolvedCoverageMode == .focus ? "Focus mode" : "Recent mode"
+            graphTruncationNote = String(
+                localized: "Showing \(allNotes.count) of \(collected.count) notes in \(modeDescription). Switch to Full Vault only when you need every note.",
+                bundle: .module
+            )
+            SubsystemDiagnostics.record(
+                level: resolvedCoverageMode == .fullVault ? .warning : .info,
+                subsystem: .graph,
+                name: "graphCoverageCapped",
+                reasonCode: "graph.coverageCapped",
+                counts: [
+                    "totalVaultNotes": collected.count,
+                    "displayedNoteNodes": allNotes.count,
+                    "hiddenNoteNodes": collected.count - allNotes.count
+                ],
+                metadata: ["coverageMode": resolvedCoverageMode.rawValue, "capReason": resolvedCoverageMode == .focus ? "focus neighborhood cap" : "recent cap"]
+            )
+        } else {
+            graphTruncationNote = String(
+                localized: "Showing all \(collected.count) notes in the vault.",
+                bundle: .module
+            )
+        }
+
+        let noteURLs = allNotes.map { CanonicalNoteIdentity.canonicalFileURL(for: $0.url) }
+        let graphViewFingerprint = graphCache?.computeFingerprint(for: noteURLs)
+        let cachedGraphView: GraphCache.CachedGraph.CachedGraphViewSnapshot?
+        if let graphCache, let graphViewFingerprint {
+            cachedGraphView = graphCache.loadGraphViewSnapshotIfValid(fingerprint: graphViewFingerprint)
+        } else {
+            cachedGraphView = nil
+        }
+        let cachedNodeLayouts = Dictionary(
+            uniqueKeysWithValues: (cachedGraphView?.nodes ?? []).map { ($0.id, $0) }
+        )
+        let liveNodeLayouts = Dictionary(
+            uniqueKeysWithValues: nodes.map { ($0.id, CGPoint(x: $0.x, y: $0.y)) }
+        )
 
         var builtNodes: [GraphNode] = []
         var builtEdges: [GraphEdge] = []
@@ -370,21 +396,9 @@ public final class GraphViewModel {
 
         let validNodeIDs = Set(builtNodes.map(\.id))
 
-        let explicitReferences: [ExplicitNoteReference]
-        if let graphEdgeStore {
-            explicitReferences = await graphEdgeStore.allExplicitReferences()
-        } else {
-            explicitReferences = fallbackExplicitReferences
-        }
         builtEdges.append(contentsOf: explicitGraphEdges(from: explicitReferences, validNodeIDs: validNodeIDs))
 
         if relatedNotesSimilarityEnabled {
-            let semanticConnections: [URL: [URL]]
-            if let graphEdgeStore {
-                semanticConnections = await graphEdgeStore.allSemanticConnections()
-            } else {
-                semanticConnections = fallbackSemanticConnections
-            }
             builtEdges.append(contentsOf: semanticGraphEdges(from: semanticConnections, validNodeIDs: validNodeIDs))
         }
 
@@ -468,6 +482,10 @@ public final class GraphViewModel {
         let explicitEdges = edges.filter { !$0.isSemantic && !$0.isConcept }.count
         let semanticEdges = edges.filter(\.isSemantic).count
         let conceptEdges = edges.filter(\.isConcept).count
+        let largeGraph = totalNoteCount > GraphLayoutPolicy.maxNodesPerGraph
+        let usabilityMode = resolvedCoverageMode == .focus
+            ? "focus"
+            : (resolvedCoverageMode == .fullVault && largeGraph ? "fullVaultDegraded" : resolvedCoverageMode.rawValue)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .graph,
@@ -485,7 +503,15 @@ public final class GraphViewModel {
             ],
             generation: UInt64(buildVersion),
             metadata: [
-                "coverageMode": coverageMode.rawValue,
+                "coverageMode": resolvedCoverageMode.rawValue,
+                "graph.usabilityMode": usabilityMode,
+                "graph.edgeFilter": relatedNotesSimilarityEnabled ? "explicit,semantic,concept" : "explicit,concept",
+                "graph.nodeFilter": resolvedCoverageMode.rawValue,
+                "graph.largeGraphWarning": String(resolvedCoverageMode == .fullVault && largeGraph),
+                "graph.labelsSuppressed": String(largeGraph),
+                "graph.weakEdgesHidden": String(!relatedNotesSimilarityEnabled),
+                "graph.focusNode": currentNoteID ?? "none",
+                "graph.neighborhoodDepth": resolvedCoverageMode == .focus ? "1" : "unbounded",
                 "status.graph": "ready",
                 "layoutStatus": hasCompletePreservedLayout ? "cachedPositionsUsed" : "stabilized"
             ]
@@ -494,7 +520,8 @@ public final class GraphViewModel {
             subsystem: .graph,
             values: [
                 "lastGraphBuildStatus": "ready",
-                "coverageMode": coverageMode.rawValue,
+                "coverageMode": resolvedCoverageMode.rawValue,
+                "graph.usabilityMode": usabilityMode,
                 "displayedNotes": String(displayedNoteCount),
                 "totalNotes": String(totalNoteCount),
                 "explicitEdges": String(explicitEdges),
@@ -725,9 +752,11 @@ public final class GraphViewModel {
         _ notes: [FileNode],
         coverageMode: GraphCoverageMode,
         limit: Int,
-        currentNoteURL: URL?
+        currentNoteURL: URL?,
+        explicitReferences: [ExplicitNoteReference] = [],
+        semanticConnections: [URL: [URL]] = [:]
     ) -> [FileNode] {
-        guard coverageMode == .recent else {
+        if coverageMode == .fullVault {
             return notes.sorted { lhs, rhs in
                 if lhs.metadata.modifiedAt != rhs.metadata.modifiedAt {
                     return lhs.metadata.modifiedAt > rhs.metadata.modifiedAt
@@ -735,6 +764,44 @@ public final class GraphViewModel {
                 return lhs.url.absoluteString < rhs.url.absoluteString
             }
         }
+        if coverageMode == .focus, let currentNoteURL {
+            let current = CanonicalNoteIdentity.canonicalFileURL(for: currentNoteURL)
+            var focusedURLs = Set([current])
+            for reference in explicitReferences {
+                if reference.sourceNoteURL == current {
+                    focusedURLs.insert(reference.targetNoteURL)
+                } else if reference.targetNoteURL == current {
+                    focusedURLs.insert(reference.sourceNoteURL)
+                }
+            }
+            for (source, targets) in semanticConnections {
+                let canonicalSource = CanonicalNoteIdentity.canonicalFileURL(for: source)
+                let canonicalTargets = targets.map(CanonicalNoteIdentity.canonicalFileURL(for:))
+                if canonicalSource == current {
+                    focusedURLs.formUnion(canonicalTargets)
+                } else if canonicalTargets.contains(current) {
+                    focusedURLs.insert(canonicalSource)
+                }
+            }
+
+            let byURL = Dictionary(
+                uniqueKeysWithValues: notes.map { (CanonicalNoteIdentity.canonicalFileURL(for: $0.url), $0) }
+            )
+            var result = focusedURLs.compactMap { byURL[$0] }
+            if result.isEmpty, let currentNode = byURL[current] {
+                result = [currentNode]
+            }
+            result.sort {
+                if CanonicalNoteIdentity.canonicalFileURL(for: $0.url) == current { return true }
+                if CanonicalNoteIdentity.canonicalFileURL(for: $1.url) == current { return false }
+                if $0.metadata.modifiedAt != $1.metadata.modifiedAt {
+                    return $0.metadata.modifiedAt > $1.metadata.modifiedAt
+                }
+                return $0.url.absoluteString < $1.url.absoluteString
+            }
+            return Array(result.prefix(GraphLayoutPolicy.maxFocusNodes))
+        }
+
         guard notes.count > limit else { return notes }
         let sorted = notes.sorted {
             if $0.metadata.modifiedAt != $1.metadata.modifiedAt {
@@ -852,7 +919,11 @@ public struct KnowledgeGraphView: View {
     @State private var selectedNodeID: String?
     @State private var searchText = ""
     @State private var activeFilter: GraphFilterOption = .all
-    @State private var coverageMode: GraphCoverageMode = .recent
+    @State private var coverageMode: GraphCoverageMode = .focus
+    @State private var showConceptEdges = true
+    @State private var showSemanticEdges = true
+    @State private var explicitOnly = false
+    @State private var hideIsolatedNodes = false
     @State private var lastMagnification: CGFloat = 1.0
     @State private var relatedNotesSimilarityEnabled = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
     @State private var aiConceptExtractionEnabled = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
@@ -1000,6 +1071,18 @@ public struct KnowledgeGraphView: View {
             if let selectedNodeID, !renderedNodeIDs.contains(selectedNodeID) {
                 self.selectedNodeID = nil
             }
+        }
+        .onChange(of: showConceptEdges) { _, _ in
+            recordGraphFilterDiagnostics()
+        }
+        .onChange(of: showSemanticEdges) { _, _ in
+            recordGraphFilterDiagnostics()
+        }
+        .onChange(of: explicitOnly) { _, _ in
+            recordGraphFilterDiagnostics()
+        }
+        .onChange(of: hideIsolatedNodes) { _, _ in
+            recordGraphFilterDiagnostics()
         }
         .onChange(of: currentNoteURL?.absoluteString) { _, _ in
             hasAppliedAutomaticViewport = false
@@ -1168,18 +1251,27 @@ public struct KnowledgeGraphView: View {
             baseIDs = Set(viewModel.nodes.filter { !$0.isConcept && $0.connectionCount == 0 }.map(\.id))
         }
 
+        let isolationFilteredIDs: Set<String>
+        if hideIsolatedNodes {
+            isolationFilteredIDs = baseIDs.intersection(
+                Set(viewModel.nodes.filter { $0.connectionCount > 0 || $0.id == viewModel.currentNoteID }.map(\.id))
+            )
+        } else {
+            isolationFilteredIDs = baseIDs
+        }
+
         guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return baseIDs
+            return isolationFilteredIDs
         }
 
         let matches = Set(viewModel.nodes.compactMap { node in
             node.title.localizedCaseInsensitiveContains(searchText) ? node.id : nil
         })
-        guard !matches.isEmpty else { return baseIDs }
+        guard !matches.isEmpty else { return isolationFilteredIDs }
         let neighborhoodMatches = matches.reduce(into: matches) { partial, nodeID in
             partial.formUnion(viewModel.neighboringNodeIDs(for: nodeID))
         }
-        return baseIDs.intersection(neighborhoodMatches)
+        return isolationFilteredIDs.intersection(neighborhoodMatches)
     }
 
     private var renderedNodes: [GraphNode] {
@@ -1187,14 +1279,25 @@ public struct KnowledgeGraphView: View {
     }
 
     private var renderedHardEdges: [GraphEdge] {
-        viewModel.hardEdges.filter { renderedNodeIDs.contains($0.from) && renderedNodeIDs.contains($0.to) }
+        viewModel.hardEdges.filter {
+            renderedNodeIDs.contains($0.from)
+                && renderedNodeIDs.contains($0.to)
+                && (!$0.isConcept || (showConceptEdges && !explicitOnly))
+        }
     }
 
     private var renderedSemanticEdges: [GraphEdge] {
-        viewModel.semanticEdges.filter { renderedNodeIDs.contains($0.from) && renderedNodeIDs.contains($0.to) }
+        guard showSemanticEdges, !explicitOnly else { return [] }
+        return viewModel.semanticEdges.filter { renderedNodeIDs.contains($0.from) && renderedNodeIDs.contains($0.to) }
     }
 
     private var coverageSummaryText: String {
+        if effectiveCoverageMode == .focus, viewModel.displayedNoteCount < viewModel.totalNoteCount {
+            return String(
+                localized: "\(viewModel.displayedNoteCount) of \(viewModel.totalNoteCount) notes • Focus",
+                bundle: .module
+            )
+        }
         if effectiveCoverageMode == .fullVault || viewModel.displayedNoteCount >= viewModel.totalNoteCount {
             return String(
                 localized: "\(viewModel.displayedNoteCount) of \(viewModel.totalNoteCount) notes • Full vault",
@@ -1215,6 +1318,29 @@ public struct KnowledgeGraphView: View {
             guard !Task.isCancelled else { return }
             relationshipRefreshToken &+= 1
         }
+    }
+
+    private func recordGraphFilterDiagnostics() {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .graph,
+            name: "graphFilterChanged",
+            reasonCode: "graph.filterChanged",
+            counts: [
+                "displayedNodes": renderedNodeIDs.count,
+                "displayedEdges": renderedHardEdges.count + renderedSemanticEdges.count
+            ],
+            metadata: [
+                "graph.usabilityMode": effectiveCoverageMode.rawValue,
+                "graph.edgeFilter": explicitOnly ? "explicitOnly" : "custom",
+                "graph.nodeFilter": hideIsolatedNodes ? "hideIsolated" : activeFilter.rawValue,
+                "graph.largeGraphWarning": String(effectiveCoverageMode == .fullVault && totalAvailableNoteCount > GraphLayoutPolicy.maxNodesPerGraph),
+                "graph.labelsSuppressed": String(totalAvailableNoteCount > GraphLayoutPolicy.maxNodesPerGraph),
+                "graph.weakEdgesHidden": String(!showSemanticEdges || explicitOnly),
+                "conceptEdgesVisible": String(showConceptEdges && !explicitOnly),
+                "semanticEdgesVisible": String(showSemanticEdges && !explicitOnly)
+            ]
+        )
     }
 
     private func applyAutomaticViewport(in size: CGSize) {
@@ -1288,6 +1414,16 @@ public struct KnowledgeGraphView: View {
                     filterButton(option: option)
                 }
             }
+
+            HStack(spacing: 12) {
+                Toggle(String(localized: "Concepts", bundle: .module), isOn: $showConceptEdges)
+                    .disabled(explicitOnly)
+                Toggle(String(localized: "Related", bundle: .module), isOn: $showSemanticEdges)
+                    .disabled(explicitOnly)
+                Toggle(String(localized: "Explicit only", bundle: .module), isOn: $explicitOnly)
+                Toggle(String(localized: "Hide isolated", bundle: .module), isOn: $hideIsolatedNodes)
+            }
+            .font(.caption2.weight(.medium))
         }
         .padding(12)
         .quartzMaterialBackground(cornerRadius: 16, shadowRadius: 12)
@@ -1368,7 +1504,11 @@ public struct KnowledgeGraphView: View {
         let hardCount = renderedHardEdges.filter { !$0.isConcept }.count
         let semanticCount = renderedSemanticEdges.count
         let conceptCount = viewModel.edges.filter {
-            $0.isConcept && renderedNodeIDs.contains($0.from) && renderedNodeIDs.contains($0.to)
+            $0.isConcept
+                && showConceptEdges
+                && !explicitOnly
+                && renderedNodeIDs.contains($0.from)
+                && renderedNodeIDs.contains($0.to)
         }.count
 
         return VStack(alignment: .leading, spacing: 6) {

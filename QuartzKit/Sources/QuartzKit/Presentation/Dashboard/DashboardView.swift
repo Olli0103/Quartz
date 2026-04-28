@@ -25,6 +25,15 @@ public struct DashboardView: View {
     @State private var quickCaptureSent = false
     @State private var serendipityNote: FileNode?
     @State private var hoveredHeatmapDay: HeatmapDay?
+    @State private var dashboardHydrationState: DashboardReadinessState = .waitingForVault
+
+    private enum DashboardReadinessState: String {
+        case waitingForVault
+        case waitingForSidebar
+        case partialNoAI
+        case ready
+        case failed
+    }
 
     public init(
         sidebarViewModel: SidebarViewModel?,
@@ -65,7 +74,7 @@ public struct DashboardView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sensoryFeedback(.success, trigger: taskToggledSuccessfully)
         .sensoryFeedback(.success, trigger: quickCaptureSent)
-        .task {
+        .task(id: dashboardReadinessKey) {
             pickSerendipityNote()
             await loadDashboardData()
         }
@@ -764,13 +773,34 @@ public struct DashboardView: View {
 
     // MARK: - Data Loading
 
+    private var currentReadinessState: DashboardReadinessState {
+        if sidebarViewModel == nil {
+            return .waitingForSidebar
+        }
+        if vaultProvider == nil || sidebarViewModel?.vaultRootURL == nil {
+            return .waitingForVault
+        }
+        return .ready
+    }
+
+    private var dashboardReadinessKey: String {
+        [
+            currentReadinessState.rawValue,
+            sidebarViewModel?.vaultRootURL?.absoluteString ?? "no-root",
+            String(noteCount)
+        ].joined(separator: "|")
+    }
+
     private func loadDashboardData() async {
         let started = Date()
+        let readiness = currentReadinessState
+        dashboardHydrationState = readiness
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .dashboard,
             name: "dashboardLoadStarted",
-            reasonCode: "dashboard.loadStarted"
+            reasonCode: "dashboard.loadStarted",
+            metadata: ["readiness": readiness.rawValue]
         )
         guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else {
             let missingReasons = [
@@ -778,23 +808,24 @@ public struct DashboardView: View {
                 sidebarViewModel == nil ? "sidebarViewModelMissing" : nil,
                 sidebarViewModel?.vaultRootURL == nil ? "vaultRootMissing" : nil
             ].compactMap { $0 }.joined(separator: ",")
+            let state = sidebarViewModel == nil ? DashboardReadinessState.waitingForSidebar : DashboardReadinessState.waitingForVault
             SubsystemDiagnostics.record(
-                level: .warning,
+                level: .info,
                 subsystem: .dashboard,
-                name: "dashboardLoadFailed",
-                reasonCode: "dashboard.partialState",
+                name: "dashboardWaitingForDependencies",
+                reasonCode: "dashboard.waitingForDependencies",
                 metadata: [
                     "providerAvailable": String(vaultProvider != nil),
                     "sidebarViewModelAvailable": String(sidebarViewModel != nil),
                     "partialReason": missingReasons.isEmpty ? "unknown" : missingReasons,
-                    "status.dashboard": "partial"
+                    "status.dashboard": state.rawValue
                 ]
             )
             SubsystemDiagnostics.updateState(
                 subsystem: .dashboard,
                 values: [
-                    "lastDashboardRefreshStatus": "partial",
-                    "dashboardHydrationState": "partial",
+                    "lastDashboardRefreshStatus": state.rawValue,
+                    "dashboardHydrationState": state.rawValue,
                     "dashboardPartialReason": missingReasons.isEmpty ? "unknown" : missingReasons
                 ]
             )
@@ -858,7 +889,7 @@ public struct DashboardView: View {
             briefing = nil
             let isCancellation = error is CancellationError
             SubsystemDiagnostics.record(
-                level: .warning,
+                level: .info,
                 subsystem: .dashboard,
                 name: "dashboardMetricUnavailable",
                 reasonCode: "dashboard.metricUnavailable",
@@ -866,17 +897,18 @@ public struct DashboardView: View {
                     "metric": "weeklyBriefing",
                     "error": error.localizedDescription,
                     "unavailableReason": isCancellation ? "cancelled" : "error",
-                    "status.dashboard": "partial"
+                    "status.dashboard": DashboardReadinessState.partialNoAI.rawValue
                 ]
             )
         }
         briefingLoading = false
-        let state = briefing == nil ? "partial" : "fullyHydrated"
+        let state = briefing == nil ? DashboardReadinessState.partialNoAI.rawValue : DashboardReadinessState.ready.rawValue
+        dashboardHydrationState = briefing == nil ? .partialNoAI : .ready
         SubsystemDiagnostics.record(
-            level: briefing == nil ? .warning : .info,
+            level: .info,
             subsystem: .dashboard,
             name: "dashboardLoadFinished",
-            reasonCode: briefing == nil ? "dashboard.partialState" : "dashboard.loadFinished",
+            reasonCode: briefing == nil ? "dashboard.partialNoAI" : "dashboard.loadFinished",
             durationMs: Date().timeIntervalSince(started) * 1_000,
             counts: [
                 "noteCount": noteCount,

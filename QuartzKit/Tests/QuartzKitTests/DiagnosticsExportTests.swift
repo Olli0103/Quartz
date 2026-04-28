@@ -173,6 +173,28 @@ struct DiagnosticsExportTests {
         #expect(report.additionalInfo["aiIndex.statusSource"] == "subsystemDiagnostics")
     }
 
+    @Test("Diagnostic export reports AI backoff over stale running state")
+    func diagnosticExportReportsAIBackoffOverStaleRunningState() async throws {
+        await SubsystemDiagnostics.resetForTesting()
+        SubsystemDiagnostics.updateState(
+            subsystem: .aiIndexing,
+            values: [
+                "aiIndexing": "running",
+                "lastAIIndexingStatus": "backoff",
+                "lastAIFailureReason": "ai.networkLost"
+            ]
+        )
+
+        let report = await DiagnosticExportService.shared.generateReport(
+            context: "AI backoff status test",
+            error: nil,
+            additionalInfo: ["aiIndex.status": "idle"]
+        )
+
+        #expect(report.additionalInfo["aiIndex.status"] == "backoff")
+        #expect(report.additionalInfo["aiIndex.statusSource"] == "subsystemDiagnostics")
+    }
+
     @Test("Diagnostic export includes renderer diagnostics section")
     func diagnosticExportIncludesRendererDiagnosticsSection() async throws {
         let rendererEvent = RendererDiagnosticEvent(

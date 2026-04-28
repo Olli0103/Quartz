@@ -5,6 +5,63 @@ import Testing
 @Suite("Knowledge graph scale and background integrity")
 struct KnowledgeGraphScaleIntegrityTests {
 
+    @Test("Automatic AI concept scan classifies pending work and has a bounded budget")
+    func automaticAIConceptScanClassifiesPendingWorkAndHasBoundedBudget() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "kg-ai-budget-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        var noteURLs: [URL] = []
+        for index in 0..<30 {
+            let url = rootURL.appending(path: "Note-\(index).md")
+            try String(repeating: "Incremental AI indexing should not scan the whole vault on startup. ", count: 2)
+                .write(to: url, atomically: true, encoding: .utf8)
+            noteURLs.append(url)
+        }
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: rootURL,
+            debounceInterval: .milliseconds(1),
+            scanInterval: .milliseconds(1),
+            extractionOverride: { _ in ["incremental"] }
+        )
+
+        let classification = await service.classifyPendingNotesForTesting(noteURLs, mode: .automatic)
+        #expect(classification.missingConcepts == 30)
+        #expect(classification.modifiedNotes == 0)
+        #expect(classification.alreadyCurrent == 0)
+        #expect(KnowledgeExtractionService.automaticMaxNotesPerScanForTesting == 25)
+        #expect(classification.totalPending > KnowledgeExtractionService.automaticMaxNotesPerScanForTesting)
+    }
+
+    @Test("Persisted AI backoff prevents startup from reporting running")
+    func persistedAIBackoffPreventsRunningStartupState() async throws {
+        await SubsystemDiagnostics.resetForTesting()
+        KnowledgeAnalysisSettings.setAIConceptExtractionEnabled(true)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "kg-ai-backoff-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let quartzURL = rootURL.appending(path: ".quartz", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: quartzURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        var state = AIIndexState()
+        state.lastStatus = AIIndexingStatus.backoff.rawValue
+        state.lastFailureReason = "ai.networkLost"
+        state.backoffUntil = Date().addingTimeInterval(300)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(state).write(to: quartzURL.appending(path: "ai_index.json"), options: .atomic)
+
+        let service = KnowledgeExtractionService(edgeStore: GraphEdgeStore(), vaultRootURL: rootURL)
+        await service.startVaultScan(mode: .automatic)
+
+        let summary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: rootURL)
+        #expect(summary["aiIndex.status"] == AIIndexingStatus.backoff.rawValue)
+        #expect(summary["aiIndex.status"] != AIIndexingStatus.running.rawValue)
+    }
+
     @Test("Stale semantic similarity work cannot overwrite a newer request for the same note")
     func staleSemanticAnalysisIsSuperseded() async {
         let vaultRoot = URL(fileURLWithPath: "/vault")

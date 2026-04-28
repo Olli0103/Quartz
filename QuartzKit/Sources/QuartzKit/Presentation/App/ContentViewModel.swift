@@ -492,12 +492,12 @@ public final class ContentViewModel {
                 )
             }
 
-            // Start proactive AI concept extraction for the entire vault (rate-limited, low priority)
-            await knowledgeExtractionService?.startVaultScan()
-            Self.indexingTelemetryLogger.info("AI concept vault scan scheduled for \(noteURLs.count) notes")
+            // Start bounded, incremental AI concept extraction. Manual rebuild remains the full-vault path.
+            await knowledgeExtractionService?.startVaultScan(mode: .automatic)
+            Self.indexingTelemetryLogger.info("Incremental AI concept scan scheduled after vault load (\(noteURLs.count) notes available)")
             QuartzDiagnostics.info(
                 category: "IndexingTelemetry",
-                "AI concept vault scan scheduled for \(noteURLs.count) notes"
+                "Incremental AI concept scan scheduled after vault load (\(noteURLs.count) notes available)"
             )
         }
 

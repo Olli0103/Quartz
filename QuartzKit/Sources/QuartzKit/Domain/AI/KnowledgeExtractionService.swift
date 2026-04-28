@@ -44,6 +44,34 @@ public struct AIIndexState: Codable, Sendable {
     }
 }
 
+public enum AIIndexingStatus: String, Sendable {
+    case idle
+    case running
+    case paused
+    case backoff
+    case failedConfig
+    case failedConfiguration
+    case waitingForNetwork
+    case completedWithPending
+    case disabled
+    case failed
+}
+
+public enum AIConceptScanMode: String, Sendable {
+    case automatic
+    case manualRebuild
+}
+
+public struct AIIndexingPendingClassification: Sendable, Equatable {
+    public let missingConcepts: Int
+    public let modifiedNotes: Int
+    public let failedRetry: Int
+    public let alreadyCurrent: Int
+    public let pendingURLs: [URL]
+
+    public var totalPending: Int { pendingURLs.count }
+}
+
 // MARK: - Knowledge Extraction Service
 
 /// Background service that extracts high-level concepts from notes using the AI provider.
@@ -91,6 +119,10 @@ public actor KnowledgeExtractionService {
     private var aiBackoffUntil: Date?
     private var aiFailureStatus: String?
     private var lastAIFailureReason: String?
+
+    private static let automaticMaxNotesPerScan = 25
+    private static let automaticMaxDurationSeconds: UInt64 = 60
+    public static let automaticMaxNotesPerScanForTesting = automaticMaxNotesPerScan
 
     public struct ScanProgress: Sendable {
         public let current: Int
@@ -180,7 +212,7 @@ public actor KnowledgeExtractionService {
 
     // MARK: - Vault Scan
 
-    public func startVaultScan() {
+    public func startVaultScan(mode: AIConceptScanMode = .automatic) {
         guard isEnabled else {
             SubsystemDiagnostics.record(
                 level: .info,
@@ -195,13 +227,15 @@ public actor KnowledgeExtractionService {
             SubsystemDiagnostics.record(
                 level: .warning,
                 subsystem: .aiIndexing,
-                name: "conceptScanSkipped",
+                name: "ai.scanPausedBackoff",
                 reasonCode: "ai.backoff",
                 metadata: [
                     "status.aiIndexing": aiFailureStatus ?? "backoff",
+                    "scanMode": mode.rawValue,
                     "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
                 ]
             )
+            updateAIStatus(aiFailureStatus ?? AIIndexingStatus.backoff.rawValue)
             return
         }
         guard !isScanRunning else {
@@ -216,16 +250,20 @@ public actor KnowledgeExtractionService {
         }
         scanTask?.cancel()
         let generation = serviceGeneration
+        updateAIStatus(AIIndexingStatus.running.rawValue)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
             name: "conceptScanScheduled",
             reasonCode: "ai.scanScheduled",
             generation: generation,
-            metadata: ["status.aiIndexing": "running"]
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.running.rawValue,
+                "scanMode": mode.rawValue
+            ]
         )
         scanTask = Task(priority: .utility) { [weak self] in
-            await self?.runVaultScan(expectedGeneration: generation)
+            await self?.runVaultScan(expectedGeneration: generation, mode: mode)
         }
     }
 
@@ -266,7 +304,11 @@ public actor KnowledgeExtractionService {
             reasonCode: "ai.retryRequested",
             metadata: ["status.aiIndexing": "idle"]
         )
-        startVaultScan()
+        startVaultScan(mode: .automatic)
+    }
+
+    public func startManualRebuildScan() {
+        startVaultScan(mode: .manualRebuild)
     }
 
     /// Cancels queued save/scan work and invalidates suspended older extractions so they
@@ -388,17 +430,22 @@ public actor KnowledgeExtractionService {
         scheduleSave()
     }
 
-    private func runVaultScan(expectedGeneration: UInt64) async {
+    private func runVaultScan(expectedGeneration: UInt64, mode: AIConceptScanMode) async {
         guard serviceGeneration == expectedGeneration else { return }
         let scanStart = DispatchTime.now().uptimeNanoseconds
+        let deadline = scanStart + Self.automaticMaxDurationSeconds * 1_000_000_000
         isScanRunning = true
+        updateAIStatus(AIIndexingStatus.running.rawValue)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
             name: "conceptScanStarted",
             reasonCode: "ai.scanStarted",
             generation: expectedGeneration,
-            metadata: ["status.aiIndexing": "running"]
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.running.rawValue,
+                "scanMode": mode.rawValue
+            ]
         )
         defer {
             if serviceGeneration == expectedGeneration {
@@ -417,10 +464,11 @@ public actor KnowledgeExtractionService {
 
         let noteURLs = collectMarkdownFiles(in: vaultRootURL)
         guard !noteURLs.isEmpty else {
+            updateAIStatus(AIIndexingStatus.idle.rawValue)
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .aiIndexing,
-                name: "conceptScanCompleted",
+                name: "ai.scanCompletedFull",
                 reasonCode: "ai.scanNoNotes",
                 counts: ["totalNotes": 0],
                 generation: expectedGeneration,
@@ -429,19 +477,17 @@ public actor KnowledgeExtractionService {
             return
         }
 
-        let unprocessed = noteURLs.filter { url in
-            let relPath = relativePath(for: url)
-            guard let lastProcessed = state.processedTimestamps[relPath] else { return true }
-            guard let mtime = fileModificationDate(for: url) else { return true }
-            return mtime > lastProcessed
-        }
+        let classification = classifyPendingNotes(noteURLs, mode: mode)
+        let unprocessed = classification.pendingURLs
+        recordPendingClassification(classification, totalNotes: noteURLs.count, generation: expectedGeneration, mode: mode)
 
         guard !unprocessed.isEmpty else {
             logger.info("Vault scan: all \(noteURLs.count) notes already indexed")
+            updateAIStatus(AIIndexingStatus.idle.rawValue)
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .aiIndexing,
-                name: "conceptScanCompleted",
+                name: "ai.scanCompletedFull",
                 reasonCode: "ai.scanNoPendingNotes",
                 counts: ["totalNotes": noteURLs.count, "pendingNotes": 0],
                 generation: expectedGeneration,
@@ -458,15 +504,33 @@ public actor KnowledgeExtractionService {
             reasonCode: "ai.scanPending",
             counts: ["pendingNotes": unprocessed.count, "totalNotes": noteURLs.count],
             generation: expectedGeneration,
-            metadata: ["status.aiIndexing": "running"]
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.running.rawValue,
+                "scanMode": mode.rawValue
+            ]
         )
 
-        for (index, noteURL) in unprocessed.enumerated() {
+        let budgetedURLs: [URL]
+        if mode == .automatic, unprocessed.count > Self.automaticMaxNotesPerScan {
+            budgetedURLs = Array(unprocessed.prefix(Self.automaticMaxNotesPerScan))
+        } else {
+            budgetedURLs = unprocessed
+        }
+
+        var processedCount = 0
+        var pausedForBackoff = false
+        var budgetReached = false
+
+        for (index, noteURL) in budgetedURLs.enumerated() {
             guard !Task.isCancelled, serviceGeneration == expectedGeneration else { break }
+            if mode == .automatic, DispatchTime.now().uptimeNanoseconds >= deadline {
+                budgetReached = true
+                break
+            }
 
             scanProgress = ScanProgress(
                 current: index + 1,
-                total: unprocessed.count,
+                total: min(unprocessed.count, budgetedURLs.count),
                 currentNote: noteURL.deletingPathExtension().lastPathComponent
             )
 
@@ -474,7 +538,7 @@ public actor KnowledgeExtractionService {
                 NotificationCenter.default.post(
                     name: .quartzConceptScanProgress,
                     object: nil,
-                    userInfo: ["current": index + 1, "total": unprocessed.count,
+                    userInfo: ["current": index + 1, "total": min(unprocessed.count, budgetedURLs.count),
                                "note": noteURL.deletingPathExtension().lastPathComponent]
                 )
             }
@@ -485,19 +549,32 @@ public actor KnowledgeExtractionService {
                 expectedGeneration: expectedGeneration,
                 expectedRevision: revision
             )
+            processedCount = index + 1
 
             if isAIBackoffActive() {
+                pausedForBackoff = true
+                updateAIStatus(aiFailureStatus ?? AIIndexingStatus.backoff.rawValue)
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .aiIndexing,
+                    name: "ai.scanPausedBackoff",
+                    reasonCode: "ai.backoff",
+                    counts: ["processedNotes": processedCount, "pendingNotes": max(0, unprocessed.count - processedCount)],
+                    generation: expectedGeneration,
+                    metadata: [
+                        "status.aiIndexing": aiFailureStatus ?? "backoff",
+                        "scanMode": mode.rawValue,
+                        "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+                    ]
+                )
                 SubsystemDiagnostics.record(
                     level: .warning,
                     subsystem: .aiIndexing,
                     name: "conceptScanPaused",
                     reasonCode: "ai.backoff",
-                    counts: ["processedNotes": index + 1, "pendingNotes": unprocessed.count - index - 1],
+                    counts: ["processedNotes": processedCount, "pendingNotes": max(0, unprocessed.count - processedCount)],
                     generation: expectedGeneration,
-                    metadata: [
-                        "status.aiIndexing": aiFailureStatus ?? "backoff",
-                        "backoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
-                    ]
+                    metadata: ["status.aiIndexing": aiFailureStatus ?? "backoff"]
                 )
                 break
             }
@@ -515,21 +592,71 @@ public actor KnowledgeExtractionService {
         guard serviceGeneration == expectedGeneration else { return }
         saveStateToDisk()
         let elapsedMilliseconds = (DispatchTime.now().uptimeNanoseconds - scanStart) / 1_000_000
-        logger.info("Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms")
-        QuartzDiagnostics.info(
-            category: "KnowledgeExtraction",
-            "Vault scan complete: processed \(unprocessed.count) notes in \(elapsedMilliseconds) ms"
-        )
-        SubsystemDiagnostics.record(
-            level: .info,
-            subsystem: .aiIndexing,
-            name: "conceptScanCompleted",
-            reasonCode: "ai.scanCompleted",
-            durationMs: Double(elapsedMilliseconds),
-            counts: ["processedNotes": unprocessed.count, "totalNotes": noteURLs.count],
-            generation: expectedGeneration,
-            metadata: ["status.aiIndexing": "idle"]
-        )
+        guard !pausedForBackoff else { return }
+
+        if mode == .automatic, processedCount < unprocessed.count {
+            budgetReached = true
+        }
+
+        if budgetReached {
+            updateAIStatus(AIIndexingStatus.completedWithPending.rawValue)
+            let remaining = max(0, unprocessed.count - processedCount)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.scanBudgetReached",
+                reasonCode: "ai.scanBudgetReached",
+                durationMs: Double(elapsedMilliseconds),
+                counts: [
+                    "processedNotes": processedCount,
+                    "pendingNotes": remaining,
+                    "totalNotes": noteURLs.count,
+                    "maxNotesPerAutomaticScan": Self.automaticMaxNotesPerScan
+                ],
+                generation: expectedGeneration,
+                metadata: [
+                    "status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue,
+                    "scanMode": mode.rawValue
+                ]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.scanCompletedPartial",
+                reasonCode: "ai.scanCompletedPartial",
+                durationMs: Double(elapsedMilliseconds),
+                counts: ["processedNotes": processedCount, "pendingNotes": remaining, "totalNotes": noteURLs.count],
+                generation: expectedGeneration,
+                metadata: ["status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue]
+            )
+        } else {
+            updateAIStatus(AIIndexingStatus.idle.rawValue)
+            logger.info("Vault scan complete: processed \(processedCount) notes in \(elapsedMilliseconds) ms")
+            QuartzDiagnostics.info(
+                category: "KnowledgeExtraction",
+                "Vault scan complete: processed \(processedCount) notes in \(elapsedMilliseconds) ms"
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.scanCompletedFull",
+                reasonCode: "ai.scanCompletedFull",
+                durationMs: Double(elapsedMilliseconds),
+                counts: ["processedNotes": processedCount, "totalNotes": noteURLs.count],
+                generation: expectedGeneration,
+                metadata: ["status.aiIndexing": AIIndexingStatus.idle.rawValue]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanCompleted",
+                reasonCode: "ai.scanCompleted",
+                durationMs: Double(elapsedMilliseconds),
+                counts: ["processedNotes": processedCount, "totalNotes": noteURLs.count],
+                generation: expectedGeneration,
+                metadata: ["status.aiIndexing": AIIndexingStatus.idle.rawValue]
+            )
+        }
 
         await MainActor.run {
             NotificationCenter.default.post(name: .quartzConceptScanProgress, object: nil)
@@ -664,7 +791,6 @@ public actor KnowledgeExtractionService {
         ) else { return }
 
         await updateConceptsAndState(for: noteURL, concepts: concepts)
-        state.lastStatus = "running"
         state.lastSuccessAt = Date()
         if !isAIBackoffActive() {
             state.lastFailureReason = nil
@@ -767,6 +893,105 @@ public actor KnowledgeExtractionService {
         return urls
     }
 
+    public func classifyPendingNotesForTesting(_ noteURLs: [URL], mode: AIConceptScanMode = .automatic) -> AIIndexingPendingClassification {
+        classifyPendingNotes(noteURLs, mode: mode)
+    }
+
+    private func classifyPendingNotes(_ noteURLs: [URL], mode: AIConceptScanMode) -> AIIndexingPendingClassification {
+        let sortedURLs = noteURLs.sorted { $0.absoluteString < $1.absoluteString }
+        guard mode != .manualRebuild else {
+            return AIIndexingPendingClassification(
+                missingConcepts: sortedURLs.count,
+                modifiedNotes: 0,
+                failedRetry: 0,
+                alreadyCurrent: 0,
+                pendingURLs: sortedURLs
+            )
+        }
+
+        var missing: [URL] = []
+        var modified: [URL] = []
+        var alreadyCurrent = 0
+
+        for url in sortedURLs {
+            let relPath = relativePath(for: url)
+            guard let lastProcessed = state.processedTimestamps[relPath] else {
+                missing.append(url)
+                continue
+            }
+            guard let mtime = fileModificationDate(for: url) else {
+                modified.append(url)
+                continue
+            }
+            if mtime > lastProcessed {
+                modified.append(url)
+            } else {
+                alreadyCurrent += 1
+            }
+        }
+
+        return AIIndexingPendingClassification(
+            missingConcepts: missing.count,
+            modifiedNotes: modified.count,
+            failedRetry: 0,
+            alreadyCurrent: alreadyCurrent,
+            pendingURLs: missing + modified
+        )
+    }
+
+    private func recordPendingClassification(
+        _ classification: AIIndexingPendingClassification,
+        totalNotes: Int,
+        generation: UInt64,
+        mode: AIConceptScanMode
+    ) {
+        let status = classification.totalPending > 0 ? AIIndexingStatus.running.rawValue : AIIndexingStatus.idle.rawValue
+        let counts = [
+            "pendingNotes": classification.totalPending,
+            "totalNotes": totalNotes
+        ]
+        let metadata = [
+            "status.aiIndexing": status,
+            "scanMode": mode.rawValue
+        ]
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.pendingMissingConcepts",
+            reasonCode: "ai.pendingMissingConcepts",
+            counts: counts.merging(["missingConcepts": classification.missingConcepts]) { _, new in new },
+            generation: generation,
+            metadata: metadata
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.pendingModifiedNotes",
+            reasonCode: "ai.pendingModifiedNotes",
+            counts: counts.merging(["modifiedNotes": classification.modifiedNotes]) { _, new in new },
+            generation: generation,
+            metadata: metadata
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.pendingFailedRetry",
+            reasonCode: "ai.pendingFailedRetry",
+            counts: counts.merging(["failedRetry": classification.failedRetry]) { _, new in new },
+            generation: generation,
+            metadata: metadata
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.skippedAlreadyCurrent",
+            reasonCode: "ai.skippedAlreadyCurrent",
+            counts: counts.merging(["alreadyCurrent": classification.alreadyCurrent]) { _, new in new },
+            generation: generation,
+            metadata: metadata
+        )
+    }
+
     private func relativePath(for url: URL) -> String {
         let root = vaultRootURL.standardizedFileURL.path(percentEncoded: false)
         let file = url.standardizedFileURL.path(percentEncoded: false)
@@ -845,14 +1070,10 @@ public actor KnowledgeExtractionService {
         state.lastFailureAt = Date()
         state.backoffUntil = aiBackoffUntil
         saveStateToDisk()
-        SubsystemDiagnostics.updateState(
-            subsystem: .aiIndexing,
-            values: [
-                "lastAIIndexingStatus": aiFailureStatus ?? "failed",
-                "lastAIFailureReason": reasonCode,
-                "aiBackoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
-            ]
-        )
+        updateAIStatus(aiFailureStatus ?? "failed", extra: [
+            "lastAIFailureReason": reasonCode,
+            "aiBackoffUntil": aiBackoffUntil.map(Self.iso8601String) ?? "unknown"
+        ])
     }
 
     private func isAIBackoffActive(now: Date = Date()) -> Bool {
@@ -865,14 +1086,22 @@ public actor KnowledgeExtractionService {
         state.backoffUntil = nil
         state.lastStatus = "idle"
         saveStateToDisk()
-        SubsystemDiagnostics.updateState(
-            subsystem: .aiIndexing,
-            values: [
-                "lastAIIndexingStatus": "idle",
-                "aiBackoffUntil": "none"
-            ]
-        )
+        updateAIStatus(AIIndexingStatus.idle.rawValue, extra: ["aiBackoffUntil": "none"])
         return false
+    }
+
+    private func updateAIStatus(_ status: String, extra: [String: String] = [:]) {
+        state.lastStatus = status
+        var values = [
+            "aiIndexing": status,
+            "lastAIIndexingStatus": status,
+            "processedNoteCount": String(state.processedTimestamps.count),
+            "conceptCount": String(state.conceptEdges.count)
+        ]
+        for (key, value) in extra {
+            values[key] = value
+        }
+        SubsystemDiagnostics.updateState(subsystem: .aiIndexing, values: values)
     }
 
     private nonisolated static func publishPersistedAIHealth(_ state: AIIndexState) {

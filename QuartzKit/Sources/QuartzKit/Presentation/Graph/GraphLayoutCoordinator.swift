@@ -12,11 +12,14 @@ public struct GraphViewportState: Sendable, Equatable {
 }
 
 public enum GraphCoverageMode: String, CaseIterable, Sendable {
+    case focus
     case recent
     case fullVault
 
     public var label: String {
         switch self {
+        case .focus:
+            return String(localized: "Focus", bundle: .module)
         case .recent:
             return String(localized: "Recent 280", bundle: .module)
         case .fullVault:
@@ -26,6 +29,8 @@ public enum GraphCoverageMode: String, CaseIterable, Sendable {
 
     public var shortLabel: String {
         switch self {
+        case .focus:
+            return String(localized: "Focus", bundle: .module)
         case .recent:
             return String(localized: "Recent", bundle: .module)
         case .fullVault:
