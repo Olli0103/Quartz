@@ -737,6 +737,57 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertLessThanOrEqual(alphaComponent(of: overlayColor), 0.001)
     }
 
+    func testHiddenUntilCaretCollapsesHiddenSyntaxMetricsAndRestoresActiveLineMetrics() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = "### Heading\n\nBody line"
+        let nsText = text as NSString
+        let markerLocation = nsText.range(of: "###").location
+        let headingTextLocation = nsText.range(of: "Heading").location
+        let bodyLocation = nsText.range(of: "Body line").location
+
+        XCTAssertNotEqual(markerLocation, NSNotFound)
+        XCTAssertNotEqual(headingTextLocation, NSNotFound)
+        XCTAssertNotEqual(bodyLocation, NSNotFound)
+
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: bodyLocation, length: 0))
+        session.activeTextView = textView
+        session.textDidChange(text)
+        session.syntaxVisibilityMode = .hiddenUntilCaret
+        session.selectionDidChange(NSRange(location: bodyLocation, length: 0))
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+        session.applyHighlightSpansForTesting(spans)
+
+        let hiddenMarkerFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: markerLocation, effectiveRange: nil) as? NSFont
+        )
+        let hiddenMarkerKern = try XCTUnwrap(
+            textView.textStorage?.attribute(.kern, at: markerLocation, effectiveRange: nil) as? CGFloat
+        )
+        let headingFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: headingTextLocation, effectiveRange: nil) as? NSFont
+        )
+
+        XCTAssertLessThanOrEqual(hiddenMarkerFont.pointSize, 0.2)
+        XCTAssertLessThanOrEqual(hiddenMarkerKern, -0.09)
+        XCTAssertGreaterThan(headingFont.pointSize, 14)
+
+        textView.setSelectedRange(NSRange(location: headingTextLocation, length: 0))
+        session.selectionDidChange(NSRange(location: headingTextLocation, length: 0))
+
+        let revealedMarkerFont = try XCTUnwrap(
+            textView.textStorage?.attribute(.font, at: markerLocation, effectiveRange: nil) as? NSFont
+        )
+        let revealedMarkerKern = textView.textStorage?.attribute(.kern, at: markerLocation, effectiveRange: nil) as? CGFloat
+
+        XCTAssertGreaterThan(revealedMarkerFont.pointSize, 1)
+        XCTAssertNil(revealedMarkerKern)
+    }
+
     func testHiddenUntilCaretRevealsOverlayWhenCaretReturnsToSameLine() async throws {
         let session = makeSession()
         let textView = makeTextView()

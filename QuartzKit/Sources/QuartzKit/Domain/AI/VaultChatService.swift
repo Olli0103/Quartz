@@ -169,6 +169,7 @@ public actor VaultChatService {
         chatHistory: [AIMessage] = [],
         noteResolver: @Sendable (UUID) -> String?
     ) async throws -> (citations: [Citation], stream: AsyncThrowingStream<String, Error>) {
+        let started = Date()
         let provider = await providerRegistry.selectedProvider
         let modelID = await providerRegistry.selectedModelID
 
@@ -182,6 +183,14 @@ public actor VaultChatService {
             throw VaultChatError.indexEmpty
         }
 
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChatRetrievalStarted",
+            reasonCode: "vaultChat.retrievalStarted",
+            counts: ["indexedChunks": indexedCount]
+        )
+        let retrievalStarted = Date()
         var searchResults = await embeddingService.search(
             query: question,
             limit: maxContextChunks,
@@ -200,6 +209,14 @@ public actor VaultChatService {
         guard !searchResults.isEmpty else {
             throw VaultChatError.noRelevantContent
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChatRetrievalFinished",
+            reasonCode: "vaultChat.retrievalFinished",
+            durationMs: Date().timeIntervalSince(retrievalStarted) * 1_000,
+            counts: ["resultCount": searchResults.count]
+        )
 
         // 2. Deduplicate: max 2 chunks per note, take top 5
         var chunksByNote: [UUID: Int] = [:]
@@ -232,6 +249,13 @@ public actor VaultChatService {
             \(result.entry.chunkText)
             """
         }.joined(separator: "\n\n---\n\n")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChatContextBuilt",
+            reasonCode: "vaultChat.contextBuilt",
+            counts: ["charCount": contextString.count, "estimatedTokens": estimateTokens(contextString)]
+        )
 
         // 5. System prompt
         let systemInstructions = """
@@ -280,6 +304,13 @@ public actor VaultChatService {
         messages.append(AIMessage(role: .user, content: question))
 
         // 8. Stream
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChatProviderStarted",
+            reasonCode: "vaultChat.providerStarted",
+            durationMs: Date().timeIntervalSince(started) * 1_000
+        )
         let stream = provider.streamChat(
             messages: messages,
             model: modelID,

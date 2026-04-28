@@ -40,6 +40,28 @@ struct VersionHistoryPersistenceTests {
         }
     }
 
+    @Test("Nested note lookup uses the same canonical identity as snapshot write")
+    func nestedNoteLookupUsesCanonicalIdentity() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let folder = root.appendingPathComponent("Team")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let noteURL = folder.appendingPathComponent("2026-04-27__team-meeting.md")
+        try "Current".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Recovered latest text", vaultRoot: root))
+
+        let lookup = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: root)
+
+        #expect(lookup.versions.count == 1)
+        #expect(lookup.status.currentNoteIdentity == "Team/2026-04-27__team-meeting.md")
+        #expect(lookup.status.versionLookupKey == "Team/2026-04-27__team-meeting.md")
+        #expect(lookup.status.snapshotFilesFound == 1)
+        #expect(lookup.status.snapshotFilesIgnored == 0)
+    }
+
     @Test("Rapid meaningful snapshots do not overwrite each other")
     func rapidMeaningfulSnapshotsDoNotOverwrite() throws {
         let root = try makeTempVault()

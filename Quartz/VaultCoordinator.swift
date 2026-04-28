@@ -73,9 +73,28 @@ public final class VaultCoordinator {
             sameVault: sameVault,
             forceReload: forceReload
         )
-        let shouldReloadTree = !(sameVault && !forceReload)
+        let uiNeedsHydration = viewModel?.sidebarViewModel == nil
+            || viewModel?.sidebarViewModel?.vaultRootURL == nil
+            || viewModel?.sidebarViewModel?.fileTree.isEmpty == true
+        let shouldReloadTree = !(sameVault && !forceReload) || uiNeedsHydration
         let shouldClearSelection = userInitiated && clearSelection && resolvedReason == .userManualOpen
         let selectionPolicy = shouldClearSelection ? "cleared" : "preserved"
+        appState.vaultSessionState = userInitiated ? .opening : .restoring
+        appState.lastVaultOpenError = nil
+        if userInitiated {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "vaultOpenUserRequested",
+                reasonCode: "vault.openUserRequested",
+                vaultName: vault.name,
+                metadata: [
+                    "sameVault": String(sameVault),
+                    "uiNeedsHydration": String(uiNeedsHydration),
+                    "visibleVaultState": appState.vaultSessionState.visibleName
+                ]
+            )
+        }
 
         DeveloperDiagnostics.loadVaultConfiguration(from: vault.rootURL)
         SubsystemDiagnostics.record(
@@ -90,7 +109,10 @@ public final class VaultCoordinator {
                 "userInitiated": String(userInitiated),
                 "sameVault": String(sameVault),
                 "treeReloaded": String(shouldReloadTree),
-                "treeReloadReason": shouldReloadTree ? (forceReload ? "forceReload" : "newVault") : "sameVaultNoOp"
+                "treeReloadReason": shouldReloadTree ? (uiNeedsHydration ? "sameVaultRehydrate" : (forceReload ? "forceReload" : "newVault")) : "sameVaultNoOp",
+                "visibleVaultState": appState.vaultSessionState.visibleName,
+                "activeVaultURL": vault.rootURL.path(percentEncoded: false),
+                "hasSecurityScope": String(VaultAccessManager.shared.hasActiveVault)
             ]
         )
 
@@ -99,12 +121,13 @@ public final class VaultCoordinator {
             if appState.currentVault == nil {
                 appState.switchVault(to: vault)
             }
+            appState.vaultSessionState = .open
             logger.info("Skipped same-vault reload: \(vault.name)")
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .vaultRestore,
-                name: "vaultOpenCompleted",
-                reasonCode: "vault.sameVaultNoOpCompleted",
+                name: "sameVaultOpenNoOp",
+                reasonCode: "vault.sameVaultOpenNoOp",
                 vaultName: vault.name,
                 metadata: [
                     "openReason": VaultOpenReason.sameVaultNoOp.rawValue,
@@ -119,6 +142,27 @@ public final class VaultCoordinator {
             return
         }
 
+        if sameVault && uiNeedsHydration {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .vaultRestore,
+                name: "sameVaultOpenRehydrate",
+                reasonCode: "vault.sameVaultOpenRehydrate",
+                vaultName: vault.name,
+                metadata: ["visibleVaultState": appState.vaultSessionState.visibleName]
+            )
+        }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "vaultOpenHydrationStarted",
+            reasonCode: "vault.openHydrationStarted",
+            vaultName: vault.name,
+            metadata: [
+                "visibleVaultState": appState.vaultSessionState.visibleName,
+                "activeVaultURL": vault.rootURL.path(percentEncoded: false)
+            ]
+        )
         VaultAccessManager.shared.registerActiveVault(vault)
         appState.switchVault(to: vault)
         viewModel?.loadVault(vault, noteListStore: noteListStore)
@@ -139,7 +183,8 @@ public final class VaultCoordinator {
                 "userInitiated": String(userInitiated),
                 "sameVault": String(sameVault),
                 "treeReloaded": "true",
-                "treeReloadReason": forceReload ? "forceReload" : "newVault"
+                "treeReloadReason": uiNeedsHydration ? "sameVaultRehydrate" : (forceReload ? "forceReload" : "newVault"),
+                "visibleVaultState": appState.vaultSessionState.visibleName
             ]
         )
 
@@ -192,6 +237,8 @@ public final class VaultCoordinator {
             vault = try VaultAccessManager.shared.openVault(at: url)
         } catch {
             appState.showError(error.localizedDescription)
+            appState.vaultSessionState = .failed(error.localizedDescription)
+            appState.lastVaultOpenError = error.localizedDescription
             logger.error("Failed to open selected vault: \(error.localizedDescription)")
             QuartzDiagnostics.error(
                 category: "VaultCoordinator",
@@ -274,6 +321,8 @@ public final class VaultCoordinator {
         onComplete: (() -> Void)? = nil
     ) async -> VaultConfig? {
         hasAttemptedRestoration = true
+        appState.vaultSessionState = .restoring
+        appState.lastVaultOpenError = nil
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .vaultRestore,
@@ -305,6 +354,8 @@ public final class VaultCoordinator {
             }
         } catch {
             logger.warning("Failed to restore vault: \(error.localizedDescription)")
+            appState.vaultSessionState = .failed(error.localizedDescription)
+            appState.lastVaultOpenError = error.localizedDescription
             appState.showError(error.localizedDescription)
             QuartzDiagnostics.warning(
                 category: "VaultCoordinator",
@@ -327,6 +378,8 @@ public final class VaultCoordinator {
                 vault = try VaultAccessManager.shared.openVault(at: iCloudVault.rootURL, name: iCloudVault.name)
             } catch {
                 logger.warning("Failed to open iCloud-synced vault: \(error.localizedDescription)")
+                appState.vaultSessionState = .failed(error.localizedDescription)
+                appState.lastVaultOpenError = error.localizedDescription
                 QuartzDiagnostics.warning(
                     category: "VaultCoordinator",
                     "Failed to open iCloud-synced vault: \(error.localizedDescription)"
@@ -347,11 +400,13 @@ public final class VaultCoordinator {
         }
 
         if VaultAccessManager.shared.hasPersistedBookmark {
+            appState.vaultSessionState = .failed("Persisted vault bookmark exists but no vault could be restored")
             QuartzDiagnostics.warning(
                 category: "VaultCoordinator",
                 "Persisted vault bookmark exists but no vault could be restored"
             )
         } else {
+            appState.vaultSessionState = .noVault
             QuartzDiagnostics.warning(
                 category: "VaultCoordinator",
                 "Vault restore skipped because no persisted bookmark exists"

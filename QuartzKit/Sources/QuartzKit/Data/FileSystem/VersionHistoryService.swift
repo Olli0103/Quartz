@@ -39,6 +39,15 @@ public struct NoteVersion: Identifiable, Sendable {
     }
 }
 
+public struct VersionHistoryLookupStatus: Sendable, Equatable {
+    public let currentNoteIdentity: String
+    public let versionLookupKey: String
+    public let snapshotFilesFound: Int
+    public let snapshotFilesIgnored: Int
+    public let lastSnapshotAt: Date?
+    public let nextEligibleAt: Date?
+}
+
 public extension Notification.Name {
     /// Posted after a note's version-history snapshot set changes.
     /// `object` is the note URL and `userInfo["vaultRoot"]` is the vault root URL.
@@ -260,7 +269,12 @@ public struct VersionHistoryService: Sendable {
             name: "snapshotCreated",
             reasonCode: "version.snapshotCreated",
             noteBasename: noteURL.lastPathComponent,
-            metadata: ["snapshotStorage": snapshotURL.lastPathComponent]
+            metadata: [
+                "snapshotStorage": snapshotURL.lastPathComponent,
+                "snapshotStorageKey": stableNoteID(for: noteURL, vaultRoot: vaultRoot),
+                "noteIdentity": canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot),
+                "versionLookupKey": canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+            ]
         )
         return true
     }
@@ -271,10 +285,39 @@ public struct VersionHistoryService: Sendable {
     ///
     /// - Note: File system errors are logged but do not throw — returns empty array on failure.
     public func fetchVersions(for noteURL: URL, vaultRoot: URL) -> [NoteVersion] {
+        fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot).versions
+    }
+
+    public func fetchVersionsWithStatus(for noteURL: URL, vaultRoot: URL) -> (versions: [NoteVersion], status: VersionHistoryLookupStatus) {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
+        let identity = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let lookupKey = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionLookupStarted",
+            reasonCode: "version.lookupStarted",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: [
+                "currentNoteIdentity": identity,
+                "versionLookupKey": lookupKey
+            ]
+        )
 
-        guard fm.fileExists(atPath: snapshotDir.path(percentEncoded: false)) else { return [] }
+        guard fm.fileExists(atPath: snapshotDir.path(percentEncoded: false)) else {
+            let status = VersionHistoryLookupStatus(
+                currentNoteIdentity: identity,
+                versionLookupKey: lookupKey,
+                snapshotFilesFound: 0,
+                snapshotFilesIgnored: 0,
+                lastSnapshotAt: nil,
+                nextEligibleAt: nil
+            )
+            recordLookupCompleted(status: status, noteURL: noteURL, emptyReason: "snapshotDirectoryMissing")
+            recordLookup(status: status, noteURL: noteURL)
+            return ([], status)
+        }
 
         let contents: [URL]
         do {
@@ -289,11 +332,21 @@ public struct VersionHistoryService: Sendable {
                 category: "VersionHistory",
                 "Failed to list version snapshots: \(error.localizedDescription)"
             )
-            return []
+            let status = VersionHistoryLookupStatus(
+                currentNoteIdentity: identity,
+                versionLookupKey: lookupKey,
+                snapshotFilesFound: 0,
+                snapshotFilesIgnored: 0,
+                lastSnapshotAt: nil,
+                nextEligibleAt: nil
+            )
+            recordLookupCompleted(status: status, noteURL: noteURL, emptyReason: "snapshotDirectoryUnreadable")
+            recordLookup(status: status, noteURL: noteURL)
+            return ([], status)
         }
 
         // Accept both .md (plain) and .md.enc (encrypted) files
-        return contents
+        let accepted = contents
             .filter { url in
                 let ext = url.pathExtension
                 let name = url.lastPathComponent
@@ -310,6 +363,22 @@ public struct VersionHistoryService: Sendable {
             .map { index, tuple in
                 NoteVersion(id: index, snapshotURL: tuple.0, date: tuple.1, isEncrypted: tuple.2)
             }
+        let lastSnapshotAt = accepted.first?.date
+        let status = VersionHistoryLookupStatus(
+            currentNoteIdentity: identity,
+            versionLookupKey: lookupKey,
+            snapshotFilesFound: accepted.count,
+            snapshotFilesIgnored: max(0, contents.count - accepted.count),
+            lastSnapshotAt: lastSnapshotAt,
+            nextEligibleAt: lastSnapshotAt?.addingTimeInterval(300)
+        )
+        recordLookupCompleted(
+            status: status,
+            noteURL: noteURL,
+            emptyReason: accepted.isEmpty ? "noSnapshotFilesMatchedLookupKey" : nil
+        )
+        recordLookup(status: status, noteURL: noteURL)
+        return (accepted, status)
     }
 
     // MARK: - Read Version
@@ -469,28 +538,68 @@ public struct VersionHistoryService: Sendable {
     /// - IDs are filesystem-safe (no special characters)
     /// - IDs are stable and collision-resistant (SHA256 hash)
     private func stableNoteID(for noteURL: URL, vaultRoot: URL) -> String {
-        let rootPath = vaultRoot.standardizedFileURL.path(percentEncoded: false)
-        let notePath = noteURL.standardizedFileURL.path(percentEncoded: false)
-
-        // Get relative path from vault root
-        let relativePath: String
-        if notePath.hasPrefix(rootPath) {
-            relativePath = String(notePath.dropFirst(rootPath.count))
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        } else {
-            relativePath = noteURL.lastPathComponent
-        }
-
-        // Create a stable SHA256 hash of the relative path
+        let relativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
         guard let data = relativePath.data(using: .utf8) else {
             return sanitizeFilename(noteURL.deletingPathExtension().lastPathComponent)
         }
 
         let hash = SHA256.hash(data: data)
-        // Use full hex representation (64 chars) for collision resistance
-        let hexString = hash.compactMap { String(format: "%02x", $0) }.joined()
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
 
-        return hexString
+    private func canonicalRelativePath(for noteURL: URL, vaultRoot: URL) -> String {
+        let rootPath = vaultRoot.standardizedFileURL.path(percentEncoded: false)
+        let notePath = noteURL.standardizedFileURL.path(percentEncoded: false)
+
+        if notePath.hasPrefix(rootPath) {
+            return String(notePath.dropFirst(rootPath.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        return noteURL.lastPathComponent
+    }
+
+    private func recordLookup(status: VersionHistoryLookupStatus, noteURL: URL) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "snapshotLookup",
+            reasonCode: "version.snapshotLookup",
+            noteBasename: noteURL.lastPathComponent,
+            counts: [
+                "snapshotFilesFound": status.snapshotFilesFound,
+                "snapshotFilesIgnored": status.snapshotFilesIgnored
+            ],
+            metadata: [
+                "currentNoteIdentity": status.currentNoteIdentity,
+                "versionLookupKey": status.versionLookupKey,
+                "lastSnapshotAt": status.lastSnapshotAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none",
+                "nextEligibleAt": status.nextEligibleAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none"
+            ]
+        )
+    }
+
+    private func recordLookupCompleted(status: VersionHistoryLookupStatus, noteURL: URL, emptyReason: String?) {
+        var metadata = [
+            "currentNoteIdentity": status.currentNoteIdentity,
+            "versionLookupKey": status.versionLookupKey,
+            "lastSnapshotAt": status.lastSnapshotAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none",
+            "nextEligibleAt": status.nextEligibleAt.map { ISO8601DateFormatter().string(from: $0) } ?? "none"
+        ]
+        if let emptyReason {
+            metadata["versionEmptyStateReason"] = emptyReason
+        }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionLookupCompleted",
+            reasonCode: "version.lookupCompleted",
+            noteBasename: noteURL.lastPathComponent,
+            counts: [
+                "snapshotFilesFound": status.snapshotFilesFound,
+                "snapshotFilesIgnored": status.snapshotFilesIgnored
+            ],
+            metadata: metadata
+        )
     }
 
     /// Sanitizes a filename for use as a directory name.

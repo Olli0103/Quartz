@@ -62,6 +62,11 @@ public actor QuartzDiagnosticsStore {
         return String(decoding: selectedData, as: UTF8.self)
     }
 
+    public func resetLog() {
+        guard let logURL = ensureLogURL() else { return }
+        try? Data().write(to: logURL, options: .atomic)
+    }
+
     public func logFileURL() -> URL? {
         ensureLogURL()
     }

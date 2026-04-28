@@ -356,8 +356,29 @@ public final class SidebarViewModel {
             let newFingerprint = Self.treeFingerprint(for: loadedTree)
             let diff = Self.diffCounts(from: oldTree, to: loadedTree)
             let changed = oldFingerprint != newFingerprint
-            if changed {
+            let structuralChange = diff.added > 0 || diff.removed > 0 || diff.moved > 0
+            let fileEventClass = structuralChange ? "folderChanged" : "userNoteContentChanged"
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.fileEventClassified",
+                reasonCode: "sidebar.fileEventClassified",
+                counts: [
+                    "added": diff.added,
+                    "removed": diff.removed,
+                    "modified": diff.modified,
+                    "moved": diff.moved
+                ],
+                metadata: [
+                    "changed": String(changed),
+                    "structuralChange": String(structuralChange),
+                    "fileEventClass": fileEventClass
+                ]
+            )
+            if changed, structuralChange {
                 applyLoadedTree(loadedTree, rootKey: rootKey)
+            } else if changed {
+                applyMetadataChanges(from: loadedTree, rootKey: rootKey)
             } else {
                 cachedTreesByRoot[rootKey] = loadedTree
                 lastTreeFingerprintByRoot[rootKey] = newFingerprint
@@ -375,8 +396,38 @@ public final class SidebarViewModel {
                     "modified": diff.modified,
                     "moved": diff.moved
                 ],
-                metadata: ["changed": String(changed)]
+                metadata: [
+                    "changed": String(changed),
+                    "structuralChange": String(structuralChange),
+                    "fileEventClass": fileEventClass
+                ]
             )
+            if changed, !structuralChange {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.fullReloadSkippedForModifiedOnly",
+                    reasonCode: "sidebar.fullReloadSkippedForModifiedOnly",
+                    counts: ["modified": diff.modified],
+                    metadata: ["fileEventClass": fileEventClass]
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.noteRowsUpdated",
+                    reasonCode: "sidebar.noteRowsUpdated",
+                    counts: ["updatedRows": diff.modified],
+                    metadata: ["fileEventClass": "userNoteContentChanged"]
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.noteRowUpdated",
+                    reasonCode: "sidebar.noteRowUpdated",
+                    counts: ["updatedRows": diff.modified],
+                    metadata: ["fileEventClass": "userNoteContentChanged"]
+                )
+            }
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .vaultRestore,
@@ -398,6 +449,14 @@ public final class SidebarViewModel {
 
     private func applyLoadedTree(_ loadedTree: [FileNode], rootKey: String) {
         fileTree = loadedTree
+        cachedTreesByRoot[rootKey] = loadedTree
+        lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: loadedTree)
+        lastTreeLoadedAtByRoot[rootKey] = Date()
+    }
+
+    private func applyMetadataChanges(from loadedTree: [FileNode], rootKey: String) {
+        let replacements = Self.flattenedNodesByPath(loadedTree)
+        fileTree = Self.replacingMatchingNodes(in: fileTree, replacements: replacements)
         cachedTreesByRoot[rootKey] = loadedTree
         lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: loadedTree)
         lastTreeLoadedAtByRoot[rootKey] = Date()
@@ -474,6 +533,32 @@ public final class SidebarViewModel {
             if let children = node.children {
                 collectNodeSignatures(from: children, into: &result)
             }
+        }
+    }
+
+    private static func flattenedNodesByPath(_ nodes: [FileNode]) -> [String: FileNode] {
+        var result: [String: FileNode] = [:]
+        collectNodesByPath(from: nodes, into: &result)
+        return result
+    }
+
+    private static func collectNodesByPath(from nodes: [FileNode], into result: inout [String: FileNode]) {
+        for node in nodes {
+            result[node.url.standardizedFileURL.path(percentEncoded: false)] = node
+            if let children = node.children {
+                collectNodesByPath(from: children, into: &result)
+            }
+        }
+    }
+
+    private static func replacingMatchingNodes(in nodes: [FileNode], replacements: [String: FileNode]) -> [FileNode] {
+        nodes.map { node in
+            let path = node.url.standardizedFileURL.path(percentEncoded: false)
+            var replacement = replacements[path] ?? node
+            if let children = node.children {
+                replacement.children = replacingMatchingNodes(in: children, replacements: replacements)
+            }
+            return replacement
         }
     }
 

@@ -80,6 +80,49 @@ struct KnowledgeExtractionBudgetTests {
         #expect(processed)
     }
 
+    @Test("pause, retry, and cancel publish visible indexing state")
+    func indexingControlsPublishVisibleState() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let note = vault.appending(path: "pending.md")
+        try """
+        # Pending
+
+        This note is intentionally long enough to be eligible for the indexing status model.
+        """.write(to: note, atomically: true, encoding: .utf8)
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(100),
+            extractionOverride: { _ in ["visible status"] }
+        )
+
+        await service.pauseAIIndexing()
+        var snapshot = await service.statusSnapshot()
+        #expect(snapshot.status == .paused)
+        #expect(snapshot.pendingNotes == 1)
+
+        let recreated = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(100),
+            extractionOverride: { _ in ["should not run while paused"] }
+        )
+        await recreated.startVaultScan(mode: .automatic)
+        snapshot = await recreated.statusSnapshot()
+        #expect(snapshot.status == .paused)
+
+        await service.retryAIIndexingNow()
+        snapshot = await service.statusSnapshot()
+        #expect(snapshot.status != .paused)
+        #expect(snapshot.scanMode == .automatic)
+
+        await service.cancelCurrentAIJob()
+        snapshot = await service.statusSnapshot()
+        #expect(snapshot.status == .idle || snapshot.status == .running)
+    }
+
     private func waitUntil(
         timeout: Duration,
         pollInterval: Duration = .milliseconds(20),

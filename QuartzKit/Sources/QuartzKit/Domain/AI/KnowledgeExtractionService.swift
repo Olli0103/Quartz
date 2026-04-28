@@ -60,7 +60,20 @@ public enum AIIndexingStatus: String, Sendable {
 
 public enum AIConceptScanMode: String, Sendable {
     case automatic
+    case manualIncremental
     case manualRebuild
+}
+
+public struct AIIndexingStatusSnapshot: Sendable, Equatable {
+    public let status: AIIndexingStatus
+    public let conceptCount: Int
+    public let processedNotes: Int
+    public let pendingNotes: Int
+    public let lastSuccessAt: Date?
+    public let lastFailureAt: Date?
+    public let lastFailureReason: String?
+    public let backoffUntil: Date?
+    public let scanMode: AIConceptScanMode
 }
 
 public struct AIIndexingPendingClassification: Sendable, Equatable {
@@ -121,6 +134,8 @@ public actor KnowledgeExtractionService {
     private var aiBackoffUntil: Date?
     private var aiFailureStatus: String?
     private var lastAIFailureReason: String?
+    private var isPausedByUser = false
+    private var currentScanMode: AIConceptScanMode = .automatic
 
     private static let automaticMaxNotesPerScan = 25
     private static let automaticMaxDurationSeconds: UInt64 = 60
@@ -163,6 +178,7 @@ public actor KnowledgeExtractionService {
         self.aiBackoffUntil = state.backoffUntil
         self.aiFailureStatus = state.lastStatus
         self.lastAIFailureReason = state.lastFailureReason
+        self.isPausedByUser = state.lastStatus == AIIndexingStatus.paused.rawValue
         Self.publishPersistedAIHealth(state)
     }
 
@@ -177,6 +193,17 @@ public actor KnowledgeExtractionService {
                 reasonCode: "ai.disabled",
                 noteBasename: noteURL.lastPathComponent,
                 metadata: ["status.aiIndexing": "disabled"]
+            )
+            return
+        }
+        guard !isPausedByUser else {
+            updateAIStatus(AIIndexingStatus.paused.rawValue)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "conceptScanSkipped",
+                reasonCode: "ai.paused",
+                metadata: ["status.aiIndexing": AIIndexingStatus.paused.rawValue]
             )
             return
         }
@@ -254,6 +281,7 @@ public actor KnowledgeExtractionService {
             return
         }
         scanTask?.cancel()
+        currentScanMode = mode
         let generation = serviceGeneration
         updateAIStatus(AIIndexingStatus.running.rawValue)
         SubsystemDiagnostics.record(
@@ -294,7 +322,28 @@ public actor KnowledgeExtractionService {
         )
     }
 
+    public func pauseAIIndexing() {
+        isPausedByUser = true
+        scanTask?.cancel()
+        scanTask = nil
+        isScanRunning = false
+        scanProgress = nil
+        updateAIStatus(AIIndexingStatus.paused.rawValue)
+        saveStateToDisk()
+    }
+
+    public func cancelCurrentAIJob() {
+        scanTask?.cancel()
+        debounceTask?.cancel()
+        scanTask = nil
+        debounceTask = nil
+        isScanRunning = false
+        scanProgress = nil
+        updateAIStatus(isPausedByUser ? AIIndexingStatus.paused.rawValue : AIIndexingStatus.idle.rawValue)
+    }
+
     public func retryAIIndexingNow() {
+        isPausedByUser = false
         aiBackoffUntil = nil
         aiFailureStatus = nil
         lastAIFailureReason = nil
@@ -313,7 +362,46 @@ public actor KnowledgeExtractionService {
     }
 
     public func startManualRebuildScan() {
+        isPausedByUser = false
         startVaultScan(mode: .manualRebuild)
+    }
+
+    public func resetFailureState() {
+        aiBackoffUntil = nil
+        aiFailureStatus = nil
+        lastAIFailureReason = nil
+        state.backoffUntil = nil
+        state.lastFailureReason = nil
+        state.lastFailureAt = nil
+        state.lastStatus = isPausedByUser ? AIIndexingStatus.paused.rawValue : AIIndexingStatus.idle.rawValue
+        saveStateToDisk()
+        updateAIStatus(state.lastStatus ?? AIIndexingStatus.idle.rawValue, extra: ["aiBackoffUntil": "none"])
+    }
+
+    public func statusSnapshot() -> AIIndexingStatusSnapshot {
+        let status: AIIndexingStatus
+        if !isEnabled {
+            status = .disabled
+        } else if isPausedByUser {
+            status = .paused
+        } else if let raw = state.lastStatus, let parsed = AIIndexingStatus(rawValue: raw) {
+            status = parsed
+        } else {
+            status = isScanRunning ? .running : .idle
+        }
+        let allNotes = collectMarkdownFiles(in: vaultRootURL)
+        let pending = classifyPendingNotes(allNotes, mode: .automatic).totalPending
+        return AIIndexingStatusSnapshot(
+            status: status,
+            conceptCount: state.conceptEdges.count,
+            processedNotes: state.processedTimestamps.count,
+            pendingNotes: pending,
+            lastSuccessAt: state.lastSuccessAt,
+            lastFailureAt: state.lastFailureAt,
+            lastFailureReason: state.lastFailureReason ?? lastAIFailureReason,
+            backoffUntil: aiBackoffUntil,
+            scanMode: currentScanMode
+        )
     }
 
     /// Cancels queued save/scan work and invalidates suspended older extractions so they
@@ -1254,6 +1342,17 @@ public actor KnowledgeExtractionService {
             values[key] = value
         }
         SubsystemDiagnostics.updateState(subsystem: .aiIndexing, values: values)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.statusPublished",
+            reasonCode: "ai.statusPublished",
+            counts: [
+                "conceptCount": state.conceptEdges.count,
+                "processedNotes": state.processedTimestamps.count
+            ],
+            metadata: values
+        )
     }
 
     private nonisolated static func publishPersistedAIHealth(_ state: AIIndexState) {

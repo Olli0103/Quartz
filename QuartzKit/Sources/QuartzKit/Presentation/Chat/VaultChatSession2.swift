@@ -24,6 +24,7 @@ public final class VaultChatSession2 {
 
     /// Current streaming lifecycle state.
     public private(set) var streamingState: StreamingState = .idle
+    public private(set) var stage: VaultChatStage = .idle
 
     /// Citations for the current streaming response (known before first token).
     public private(set) var currentCitations: [Citation] = []
@@ -41,6 +42,18 @@ public final class VaultChatSession2 {
         case streaming    // Tokens arriving
     }
 
+    public enum VaultChatStage: String, Sendable {
+        case idle
+        case checkingReadiness
+        case retrievingNotes
+        case buildingContext
+        case waitingForProvider
+        case streamingAnswer
+        case completed
+        case failed
+        case cancelled
+    }
+
     // MARK: - Dependencies
 
     private let chatService: VaultChatService
@@ -50,7 +63,7 @@ public final class VaultChatSession2 {
 
     /// 30fps batching interval — 33ms between SwiftUI state flushes.
     private static let batchInterval: UInt64 = 33_000_000 // nanoseconds
-    private static let requestTimeout: Duration = .seconds(45)
+    private static let requestTimeout: Duration = .seconds(20)
 
     // MARK: - Init
 
@@ -97,6 +110,7 @@ public final class VaultChatSession2 {
         streamingContent = ""
         currentCitations = []
         streamingState = .waiting
+        stage = .checkingReadiness
         error = nil
 
         let resolver = noteResolver
@@ -112,7 +126,7 @@ public final class VaultChatSession2 {
                     level: readiness.state == .ready ? .info : .warning,
                     subsystem: .aiIndexing,
                     name: "vaultChatReadinessChecked",
-                    reasonCode: readiness.state == .ready ? "ai.vaultChatReady" : "ai.vaultChatNotReady",
+                    reasonCode: "vaultChat.readiness",
                     counts: ["indexedChunks": readiness.indexedChunkCount],
                     metadata: [
                         "status.vaultChat": readiness.state.rawValue,
@@ -125,10 +139,12 @@ public final class VaultChatSession2 {
                     self.streamingContent = ""
                     self.currentCitations = []
                     self.streamingState = .idle
+                    self.stage = .failed
                     self.timeoutTask?.cancel()
                     return
                 }
 
+                self.stage = .retrievingNotes
                 SubsystemDiagnostics.record(
                     level: .info,
                     subsystem: .aiIndexing,
@@ -141,6 +157,7 @@ public final class VaultChatSession2 {
                     ]
                 )
 
+                self.stage = .buildingContext
                 let (citations, tokenStream) = try await self.chatService.streamAsk(
                     trimmed,
                     chatHistory: Array(history),
@@ -149,13 +166,27 @@ public final class VaultChatSession2 {
 
                 // Citations are known before streaming starts
                 self.currentCitations = citations
+                self.stage = .waitingForProvider
 
                 // 30fps batched consumption
                 var buffer = ""
                 var lastFlush = ContinuousClock.now
+                var firstTokenRecorded = false
 
                 for try await token in tokenStream {
                     guard !Task.isCancelled else { break }
+                    if !firstTokenRecorded {
+                        firstTokenRecorded = true
+                        self.stage = .streamingAnswer
+                        SubsystemDiagnostics.record(
+                            level: .info,
+                            subsystem: .aiIndexing,
+                            name: "vaultChatFirstToken",
+                            reasonCode: "vaultChat.firstTokenMs",
+                            durationMs: Date().timeIntervalSince(started) * 1_000,
+                            metadata: ["status.vaultChat": "streaming"]
+                        )
+                    }
 
                     buffer += token
 
@@ -191,12 +222,13 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.stage = .completed
                 self.timeoutTask?.cancel()
                 SubsystemDiagnostics.record(
                     level: .info,
                     subsystem: .aiIndexing,
                     name: "vaultChatRequestCompleted",
-                    reasonCode: "ai.vaultChatCompleted",
+                    reasonCode: "vaultChat.completed",
                     durationMs: Date().timeIntervalSince(started) * 1_000,
                     counts: ["citationCount": citations.count, "responseLength": finalContent.count],
                     metadata: ["status.vaultChat": "idle"]
@@ -216,12 +248,13 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.stage = .cancelled
                 self.timeoutTask?.cancel()
                 SubsystemDiagnostics.record(
                     level: .info,
                     subsystem: .aiIndexing,
                     name: "vaultChatCancelled",
-                    reasonCode: "ai.cancelled",
+                    reasonCode: "vaultChat.cancelled",
                     durationMs: Date().timeIntervalSince(started) * 1_000,
                     metadata: ["status.vaultChat": "cancelled"]
                 )
@@ -241,6 +274,7 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.stage = .failed
                 self.timeoutTask?.cancel()
                 SubsystemDiagnostics.record(
                     level: .warning,
@@ -269,6 +303,7 @@ public final class VaultChatSession2 {
                 self.streamingContent = ""
                 self.currentCitations = []
                 self.streamingState = .idle
+                self.stage = .failed
                 self.timeoutTask?.cancel()
                 SubsystemDiagnostics.record(
                     level: .warning,
@@ -291,11 +326,12 @@ public final class VaultChatSession2 {
             self.streamingContent = ""
             self.currentCitations = []
             self.streamingState = .idle
+            self.stage = .failed
             SubsystemDiagnostics.record(
                 level: .warning,
                 subsystem: .aiIndexing,
-                name: "vaultChatTimedOut",
-                reasonCode: "ai.timeout",
+                name: "vaultChatProviderTimeout",
+                reasonCode: "vaultChat.providerTimeout",
                 durationMs: Date().timeIntervalSince(started) * 1_000,
                 metadata: ["status.vaultChat": "timedOut"]
             )
@@ -312,6 +348,7 @@ public final class VaultChatSession2 {
         streamingContent = ""
         currentCitations = []
         streamingState = .idle
+        stage = .idle
         error = nil
         readinessState = .ready
     }
@@ -325,11 +362,12 @@ public final class VaultChatSession2 {
         streamingContent = ""
         currentCitations = []
         streamingState = .idle
+        stage = .cancelled
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
             name: "vaultChatCancelled",
-            reasonCode: "ai.cancelled",
+            reasonCode: "vaultChat.cancelled",
             metadata: ["status.vaultChat": "cancelled"]
         )
     }

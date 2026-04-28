@@ -66,6 +66,9 @@ struct ContentView: View {
             noteListStore: noteListStore,
             sidebarViewModel: viewModel?.sidebarViewModel,
             editorSession: viewModel?.editorSession,
+            vaultSessionState: appState.vaultSessionState,
+            activeVaultName: appState.currentVault?.name,
+            lastVaultOpenError: appState.lastVaultOpenError,
             documentChatSession: viewModel?.documentChatSession,
             onMapViewTap: {
                 workspaceStore.setRoute(.graph)

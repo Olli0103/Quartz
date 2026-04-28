@@ -278,6 +278,15 @@ public actor DiagnosticExportService {
         for (key, value) in recoveryInfo {
             mergedAdditionalInfo[key] = value
         }
+        mergedAdditionalInfo["appLaunchId"] = subsystemDiagnostics.appLaunchId.uuidString
+        mergedAdditionalInfo["sessionStartedAt"] = Self.iso8601String(subsystemDiagnostics.sessionStartedAt)
+        mergedAdditionalInfo["currentSessionEventCount"] = String(subsystemDiagnostics.currentSessionEventCount)
+        mergedAdditionalInfo["diagnosticsResetAt"] = subsystemDiagnostics.diagnosticsResetAt.map(Self.iso8601String) ?? "none"
+        mergedAdditionalInfo["diagnosticsStructuredScope"] = "current app launch/session"
+        mergedAdditionalInfo["diagnosticsLegacyLogScope"] = "persisted sandbox text log; may include previous app sessions until reset"
+        if let executableModifiedAt = appExecutableModifiedAt() {
+            mergedAdditionalInfo["appExecutableModifiedAt"] = Self.iso8601String(executableModifiedAt)
+        }
         if let effectiveAIStatus = Self.effectiveAIIndexStatus(from: subsystemDiagnostics) {
             mergedAdditionalInfo["aiIndex.status"] = effectiveAIStatus
             mergedAdditionalInfo["aiIndex.statusSource"] = "subsystemDiagnostics"
@@ -369,12 +378,12 @@ public actor DiagnosticExportService {
         \(developerDiagnosticsText(report.developerDiagnostics))
 
         ───────────────────────────────────────────────────────────────
-        SUBSYSTEM HEALTH SUMMARY
+        CURRENT SESSION SUBSYSTEM HEALTH SUMMARY
         ───────────────────────────────────────────────────────────────
         \(subsystemHealthText(report.subsystemDiagnostics))
 
         ───────────────────────────────────────────────────────────────
-        CROSS-SUBSYSTEM DIAGNOSTICS
+        CURRENT SESSION STRUCTURED DIAGNOSTICS
         ───────────────────────────────────────────────────────────────
         \(subsystemDiagnosticsText(report.subsystemDiagnostics))
 
@@ -384,7 +393,9 @@ public actor DiagnosticExportService {
         \(rendererDiagnosticsText(report.rendererDiagnostics))
 
         ───────────────────────────────────────────────────────────────
-        RECENT DIAGNOSTICS LOG
+        LEGACY/PERSISTED DIAGNOSTICS LOG
+        May include previous app sessions. Use diagnosticsResetAt and
+        current session structured diagnostics above for smoke-test freshness.
         ───────────────────────────────────────────────────────────────
         \(report.recentDiagnosticsLog)
 
@@ -407,13 +418,31 @@ public actor DiagnosticExportService {
     }
 
     private func subsystemHealthText(_ snapshot: SubsystemDiagnosticsSnapshot) -> String {
-        DiagnosticsSubsystem.allCases.map { subsystem in
+        let header = """
+        appLaunchId=\(snapshot.appLaunchId.uuidString)
+        sessionStartedAt=\(Self.iso8601String(snapshot.sessionStartedAt))
+        diagnosticsResetAt=\(snapshot.diagnosticsResetAt.map(Self.iso8601String) ?? "none")
+        currentSessionEventCount=\(snapshot.currentSessionEventCount)
+        """
+        let subsystemText = DiagnosticsSubsystem.allCases.map { subsystem in
             let state = snapshot.currentState[subsystem] ?? [:]
             let warning = state["lastWarningOrError"].map { " warning=\($0)" } ?? ""
             let duration = state["lastDurationMs"].map { " durationMs=\($0)" } ?? ""
             let event = state["lastEvent"] ?? "none"
             return "\(subsystem.displayName): lastEvent=\(event)\(warning)\(duration)"
         }.joined(separator: "\n")
+        return "\(header)\n\(subsystemText)"
+    }
+
+    private static func iso8601String(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func appExecutableModifiedAt() -> Date? {
+        guard let executableURL = Bundle.main.executableURL else { return nil }
+        return try? executableURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
     }
 
     private func subsystemDiagnosticsText(_ snapshot: SubsystemDiagnosticsSnapshot) -> String {

@@ -390,6 +390,10 @@ public enum DeveloperDiagnostics {
 }
 
 public struct SubsystemDiagnosticsSnapshot: Codable, Sendable, Equatable {
+    public let appLaunchId: UUID
+    public let sessionStartedAt: Date
+    public let diagnosticsResetAt: Date?
+    public let currentSessionEventCount: Int
     public let recentEvents: [SubsystemDiagnosticEvent]
     public let eventsBySubsystem: [DiagnosticsSubsystem: [SubsystemDiagnosticEvent]]
     public let warningsAndErrorsBySubsystem: [DiagnosticsSubsystem: [SubsystemDiagnosticEvent]]
@@ -398,6 +402,10 @@ public struct SubsystemDiagnosticsSnapshot: Codable, Sendable, Equatable {
     public let currentState: [DiagnosticsSubsystem: [String: String]]
 
     public init(
+        appLaunchId: UUID = UUID(),
+        sessionStartedAt: Date = Date(),
+        diagnosticsResetAt: Date? = nil,
+        currentSessionEventCount: Int = 0,
         recentEvents: [SubsystemDiagnosticEvent],
         eventsBySubsystem: [DiagnosticsSubsystem: [SubsystemDiagnosticEvent]],
         warningsAndErrorsBySubsystem: [DiagnosticsSubsystem: [SubsystemDiagnosticEvent]],
@@ -405,6 +413,10 @@ public struct SubsystemDiagnosticsSnapshot: Codable, Sendable, Equatable {
         repeatedEventSummaries: [SubsystemDiagnosticEvent],
         currentState: [DiagnosticsSubsystem: [String: String]]
     ) {
+        self.appLaunchId = appLaunchId
+        self.sessionStartedAt = sessionStartedAt
+        self.diagnosticsResetAt = diagnosticsResetAt
+        self.currentSessionEventCount = currentSessionEventCount
         self.recentEvents = recentEvents
         self.eventsBySubsystem = eventsBySubsystem
         self.warningsAndErrorsBySubsystem = warningsAndErrorsBySubsystem
@@ -422,6 +434,9 @@ public actor SubsystemDiagnosticsStore {
     private var events: [SubsystemDiagnosticEvent] = []
     private var repeatedCounts: [String: Int] = [:]
     private var currentState: [DiagnosticsSubsystem: [String: String]] = [:]
+    private let appLaunchId = UUID()
+    private let sessionStartedAt = Date()
+    private var diagnosticsResetAt: Date?
 
     public init(capacity: Int = defaultCapacity) {
         self.capacity = max(1, capacity)
@@ -437,6 +452,7 @@ public actor SubsystemDiagnosticsStore {
         events.removeAll()
         repeatedCounts.removeAll()
         currentState.removeAll()
+        diagnosticsResetAt = Date()
     }
 
     public func record(_ event: SubsystemDiagnosticEvent) {
@@ -486,6 +502,10 @@ public actor SubsystemDiagnosticsStore {
             .prefix(20)
         let repeated = events.filter { $0.name.hasSuffix(".repeated") }.suffix(30)
         return SubsystemDiagnosticsSnapshot(
+            appLaunchId: appLaunchId,
+            sessionStartedAt: sessionStartedAt,
+            diagnosticsResetAt: diagnosticsResetAt,
+            currentSessionEventCount: events.count,
             recentEvents: Array(events.suffix(150)),
             eventsBySubsystem: bySubsystem,
             warningsAndErrorsBySubsystem: warnings,
@@ -613,6 +633,19 @@ public enum SubsystemDiagnostics {
 
     public static func resetForTesting() async {
         await SubsystemDiagnosticsStore.shared.reset()
+    }
+
+    public static func resetCurrentDiagnostics() async {
+        await SubsystemDiagnosticsStore.shared.reset()
+        await RendererDiagnosticsStore.shared.reset()
+        await QuartzDiagnosticsStore.shared.resetLog()
+        record(
+            level: .info,
+            subsystem: .diagnostics,
+            name: "diagnosticsReset",
+            reasonCode: "diagnostics.resetCurrentSession",
+            metadata: ["scope": "ringBuffersAndPersistedDiagnosticsLog"]
+        )
     }
 
     private static func reasonCode(from message: String) -> String? {

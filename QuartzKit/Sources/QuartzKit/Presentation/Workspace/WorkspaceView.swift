@@ -10,6 +10,9 @@ public struct WorkspaceView: View {
     let noteListStore: NoteListStore
     let sidebarViewModel: SidebarViewModel?
     let editorSession: EditorSession?
+    let vaultSessionState: VaultSessionState
+    let activeVaultName: String?
+    let lastVaultOpenError: String?
     var documentChatSession: DocumentChatSession?
     var onMapViewTap: (() -> Void)?
     var onDoubleClick: ((URL) -> Void)?
@@ -34,6 +37,9 @@ public struct WorkspaceView: View {
         noteListStore: NoteListStore,
         sidebarViewModel: SidebarViewModel? = nil,
         editorSession: EditorSession? = nil,
+        vaultSessionState: VaultSessionState = .noVault,
+        activeVaultName: String? = nil,
+        lastVaultOpenError: String? = nil,
         documentChatSession: DocumentChatSession? = nil,
         onMapViewTap: (() -> Void)? = nil,
         onDoubleClick: ((URL) -> Void)? = nil,
@@ -51,6 +57,9 @@ public struct WorkspaceView: View {
         self.noteListStore = noteListStore
         self.sidebarViewModel = sidebarViewModel
         self.editorSession = editorSession
+        self.vaultSessionState = vaultSessionState
+        self.activeVaultName = activeVaultName
+        self.lastVaultOpenError = lastVaultOpenError
         self.documentChatSession = documentChatSession
         self.onMapViewTap = onMapViewTap
         self.onDoubleClick = onDoubleClick
@@ -148,6 +157,31 @@ public struct WorkspaceView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
             #endif
+        } else if vaultSessionState.isActiveOrLoading {
+            QuartzEmptyState(
+                icon: "folder.badge.gearshape",
+                title: vaultSessionState == .open ? "Loading Vault" : "Opening Vault",
+                subtitle: activeVaultName.map { "Preparing \($0)" } ?? "Preparing your notes"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Quartz Notes")
+            .onAppear {
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .vaultRestore,
+                    name: "sidebarBlockedByVaultState",
+                    reasonCode: "vault.sidebarBlockedByVaultState",
+                    metadata: ["visibleVaultState": vaultSessionState.visibleName]
+                )
+            }
+        } else if case .failed(let message) = vaultSessionState {
+            QuartzEmptyState(
+                icon: "exclamationmark.triangle",
+                title: "Vault Open Failed",
+                subtitle: lastVaultOpenError ?? message
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Quartz Notes")
         } else {
             QuartzEmptyState(
                 icon: "folder",
@@ -156,6 +190,21 @@ public struct WorkspaceView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle("Quartz Notes")
+            .onAppear {
+                if let activeVaultName {
+                    SubsystemDiagnostics.record(
+                        level: .error,
+                        subsystem: .vaultRestore,
+                        name: "vaultUIStateMismatch",
+                        reasonCode: "vault.uiStateMismatch",
+                        vaultName: activeVaultName,
+                        metadata: [
+                            "visibleVaultState": vaultSessionState.visibleName,
+                            "visibleView": "No Vault Open"
+                        ]
+                    )
+                }
+            }
         }
     }
 

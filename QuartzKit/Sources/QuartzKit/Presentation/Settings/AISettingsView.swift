@@ -28,6 +28,7 @@ public struct AISettingsView: View {
     @State private var connectionTesting = false
     @State private var relatedNotesSimilarityEnabled = KnowledgeAnalysisSettings.relatedNotesSimilarityEnabled()
     @State private var aiConceptExtractionEnabled = KnowledgeAnalysisSettings.aiConceptExtractionEnabled()
+    @State private var indexingControls = AIIndexingControlCenter.shared
 
     public init() {}
 
@@ -48,6 +49,9 @@ public struct AISettingsView: View {
             customModelSection
             relatedNotesSimilaritySection
             aiConceptExtractionSection
+            if DeveloperDiagnostics.isEnabled {
+                aiIndexingStatusSection
+            }
         }
         .formStyle(.grouped)
         .navigationTitle(String(localized: "AI", bundle: .module))
@@ -58,6 +62,7 @@ public struct AISettingsView: View {
             await loadCustomModels()
             loadOllamaURLFromStorage()
             await probeOllamaReachabilityOnAppear()
+            await indexingControls.refresh()
         }
         .onChange(of: registry.selectedProviderID) { _, newValue in
             connectionTestResult = nil
@@ -592,5 +597,49 @@ public struct AISettingsView: View {
         } footer: {
             Text(Self.aiConceptsFooterText)
         }
+    }
+
+    private var aiIndexingStatusSection: some View {
+        Section {
+            LabeledContent(String(localized: "Status", bundle: .module), value: indexingControls.status.rawValue)
+            LabeledContent(String(localized: "Concepts", bundle: .module), value: "\(indexingControls.conceptCount)")
+            LabeledContent(String(localized: "Processed Notes", bundle: .module), value: "\(indexingControls.processedNotes)")
+            LabeledContent(String(localized: "Pending Notes", bundle: .module), value: "\(indexingControls.pendingNotes)")
+            LabeledContent(String(localized: "Scan Mode", bundle: .module), value: indexingControls.scanMode.rawValue)
+            if let lastSuccess = indexingControls.lastSuccessAt {
+                LabeledContent(String(localized: "Last Success", bundle: .module), value: lastSuccess.formatted(date: .abbreviated, time: .shortened))
+            }
+            if let lastFailure = indexingControls.lastFailureAt {
+                LabeledContent(String(localized: "Last Failure", bundle: .module), value: lastFailure.formatted(date: .abbreviated, time: .shortened))
+            }
+            if let reason = indexingControls.lastFailureReason {
+                LabeledContent(String(localized: "Failure Reason", bundle: .module), value: reason)
+            }
+            if let backoffUntil = indexingControls.backoffUntil {
+                LabeledContent(String(localized: "Backoff Until", bundle: .module), value: backoffUntil.formatted(date: .omitted, time: .shortened))
+            }
+            LabeledContent(String(localized: "Provider", bundle: .module), value: safeProviderSummary)
+
+            HStack {
+                Button(String(localized: "Start", bundle: .module)) { indexingControls.startOrResume() }
+                Button(String(localized: "Pause", bundle: .module)) { indexingControls.pause() }
+                Button(String(localized: "Retry Now", bundle: .module)) { indexingControls.retryNow() }
+                Button(String(localized: "Cancel", bundle: .module)) { indexingControls.cancel() }
+            }
+            HStack {
+                Button(String(localized: "Rebuild AI Concept Index", bundle: .module)) { indexingControls.rebuild() }
+                Button(String(localized: "Reset AI Failure State", bundle: .module)) { indexingControls.resetFailure() }
+            }
+        } header: {
+            Text(String(localized: "AI Indexing", bundle: .module))
+        } footer: {
+            Text(String(localized: "Developer diagnostics controls. Rebuild may take time and reprocesses the vault.", bundle: .module))
+        }
+    }
+
+    private var safeProviderSummary: String {
+        let providerName = registry.selectedProvider?.displayName ?? String(localized: "None", bundle: .module)
+        let model = registry.selectedModelID ?? String(localized: "Default model", bundle: .module)
+        return "\(providerName) / \(model)"
     }
 }

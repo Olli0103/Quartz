@@ -8,6 +8,7 @@ public struct SettingsView: View {
     @State private var diagnosticsExportFileName = "Quartz-Diagnostics.txt"
     @State private var showDiagnosticsExporter = false
     @State private var isPreparingDiagnostics = false
+    @State private var isResettingDiagnostics = false
 
     public init() {}
 
@@ -205,6 +206,9 @@ public struct SettingsView: View {
 
             UpdateCheckButton()
             exportDiagnosticsButton
+            if DeveloperDiagnostics.isEnabled {
+                resetCurrentDiagnosticsButton
+            }
 
             HStack(spacing: 20) {
                 Link(destination: URL(string: "https://github.com/Olli0103/Quartz")!) {
@@ -242,6 +246,23 @@ public struct SettingsView: View {
         .help(String(localized: "Exports recent warnings, errors, indexing telemetry, and vault index state.", bundle: .module))
     }
 
+    private var resetCurrentDiagnosticsButton: some View {
+        Button {
+            resetCurrentDiagnostics()
+        } label: {
+            Label(
+                isResettingDiagnostics
+                    ? String(localized: "Resetting Diagnostics…", bundle: .module)
+                    : String(localized: "Reset Current Diagnostics", bundle: .module),
+                systemImage: "arrow.counterclockwise"
+            )
+            .font(.callout)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isResettingDiagnostics)
+        .help(String(localized: "Clears diagnostic ring buffers and the persisted diagnostics log only. Vault data, recovery data, notes, and indexes are not deleted.", bundle: .module))
+    }
+
     private func exportDiagnostics() {
         guard !isPreparingDiagnostics else { return }
         isPreparingDiagnostics = true
@@ -260,6 +281,17 @@ public struct SettingsView: View {
                 diagnosticsExportFileName = "Quartz-Diagnostics-\(timestamp).txt"
                 isPreparingDiagnostics = false
                 showDiagnosticsExporter = true
+            }
+        }
+    }
+
+    private func resetCurrentDiagnostics() {
+        guard !isResettingDiagnostics else { return }
+        isResettingDiagnostics = true
+        Task {
+            await SubsystemDiagnostics.resetCurrentDiagnostics()
+            await MainActor.run {
+                isResettingDiagnostics = false
             }
         }
     }

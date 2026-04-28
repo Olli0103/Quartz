@@ -17,6 +17,11 @@ public protocol VaultProviding: Actor {
     /// so NSFileCoordinator skips calling back our own presenter (prevents deadlock).
     func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws
 
+    /// Saves a user-edited note on the highest-priority path.
+    /// Implementations may bypass NSFileCoordinator when the note is already inside
+    /// a user-owned vault and the write can be atomically verified.
+    func savePrimaryUserNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws
+
     /// Creates a new note with default frontmatter.
     func createNote(named name: String, in folder: URL) async throws -> NoteDocument
 
@@ -38,5 +43,9 @@ public protocol VaultProviding: Actor {
 public extension VaultProviding {
     func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
         try await saveNote(note)
+    }
+
+    func savePrimaryUserNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
+        try await saveNote(note, filePresenter: filePresenter)
     }
 }

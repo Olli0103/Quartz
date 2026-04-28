@@ -245,7 +245,7 @@ public struct VaultChatView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(String(localized: "Searching vault…", bundle: .module))
+                    Text(stageLabel)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -309,6 +309,21 @@ public struct VaultChatView: View {
         .padding(.horizontal, 16)
         .accessibilityLabel(String(localized: "AI is responding", bundle: .module))
         .accessibilityValue(session.streamingContent)
+    }
+
+    private var stageLabel: String {
+        switch session.stage {
+        case .checkingReadiness:
+            return String(localized: "Checking readiness...", bundle: .module)
+        case .retrievingNotes:
+            return String(localized: "Retrieving notes...", bundle: .module)
+        case .buildingContext:
+            return String(localized: "Building context...", bundle: .module)
+        case .waitingForProvider:
+            return String(localized: "Waiting for AI provider...", bundle: .module)
+        default:
+            return String(localized: "Searching vault...", bundle: .module)
+        }
     }
 
     // MARK: - Empty State

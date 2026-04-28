@@ -676,6 +676,18 @@ public final class EditorSession {
             return
         }
 
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .renderer,
+            name: "concealment.activeLineChanged",
+            reasonCode: "concealment.activeLineChanged",
+            metadata: [
+                "concealment.mode": syntaxVisibilityMode.rawValue,
+                "previousSelection": "\(previousRange.location):\(previousRange.length)",
+                "currentSelection": "\(range.location):\(range.length)"
+            ],
+            verbose: true
+        )
         applyHighlightSpansForced(lastAppliedHighlightSpans)
     }
 
@@ -714,6 +726,18 @@ public final class EditorSession {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
         #endif
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .renderer,
+            name: "concealment.scrollPositionPreserved",
+            reasonCode: "concealment.scrollPositionPreserved",
+            metadata: [
+                "concealment.mode": syntaxVisibilityMode.rawValue,
+                "scrollX": String(format: "%.1f", scrollOffset.x),
+                "scrollY": String(format: "%.1f", scrollOffset.y)
+            ],
+            verbose: true
+        )
     }
 
     // MARK: - State Restoration (App Relaunch)
@@ -1457,6 +1481,11 @@ public final class EditorSession {
                     value: adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior),
                     range: r
                 )
+                applyConcealmentMetricsIfNeeded(
+                    storage: storage,
+                    range: r,
+                    overlayVisibilityBehavior: span.overlayVisibilityBehavior
+                )
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -1539,6 +1568,11 @@ public final class EditorSession {
                     .foregroundColor,
                     value: adjustedOverlayColor(color, overlayVisibilityBehavior: span.overlayVisibilityBehavior),
                     range: r
+                )
+                applyConcealmentMetricsIfNeeded(
+                    storage: storage,
+                    range: r,
+                    overlayVisibilityBehavior: span.overlayVisibilityBehavior
                 )
             }
             if let kern = span.kern {
@@ -1818,7 +1852,7 @@ public final class EditorSession {
         do {
             let savedURL = currentNote.fileURL
             let writeStarted = Date()
-            try await vaultProvider.saveNote(currentNote, filePresenter: filePresenter)
+            try await vaultProvider.savePrimaryUserNote(currentNote, filePresenter: filePresenter)
             let writeMs = Date().timeIntervalSince(writeStarted) * 1_000
 
             // Compute and store content hash for echo suppression.
@@ -1864,6 +1898,19 @@ public final class EditorSession {
                     "dirtyAfterReason": dirtyAfterReason,
                     "queueWaitMs": String(format: "%.1f", queueWaitMs),
                     "writeMs": String(format: "%.1f", writeMs)
+                ]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "latestRevisionPersisted",
+                reasonCode: "save.latestRevisionPersisted",
+                noteBasename: savedURL.lastPathComponent,
+                durationMs: writeMs,
+                revision: textRevision,
+                metadata: [
+                    "dirtyAfter": String(isDirty),
+                    "dirtyAfterReason": dirtyAfterReason
                 ]
             )
             recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
@@ -2293,6 +2340,11 @@ public final class EditorSession {
                 if !colorsEqual(existing[.foregroundColor] as? UIColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
+                applyConcealmentMetricsIfNeeded(
+                    storage: storage,
+                    range: r,
+                    overlayVisibilityBehavior: span.overlayVisibilityBehavior
+                )
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -2378,6 +2430,11 @@ public final class EditorSession {
                 if !colorsEqual(existing[.foregroundColor] as? NSColor, adjusted) {
                     storage.addAttribute(.foregroundColor, value: adjusted, range: r)
                 }
+                applyConcealmentMetricsIfNeeded(
+                    storage: storage,
+                    range: r,
+                    overlayVisibilityBehavior: span.overlayVisibilityBehavior
+                )
             }
             if let kern = span.kern {
                 storage.addAttribute(.kern, value: kern, range: r)
@@ -2707,6 +2764,18 @@ public final class EditorSession {
                 revision: textRevision,
                 metadata: [
                     "firstRenderMode": fullApplication ? "full" : "partial",
+                    "rawFlashPrevented": "true"
+                ]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .renderer,
+                name: "concealment.firstPaintRawFlash",
+                reasonCode: "concealment.firstPaintRawFlash",
+                noteBasename: rendererDiagnosticNoteBasename,
+                revision: textRevision,
+                metadata: [
+                    "concealment.mode": syntaxVisibilityMode.rawValue,
                     "rawFlashPrevented": "true"
                 ]
             )
@@ -4376,6 +4445,60 @@ public final class EditorSession {
             #elseif canImport(AppKit)
             return NSColor.clear
             #endif
+        }
+    }
+
+    private func overlayIsConcealed(_ overlayVisibilityBehavior: OverlayVisibilityBehavior) -> Bool {
+        guard syntaxVisibilityMode == .hiddenUntilCaret else { return false }
+        switch overlayVisibilityBehavior {
+        case .alwaysVisible:
+            return false
+        case let .concealWhenInactive(revealRange):
+            return !semanticDocument.selectionTouchesRevealRange(cursorPosition, revealRange: revealRange)
+        }
+    }
+
+    private func applyConcealmentMetricsIfNeeded(
+        storage: NSMutableAttributedString,
+        range: NSRange,
+        overlayVisibilityBehavior: OverlayVisibilityBehavior
+    ) {
+        guard range.length > 0 else { return }
+        if overlayIsConcealed(overlayVisibilityBehavior) {
+            #if canImport(UIKit)
+            let font = UIFont.systemFont(ofSize: 0.1)
+            #elseif canImport(AppKit)
+            let font = NSFont.systemFont(ofSize: 0.1)
+            #endif
+            storage.addAttributes([.font: font, .kern: CGFloat(-0.1)], range: range)
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .renderer,
+                name: "concealment.markersHidden",
+                reasonCode: "concealment.markersHidden",
+                counts: ["markersHidden": range.length],
+                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
+                verbose: true
+            )
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .renderer,
+                name: "concealment.layoutWidthCorrected",
+                reasonCode: "concealment.layoutWidthCorrected",
+                counts: ["markersHidden": range.length],
+                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
+                verbose: true
+            )
+        } else if case .concealWhenInactive = overlayVisibilityBehavior {
+            SubsystemDiagnostics.record(
+                level: .debug,
+                subsystem: .renderer,
+                name: "concealment.markersRevealed",
+                reasonCode: "concealment.markersRevealed",
+                counts: ["markersRevealed": range.length],
+                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
+                verbose: true
+            )
         }
     }
 }

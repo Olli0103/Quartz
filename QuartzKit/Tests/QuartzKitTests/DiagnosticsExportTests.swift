@@ -35,12 +35,29 @@ struct DiagnosticsExportTests {
         let exported = await service.exportToText(report)
 
         #expect(exported.contains("Context: Unit Test"))
-        #expect(exported.contains("RECENT DIAGNOSTICS LOG"))
+        #expect(exported.contains("LEGACY/PERSISTED DIAGNOSTICS LOG"))
         #expect(exported.contains("Crash sentinel triggered in Unit Test"))
         #expect(exported.contains("DEVELOPER DIAGNOSTICS MODE"))
-        #expect(exported.contains("CROSS-SUBSYSTEM DIAGNOSTICS"))
+        #expect(exported.contains("CURRENT SESSION STRUCTURED DIAGNOSTICS"))
+        #expect(exported.contains("appLaunchId="))
+        #expect(exported.contains("sessionStartedAt="))
+        #expect(exported.contains("currentSessionEventCount="))
         #expect(exported.contains("Knowledge Graph"))
         #expect(exported.contains("Dashboard / Home / Metrics"))
+    }
+
+    @Test("Diagnostic reset clears current buffers without deleting recovery state")
+    func diagnosticResetClearsCurrentBuffers() async throws {
+        await SubsystemDiagnostics.resetForTesting()
+        SubsystemDiagnostics.record(level: .warning, subsystem: .save, name: "beforeReset", reasonCode: "test.beforeReset")
+        try await Task.sleep(for: .milliseconds(50))
+
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        try await Task.sleep(for: .milliseconds(50))
+        let snapshot = await SubsystemDiagnostics.snapshot()
+
+        #expect(snapshot.diagnosticsResetAt != nil)
+        #expect(!snapshot.recentEvents.contains { $0.name == "beforeReset" })
     }
 
     @Test("Developer diagnostics mode loads valid vault config")

@@ -74,6 +74,23 @@ struct FileSystemVaultProviderTests {
         #expect(FileManager.default.fileExists(atPath: note.fileURL.path(percentEncoded: false)))
     }
 
+    @Test("primary user note save writes atomically and verifies persisted bytes")
+    func primaryUserNoteSaveWritesVerifiedBytes() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let noteURL = vault.appendingPathComponent("direct-save.md")
+        let note = NoteDocument(fileURL: noteURL, frontmatter: Frontmatter(), body: "latest persisted text")
+        let provider = FileSystemVaultProvider(frontmatterParser: FrontmatterParser())
+
+        try await provider.savePrimaryUserNote(note, filePresenter: nil)
+
+        let persisted = try String(contentsOf: noteURL, encoding: .utf8)
+        #expect(persisted.contains("latest persisted text"))
+        let readBack = try await provider.readNote(at: noteURL)
+        #expect(readBack.body == "latest persisted text")
+    }
+
     @Test("createNote rejects invalid names")
     func createNoteInvalidNames() async throws {
         let vault = try makeTempVault()

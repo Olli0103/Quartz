@@ -52,6 +52,71 @@ public actor FileSystemVaultProvider: VaultProviding {
     }
 
     public func saveNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
+        let data = try serializedData(for: note)
+        try await coordinatedWrite(data: data, to: note.fileURL, filePresenter: filePresenter)
+    }
+
+    public func savePrimaryUserNote(_ note: NoteDocument, filePresenter: NSFilePresenter?) async throws {
+        let data = try serializedData(for: note)
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: note.fileURL)
+        let started = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "primarySaveDirectAtomicStarted",
+            reasonCode: "save.primarySaveDirectAtomicStarted",
+            noteBasename: canonicalURL.lastPathComponent,
+            counts: ["bytes": data.count],
+            metadata: ["coordinationPolicy": "directAtomicPrimaryUserNote"]
+        )
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                let parent = canonicalURL.deletingLastPathComponent()
+                if !FileManager.default.fileExists(atPath: parent.path(percentEncoded: false)) {
+                    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                }
+                try data.write(to: canonicalURL, options: .atomic)
+                let persisted = try Data(contentsOf: canonicalURL)
+                guard persisted == data else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }.value
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .save,
+                name: "primarySaveDirectAtomicFailed",
+                reasonCode: "save.primarySaveDirectAtomicFailed",
+                noteBasename: canonicalURL.lastPathComponent,
+                durationMs: Date().timeIntervalSince(started) * 1_000,
+                metadata: ["error": error.localizedDescription]
+            )
+            throw error
+        }
+        let durationMs = Date().timeIntervalSince(started) * 1_000
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "primarySaveDirectAtomicVerified",
+            reasonCode: "save.primarySaveDirectAtomicVerified",
+            noteBasename: canonicalURL.lastPathComponent,
+            durationMs: durationMs,
+            counts: ["bytes": data.count],
+            metadata: ["coordinationPolicy": "directAtomicPrimaryUserNote"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "primarySaveDirectAtomicFinished",
+            reasonCode: "save.primarySaveDirectAtomicFinished",
+            noteBasename: canonicalURL.lastPathComponent,
+            durationMs: durationMs,
+            counts: ["bytes": data.count],
+            metadata: ["coordinationPolicy": "directAtomicPrimaryUserNote"]
+        )
+    }
+
+    private func serializedData(for note: NoteDocument) throws -> Data {
         let yamlString = try frontmatterParser.serialize(note.frontmatter)
         let rawContent: String
         if yamlString.isEmpty {
@@ -63,7 +128,7 @@ public actor FileSystemVaultProvider: VaultProviding {
         guard let data = rawContent.data(using: .utf8) else {
             throw FileSystemError.encodingFailed(note.fileURL)
         }
-        try await coordinatedWrite(data: data, to: note.fileURL, filePresenter: filePresenter)
+        return data
     }
 
     public func createNote(named name: String, in folder: URL) async throws -> NoteDocument {

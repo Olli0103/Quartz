@@ -258,6 +258,7 @@ public final class ContentViewModel {
             edgeStore: graphEdgeStore,
             vaultRootURL: vault.rootURL
         )
+        AIIndexingControlCenter.shared.register(service: knowledgeExtractionService)
 
         // Initialize Intelligence Engine coordinator — unified event routing
         let coordinator = IntelligenceEngineCoordinator(
@@ -339,6 +340,38 @@ public final class ContentViewModel {
             let treeLoadStart = DispatchTime.now().uptimeNanoseconds
             await viewModel.loadTree(at: vault.rootURL)
             let treeNoteCount = Self.collectNoteURLs(from: viewModel.fileTree).count
+            if viewModel.fileTree.isEmpty, let error = viewModel.errorMessage {
+                self.appState.vaultSessionState = .failed(error)
+                self.appState.lastVaultOpenError = error
+                SubsystemDiagnostics.record(
+                    level: .error,
+                    subsystem: .vaultRestore,
+                    name: "vaultOpenHydrationFailed",
+                    reasonCode: "vault.openHydrationFailed",
+                    vaultName: vault.name,
+                    durationMs: Double(Self.elapsedMilliseconds(since: treeLoadStart)),
+                    metadata: [
+                        "error": error,
+                        "visibleVaultState": self.appState.vaultSessionState.visibleName
+                    ]
+                )
+                return
+            }
+            self.appState.vaultSessionState = .open
+            self.appState.lastVaultOpenError = nil
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "vaultOpenHydrationCompleted",
+                reasonCode: "vault.openHydrationCompleted",
+                vaultName: vault.name,
+                durationMs: Double(Self.elapsedMilliseconds(since: treeLoadStart)),
+                counts: ["noteCount": treeNoteCount],
+                metadata: [
+                    "visibleVaultState": self.appState.vaultSessionState.visibleName,
+                    "activeVaultURL": vault.rootURL.path(percentEncoded: false)
+                ]
+            )
             Self.logIndexingStage("vault tree load", startedAt: treeLoadStart, noteCount: treeNoteCount)
             guard self.isCurrentRelationshipGeneration(loadGeneration, vaultRoot: vault.rootURL),
                   !Task.isCancelled else { return }

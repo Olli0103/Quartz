@@ -21,6 +21,7 @@ public struct VersionHistoryView: View {
     @State private var isLoading = true
     @State private var isRestoring = false
     @State private var errorMessage: String?
+    @State private var lookupStatus: VersionHistoryLookupStatus?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -219,6 +220,18 @@ public struct VersionHistoryView: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
+            if let lookupStatus {
+                Text(String(localized: "No versions found for note identity \(lookupStatus.currentNoteIdentity)", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: 420)
+                Text(lookupStatus.versionLookupKey)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -261,14 +274,15 @@ public struct VersionHistoryView: View {
         isLoading = true
         errorMessage = nil
 
-        let loadedVersions = await Task.detached(priority: .userInitiated) { [service, noteURL, vaultRoot] in
-            service.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+        let lookup = await Task.detached(priority: .userInitiated) { [service, noteURL, vaultRoot] in
+            service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
         }.value
 
-        versions = loadedVersions
+        versions = lookup.versions
+        lookupStatus = lookup.status
         isLoading = false
 
-        if let first = loadedVersions.first {
+        if let first = lookup.versions.first {
             selectedVersionID = first.id
             loadPreview(for: first)
         }

@@ -1,5 +1,34 @@
 import SwiftUI
 
+public enum VaultSessionState: Equatable, Sendable {
+    case noVault
+    case restoring
+    case opening
+    case open
+    case degraded(String)
+    case failed(String)
+
+    public var isActiveOrLoading: Bool {
+        switch self {
+        case .restoring, .opening, .open, .degraded:
+            return true
+        case .noVault, .failed:
+            return false
+        }
+    }
+
+    public var visibleName: String {
+        switch self {
+        case .noVault: return "noVault"
+        case .restoring: return "restoring"
+        case .opening: return "opening"
+        case .open: return "open"
+        case .degraded: return "degraded"
+        case .failed: return "failed"
+        }
+    }
+}
+
 /// Single command action, triggered by keyboard shortcuts or menus.
 /// A single enum instead of 6 Bool toggles avoids duplicate SwiftUI view updates.
 public enum CommandAction: Equatable, Sendable {
@@ -23,6 +52,23 @@ public final class AppState {
     /// Currently opened vault.
     /// Use `switchVault(to:)` to properly release security-scoped resources.
     public var currentVault: VaultConfig?
+    public var vaultSessionState: VaultSessionState = .noVault {
+        didSet {
+            guard oldValue != vaultSessionState else { return }
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "vaultSessionStateChanged",
+                reasonCode: "vault.sessionStateChanged",
+                vaultName: currentVault?.name,
+                metadata: [
+                    "previousVaultState": oldValue.visibleName,
+                    "visibleVaultState": vaultSessionState.visibleName
+                ]
+            )
+        }
+    }
+    public var lastVaultOpenError: String?
 
     /// Switches to a new vault, releasing the security-scoped resource of the previous one.
     public func switchVault(to newVault: VaultConfig?) {
@@ -31,6 +77,9 @@ public final class AppState {
             previous.rootURL.stopAccessingSecurityScopedResource()
         }
         currentVault = newVault
+        if newVault == nil {
+            vaultSessionState = .noVault
+        }
     }
 
     /// Error message for the user (shows the first entry in the queue).
