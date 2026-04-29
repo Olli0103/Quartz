@@ -62,6 +62,27 @@ struct VersionHistoryPersistenceTests {
         #expect(lookup.status.snapshotFilesIgnored == 0)
     }
 
+    @Test("Immediate lookup after snapshot returns canonical Mayank snapshot")
+    func immediateLookupAfterSnapshotReturnsCanonicalMayankSnapshot() throws {
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root.appendingPathComponent("People").appendingPathComponent("Mayank.md")
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Current Mayank content".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Mayank snapshot content", vaultRoot: root))
+
+        let lookup = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: root)
+
+        #expect(lookup.versions.count > 0)
+        #expect(lookup.status.currentNoteIdentity == "People/Mayank.md")
+        #expect(lookup.status.versionLookupKey == "People/Mayank.md")
+        #expect(lookup.status.snapshotFilesFound > 0)
+        #expect(lookup.status.snapshotFilesIgnored == 0)
+    }
+
     @Test("Rapid meaningful snapshots do not overwrite each other")
     func rapidMeaningfulSnapshotsDoNotOverwrite() throws {
         let root = try makeTempVault()

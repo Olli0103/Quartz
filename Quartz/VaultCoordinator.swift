@@ -76,7 +76,8 @@ public final class VaultCoordinator {
         let uiNeedsHydration = viewModel?.sidebarViewModel == nil
             || viewModel?.sidebarViewModel?.vaultRootURL == nil
             || viewModel?.sidebarViewModel?.fileTree.isEmpty == true
-        let shouldReloadTree = !(sameVault && !forceReload) || uiNeedsHydration
+        let sameVaultTreeHealthy = sameVault && !uiNeedsHydration
+        let shouldReloadTree = !sameVaultTreeHealthy
         let shouldClearSelection = userInitiated && clearSelection && resolvedReason == .userManualOpen
         let selectionPolicy = shouldClearSelection ? "cleared" : "preserved"
         appState.vaultSessionState = userInitiated ? .opening : .restoring
@@ -109,7 +110,7 @@ public final class VaultCoordinator {
                 "userInitiated": String(userInitiated),
                 "sameVault": String(sameVault),
                 "treeReloaded": String(shouldReloadTree),
-                "treeReloadReason": shouldReloadTree ? (uiNeedsHydration ? "sameVaultRehydrate" : (forceReload ? "forceReload" : "newVault")) : "sameVaultNoOp",
+                "treeReloadReason": shouldReloadTree ? (uiNeedsHydration ? "sameVaultRehydrate" : "newVault") : (sameVaultTreeHealthy ? "sameVaultHealthyNoOp" : "sameVaultNoOp"),
                 "visibleVaultState": appState.vaultSessionState.visibleName,
                 "activeVaultURL": vault.rootURL.path(percentEncoded: false),
                 "hasSecurityScope": String(VaultAccessManager.shared.hasActiveVault)
@@ -135,7 +136,8 @@ public final class VaultCoordinator {
                     "userInitiated": String(userInitiated),
                     "sameVault": "true",
                     "treeReloaded": "false",
-                    "treeReloadReason": "sameVaultNoOp"
+                    "treeReloadReason": sameVaultTreeHealthy ? "sameVaultHealthyNoOp" : "sameVaultNoOp",
+                    "forceReloadRequested": String(forceReload)
                 ]
             )
             completeOpen(onComplete)
@@ -183,7 +185,7 @@ public final class VaultCoordinator {
                 "userInitiated": String(userInitiated),
                 "sameVault": String(sameVault),
                 "treeReloaded": "true",
-                "treeReloadReason": uiNeedsHydration ? "sameVaultRehydrate" : (forceReload ? "forceReload" : "newVault"),
+                "treeReloadReason": uiNeedsHydration ? "sameVaultRehydrate" : "newVault",
                 "visibleVaultState": appState.vaultSessionState.visibleName
             ]
         )

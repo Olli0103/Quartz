@@ -11,6 +11,17 @@ struct VectorEmbeddingBinaryTests {
         return dir
     }
 
+    private func makeDeterministicService(vaultURL: URL) -> VectorEmbeddingService {
+        VectorEmbeddingService(vaultURL: vaultURL, embeddingProvider: { text in
+            let seed = text.utf8.reduce(UInt32(2_166_136_261)) { partial, byte in
+                (partial ^ UInt32(byte)) &* 16_777_619
+            }
+            return (0..<8).map { offset in
+                Float((seed &+ UInt32(offset * 97)) % 1_000) / 1_000
+            }
+        })
+    }
+
     @Test("saveIndex and loadIndex round-trip empty index")
     func emptyRoundTrip() async throws {
         let vault = try makeTempVault()
@@ -151,6 +162,66 @@ struct VectorEmbeddingBinaryTests {
         let reloaded = VectorEmbeddingService(vaultURL: vault)
         try await reloaded.loadIndex()
         #expect(await reloaded.indexedNoteCount == 1)
+    }
+
+    @Test("automatic checkpoint rejects significant shrink without explicit rebuild")
+    func automaticCheckpointRejectsSignificantShrink() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        var noteIDs: [UUID] = []
+        let healthy = makeDeterministicService(vaultURL: vault)
+        for index in 0..<120 {
+            let id = UUID()
+            noteIDs.append(id)
+            try await healthy.indexNote(noteID: id, content: "Healthy note \(index) with durable embedding content.")
+        }
+        try await healthy.saveIndex(force: true)
+        let healthyNotes = await healthy.indexedNoteCount
+
+        let shrinking = makeDeterministicService(vaultURL: vault)
+        try await shrinking.loadIndex()
+        for id in noteIDs.prefix(7) {
+            await shrinking.removeNote(id)
+        }
+
+        do {
+            try await shrinking.saveIndex(force: true)
+            Issue.record("Automatic checkpoint should reject a >5% note/chunk shrink without explicit rebuild")
+        } catch let error as EmbeddingIndexError {
+            guard case .shrinkingCheckpointRejected = error else {
+                Issue.record("Unexpected embedding error: \(error)")
+                return
+            }
+        }
+
+        let reloaded = makeDeterministicService(vaultURL: vault)
+        try await reloaded.loadIndex()
+        #expect(await reloaded.indexedNoteCount == healthyNotes)
+    }
+
+    @Test("explicit rebuild records allowed shrink and replaces significant shrink")
+    func explicitRebuildAllowsSignificantShrink() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        var noteIDs: [UUID] = []
+        let service = makeDeterministicService(vaultURL: vault)
+        for index in 0..<120 {
+            let id = UUID()
+            noteIDs.append(id)
+            try await service.indexNote(noteID: id, content: "Rebuild source note \(index) with durable embedding content.")
+        }
+        try await service.saveIndex(force: true)
+        for id in noteIDs.prefix(7) {
+            await service.removeNote(id)
+        }
+
+        try await service.saveIndex(force: true, explicitRebuild: true)
+
+        let reloaded = makeDeterministicService(vaultURL: vault)
+        try await reloaded.loadIndex()
+        #expect(await reloaded.indexedNoteCount == 113)
     }
 
     @Test("checkpoint creates backup and backup can restore index")

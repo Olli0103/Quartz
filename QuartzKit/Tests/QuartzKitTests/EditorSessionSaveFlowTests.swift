@@ -1,5 +1,8 @@
 import XCTest
 @testable import QuartzKit
+#if canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Editor Session Save Flow Tests
 // Comprehensive tests for all user editing and save scenarios.
@@ -51,6 +54,109 @@ final class EditorSessionSaveFlowTests: XCTestCase {
     }
 
     // MARK: - Flow 1: Load Note, Edit, Save
+
+    @MainActor
+    func testStaleEmptyNativeBufferCannotOverwritePersistedContent() async throws {
+        #if canImport(AppKit)
+        await session.loadNote(at: testNoteURL)
+        let textView = NSTextView()
+        session.activeTextView = textView
+
+        let mayankLengthContent = String(repeating: "Mayank real content line.\n", count: 110)
+        textView.string = mayankLengthContent
+        session.textDidChange(mayankLengthContent)
+        await session.save()
+        let firstSavedContent = await mockVaultProvider.getContent(for: testNoteURL)
+        XCTAssertEqual(firstSavedContent, mayankLengthContent)
+
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let unsavedCurrentText = mayankLengthContent + "\nCurrent edit that must remain dirty."
+        session.textDidChange(unsavedCurrentText)
+        textView.string = ""
+
+        await session.save()
+
+        XCTAssertTrue(session.isDirty, "Blocked stale save must leave editor dirty and recoverable")
+        XCTAssertNotNil(session.errorMessage)
+        let blockedSavedContent = await mockVaultProvider.getContent(for: testNoteURL)
+        XCTAssertEqual(blockedSavedContent, mayankLengthContent)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let saveEvents = snapshot.eventsBySubsystem[.save] ?? []
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.staleEditorBufferSaveBlocked" })
+        XCTAssertFalse(saveEvents.contains { $0.name == "latestRevisionPersisted" })
+        XCTAssertFalse(saveEvents.contains { $0.name == "snapshotRequested" })
+        #endif
+    }
+
+    @MainActor
+    func testIntentionalDeleteAllCanSaveOnlyWhenRevisionAndIdentityAreCurrent() async throws {
+        #if canImport(AppKit)
+        await session.loadNote(at: testNoteURL)
+        let textView = NSTextView()
+        session.activeTextView = textView
+
+        textView.string = ""
+        session.textDidChange("")
+        await session.save()
+
+        XCTAssertFalse(session.isDirty)
+        let savedContent = await mockVaultProvider.getContent(for: testNoteURL)
+        XCTAssertEqual(savedContent, "")
+        #endif
+    }
+
+    @MainActor
+    func testStaleBufferAfterNoteSwitchIsBlockedForCurrentNote() async throws {
+        #if canImport(AppKit)
+        let secondURL = testVaultURL.appending(path: "second.md")
+        let secondBody = String(repeating: "Second note durable content.\n", count: 40)
+        await mockVaultProvider.addNote(NoteDocument(
+            fileURL: secondURL,
+            frontmatter: Frontmatter(title: "Second", createdAt: Date(), modifiedAt: Date()),
+            body: secondBody,
+            isDirty: false
+        ))
+        let textView = NSTextView()
+        session.activeTextView = textView
+
+        await session.loadNote(at: testNoteURL)
+        await session.loadNote(at: secondURL)
+        let currentEdit = secondBody + "\nUnsaved second note edit."
+        session.textDidChange(currentEdit)
+        textView.string = ""
+
+        await session.save()
+
+        XCTAssertTrue(session.isDirty)
+        let savedContent = await mockVaultProvider.getContent(for: secondURL)
+        XCTAssertEqual(savedContent, secondBody)
+        let operations = await mockVaultProvider.operations.filter { $0.0 == .saveNote && $0.1 == secondURL }
+        XCTAssertTrue(operations.isEmpty, "Blocked stale save must not reach the vault provider")
+        #endif
+    }
+
+    @MainActor
+    func testRevisionChangeDuringSlowSaveDoesNotAdvanceLatestOrSnapshot() async throws {
+        await session.loadNote(at: testNoteURL)
+        await mockVaultProvider.simulateDelay(0.12, for: .saveNote)
+        session.textDidChange("First revision that reaches the provider slowly")
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+
+        let saveTask = Task { @MainActor in
+            await self.session.save()
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        session.textDidChange("Second revision that must remain dirty")
+        await saveTask.value
+
+        XCTAssertTrue(session.isDirty)
+        let savedContent = await mockVaultProvider.getContent(for: testNoteURL)
+        XCTAssertEqual(savedContent, "First revision that reaches the provider slowly")
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let saveEvents = snapshot.eventsBySubsystem[.save] ?? []
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.revisionRegressionSaveBlocked" })
+        XCTAssertFalse(saveEvents.contains { $0.name == "latestRevisionPersisted" })
+    }
 
     /// Tests that a loaded note can be edited and saved.
     @MainActor

@@ -379,6 +379,7 @@ public actor KnowledgeExtractionService {
     }
 
     public func statusSnapshot() -> AIIndexingStatusSnapshot {
+        _ = isAIBackoffActive()
         let status: AIIndexingStatus
         if !isEnabled {
             status = .disabled
@@ -1324,9 +1325,24 @@ public actor KnowledgeExtractionService {
         self.aiBackoffUntil = nil
         aiFailureStatus = nil
         state.backoffUntil = nil
-        state.lastStatus = "idle"
+        let nextStatus = isPausedByUser ? AIIndexingStatus.paused.rawValue : AIIndexingStatus.idle.rawValue
+        state.lastStatus = nextStatus
         saveStateToDisk()
-        updateAIStatus(AIIndexingStatus.idle.rawValue, extra: ["aiBackoffUntil": "none"])
+        updateAIStatus(nextStatus, extra: [
+            "aiBackoffUntil": "none",
+            "aiBackoffExpired": "true",
+            "automaticScanningPaused": String(isPausedByUser)
+        ])
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.backoffExpired",
+            reasonCode: "ai.backoffExpired",
+            metadata: [
+                "status.aiIndexing": nextStatus,
+                "automaticScanningPaused": String(isPausedByUser)
+            ]
+        )
         return false
     }
 

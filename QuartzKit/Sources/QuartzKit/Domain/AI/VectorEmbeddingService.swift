@@ -111,7 +111,8 @@ public actor VectorEmbeddingService {
     private var lastCheckpointAttempt: Date?
     private static let checkpointDebounceInterval: TimeInterval = 10
     private static let catastrophicShrinkMinimumOldChunks = 10
-    private static let catastrophicShrinkRatio = 0.5
+    private static let significantShrinkMinimumOldNotes = 100
+    private static let significantShrinkRatio = 0.95
     private nonisolated static let checkpointBackpressure = EmbeddingCheckpointBackpressure()
 
     /// Maximum recommended entries before performance degrades.
@@ -391,11 +392,12 @@ public actor VectorEmbeddingService {
         if let oldSummary,
            !explicitRebuild,
            isCatastrophicShrink(old: oldSummary, new: newSummary) {
+            quarantineRejectedCheckpoint(data, old: oldSummary, new: newSummary)
             SubsystemDiagnostics.record(
                 level: .error,
                 subsystem: .embeddings,
-                name: "checkpointRejected",
-                reasonCode: "embedding.checkpointRejected.shrinkingIndex",
+                name: "embedding.checkpointRejected.shrink",
+                reasonCode: "embedding.checkpointRejected.shrink",
                 durationMs: Date().timeIntervalSince(started) * 1_000,
                 counts: [
                     "oldChunks": oldSummary.entries,
@@ -409,7 +411,8 @@ public actor VectorEmbeddingService {
                     "checkpointPath": indexURL.path(percentEncoded: false),
                     "explicitRebuild": String(explicitRebuild),
                     "backupCreated": "false",
-                    "restoredFromBackup": "false"
+                    "restoredFromBackup": "false",
+                    "embedding.shrinkAcceptanceReason": "rejectedAutomaticShrink"
                 ]
             )
             throw EmbeddingIndexError.shrinkingCheckpointRejected(
@@ -486,7 +489,8 @@ public actor VectorEmbeddingService {
                     "checkpointPath": indexURL.path(percentEncoded: false),
                     "explicitRebuild": String(explicitRebuild),
                     "backupCreated": String(backupCreated),
-                    "restoredFromBackup": "false"
+                    "restoredFromBackup": "false",
+                    "embedding.shrinkAcceptanceReason": explicitRebuild ? "explicitRebuild" : "notShrinking"
                 ]
             )
         } catch {
@@ -520,10 +524,42 @@ public actor VectorEmbeddingService {
 
     private func isCatastrophicShrink(old: IndexSummary, new: IndexSummary) -> Bool {
         guard old.entries >= Self.catastrophicShrinkMinimumOldChunks else { return false }
-        let chunkShrink = Double(new.entries) < Double(old.entries) * Self.catastrophicShrinkRatio
-        let noteShrink = old.notes >= Self.catastrophicShrinkMinimumOldChunks
-            && Double(new.notes) < Double(old.notes) * Self.catastrophicShrinkRatio
+        let chunkShrink = Double(new.entries) < Double(old.entries) * Self.significantShrinkRatio
+        let noteShrink = old.notes >= Self.significantShrinkMinimumOldNotes
+            && Double(new.notes) < Double(old.notes) * Self.significantShrinkRatio
         return chunkShrink || noteShrink
+    }
+
+    private func quarantineRejectedCheckpoint(_ data: Data, old: IndexSummary, new: IndexSummary) {
+        let quarantineURL = indexURL.deletingLastPathComponent()
+            .appending(path: "embeddings.idx.rejected-shrink-\(Int(Date().timeIntervalSince1970)).quarantine")
+        do {
+            try data.write(to: quarantineURL, options: .atomic)
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .embeddings,
+                name: "embedding.checkpointQuarantined.shrink",
+                reasonCode: "embedding.checkpointQuarantined.shrink",
+                counts: [
+                    "oldChunks": old.entries,
+                    "newChunks": new.entries,
+                    "oldNotes": old.notes,
+                    "newNotes": new.notes
+                ],
+                metadata: [
+                    "quarantinePath": quarantineURL.path(percentEncoded: false),
+                    "embedding.shrinkAcceptanceReason": "quarantinedRejectedAutomaticShrink"
+                ]
+            )
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .embeddings,
+                name: "embedding.checkpointQuarantined.shrink.failed",
+                reasonCode: "embedding.checkpointQuarantineFailed.shrink",
+                metadata: ["error": error.localizedDescription]
+            )
+        }
     }
 
     private func recordCheckpointSkipped(

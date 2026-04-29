@@ -778,7 +778,10 @@ public struct DashboardView: View {
         if sidebarViewModel == nil {
             return .waitingForSidebar
         }
-        if vaultProvider == nil || sidebarViewModel?.vaultRootURL == nil {
+        if vaultProvider == nil {
+            return .waitingForVault
+        }
+        if sidebarViewModel?.vaultRootURL == nil, noteCount == 0 {
             return .waitingForVault
         }
         return .ready
@@ -803,7 +806,7 @@ public struct DashboardView: View {
             reasonCode: "dashboard.loadStarted",
             metadata: ["readiness": readiness.rawValue]
         )
-        guard let provider = vaultProvider, let vm = sidebarViewModel, let vaultRoot = vm.vaultRootURL else {
+        guard let provider = vaultProvider, let vm = sidebarViewModel else {
             let missingReasons = [
                 vaultProvider == nil ? "vaultProviderMissing" : nil,
                 sidebarViewModel == nil ? "sidebarViewModelMissing" : nil,
@@ -832,6 +835,7 @@ public struct DashboardView: View {
             )
             return
         }
+        let vaultRoot = vm.vaultRootURL
 
         let recent = vm.recentNotes(limit: 15)
         guard !recent.isEmpty else {
@@ -871,9 +875,23 @@ public struct DashboardView: View {
 
         briefingTask?.cancel()
         briefing = nil
-        briefingLoading = true
+        briefingLoading = vaultRoot != nil
         dashboardHydrationState = .partialNoAI
-        startAIBriefingTask(provider: provider, recent: Array(recent.prefix(10)), vaultRoot: vaultRoot)
+        if let vaultRoot {
+            startAIBriefingTask(provider: provider, recent: Array(recent.prefix(10)), vaultRoot: vaultRoot)
+        } else {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .dashboard,
+                name: "dashboard.vaultRootMissingButDataAvailable",
+                reasonCode: "dashboard.vaultRootMissingButDataAvailable",
+                counts: ["noteCount": noteCount, "recentNotes": recent.count],
+                metadata: [
+                    "status.dashboard": DashboardReadinessState.partialNoAI.rawValue,
+                    "dashboardPartialReason": "vaultRootMissingForAIBriefingOnly"
+                ]
+            )
+        }
 
         SubsystemDiagnostics.record(
             level: .info,

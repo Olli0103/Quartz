@@ -123,6 +123,34 @@ struct KnowledgeExtractionBudgetTests {
         #expect(snapshot.status == .idle || snapshot.status == .running)
     }
 
+    @Test("expired providerSlow backoff becomes retryable status")
+    func expiredProviderSlowBackoffBecomesRetryableStatus() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let quartzDir = vault.appending(path: ".quartz", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: quartzDir, withIntermediateDirectories: true)
+        var state = AIIndexState()
+        state.lastStatus = AIIndexingStatus.providerSlow.rawValue
+        state.lastFailureReason = "ai.providerSlow"
+        state.lastFailureAt = Date().addingTimeInterval(-600)
+        state.backoffUntil = Date().addingTimeInterval(-60)
+        let data = try JSONEncoder().encode(state)
+        try data.write(to: quartzDir.appending(path: "ai_index.json"), options: .atomic)
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(100),
+            extractionOverride: { _ in ["retryable"] }
+        )
+
+        let snapshot = await service.statusSnapshot()
+        #expect(snapshot.status == .idle)
+        #expect(snapshot.backoffUntil == nil)
+        let summary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: vault)
+        #expect(summary["aiIndex.status"] == AIIndexingStatus.idle.rawValue)
+    }
+
     private func waitUntil(
         timeout: Duration,
         pollInterval: Duration = .milliseconds(20),

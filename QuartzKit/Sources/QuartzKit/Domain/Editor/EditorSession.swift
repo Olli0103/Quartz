@@ -259,6 +259,11 @@ public final class EditorSession {
     /// still running. Failed attempts must not advance ``lastSnapshotDate``.
     private var isVersionSnapshotInFlight = false
     private var pendingVersionSnapshot: (noteURL: URL, content: String, force: Bool)?
+    private var lastPersistedRevisionByIdentity: [CanonicalNoteIdentity: UInt64] = [:]
+    private var userDeleteAllRevisionByIdentity: [CanonicalNoteIdentity: UInt64] = [:]
+    private var userDrasticShrinkRevisionByIdentity: [CanonicalNoteIdentity: UInt64] = [:]
+    private var concealmentDiagnosticsEmittedForRevision: Set<String> = []
+    private var loadGeneration: UInt64 = 0
 
     // MARK: - Init
 
@@ -411,6 +416,8 @@ public final class EditorSession {
     public func loadNote(at url: URL) async {
         let loadStart = CFAbsoluteTimeGetCurrent()
         let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        loadGeneration &+= 1
+        let requestedLoadGeneration = loadGeneration
         // Reset readiness state for new note (F8 handshake)
         resetReadinessState()
         saveViewStateForCurrentNote()
@@ -435,6 +442,20 @@ public final class EditorSession {
         do {
             let readStart = CFAbsoluteTimeGetCurrent()
             let loaded = try await vaultProvider.readNote(at: canonicalURL)
+            guard loadGeneration == requestedLoadGeneration else {
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .save,
+                    name: "save.staleEditorBufferSaveBlocked",
+                    reasonCode: "save.staleEditorBufferSaveBlocked",
+                    noteBasename: canonicalURL.lastPathComponent,
+                    metadata: [
+                        "operation": "loadNote",
+                        "blockedReason": "staleLoadGeneration"
+                    ]
+                )
+                return
+            }
             let readSeconds = CFAbsoluteTimeGetCurrent() - readStart
             let applyStart = CFAbsoluteTimeGetCurrent()
             applyLoadedNoteState(
@@ -498,6 +519,7 @@ public final class EditorSession {
         lastKnownDiskContentHash = nil
         textRevision = 0
         renderGeneration = 0
+        concealmentDiagnosticsEmittedForRevision.removeAll()
         lastRendererSpanChecksum = nil
         lastPublishedExplicitReferences = []
         pendingNoteNavigationRequest = nil
@@ -587,8 +609,17 @@ public final class EditorSession {
         guard contentChanged else { return }
 
         textRevision &+= 1
+        concealmentDiagnosticsEmittedForRevision.removeAll()
         let oldLength = (previousText as NSString).length
         let newLength = (newText as NSString).length
+        if !isApplyingExternalEdit, let identity = note?.id {
+            if oldLength > 0, newLength == 0 {
+                userDeleteAllRevisionByIdentity[identity] = textRevision
+            }
+            if Self.isDrasticShrink(from: oldLength, to: newLength) {
+                userDrasticShrinkRevisionByIdentity[identity] = textRevision
+            }
+        }
 
         if isApplyingExternalEdit {
             recordRendererTextMutation(
@@ -1281,6 +1312,10 @@ public final class EditorSession {
         note = loaded
         currentText = loaded.body
         textRevision &+= 1
+        lastPersistedRevisionByIdentity[loaded.id] = textRevision
+        userDeleteAllRevisionByIdentity.removeValue(forKey: loaded.id)
+        userDrasticShrinkRevisionByIdentity.removeValue(forKey: loaded.id)
+        concealmentDiagnosticsEmittedForRevision.removeAll()
         renderGeneration = 0
         lastRendererSpanChecksum = nil
         hasRecordedFirstSemanticHighlight = false
@@ -1739,6 +1774,7 @@ public final class EditorSession {
         synchronizeSnapshotFromActiveTextView()
         if currentText != previousText, textRevision == revisionBeforeMutation {
             textRevision &+= 1
+            concealmentDiagnosticsEmittedForRevision.removeAll()
             recordRendererTextMutation(
                 name: "textDidChange",
                 oldLength: (previousText as NSString).length,
@@ -1808,6 +1844,27 @@ public final class EditorSession {
                 "queueWaitMs": String(format: "%.1f", queueWaitMs)
             ]
         )
+
+        // Snapshot from native view (the source of truth)
+        let textSnapshot: String
+        #if canImport(UIKit)
+        textSnapshot = activeTextView?.text ?? currentText
+        #elseif canImport(AppKit)
+        textSnapshot = activeTextView?.string ?? currentText
+        #endif
+
+        let saveRevision = textRevision
+        if let decision = evaluateSaveSafety(
+            note: currentNote,
+            textSnapshot: textSnapshot,
+            currentSessionText: currentText,
+            saveRevision: saveRevision,
+            force: force
+        ) {
+            blockUnsafeSave(decision, note: currentNote, textSnapshot: textSnapshot, saveRevision: saveRevision)
+            return
+        }
+
         isSaving = true
         savePendingAfterCurrentWrite = false
         isSavingToFileSystem = true
@@ -1838,14 +1895,6 @@ public final class EditorSession {
             }
         }
 
-        // Snapshot from native view (the source of truth)
-        let textSnapshot: String
-        #if canImport(UIKit)
-        textSnapshot = activeTextView?.text ?? currentText
-        #elseif canImport(AppKit)
-        textSnapshot = activeTextView?.string ?? currentText
-        #endif
-
         currentNote.body = textSnapshot
         currentNote.frontmatter.modifiedAt = .now
 
@@ -1855,25 +1904,31 @@ public final class EditorSession {
             try await vaultProvider.savePrimaryUserNote(currentNote, filePresenter: filePresenter)
             let writeMs = Date().timeIntervalSince(writeStarted) * 1_000
 
-            // Compute and store content hash for echo suppression.
-            // Hash the FULL serialized content (frontmatter + body) to match what's on disk.
-            // If a file-change event arrives and the on-disk hash matches this,
-            // we know it's our own write — not an external modification.
-            if let yamlString = try? frontmatterParser.serialize(currentNote.frontmatter) {
-                let fullContent = yamlString.isEmpty
-                    ? textSnapshot
-                    : "---\n\(yamlString)---\n\n\(textSnapshot)"
-                if let savedData = fullContent.data(using: .utf8) {
-                    lastSavedContentHash = SHA256.hash(data: savedData)
-                    lastKnownDiskContentHash = lastSavedContentHash
-                }
-            }
-
-            note = currentNote
             // Only clear dirty if content hasn't changed since snapshot
-            let savedSnapshotStillCurrent = currentText == textSnapshot
+            let savedSnapshotStillCurrent = isSaveSnapshotStillCurrent(
+                identity: currentNote.id,
+                textSnapshot: textSnapshot,
+                saveRevision: saveRevision
+            )
             if savedSnapshotStillCurrent {
+                // Compute and store content hash for echo suppression.
+                // Hash the FULL serialized content (frontmatter + body) to match what's on disk.
+                if let yamlString = try? frontmatterParser.serialize(currentNote.frontmatter) {
+                    let fullContent = yamlString.isEmpty
+                        ? textSnapshot
+                        : "---\n\(yamlString)---\n\n\(textSnapshot)"
+                    if let savedData = fullContent.data(using: .utf8) {
+                        lastSavedContentHash = SHA256.hash(data: savedData)
+                        lastKnownDiskContentHash = lastSavedContentHash
+                    }
+                }
+                note = currentNote
+                lastPersistedRevisionByIdentity[currentNote.id] = saveRevision
                 isDirty = false
+            } else {
+                isDirty = true
+                savePendingAfterCurrentWrite = true
+                recordPostWriteStaleSaveBlocked(note: currentNote, textSnapshot: textSnapshot, saveRevision: saveRevision)
             }
             let dirtyAfterReason = isDirty ? "textChangedDuringSave" : "none"
             consecutiveSaveFailures = 0
@@ -1892,7 +1947,7 @@ public final class EditorSession {
                 noteBasename: savedURL.lastPathComponent,
                 durationMs: writeMs,
                 counts: ["characters": (textSnapshot as NSString).length],
-                revision: textRevision,
+                revision: saveRevision,
                 metadata: [
                     "dirtyAfter": String(isDirty),
                     "dirtyAfterReason": dirtyAfterReason,
@@ -1900,33 +1955,37 @@ public final class EditorSession {
                     "writeMs": String(format: "%.1f", writeMs)
                 ]
             )
-            SubsystemDiagnostics.record(
-                level: .info,
-                subsystem: .save,
-                name: "latestRevisionPersisted",
-                reasonCode: "save.latestRevisionPersisted",
-                noteBasename: savedURL.lastPathComponent,
-                durationMs: writeMs,
-                revision: textRevision,
-                metadata: [
-                    "dirtyAfter": String(isDirty),
-                    "dirtyAfterReason": dirtyAfterReason
-                ]
-            )
-            recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
+            if savedSnapshotStillCurrent {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "latestRevisionPersisted",
+                    reasonCode: "save.latestRevisionPersisted",
+                    noteBasename: savedURL.lastPathComponent,
+                    durationMs: writeMs,
+                    revision: saveRevision,
+                    metadata: [
+                        "dirtyAfter": String(isDirty),
+                        "dirtyAfterReason": dirtyAfterReason
+                    ]
+                )
+                recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
+            }
 
             let postSaveStarted = Date()
             // Publish via typed event bus (new pattern per CODEX.md F4)
-            await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
+            if savedSnapshotStillCurrent {
+                await DomainEventBus.shared.publish(.noteSaved(url: savedURL, timestamp: Date()))
 
-            // Legacy NotificationCenter for backward compatibility
-            NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
+                // Legacy NotificationCenter for backward compatibility
+                NotificationCenter.default.post(name: .quartzNoteSaved, object: savedURL)
 
-            scheduleExplicitRelationshipRefresh(
-                forceGraphPublish: true,
-                sourceURL: savedURL,
-                content: textSnapshot
-            )
+                scheduleExplicitRelationshipRefresh(
+                    forceGraphPublish: true,
+                    sourceURL: savedURL,
+                    content: textSnapshot
+                )
+            }
 
             if savedSnapshotStillCurrent {
                 let forceSnapshot = forceVersionSnapshotForThisSave || forceSavePendingAfterCurrentWrite
@@ -1948,7 +2007,7 @@ public final class EditorSession {
                 noteBasename: savedURL.lastPathComponent,
                 durationMs: totalMs,
                 counts: ["characters": (textSnapshot as NSString).length],
-                revision: textRevision,
+                revision: saveRevision,
                 metadata: [
                     "dirtyAfter": String(isDirty),
                     "dirtyAfterReason": dirtyAfterReason,
@@ -1973,24 +2032,33 @@ public final class EditorSession {
             case .primaryFileSaved:
                 primarySaveRemainsFailed = false
                 VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vaultRootURL)
-                updateSavedContentHashes(for: currentNote)
-                note = currentNote
-                let savedSnapshotStillCurrent = currentText == textSnapshot
+                let savedSnapshotStillCurrent = isSaveSnapshotStillCurrent(
+                    identity: currentNote.id,
+                    textSnapshot: textSnapshot,
+                    saveRevision: saveRevision
+                )
                 if savedSnapshotStillCurrent {
+                    updateSavedContentHashes(for: currentNote)
+                    note = currentNote
+                    lastPersistedRevisionByIdentity[currentNote.id] = saveRevision
                     isDirty = false
+                } else {
+                    isDirty = true
+                    savePendingAfterCurrentWrite = true
+                    recordPostWriteStaleSaveBlocked(note: currentNote, textSnapshot: textSnapshot, saveRevision: saveRevision)
                 }
                 consecutiveSaveFailures = 0
                 errorMessage = String(localized: "Saved using emergency local file recovery because iCloud coordination timed out.", bundle: .module)
                 postSaveHealthChanged(state: "recovered", url: currentNote.fileURL)
-                recordRendererSaveSnapshot(noteURL: currentNote.fileURL, textSnapshot: textSnapshot)
-                await DomainEventBus.shared.publish(.noteSaved(url: currentNote.fileURL, timestamp: Date()))
-                NotificationCenter.default.post(name: .quartzNoteSaved, object: currentNote.fileURL)
-                scheduleExplicitRelationshipRefresh(
-                    forceGraphPublish: true,
-                    sourceURL: currentNote.fileURL,
-                    content: textSnapshot
-                )
                 if savedSnapshotStillCurrent {
+                    recordRendererSaveSnapshot(noteURL: currentNote.fileURL, textSnapshot: textSnapshot)
+                    await DomainEventBus.shared.publish(.noteSaved(url: currentNote.fileURL, timestamp: Date()))
+                    NotificationCenter.default.post(name: .quartzNoteSaved, object: currentNote.fileURL)
+                    scheduleExplicitRelationshipRefresh(
+                        forceGraphPublish: true,
+                        sourceURL: currentNote.fileURL,
+                        content: textSnapshot
+                    )
                     scheduleVersionSnapshotIfNeeded(
                         noteURL: currentNote.fileURL,
                         content: textSnapshot,
@@ -2068,6 +2136,182 @@ public final class EditorSession {
                 )
             }
         }
+    }
+
+    private enum UnsafeSaveDecision {
+        case noteIdentityMismatch
+        case revisionRegression(lastPersistedRevision: UInt64)
+        case staleEditorBuffer(currentLength: Int, snapshotLength: Int)
+        case emptyContent(previousLength: Int)
+        case drasticShrink(previousLength: Int, newLength: Int)
+
+        var diagnosticName: String {
+            switch self {
+            case .noteIdentityMismatch: return "save.noteIdentityMismatchSaveBlocked"
+            case .revisionRegression: return "save.revisionRegressionSaveBlocked"
+            case .staleEditorBuffer: return "save.staleEditorBufferSaveBlocked"
+            case .emptyContent: return "save.emptyContentGuardTriggered"
+            case .drasticShrink: return "save.drasticShrinkGuardTriggered"
+            }
+        }
+
+        var userMessage: String {
+            switch self {
+            case .noteIdentityMismatch:
+                String(localized: "Save blocked because the editor no longer matches the selected note. Your text is still in the editor.", bundle: .module)
+            case .revisionRegression:
+                String(localized: "Save blocked because an older editor revision tried to overwrite a newer save. Your text is still in the editor.", bundle: .module)
+            case .staleEditorBuffer:
+                String(localized: "Save blocked because the native editor buffer looked stale. Your text is still in the editor.", bundle: .module)
+            case .emptyContent:
+                String(localized: "Save blocked because an automatic save tried to replace existing content with an empty note. Your text is still in the editor.", bundle: .module)
+            case .drasticShrink:
+                String(localized: "Save blocked because an automatic save tried to replace existing content with much shorter content. Your text is still in the editor.", bundle: .module)
+            }
+        }
+
+        var metadata: [String: String] {
+            switch self {
+            case .noteIdentityMismatch:
+                ["blockedReason": "noteIdentityMismatch"]
+            case .revisionRegression(let lastPersistedRevision):
+                ["blockedReason": "revisionRegression", "lastPersistedRevision": "\(lastPersistedRevision)"]
+            case .staleEditorBuffer(let currentLength, let snapshotLength):
+                [
+                    "blockedReason": "staleEditorBuffer",
+                    "currentSessionLength": "\(currentLength)",
+                    "snapshotLength": "\(snapshotLength)"
+                ]
+            case .emptyContent(let previousLength):
+                ["blockedReason": "emptyContent", "previousPersistedLength": "\(previousLength)"]
+            case .drasticShrink(let previousLength, let newLength):
+                [
+                    "blockedReason": "drasticShrink",
+                    "previousPersistedLength": "\(previousLength)",
+                    "newLength": "\(newLength)"
+                ]
+            }
+        }
+    }
+
+    private func evaluateSaveSafety(
+        note candidate: NoteDocument,
+        textSnapshot: String,
+        currentSessionText: String,
+        saveRevision: UInt64,
+        force: Bool
+    ) -> UnsafeSaveDecision? {
+        let identity = candidate.id
+        guard note?.id == identity else {
+            return .noteIdentityMismatch
+        }
+        if let lastPersisted = lastPersistedRevisionByIdentity[identity], saveRevision < lastPersisted {
+            return .revisionRegression(lastPersistedRevision: lastPersisted)
+        }
+
+        let previousLength = (candidate.body as NSString).length
+        let newLength = (textSnapshot as NSString).length
+        let currentLength = (currentSessionText as NSString).length
+
+        if currentSessionText != textSnapshot,
+           currentLength > 0,
+           (newLength == 0 || Self.isDrasticShrink(from: currentLength, to: newLength)) {
+            return .staleEditorBuffer(currentLength: currentLength, snapshotLength: newLength)
+        }
+
+        if previousLength > 0, newLength == 0 {
+            let deleteAllIsCurrent = userDeleteAllRevisionByIdentity[identity] == saveRevision
+            if !deleteAllIsCurrent {
+                return .emptyContent(previousLength: previousLength)
+            }
+        } else if Self.isDrasticShrink(from: previousLength, to: newLength) {
+            let shrinkIsCurrent = userDrasticShrinkRevisionByIdentity[identity] == saveRevision
+            if !shrinkIsCurrent || !force {
+                return .drasticShrink(previousLength: previousLength, newLength: newLength)
+            }
+        }
+
+        return nil
+    }
+
+    private static func isDrasticShrink(from oldLength: Int, to newLength: Int) -> Bool {
+        guard oldLength >= 500, newLength < oldLength else { return false }
+        return newLength <= 100 || Double(newLength) < Double(oldLength) * 0.25
+    }
+
+    private func blockUnsafeSave(
+        _ decision: UnsafeSaveDecision,
+        note blockedNote: NoteDocument,
+        textSnapshot: String,
+        saveRevision: UInt64
+    ) {
+        isDirty = true
+        errorMessage = decision.userMessage
+        savePendingAfterCurrentWrite = false
+        forceSavePendingAfterCurrentWrite = false
+        var metadata = decision.metadata
+        metadata["activeNoteIdentity"] = note?.id.description ?? "none"
+        metadata["candidateNoteIdentity"] = blockedNote.id.description
+        metadata["snapshotLength"] = "\((textSnapshot as NSString).length)"
+        metadata["currentTextLength"] = "\((currentText as NSString).length)"
+        SubsystemDiagnostics.record(
+            level: .error,
+            subsystem: .save,
+            name: decision.diagnosticName,
+            reasonCode: decision.diagnosticName,
+            noteBasename: blockedNote.fileURL.lastPathComponent,
+            counts: [
+                "characters": (textSnapshot as NSString).length,
+                "currentCharacters": (currentText as NSString).length
+            ],
+            revision: saveRevision,
+            metadata: metadata
+        )
+    }
+
+    private func isSaveSnapshotStillCurrent(
+        identity: CanonicalNoteIdentity,
+        textSnapshot: String,
+        saveRevision: UInt64
+    ) -> Bool {
+        note?.id == identity && textRevision == saveRevision && currentText == textSnapshot
+    }
+
+    private func recordPostWriteStaleSaveBlocked(
+        note blockedNote: NoteDocument,
+        textSnapshot: String,
+        saveRevision: UInt64
+    ) {
+        var metadata: [String: String] = [
+            "blockedStage": "postWriteSideEffects",
+            "activeNoteIdentity": note?.id.description ?? "none",
+            "candidateNoteIdentity": blockedNote.id.description,
+            "currentRevision": "\(textRevision)",
+            "saveRevision": "\(saveRevision)",
+            "snapshotLength": "\((textSnapshot as NSString).length)",
+            "currentTextLength": "\((currentText as NSString).length)"
+        ]
+        let name: String
+        if note?.id != blockedNote.id {
+            name = "save.noteIdentityMismatchSaveBlocked"
+            metadata["blockedReason"] = "noteIdentityMismatchAfterWrite"
+        } else {
+            name = "save.revisionRegressionSaveBlocked"
+            metadata["blockedReason"] = "revisionChangedAfterWrite"
+        }
+        SubsystemDiagnostics.record(
+            level: .error,
+            subsystem: .save,
+            name: name,
+            reasonCode: name,
+            noteBasename: blockedNote.fileURL.lastPathComponent,
+            counts: [
+                "characters": (textSnapshot as NSString).length,
+                "currentCharacters": (currentText as NSString).length
+            ],
+            revision: saveRevision,
+            metadata: metadata
+        )
     }
 
     /// Explicit save triggered by user action (Cmd+S, toolbar button).
@@ -2770,8 +3014,8 @@ public final class EditorSession {
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .renderer,
-                name: "concealment.firstPaintRawFlash",
-                reasonCode: "concealment.firstPaintRawFlash",
+                name: "concealment.firstPaintRawFlashPrevented",
+                reasonCode: "concealment.firstPaintRawFlashPrevented",
                 noteBasename: rendererDiagnosticNoteBasename,
                 revision: textRevision,
                 metadata: [
@@ -4471,35 +4715,37 @@ public final class EditorSession {
             let font = NSFont.systemFont(ofSize: 0.1)
             #endif
             storage.addAttributes([.font: font, .kern: CGFloat(-0.1)], range: range)
-            SubsystemDiagnostics.record(
-                level: .debug,
-                subsystem: .renderer,
+            recordConcealmentDiagnosticOnce(
                 name: "concealment.markersHidden",
-                reasonCode: "concealment.markersHidden",
-                counts: ["markersHidden": range.length],
-                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
-                verbose: true
+                countKey: "markersHidden",
+                count: range.length
             )
-            SubsystemDiagnostics.record(
-                level: .debug,
-                subsystem: .renderer,
+            recordConcealmentDiagnosticOnce(
                 name: "concealment.layoutWidthCorrected",
-                reasonCode: "concealment.layoutWidthCorrected",
-                counts: ["markersHidden": range.length],
-                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
-                verbose: true
+                countKey: "markersHidden",
+                count: range.length
             )
         } else if case .concealWhenInactive = overlayVisibilityBehavior {
-            SubsystemDiagnostics.record(
-                level: .debug,
-                subsystem: .renderer,
+            recordConcealmentDiagnosticOnce(
                 name: "concealment.markersRevealed",
-                reasonCode: "concealment.markersRevealed",
-                counts: ["markersRevealed": range.length],
-                metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
-                verbose: true
+                countKey: "markersRevealed",
+                count: range.length
             )
         }
+    }
+
+    private func recordConcealmentDiagnosticOnce(name: String, countKey: String, count: Int) {
+        let key = "\(name)|\(textRevision)|\(syntaxVisibilityMode.rawValue)"
+        guard concealmentDiagnosticsEmittedForRevision.insert(key).inserted else { return }
+        SubsystemDiagnostics.record(
+            level: .debug,
+            subsystem: .renderer,
+            name: name,
+            reasonCode: name,
+            counts: [countKey: count],
+            metadata: ["concealment.mode": syntaxVisibilityMode.rawValue],
+            verbose: true
+        )
     }
 }
 
