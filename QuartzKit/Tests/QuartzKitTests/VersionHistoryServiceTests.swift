@@ -56,8 +56,8 @@ struct VersionHistoryPersistenceTests {
         let lookup = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: root)
 
         #expect(lookup.versions.count == 1)
-        #expect(lookup.status.currentNoteIdentity == "Team/2026-04-27__team-meeting.md")
-        #expect(lookup.status.versionLookupKey == "Team/2026-04-27__team-meeting.md")
+        #expect(lookup.status.currentNoteIdentity == "Team<path:2026-04-27__team-meeting.md>")
+        #expect(lookup.status.versionLookupKey == "Team<path:2026-04-27__team-meeting.md>")
         #expect(lookup.status.snapshotFilesFound == 1)
         #expect(lookup.status.snapshotFilesIgnored == 0)
     }
@@ -77,8 +77,8 @@ struct VersionHistoryPersistenceTests {
         let lookup = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: root)
 
         #expect(lookup.versions.count > 0)
-        #expect(lookup.status.currentNoteIdentity == "People/Mayank.md")
-        #expect(lookup.status.versionLookupKey == "People/Mayank.md")
+        #expect(lookup.status.currentNoteIdentity == "People<path:Mayank.md>")
+        #expect(lookup.status.versionLookupKey == "People<path:Mayank.md>")
         #expect(lookup.status.snapshotFilesFound > 0)
         #expect(lookup.status.snapshotFilesIgnored == 0)
     }

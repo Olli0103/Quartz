@@ -117,10 +117,16 @@ struct KnowledgeExtractionBudgetTests {
         snapshot = await service.statusSnapshot()
         #expect(snapshot.status != .paused)
         #expect(snapshot.scanMode == .automatic)
+        let retryDiagnosticRecorded = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            let diagnostics = await SubsystemDiagnostics.snapshot()
+            let events = diagnostics.eventsBySubsystem[.aiIndexing] ?? []
+            return events.contains { $0.name == "ai.retryNowScheduled" }
+        }
+        #expect(retryDiagnosticRecorded)
 
         await service.cancelCurrentAIJob()
         snapshot = await service.statusSnapshot()
-        #expect(snapshot.status == .idle || snapshot.status == .running)
+        #expect(snapshot.status == .pendingBacklogIdle || snapshot.status == .running)
     }
 
     @Test("expired providerSlow backoff becomes retryable status")
@@ -129,12 +135,20 @@ struct KnowledgeExtractionBudgetTests {
         defer { try? FileManager.default.removeItem(at: vault) }
         let quartzDir = vault.appending(path: ".quartz", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: quartzDir, withIntermediateDirectories: true)
+        let note = vault.appending(path: "pending-after-backoff.md")
+        try """
+        # Pending after backoff
+
+        This note remains pending when the providerSlow backoff expires.
+        """.write(to: note, atomically: true, encoding: .utf8)
         var state = AIIndexState()
         state.lastStatus = AIIndexingStatus.providerSlow.rawValue
         state.lastFailureReason = "ai.providerSlow"
         state.lastFailureAt = Date().addingTimeInterval(-600)
         state.backoffUntil = Date().addingTimeInterval(-60)
-        let data = try JSONEncoder().encode(state)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(state)
         try data.write(to: quartzDir.appending(path: "ai_index.json"), options: .atomic)
 
         let service = KnowledgeExtractionService(
@@ -145,10 +159,36 @@ struct KnowledgeExtractionBudgetTests {
         )
 
         let snapshot = await service.statusSnapshot()
-        #expect(snapshot.status == .idle)
+        #expect(snapshot.status == .retryableIdle)
         #expect(snapshot.backoffUntil == nil)
+        #expect(snapshot.pendingNotes == 1)
         let summary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: vault)
-        #expect(summary["aiIndex.status"] == AIIndexingStatus.idle.rawValue)
+        #expect(summary["aiIndex.status"] == AIIndexingStatus.retryableIdle.rawValue)
+    }
+
+    @Test("plain idle is not reported when pending backlog has no scheduled work")
+    func pendingBacklogIdleIsNotPlainIdle() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let note = vault.appending(path: "pending-backlog.md")
+        try """
+        # Pending backlog
+
+        This note is pending and no scan has been scheduled yet.
+        """.write(to: note, atomically: true, encoding: .utf8)
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(100),
+            extractionOverride: { _ in ["pending"] }
+        )
+
+        let snapshot = await service.statusSnapshot()
+        #expect(snapshot.status == .pendingBacklogIdle)
+        #expect(snapshot.pendingNotes == 1)
+        let summary = KnowledgeExtractionService.persistedHealthSummary(vaultRootURL: vault)
+        #expect(summary["aiIndex.status"] == AIIndexingStatus.pendingBacklogIdle.rawValue)
     }
 
     private func waitUntil(

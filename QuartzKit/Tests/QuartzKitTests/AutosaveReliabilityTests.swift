@@ -749,7 +749,7 @@ struct SaveDataIntegrityTests {
 
 // MARK: - Version History Tests
 
-@Suite("Version History Service")
+@Suite("Version History Service", .serialized)
 struct VersionHistoryServiceTests {
 
     @Test("VersionHistoryService initializes without error")
@@ -834,6 +834,149 @@ struct VersionHistoryServiceTests {
 
         let versions = service.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
         #expect(versions.count == 3, "All 3 snapshots should be preserved (within max limit)")
+    }
+
+    @Test("createSnapshot then lookup immediately returns the new snapshot")
+    func createSnapshotThenImmediateLookupFindsSnapshot() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "immediate.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Immediate version", vaultRoot: vaultRoot))
+
+        let result = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+        #expect(result.versions.count > 0)
+        #expect(result.status.snapshotFilesFound > 0)
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "version.snapshotLookupPostCreateVerified" })
+    }
+
+    @Test("createSnapshot then reinitialize service still finds snapshot")
+    func reinitializedServiceFindsSnapshot() throws {
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "reload.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        #expect(VersionHistoryService().saveSnapshot(for: noteURL, content: "Reload version", vaultRoot: vaultRoot))
+        let versions = VersionHistoryService().fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+        #expect(versions.count > 0)
+    }
+
+    @Test("folder-prefixed note identity round-trips through metadata and lookup")
+    func folderPrefixedIdentityRoundTrips() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "people/Georg.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Georg version", vaultRoot: vaultRoot))
+        let result = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+
+        #expect(result.versions.count == 1)
+        #expect(result.status.versionLookupKey == "people<path:Georg.md>")
+        let metadataURL = try firstVersionMetadataURL(in: vaultRoot)
+        let metadata = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any])
+        #expect(metadata["originalRelativePath"] as? String == "people/Georg.md")
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains {
+            $0.name == "version.snapshotMetadataWritten"
+                && $0.metadata["versionLookupKey"] == "people<path:Georg.md>"
+        })
+    }
+
+    @Test("raw note identity round-trips exactly")
+    func rawNoteIdentityRoundTrips() throws {
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "Note 2026-04-30 16-27.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Raw note version", vaultRoot: vaultRoot))
+        let result = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+
+        #expect(result.versions.count == 1)
+        #expect(result.status.versionLookupKey == "Note 2026-04-30 16-27.md")
+    }
+
+    @Test("lookup emits precise reason when snapshot directory is missing")
+    func missingSnapshotDirectoryIsDiagnosed() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "missing.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let result = VersionHistoryService().fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+        #expect(result.versions.isEmpty)
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "version.snapshotDirectoryMissing" })
+        #expect(events.contains {
+            $0.name == "versionLookupCompleted"
+                && $0.metadata["versionEmptyStateReason"] == "snapshotDirectoryMissing"
+        })
+    }
+
+    @Test("lookup emits precise reason when metadata key mismatches")
+    func metadataKeyMismatchIsDiagnosed() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "mismatch.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Mismatch version", vaultRoot: vaultRoot))
+        let metadataURL = try firstVersionMetadataURL(in: vaultRoot)
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any])
+        object["versionLookupKey"] = "other.md"
+        object["noteIdentity"] = "other.md"
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: metadataURL, options: .atomic)
+
+        let result = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+        #expect(result.versions.isEmpty)
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "version.snapshotMetadataKeyMismatch" })
+    }
+
+    @Test("snapshot throttling or duplicate skipping does not hide existing snapshots")
+    func skippedDuplicateDoesNotHideExistingSnapshot() throws {
+        let (vaultRoot, noteURL) = try makeVersionHistoryVault(notePath: "duplicate.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Same content", vaultRoot: vaultRoot))
+        #expect(!service.saveSnapshot(for: noteURL, content: "Same content", vaultRoot: vaultRoot))
+
+        let versions = service.fetchVersions(for: noteURL, vaultRoot: vaultRoot)
+        #expect(versions.count == 1)
+    }
+
+    private func makeVersionHistoryVault(notePath: String) throws -> (vaultRoot: URL, noteURL: URL) {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "quartz-version-history-\(UUID().uuidString)")
+        let vaultRoot = tempDir.appending(path: "vault")
+        let noteURL = vaultRoot.appending(path: notePath)
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        return (vaultRoot, noteURL)
+    }
+
+    private func firstVersionMetadataURL(in vaultRoot: URL) throws -> URL {
+        let versionsRoot = vaultRoot
+            .appending(path: ".quartz")
+            .appending(path: "versions")
+        let enumerator = try #require(FileManager.default.enumerator(
+            at: versionsRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ))
+        for case let url as URL in enumerator where url.lastPathComponent.hasSuffix(".metadata.json") {
+            return url
+        }
+        Issue.record("Expected a version metadata file")
+        throw CocoaError(.fileNoSuchFile)
     }
 }
 

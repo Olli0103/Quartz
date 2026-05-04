@@ -156,6 +156,39 @@ final class EditorSessionSaveFlowTests: XCTestCase {
         let saveEvents = snapshot.eventsBySubsystem[.save] ?? []
         XCTAssertTrue(saveEvents.contains { $0.name == "save.revisionRegressionSaveBlocked" })
         XCTAssertFalse(saveEvents.contains { $0.name == "latestRevisionPersisted" })
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.postWriteStaleBytesMayHavePersisted" })
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.replayScheduledAfterStaleWrite" })
+        let versionEvents = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        XCTAssertTrue(versionEvents.contains { $0.name == "save.snapshotSkippedDueToDirtyAfter" })
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.latestRevisionNotAdvancedDueToDirtyAfter" })
+    }
+
+    @MainActor
+    func testPreWriteChecksumMismatchDoesNotReachProvider() async throws {
+        #if canImport(AppKit)
+        await session.loadNote(at: testNoteURL)
+        let textView = NSTextView()
+        session.activeTextView = textView
+
+        let currentRevisionText = "Revision 90 content should be the only save candidate"
+        let staleNativeText = "Revision 87 content should not reach provider bytes"
+        textView.string = currentRevisionText
+        session.textDidChange(currentRevisionText)
+        textView.string = staleNativeText
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+
+        await session.save()
+
+        let operations = await mockVaultProvider.operations.filter { $0.0 == .saveNote }
+        XCTAssertTrue(operations.isEmpty, "Pre-write checksum mismatch must not call provider save")
+        XCTAssertTrue(session.isDirty)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let saveEvents = snapshot.eventsBySubsystem[.save] ?? []
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.preWriteChecksumMismatchBlocked" })
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.staleSaveDroppedBeforeWrite" })
+        XCTAssertTrue(saveEvents.contains { $0.name == "save.preWriteRevisionCheckStarted" })
+        XCTAssertFalse(saveEvents.contains { $0.name == "savePrimaryPersisted" })
+        #endif
     }
 
     /// Tests that a loaded note can be edited and saved.

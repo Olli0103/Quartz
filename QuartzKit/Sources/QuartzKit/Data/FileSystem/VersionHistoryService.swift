@@ -48,6 +48,16 @@ public struct VersionHistoryLookupStatus: Sendable, Equatable {
     public let nextEligibleAt: Date?
 }
 
+private struct VersionSnapshotMetadata: Codable, Sendable, Equatable {
+    let noteIdentity: String
+    let versionLookupKey: String
+    let snapshotStorageKey: String
+    let originalRelativePath: String
+    let createdAt: Date
+    let contentLength: Int
+    let snapshotStorage: String
+}
+
 public extension Notification.Name {
     /// Posted after a note's version-history snapshot set changes.
     /// `object` is the note URL and `userInfo["vaultRoot"]` is the vault root URL.
@@ -110,6 +120,22 @@ public struct VersionHistoryService: Sendable {
     ) -> Bool {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
+        let originalRelativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let lookupKey = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
+        let storageKey = stableNoteID(for: noteURL, vaultRoot: vaultRoot)
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotStorageDirectory",
+            reasonCode: "version.snapshotStorageDirectory",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: [
+                "snapshotDirectory": snapshotDir.path(percentEncoded: false),
+                "snapshotStorageKey": storageKey,
+                "versionLookupKey": lookupKey,
+                "originalRelativePath": originalRelativePath
+            ]
+        )
 
         // Ensure directory exists
         do {
@@ -157,6 +183,7 @@ public struct VersionHistoryService: Sendable {
         // Use different extension for encrypted vs plain snapshots
         let fileExtension = encryptionKey != nil ? Self.encryptedExtension : Self.plainExtension
         let snapshotURL = snapshotDir.appending(path: "\(timestamp)__\(UUID().uuidString).\(fileExtension)")
+        let createdAt = Date()
 
         guard var data = content.data(using: .utf8) else {
             Self.logger.error("Failed to encode snapshot content as UTF-8")
@@ -249,6 +276,49 @@ public struct VersionHistoryService: Sendable {
             return false
         }
 
+        let metadata = VersionSnapshotMetadata(
+            noteIdentity: lookupKey,
+            versionLookupKey: lookupKey,
+            snapshotStorageKey: storageKey,
+            originalRelativePath: originalRelativePath,
+            createdAt: createdAt,
+            contentLength: (content as NSString).length,
+            snapshotStorage: snapshotURL.lastPathComponent
+        )
+        do {
+            try writeMetadata(metadata, for: snapshotURL)
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.snapshotMetadataWritten",
+                reasonCode: "version.snapshotMetadataWritten",
+                noteBasename: noteURL.lastPathComponent,
+                counts: ["contentLength": metadata.contentLength],
+                metadata: [
+                    "noteIdentity": metadata.noteIdentity,
+                    "versionLookupKey": metadata.versionLookupKey,
+                    "snapshotStorageKey": metadata.snapshotStorageKey,
+                    "originalRelativePath": metadata.originalRelativePath,
+                    "snapshotStorage": metadata.snapshotStorage
+                ]
+            )
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "version.snapshotMetadataMissing",
+                reasonCode: "version.snapshotMetadataMissing",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "error": error.localizedDescription,
+                    "snapshotStorage": snapshotURL.lastPathComponent,
+                    "snapshotStorageKey": storageKey
+                ]
+            )
+            try? fm.removeItem(at: snapshotURL)
+            return false
+        }
+
         // Prune old snapshots (async to avoid blocking)
         Task.detached(priority: .utility) { [self] in
             self.pruneSnapshots(in: snapshotDir, keep: Self.maxSnapshotsPerNote)
@@ -271,9 +341,23 @@ public struct VersionHistoryService: Sendable {
             noteBasename: noteURL.lastPathComponent,
             metadata: [
                 "snapshotStorage": snapshotURL.lastPathComponent,
-                "snapshotStorageKey": stableNoteID(for: noteURL, vaultRoot: vaultRoot),
-                "noteIdentity": canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot),
-                "versionLookupKey": canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+                "snapshotStorageKey": storageKey,
+                "noteIdentity": lookupKey,
+                "versionLookupKey": lookupKey,
+                "originalRelativePath": originalRelativePath
+            ]
+        )
+        let postCreateLookup = fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+        SubsystemDiagnostics.record(
+            level: postCreateLookup.versions.isEmpty ? .error : .info,
+            subsystem: .versionHistory,
+            name: postCreateLookup.versions.isEmpty ? "version.snapshotLookupPostCreateFailed" : "version.snapshotLookupPostCreateVerified",
+            reasonCode: postCreateLookup.versions.isEmpty ? "version.snapshotLookupPostCreateFailed" : "version.snapshotLookupPostCreateVerified",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["snapshotFilesFound": postCreateLookup.status.snapshotFilesFound],
+            metadata: [
+                "versionLookupKey": lookupKey,
+                "snapshotStorageKey": storageKey
             ]
         )
         return true
@@ -291,8 +375,10 @@ public struct VersionHistoryService: Sendable {
     public func fetchVersionsWithStatus(for noteURL: URL, vaultRoot: URL) -> (versions: [NoteVersion], status: VersionHistoryLookupStatus) {
         let snapshotDir = snapshotDirectory(for: noteURL, vaultRoot: vaultRoot)
         let fm = FileManager.default
-        let identity = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
-        let lookupKey = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let identity = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
+        let lookupKey = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
+        let storageKey = stableNoteID(for: noteURL, vaultRoot: vaultRoot)
+        let originalRelativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .versionHistory,
@@ -301,11 +387,55 @@ public struct VersionHistoryService: Sendable {
             noteBasename: noteURL.lastPathComponent,
             metadata: [
                 "currentNoteIdentity": identity,
+                "versionLookupKey": lookupKey,
+                "originalRelativePath": originalRelativePath
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupDirectory",
+            reasonCode: "version.snapshotLookupDirectory",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: [
+                "snapshotLookupDirectory": snapshotDir.path(percentEncoded: false),
+                "snapshotStorageKey": storageKey,
                 "versionLookupKey": lookupKey
             ]
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupKeyHash",
+            reasonCode: "version.snapshotLookupKeyHash",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: ["versionLookupKey": lookupKey, "snapshotLookupKeyHash": storageKey]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupStorageKey",
+            reasonCode: "version.snapshotLookupStorageKey",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: ["snapshotLookupStorageKey": storageKey]
+        )
 
-        guard fm.fileExists(atPath: snapshotDir.path(percentEncoded: false)) else {
+        let targetDirectoryExists = fm.fileExists(atPath: snapshotDir.path(percentEncoded: false))
+        if !targetDirectoryExists {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .versionHistory,
+                name: "version.snapshotDirectoryMissing",
+                reasonCode: "version.snapshotDirectoryMissing",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "snapshotLookupDirectory": snapshotDir.path(percentEncoded: false),
+                    "snapshotStorageKey": storageKey
+                ]
+            )
+        }
+
+        guard targetDirectoryExists || fm.fileExists(atPath: versionsRoot(for: vaultRoot).path(percentEncoded: false)) else {
             let status = VersionHistoryLookupStatus(
                 currentNoteIdentity: identity,
                 versionLookupKey: lookupKey,
@@ -320,44 +450,97 @@ public struct VersionHistoryService: Sendable {
         }
 
         let contents: [URL]
-        do {
-            contents = try fm.contentsOfDirectory(
-                at: snapshotDir,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            Self.logger.error("Failed to list version snapshots: \(error.localizedDescription)")
-            QuartzDiagnostics.error(
-                category: "VersionHistory",
-                "Failed to list version snapshots: \(error.localizedDescription)"
-            )
-            let status = VersionHistoryLookupStatus(
-                currentNoteIdentity: identity,
-                versionLookupKey: lookupKey,
-                snapshotFilesFound: 0,
-                snapshotFilesIgnored: 0,
-                lastSnapshotAt: nil,
-                nextEligibleAt: nil
-            )
-            recordLookupCompleted(status: status, noteURL: noteURL, emptyReason: "snapshotDirectoryUnreadable")
-            recordLookup(status: status, noteURL: noteURL)
-            return ([], status)
+        if targetDirectoryExists {
+            do {
+                contents = try fm.contentsOfDirectory(
+                    at: snapshotDir,
+                    includingPropertiesForKeys: [.contentModificationDateKey],
+                    options: [.skipsHiddenFiles]
+                )
+            } catch {
+                Self.logger.error("Failed to list version snapshots: \(error.localizedDescription)")
+                QuartzDiagnostics.error(
+                    category: "VersionHistory",
+                    "Failed to list version snapshots: \(error.localizedDescription)"
+                )
+                let status = VersionHistoryLookupStatus(
+                    currentNoteIdentity: identity,
+                    versionLookupKey: lookupKey,
+                    snapshotFilesFound: 0,
+                    snapshotFilesIgnored: 0,
+                    lastSnapshotAt: nil,
+                    nextEligibleAt: nil
+                )
+                recordLookupCompleted(status: status, noteURL: noteURL, emptyReason: "snapshotDirectoryUnreadable")
+                recordLookup(status: status, noteURL: noteURL)
+                return ([], status)
+            }
+        } else {
+            contents = allVersionSnapshotCandidates(in: vaultRoot)
         }
+        let snapshotCandidates = contents.filter { url in
+            let ext = url.pathExtension
+            let name = url.lastPathComponent
+            return ext == Self.plainExtension || name.hasSuffix(".\(Self.encryptedExtension)")
+        }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupCandidateCount",
+            reasonCode: "version.snapshotLookupCandidateCount",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["candidateCount": snapshotCandidates.count],
+            metadata: ["snapshotStorageKey": storageKey, "targetDirectoryExists": String(targetDirectoryExists)]
+        )
 
         // Accept both .md (plain) and .md.enc (encrypted) files
-        let accepted = contents
-            .filter { url in
-                let ext = url.pathExtension
-                let name = url.lastPathComponent
-                return ext == Self.plainExtension || name.hasSuffix(".\(Self.encryptedExtension)")
+        var acceptedTuples: [(URL, Date, Bool)] = []
+        var ignoredCount = 0
+        for url in snapshotCandidates {
+            let metadata = readMetadata(for: url, noteURL: noteURL)
+            let isInTargetDirectory = url.deletingLastPathComponent().standardizedFileURL == snapshotDir.standardizedFileURL
+            if let metadata {
+                let matches = metadata.versionLookupKey == lookupKey
+                    && metadata.snapshotStorageKey == storageKey
+                if !matches {
+                    ignoredCount += 1
+                    recordLookupCandidateRejected(
+                        url,
+                        noteURL: noteURL,
+                        reason: "metadataKeyMismatch",
+                        metadata: metadata,
+                        expectedLookupKey: lookupKey
+                    )
+                    continue
+                }
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .versionHistory,
+                    name: "version.snapshotLookupCandidateMatched",
+                    reasonCode: "version.snapshotLookupCandidateMatched",
+                    noteBasename: noteURL.lastPathComponent,
+                    metadata: [
+                        "snapshotStorage": url.lastPathComponent,
+                        "versionLookupKey": metadata.versionLookupKey,
+                        "snapshotStorageKey": metadata.snapshotStorageKey
+                    ]
+                )
+            } else if !isInTargetDirectory {
+                ignoredCount += 1
+                recordLookupCandidateRejected(
+                    url,
+                    noteURL: noteURL,
+                    reason: "metadataMissingOutsideLookupDirectory",
+                    metadata: nil,
+                    expectedLookupKey: lookupKey
+                )
+                continue
             }
-            .compactMap { url -> (URL, Date, Bool)? in
-                // Resource value read failure is non-fatal — use current date as fallback
-                let mdate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
-                let isEncrypted = url.lastPathComponent.hasSuffix(".\(Self.encryptedExtension)")
-                return (url, mdate, isEncrypted)
-            }
+            let mdate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            let isEncrypted = url.lastPathComponent.hasSuffix(".\(Self.encryptedExtension)")
+            acceptedTuples.append((url, mdate, isEncrypted))
+        }
+        let accepted = acceptedTuples
             .sorted { $0.1 > $1.1 }
             .enumerated()
             .map { index, tuple in
@@ -368,7 +551,7 @@ public struct VersionHistoryService: Sendable {
             currentNoteIdentity: identity,
             versionLookupKey: lookupKey,
             snapshotFilesFound: accepted.count,
-            snapshotFilesIgnored: max(0, contents.count - accepted.count),
+            snapshotFilesIgnored: ignoredCount,
             lastSnapshotAt: lastSnapshotAt,
             nextEligibleAt: lastSnapshotAt?.addingTimeInterval(300)
         )
@@ -525,10 +708,14 @@ public struct VersionHistoryService: Sendable {
     /// "Meeting Notes.md" in different folders will have different version histories.
     private func snapshotDirectory(for noteURL: URL, vaultRoot: URL) -> URL {
         let noteID = stableNoteID(for: noteURL, vaultRoot: vaultRoot)
-        return vaultRoot
+        return versionsRoot(for: vaultRoot)
+            .appending(path: noteID)
+    }
+
+    private func versionsRoot(for vaultRoot: URL) -> URL {
+        vaultRoot
             .appending(path: ".quartz")
             .appending(path: "versions")
-            .appending(path: noteID)
     }
 
     /// Generates a stable, unique identifier for a note based on its relative path.
@@ -538,13 +725,22 @@ public struct VersionHistoryService: Sendable {
     /// - IDs are filesystem-safe (no special characters)
     /// - IDs are stable and collision-resistant (SHA256 hash)
     private func stableNoteID(for noteURL: URL, vaultRoot: URL) -> String {
-        let relativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
-        guard let data = relativePath.data(using: .utf8) else {
+        let lookupKey = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
+        guard let data = lookupKey.data(using: .utf8) else {
             return sanitizeFilename(noteURL.deletingPathExtension().lastPathComponent)
         }
 
         let hash = SHA256.hash(data: data)
         return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private func versionLookupKey(for noteURL: URL, vaultRoot: URL) -> String {
+        let relativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let parts = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count > 1, let first = parts.first else {
+            return relativePath
+        }
+        return "\(first)<path:\(parts.dropFirst().joined(separator: "/"))>"
     }
 
     private func canonicalRelativePath(for noteURL: URL, vaultRoot: URL) -> String {
@@ -556,6 +752,111 @@ public struct VersionHistoryService: Sendable {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
         return noteURL.lastPathComponent
+    }
+
+    private func metadataURL(for snapshotURL: URL) -> URL {
+        snapshotURL.deletingLastPathComponent()
+            .appending(path: "\(snapshotURL.lastPathComponent).metadata.json")
+    }
+
+    private func writeMetadata(_ metadata: VersionSnapshotMetadata, for snapshotURL: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(metadata)
+        try data.write(to: metadataURL(for: snapshotURL), options: .atomic)
+    }
+
+    private func readMetadata(for snapshotURL: URL, noteURL: URL) -> VersionSnapshotMetadata? {
+        let url = metadataURL(for: snapshotURL)
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .versionHistory,
+                name: "version.snapshotMetadataMissing",
+                reasonCode: "version.snapshotMetadataMissing",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["snapshotStorage": snapshotURL.lastPathComponent]
+            )
+            return nil
+        }
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let metadata = try decoder.decode(VersionSnapshotMetadata.self, from: Data(contentsOf: url))
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.snapshotMetadataRead",
+                reasonCode: "version.snapshotMetadataRead",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "snapshotStorage": snapshotURL.lastPathComponent,
+                    "noteIdentity": metadata.noteIdentity,
+                    "versionLookupKey": metadata.versionLookupKey,
+                    "snapshotStorageKey": metadata.snapshotStorageKey,
+                    "originalRelativePath": metadata.originalRelativePath
+                ]
+            )
+            return metadata
+        } catch {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "version.snapshotMetadataMissing",
+                reasonCode: "version.snapshotMetadataMissing",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["snapshotStorage": snapshotURL.lastPathComponent, "error": error.localizedDescription]
+            )
+            return nil
+        }
+    }
+
+    private func allVersionSnapshotCandidates(in vaultRoot: URL) -> [URL] {
+        let root = versionsRoot(for: vaultRoot)
+        guard let directories = try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return directories.flatMap { directory -> [URL] in
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+        }
+    }
+
+    private func recordLookupCandidateRejected(
+        _ url: URL,
+        noteURL: URL,
+        reason: String,
+        metadata: VersionSnapshotMetadata?,
+        expectedLookupKey: String
+    ) {
+        var values = [
+            "snapshotStorage": url.lastPathComponent,
+            "reason": reason,
+            "expectedLookupKey": expectedLookupKey
+        ]
+        if let metadata {
+            values["candidateLookupKey"] = metadata.versionLookupKey
+            values["candidateNoteIdentity"] = metadata.noteIdentity
+            values["candidateStorageKey"] = metadata.snapshotStorageKey
+        }
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .versionHistory,
+            name: reason == "metadataKeyMismatch"
+                ? "version.snapshotMetadataKeyMismatch"
+                : "version.snapshotLookupCandidateRejected",
+            reasonCode: reason == "metadataKeyMismatch"
+                ? "version.snapshotMetadataKeyMismatch"
+                : "version.snapshotLookupCandidateRejected",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: values
+        )
     }
 
     private func recordLookup(status: VersionHistoryLookupStatus, noteURL: URL) {
@@ -627,7 +928,13 @@ public struct VersionHistoryService: Sendable {
             return
         }
 
-        let sorted = files.sorted { a, b in
+        let snapshotFiles = files.filter { url in
+            let ext = url.pathExtension
+            let name = url.lastPathComponent
+            return ext == Self.plainExtension || name.hasSuffix(".\(Self.encryptedExtension)")
+        }
+
+        let sorted = snapshotFiles.sorted { a, b in
             // Resource value read failure is non-fatal — use distantPast as fallback
             let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -638,6 +945,7 @@ public struct VersionHistoryService: Sendable {
         for file in sorted.dropFirst(keep) {
             do {
                 try fm.removeItem(at: file)
+                try? fm.removeItem(at: metadataURL(for: file))
             } catch {
                 Self.logger.warning("Failed to prune old snapshot \(file.lastPathComponent): \(error.localizedDescription)")
             }

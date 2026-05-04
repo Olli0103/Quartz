@@ -1854,6 +1854,19 @@ public final class EditorSession {
         #endif
 
         let saveRevision = textRevision
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "save.preWriteRevisionCheckStarted",
+            reasonCode: "save.preWriteRevisionCheckStarted",
+            noteBasename: currentNote.fileURL.lastPathComponent,
+            revision: saveRevision,
+            metadata: [
+                "activeNoteIdentity": note?.id.description ?? "none",
+                "candidateNoteIdentity": currentNote.id.description,
+                "currentRevision": "\(textRevision)"
+            ]
+        )
         if let decision = evaluateSaveSafety(
             note: currentNote,
             textSnapshot: textSnapshot,
@@ -1861,9 +1874,29 @@ public final class EditorSession {
             saveRevision: saveRevision,
             force: force
         ) {
-            blockUnsafeSave(decision, note: currentNote, textSnapshot: textSnapshot, saveRevision: saveRevision)
+            blockUnsafeSave(
+                decision,
+                note: currentNote,
+                textSnapshot: textSnapshot,
+                saveRevision: saveRevision,
+                blockedStage: "preWrite",
+                scheduleReplay: true
+            )
             return
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "save.preWriteRevisionCheckPassed",
+            reasonCode: "save.preWriteRevisionCheckPassed",
+            noteBasename: currentNote.fileURL.lastPathComponent,
+            revision: saveRevision,
+            metadata: [
+                "activeNoteIdentity": note?.id.description ?? "none",
+                "candidateNoteIdentity": currentNote.id.description,
+                "currentRevision": "\(textRevision)"
+            ]
+        )
 
         isSaving = true
         savePendingAfterCurrentWrite = false
@@ -1970,6 +2003,20 @@ public final class EditorSession {
                     ]
                 )
                 recordRendererSaveSnapshot(noteURL: savedURL, textSnapshot: textSnapshot)
+            } else {
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .save,
+                    name: "save.latestRevisionNotAdvancedDueToDirtyAfter",
+                    reasonCode: "save.latestRevisionNotAdvancedDueToDirtyAfter",
+                    noteBasename: savedURL.lastPathComponent,
+                    revision: saveRevision,
+                    metadata: [
+                        "dirtyAfter": String(isDirty),
+                        "dirtyAfterReason": dirtyAfterReason,
+                        "currentRevision": "\(textRevision)"
+                    ]
+                )
             }
 
             let postSaveStarted = Date()
@@ -1996,6 +2043,19 @@ public final class EditorSession {
                 )
                 savePendingAfterCurrentWrite = false
                 forceSavePendingAfterCurrentWrite = false
+            } else {
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .versionHistory,
+                    name: "save.snapshotSkippedDueToDirtyAfter",
+                    reasonCode: "save.snapshotSkippedDueToDirtyAfter",
+                    noteBasename: savedURL.lastPathComponent,
+                    revision: saveRevision,
+                    metadata: [
+                        "dirtyAfter": String(isDirty),
+                        "currentRevision": "\(textRevision)"
+                    ]
+                )
             }
             let postSaveMs = Date().timeIntervalSince(postSaveStarted) * 1_000
             let totalMs = Date().timeIntervalSince(saveStarted) * 1_000
@@ -2141,14 +2201,17 @@ public final class EditorSession {
     private enum UnsafeSaveDecision {
         case noteIdentityMismatch
         case revisionRegression(lastPersistedRevision: UInt64)
+        case revisionAdvanced(currentRevision: UInt64)
+        case checksumMismatch(currentLength: Int, snapshotLength: Int)
         case staleEditorBuffer(currentLength: Int, snapshotLength: Int)
         case emptyContent(previousLength: Int)
         case drasticShrink(previousLength: Int, newLength: Int)
 
         var diagnosticName: String {
             switch self {
-            case .noteIdentityMismatch: return "save.noteIdentityMismatchSaveBlocked"
-            case .revisionRegression: return "save.revisionRegressionSaveBlocked"
+            case .noteIdentityMismatch: return "save.preWriteIdentityMismatchBlocked"
+            case .revisionRegression, .revisionAdvanced: return "save.preWriteRevisionRegressionBlocked"
+            case .checksumMismatch: return "save.preWriteChecksumMismatchBlocked"
             case .staleEditorBuffer: return "save.staleEditorBufferSaveBlocked"
             case .emptyContent: return "save.emptyContentGuardTriggered"
             case .drasticShrink: return "save.drasticShrinkGuardTriggered"
@@ -2161,6 +2224,10 @@ public final class EditorSession {
                 String(localized: "Save blocked because the editor no longer matches the selected note. Your text is still in the editor.", bundle: .module)
             case .revisionRegression:
                 String(localized: "Save blocked because an older editor revision tried to overwrite a newer save. Your text is still in the editor.", bundle: .module)
+            case .revisionAdvanced:
+                String(localized: "Save blocked because a newer editor revision exists. Your text is still in the editor.", bundle: .module)
+            case .checksumMismatch:
+                String(localized: "Save blocked because the native editor snapshot did not match the current editor state. Your text is still in the editor.", bundle: .module)
             case .staleEditorBuffer:
                 String(localized: "Save blocked because the native editor buffer looked stale. Your text is still in the editor.", bundle: .module)
             case .emptyContent:
@@ -2176,6 +2243,14 @@ public final class EditorSession {
                 ["blockedReason": "noteIdentityMismatch"]
             case .revisionRegression(let lastPersistedRevision):
                 ["blockedReason": "revisionRegression", "lastPersistedRevision": "\(lastPersistedRevision)"]
+            case .revisionAdvanced(let currentRevision):
+                ["blockedReason": "revisionAdvancedBeforeWrite", "currentRevision": "\(currentRevision)"]
+            case .checksumMismatch(let currentLength, let snapshotLength):
+                [
+                    "blockedReason": "checksumMismatchBeforeWrite",
+                    "currentSessionLength": "\(currentLength)",
+                    "snapshotLength": "\(snapshotLength)"
+                ]
             case .staleEditorBuffer(let currentLength, let snapshotLength):
                 [
                     "blockedReason": "staleEditorBuffer",
@@ -2205,6 +2280,9 @@ public final class EditorSession {
         guard note?.id == identity else {
             return .noteIdentityMismatch
         }
+        if saveRevision < textRevision {
+            return .revisionAdvanced(currentRevision: textRevision)
+        }
         if let lastPersisted = lastPersistedRevisionByIdentity[identity], saveRevision < lastPersisted {
             return .revisionRegression(lastPersistedRevision: lastPersisted)
         }
@@ -2217,6 +2295,10 @@ public final class EditorSession {
            currentLength > 0,
            (newLength == 0 || Self.isDrasticShrink(from: currentLength, to: newLength)) {
             return .staleEditorBuffer(currentLength: currentLength, snapshotLength: newLength)
+        }
+
+        if currentSessionText != textSnapshot {
+            return .checksumMismatch(currentLength: currentLength, snapshotLength: newLength)
         }
 
         if previousLength > 0, newLength == 0 {
@@ -2243,13 +2325,16 @@ public final class EditorSession {
         _ decision: UnsafeSaveDecision,
         note blockedNote: NoteDocument,
         textSnapshot: String,
-        saveRevision: UInt64
+        saveRevision: UInt64,
+        blockedStage: String = "preWrite",
+        scheduleReplay: Bool = false
     ) {
         isDirty = true
         errorMessage = decision.userMessage
         savePendingAfterCurrentWrite = false
         forceSavePendingAfterCurrentWrite = false
         var metadata = decision.metadata
+        metadata["blockedStage"] = blockedStage
         metadata["activeNoteIdentity"] = note?.id.description ?? "none"
         metadata["candidateNoteIdentity"] = blockedNote.id.description
         metadata["snapshotLength"] = "\((textSnapshot as NSString).length)"
@@ -2267,6 +2352,34 @@ public final class EditorSession {
             revision: saveRevision,
             metadata: metadata
         )
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .save,
+            name: "save.staleSaveDroppedBeforeWrite",
+            reasonCode: "save.staleSaveDroppedBeforeWrite",
+            noteBasename: blockedNote.fileURL.lastPathComponent,
+            counts: [
+                "characters": (textSnapshot as NSString).length,
+                "currentCharacters": (currentText as NSString).length
+            ],
+            revision: saveRevision,
+            metadata: metadata
+        )
+        if scheduleReplay {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "save.replayScheduledAfterStaleWrite",
+                reasonCode: "save.replayScheduledAfterStaleWrite",
+                noteBasename: blockedNote.fileURL.lastPathComponent,
+                revision: textRevision,
+                metadata: [
+                    "blockedStage": blockedStage,
+                    "dirty": String(isDirty)
+                ]
+            )
+            scheduleAutosave()
+        }
     }
 
     private func isSaveSnapshotStillCurrent(
@@ -2311,6 +2424,31 @@ public final class EditorSession {
             ],
             revision: saveRevision,
             metadata: metadata
+        )
+        SubsystemDiagnostics.record(
+            level: .error,
+            subsystem: .save,
+            name: "save.postWriteStaleBytesMayHavePersisted",
+            reasonCode: "save.postWriteStaleBytesMayHavePersisted",
+            noteBasename: blockedNote.fileURL.lastPathComponent,
+            counts: [
+                "characters": (textSnapshot as NSString).length,
+                "currentCharacters": (currentText as NSString).length
+            ],
+            revision: saveRevision,
+            metadata: metadata
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "save.replayScheduledAfterStaleWrite",
+            reasonCode: "save.replayScheduledAfterStaleWrite",
+            noteBasename: blockedNote.fileURL.lastPathComponent,
+            revision: textRevision,
+            metadata: [
+                "blockedStage": "postWriteSideEffects",
+                "dirty": String(isDirty)
+            ]
         )
     }
 

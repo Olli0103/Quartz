@@ -53,6 +53,9 @@ public enum AIIndexingStatus: String, Sendable {
     case failedConfiguration
     case waitingForNetwork
     case completedWithPending
+    case retryableIdle
+    case pendingBacklogIdle
+    case automaticScanScheduled
     case disabled
     case failed
     case providerSlow
@@ -283,6 +286,7 @@ public actor KnowledgeExtractionService {
         scanTask?.cancel()
         currentScanMode = mode
         let generation = serviceGeneration
+        let previousStatus = state.lastStatus
         updateAIStatus(AIIndexingStatus.running.rawValue)
         SubsystemDiagnostics.record(
             level: .info,
@@ -295,6 +299,19 @@ public actor KnowledgeExtractionService {
                 "scanMode": mode.rawValue
             ]
         )
+        if mode == .automatic, previousStatus == AIIndexingStatus.retryableIdle.rawValue {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.automaticScanScheduledAfterBackoff",
+                reasonCode: "ai.automaticScanScheduledAfterBackoff",
+                generation: generation,
+                metadata: [
+                    "status.aiIndexing": AIIndexingStatus.automaticScanScheduled.rawValue,
+                    "previousStatus.aiIndexing": previousStatus ?? "none"
+                ]
+            )
+        }
         scanTask = Task(priority: .utility) { [weak self] in
             await self?.runVaultScan(expectedGeneration: generation, mode: mode)
         }
@@ -358,6 +375,13 @@ public actor KnowledgeExtractionService {
             reasonCode: "ai.retryRequested",
             metadata: ["status.aiIndexing": "idle"]
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.retryNowScheduled",
+            reasonCode: "ai.retryNowScheduled",
+            metadata: ["status.aiIndexing": AIIndexingStatus.automaticScanScheduled.rawValue]
+        )
         startVaultScan(mode: .automatic)
     }
 
@@ -380,7 +404,9 @@ public actor KnowledgeExtractionService {
 
     public func statusSnapshot() -> AIIndexingStatusSnapshot {
         _ = isAIBackoffActive()
-        let status: AIIndexingStatus
+        let allNotes = collectMarkdownFiles(in: vaultRootURL)
+        let pending = classifyPendingNotes(allNotes, mode: .automatic).totalPending
+        var status: AIIndexingStatus
         if !isEnabled {
             status = .disabled
         } else if isPausedByUser {
@@ -390,8 +416,10 @@ public actor KnowledgeExtractionService {
         } else {
             status = isScanRunning ? .running : .idle
         }
-        let allNotes = collectMarkdownFiles(in: vaultRootURL)
-        let pending = classifyPendingNotes(allNotes, mode: .automatic).totalPending
+        if status == .idle, pending > 0, !isScanRunning, !isPausedByUser, isEnabled {
+            status = .pendingBacklogIdle
+            publishPendingBacklogIdle(pendingNotes: pending, reason: "noAutomaticScanScheduled")
+        }
         return AIIndexingStatusSnapshot(
             status: status,
             conceptCount: state.conceptEdges.count,
@@ -1325,25 +1353,98 @@ public actor KnowledgeExtractionService {
         self.aiBackoffUntil = nil
         aiFailureStatus = nil
         state.backoffUntil = nil
-        let nextStatus = isPausedByUser ? AIIndexingStatus.paused.rawValue : AIIndexingStatus.idle.rawValue
+        let pendingNotes = pendingNoteCountForAutomaticScan()
+        let nextStatus: String
+        if isPausedByUser {
+            nextStatus = AIIndexingStatus.paused.rawValue
+        } else if pendingNotes > 0 {
+            nextStatus = AIIndexingStatus.retryableIdle.rawValue
+        } else {
+            nextStatus = AIIndexingStatus.idle.rawValue
+        }
         state.lastStatus = nextStatus
         saveStateToDisk()
         updateAIStatus(nextStatus, extra: [
             "aiBackoffUntil": "none",
             "aiBackoffExpired": "true",
-            "automaticScanningPaused": String(isPausedByUser)
+            "automaticScanningPaused": String(isPausedByUser),
+            "pendingNotes": "\(pendingNotes)",
+            "nextAutomaticAction": pendingNotes > 0 && !isPausedByUser ? "retryNowOrScheduleAutomaticScan" : "none"
         ])
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
             name: "ai.backoffExpired",
             reasonCode: "ai.backoffExpired",
+            counts: ["pendingNotes": pendingNotes],
             metadata: [
                 "status.aiIndexing": nextStatus,
                 "automaticScanningPaused": String(isPausedByUser)
             ]
         )
+        if pendingNotes > 0, !isPausedByUser {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .aiIndexing,
+                name: "ai.retryableIdle",
+                reasonCode: "ai.retryableIdle",
+                counts: ["pendingNotes": pendingNotes],
+                metadata: [
+                    "status.aiIndexing": AIIndexingStatus.retryableIdle.rawValue,
+                    "lastAIFailureReason": state.lastFailureReason ?? lastAIFailureReason ?? "unknown",
+                    "nextAutomaticAction": "retryNowOrScheduleAutomaticScan"
+                ]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.noAutomaticScanReason",
+                reasonCode: "ai.noAutomaticScanReason",
+                counts: ["pendingNotes": pendingNotes],
+                metadata: [
+                    "reason": "backoffExpiredAwaitingRetryBudget",
+                    "status.aiIndexing": AIIndexingStatus.retryableIdle.rawValue
+                ]
+            )
+        }
         return false
+    }
+
+    private func pendingNoteCountForAutomaticScan() -> Int {
+        let allNotes = collectMarkdownFiles(in: vaultRootURL)
+        return classifyPendingNotes(allNotes, mode: .automatic).totalPending
+    }
+
+    private func publishPendingBacklogIdle(pendingNotes: Int, reason: String) {
+        state.lastStatus = AIIndexingStatus.pendingBacklogIdle.rawValue
+        saveStateToDisk()
+        updateAIStatus(AIIndexingStatus.pendingBacklogIdle.rawValue, extra: [
+            "pendingNotes": "\(pendingNotes)",
+            "nextAutomaticAction": "startVaultScanOrRetryNow",
+            "noAutomaticScanReason": reason
+        ])
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .aiIndexing,
+            name: "ai.pendingBacklogIdle",
+            reasonCode: "ai.pendingBacklogIdle",
+            counts: ["pendingNotes": pendingNotes],
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.pendingBacklogIdle.rawValue,
+                "nextAutomaticAction": "startVaultScanOrRetryNow"
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.noAutomaticScanReason",
+            reasonCode: "ai.noAutomaticScanReason",
+            counts: ["pendingNotes": pendingNotes],
+            metadata: [
+                "reason": reason,
+                "status.aiIndexing": AIIndexingStatus.pendingBacklogIdle.rawValue
+            ]
+        )
     }
 
     private func updateAIStatus(_ status: String, extra: [String: String] = [:]) {
