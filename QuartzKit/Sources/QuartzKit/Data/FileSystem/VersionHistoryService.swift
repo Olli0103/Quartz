@@ -58,6 +58,13 @@ private struct VersionSnapshotMetadata: Codable, Sendable, Equatable {
     let snapshotStorage: String
 }
 
+private struct VersionLookupIdentityCandidate: Sendable, Equatable {
+    let relativePath: String
+    let lookupKey: String
+    let storageKey: String
+    let kind: String
+}
+
 public extension Notification.Name {
     /// Posted after a note's version-history snapshot set changes.
     /// `object` is the note URL and `userInfo["vaultRoot"]` is the vault root URL.
@@ -379,6 +386,15 @@ public struct VersionHistoryService: Sendable {
         let lookupKey = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
         let storageKey = stableNoteID(for: noteURL, vaultRoot: vaultRoot)
         let originalRelativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let legacyCandidates = legacyIdentityCandidates(for: noteURL, vaultRoot: vaultRoot)
+        let acceptedIdentityCandidates = [
+            VersionLookupIdentityCandidate(
+                relativePath: originalRelativePath,
+                lookupKey: lookupKey,
+                storageKey: storageKey,
+                kind: "current"
+            )
+        ] + legacyCandidates
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .versionHistory,
@@ -391,6 +407,44 @@ public struct VersionHistoryService: Sendable {
                 "originalRelativePath": originalRelativePath
             ]
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupCurrentIdentity",
+            reasonCode: "version.snapshotLookupCurrentIdentity",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: [
+                "currentNoteIdentity": identity,
+                "versionLookupKey": lookupKey,
+                "originalRelativePath": originalRelativePath
+            ]
+        )
+        if !legacyCandidates.isEmpty {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.legacyIdentityFallbackStarted",
+                reasonCode: "version.legacyIdentityFallbackStarted",
+                noteBasename: noteURL.lastPathComponent,
+                counts: ["legacyIdentityCandidateCount": legacyCandidates.count],
+                metadata: ["currentNoteIdentity": identity, "versionLookupKey": lookupKey]
+            )
+            for candidate in legacyCandidates {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .versionHistory,
+                    name: "version.legacyIdentityCandidate",
+                    reasonCode: "version.legacyIdentityCandidate",
+                    noteBasename: noteURL.lastPathComponent,
+                    metadata: [
+                        "legacyRelativePath": candidate.relativePath,
+                        "legacyLookupKey": candidate.lookupKey,
+                        "legacyStorageKey": candidate.storageKey,
+                        "legacyKind": candidate.kind
+                    ]
+                )
+            }
+        }
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .versionHistory,
@@ -449,35 +503,7 @@ public struct VersionHistoryService: Sendable {
             return ([], status)
         }
 
-        let contents: [URL]
-        if targetDirectoryExists {
-            do {
-                contents = try fm.contentsOfDirectory(
-                    at: snapshotDir,
-                    includingPropertiesForKeys: [.contentModificationDateKey],
-                    options: [.skipsHiddenFiles]
-                )
-            } catch {
-                Self.logger.error("Failed to list version snapshots: \(error.localizedDescription)")
-                QuartzDiagnostics.error(
-                    category: "VersionHistory",
-                    "Failed to list version snapshots: \(error.localizedDescription)"
-                )
-                let status = VersionHistoryLookupStatus(
-                    currentNoteIdentity: identity,
-                    versionLookupKey: lookupKey,
-                    snapshotFilesFound: 0,
-                    snapshotFilesIgnored: 0,
-                    lastSnapshotAt: nil,
-                    nextEligibleAt: nil
-                )
-                recordLookupCompleted(status: status, noteURL: noteURL, emptyReason: "snapshotDirectoryUnreadable")
-                recordLookup(status: status, noteURL: noteURL)
-                return ([], status)
-            }
-        } else {
-            contents = allVersionSnapshotCandidates(in: vaultRoot)
-        }
+        let contents = allVersionSnapshotCandidates(in: vaultRoot)
         let snapshotCandidates = contents.filter { url in
             let ext = url.pathExtension
             let name = url.lastPathComponent
@@ -496,13 +522,21 @@ public struct VersionHistoryService: Sendable {
         // Accept both .md (plain) and .md.enc (encrypted) files
         var acceptedTuples: [(URL, Date, Bool)] = []
         var ignoredCount = 0
+        var legacyMatchCount = 0
         for url in snapshotCandidates {
             let metadata = readMetadata(for: url, noteURL: noteURL)
-            let isInTargetDirectory = url.deletingLastPathComponent().standardizedFileURL == snapshotDir.standardizedFileURL
+            let parentDirectory = url.deletingLastPathComponent().standardizedFileURL
+            let isInTargetDirectory = parentDirectory == snapshotDir.standardizedFileURL
+            let directoryMatchedCandidate = acceptedIdentityCandidates.first { candidate in
+                parentDirectory.lastPathComponent == candidate.storageKey
+            }
             if let metadata {
-                let matches = metadata.versionLookupKey == lookupKey
-                    && metadata.snapshotStorageKey == storageKey
-                if !matches {
+                let matchedCandidate = acceptedIdentityCandidates.first { candidate in
+                    metadata.versionLookupKey == candidate.lookupKey
+                        && metadata.snapshotStorageKey == candidate.storageKey
+                        && metadata.originalRelativePath == candidate.relativePath
+                }
+                if matchedCandidate == nil {
                     ignoredCount += 1
                     recordLookupCandidateRejected(
                         url,
@@ -512,6 +546,23 @@ public struct VersionHistoryService: Sendable {
                         expectedLookupKey: lookupKey
                     )
                     continue
+                }
+                if let matchedCandidate, matchedCandidate.kind != "current" {
+                    legacyMatchCount += 1
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .versionHistory,
+                        name: "version.legacyIdentityCandidateMatched",
+                        reasonCode: "version.legacyIdentityCandidateMatched",
+                        noteBasename: noteURL.lastPathComponent,
+                        metadata: [
+                            "legacyRelativePath": matchedCandidate.relativePath,
+                            "legacyLookupKey": matchedCandidate.lookupKey,
+                            "legacyStorageKey": matchedCandidate.storageKey,
+                            "legacyKind": matchedCandidate.kind,
+                            "snapshotStorage": url.lastPathComponent
+                        ]
+                    )
                 }
                 SubsystemDiagnostics.record(
                     level: .info,
@@ -526,6 +577,37 @@ public struct VersionHistoryService: Sendable {
                     ]
                 )
             } else if !isInTargetDirectory {
+                if let directoryMatchedCandidate {
+                    if directoryMatchedCandidate.kind != "current" {
+                        legacyMatchCount += 1
+                        SubsystemDiagnostics.record(
+                            level: .info,
+                            subsystem: .versionHistory,
+                            name: "version.legacyIdentityCandidateMatched",
+                            reasonCode: "version.legacyIdentityCandidateMatched",
+                            noteBasename: noteURL.lastPathComponent,
+                            metadata: [
+                                "legacyRelativePath": directoryMatchedCandidate.relativePath,
+                                "legacyLookupKey": directoryMatchedCandidate.lookupKey,
+                                "legacyStorageKey": directoryMatchedCandidate.storageKey,
+                                "legacyKind": directoryMatchedCandidate.kind,
+                                "snapshotStorage": url.lastPathComponent,
+                                "matchSource": "legacyDirectoryWithoutMetadata"
+                            ]
+                        )
+                    }
+                } else {
+                    ignoredCount += 1
+                    recordLookupCandidateRejected(
+                        url,
+                        noteURL: noteURL,
+                        reason: "metadataMissingOutsideLookupDirectory",
+                        metadata: nil,
+                        expectedLookupKey: lookupKey
+                    )
+                    continue
+                }
+            } else if directoryMatchedCandidate == nil {
                 ignoredCount += 1
                 recordLookupCandidateRejected(
                     url,
@@ -555,6 +637,26 @@ public struct VersionHistoryService: Sendable {
             lastSnapshotAt: lastSnapshotAt,
             nextEligibleAt: lastSnapshotAt?.addingTimeInterval(300)
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupLegacyIdentityCount",
+            reasonCode: "version.snapshotLookupLegacyIdentityCount",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["legacyIdentityCount": legacyCandidates.count, "legacyMatchCount": legacyMatchCount],
+            metadata: ["currentNoteIdentity": identity, "versionLookupKey": lookupKey]
+        )
+        if legacyMatchCount > 0 {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.snapshotLookupIncludedLegacySnapshots",
+                reasonCode: "version.snapshotLookupIncludedLegacySnapshots",
+                noteBasename: noteURL.lastPathComponent,
+                counts: ["legacyMatchCount": legacyMatchCount],
+                metadata: ["currentNoteIdentity": identity, "versionLookupKey": lookupKey]
+            )
+        }
         recordLookupCompleted(
             status: status,
             noteURL: noteURL,
@@ -726,8 +828,12 @@ public struct VersionHistoryService: Sendable {
     /// - IDs are stable and collision-resistant (SHA256 hash)
     private func stableNoteID(for noteURL: URL, vaultRoot: URL) -> String {
         let lookupKey = versionLookupKey(for: noteURL, vaultRoot: vaultRoot)
+        return stableNoteID(forLookupKey: lookupKey, fallbackName: noteURL.deletingPathExtension().lastPathComponent)
+    }
+
+    private func stableNoteID(forLookupKey lookupKey: String, fallbackName: String) -> String {
         guard let data = lookupKey.data(using: .utf8) else {
-            return sanitizeFilename(noteURL.deletingPathExtension().lastPathComponent)
+            return sanitizeFilename(fallbackName)
         }
 
         let hash = SHA256.hash(data: data)
@@ -752,6 +858,34 @@ public struct VersionHistoryService: Sendable {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
         return noteURL.lastPathComponent
+    }
+
+    private func legacyIdentityCandidates(for noteURL: URL, vaultRoot: URL) -> [VersionLookupIdentityCandidate] {
+        let relativePath = canonicalRelativePath(for: noteURL, vaultRoot: vaultRoot)
+        let parts = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count > 2, let first = parts.first, let last = parts.last else {
+            return []
+        }
+
+        let collapsedRelativePath = [first, last].joined(separator: "/")
+        guard collapsedRelativePath != relativePath else { return [] }
+        let collapsedLookupKey = versionLookupKey(forRelativePath: collapsedRelativePath)
+        return [
+            VersionLookupIdentityCandidate(
+                relativePath: collapsedRelativePath,
+                lookupKey: collapsedLookupKey,
+                storageKey: stableNoteID(forLookupKey: collapsedLookupKey, fallbackName: last),
+                kind: "firstFolderBasename"
+            )
+        ]
+    }
+
+    private func versionLookupKey(forRelativePath relativePath: String) -> String {
+        let parts = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count > 1, let first = parts.first else {
+            return relativePath
+        }
+        return "\(first)<path:\(parts.dropFirst().joined(separator: "/"))>"
     }
 
     private func metadataURL(for snapshotURL: URL) -> URL {

@@ -1530,15 +1530,26 @@ public final class EditorSession {
                 storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
-        // Apply inline image attachments — replace first char with U+FFFC
+        let sourceBeforeFormatting = storage.string
         for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
-            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
-            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
+            recordPassiveFormattingSourceMutationBlocked(
+                mutationSource: "inlineImageAttachment",
+                attemptedRange: attachRange,
+                expectedSource: sourceBeforeFormatting,
+                attemptedSource: sourceBeforeFormatting,
+                didRevert: false,
+                blockedBeforeMutation: true
+            )
         }
         storage.endEditing()
+        restorePassiveFormattingSourceIfNeeded(
+            storage: storage,
+            expectedSource: sourceBeforeFormatting,
+            mutationSource: "highlight.full"
+        )
 
         if textView.selectedRange != savedSelection {
             let len = (textView.text ?? "").count
@@ -1618,15 +1629,26 @@ public final class EditorSession {
                 storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
-        // Apply inline image attachments — replace first char with U+FFFC
+        let sourceBeforeFormatting = storage.string
         for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
-            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
-            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
+            recordPassiveFormattingSourceMutationBlocked(
+                mutationSource: "inlineImageAttachment",
+                attemptedRange: attachRange,
+                expectedSource: sourceBeforeFormatting,
+                attemptedSource: sourceBeforeFormatting,
+                didRevert: false,
+                blockedBeforeMutation: true
+            )
         }
         storage.endEditing()
+        restorePassiveFormattingSourceIfNeeded(
+            storage: storage,
+            expectedSource: sourceBeforeFormatting,
+            mutationSource: "highlight.full"
+        )
 
         if textView.selectedRange() != savedSelection {
             let len = textView.string.count
@@ -2736,15 +2758,26 @@ public final class EditorSession {
                 storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
-        // Apply inline image attachments — replace first char with U+FFFC
+        let sourceBeforeFormatting = storage.string
         for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
-            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
-            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
+            recordPassiveFormattingSourceMutationBlocked(
+                mutationSource: "inlineImageAttachment",
+                attemptedRange: attachRange,
+                expectedSource: sourceBeforeFormatting,
+                attemptedSource: sourceBeforeFormatting,
+                didRevert: false,
+                blockedBeforeMutation: true
+            )
         }
         storage.endEditing()
+        restorePassiveFormattingSourceIfNeeded(
+            storage: storage,
+            expectedSource: sourceBeforeFormatting,
+            mutationSource: "highlight.incremental"
+        )
 
         if textView.selectedRange != savedSelection {
             let len = (textView.text ?? "").count
@@ -2826,15 +2859,26 @@ public final class EditorSession {
                 storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             }
         }
-        // Apply inline image attachments — replace first char with U+FFFC
+        let sourceBeforeFormatting = storage.string
         for span in lastRenderPlan.attachmentSpans {
             let r = span.range
             guard r.location >= 0, r.location + r.length <= storageLength else { continue }
             let attachRange = NSRange(location: r.location, length: 1)
-            storage.replaceCharacters(in: attachRange, with: "\u{FFFC}")
-            storage.addAttribute(.attachment, value: span.attachment!, range: attachRange)
+            recordPassiveFormattingSourceMutationBlocked(
+                mutationSource: "inlineImageAttachment",
+                attemptedRange: attachRange,
+                expectedSource: sourceBeforeFormatting,
+                attemptedSource: sourceBeforeFormatting,
+                didRevert: false,
+                blockedBeforeMutation: true
+            )
         }
         storage.endEditing()
+        restorePassiveFormattingSourceIfNeeded(
+            storage: storage,
+            expectedSource: sourceBeforeFormatting,
+            mutationSource: "highlight.incremental"
+        )
 
         if textView.selectedRange() != savedSelection {
             let len = textView.string.count
@@ -3008,6 +3052,172 @@ public final class EditorSession {
     /// Test seam for deterministic attributed-string regression coverage.
     func applyHighlightSpansForTesting(_ spans: [HighlightSpan]) {
         applyHighlightSpans(spans)
+    }
+
+    var textRevisionForTesting: UInt64 {
+        textRevision
+    }
+
+    private func restorePassiveFormattingSourceIfNeeded(
+        storage: NSTextStorage,
+        expectedSource: String,
+        mutationSource: String
+    ) {
+        let actualSource = storage.string
+        guard actualSource != expectedSource else { return }
+
+        let dirtyBefore = isDirty
+        let revisionBefore = textRevision
+        storage.beginEditing()
+        storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: expectedSource)
+        storage.endEditing()
+        currentText = expectedSource
+        isDirty = dirtyBefore
+        textRevision = revisionBefore
+
+        recordPassiveFormattingSourceMutationBlocked(
+            mutationSource: mutationSource,
+            attemptedRange: NSRange(location: 0, length: (actualSource as NSString).length),
+            expectedSource: expectedSource,
+            attemptedSource: actualSource,
+            didRevert: true,
+            blockedBeforeMutation: false,
+            dirtyBefore: dirtyBefore,
+            revisionBefore: revisionBefore
+        )
+    }
+
+    private func recordPassiveFormattingSourceMutationBlocked(
+        mutationSource: String,
+        attemptedRange: NSRange,
+        expectedSource: String,
+        attemptedSource: String,
+        didRevert: Bool,
+        blockedBeforeMutation: Bool,
+        dirtyBefore: Bool? = nil,
+        revisionBefore: UInt64? = nil
+    ) {
+        let expectedLength = (expectedSource as NSString).length
+        let attemptedLength = (attemptedSource as NSString).length
+        let dirtyBefore = dirtyBefore ?? isDirty
+        let revisionBefore = revisionBefore ?? textRevision
+        let sharedMetadata: [String: String] = [
+            "mutationSource": mutationSource,
+            "attemptedRangeLocation": "\(attemptedRange.location)",
+            "attemptedRangeLength": "\(attemptedRange.length)",
+            "expectedLength": "\(expectedLength)",
+            "attemptedLength": "\(attemptedLength)",
+            "expectedChecksum": RendererDiagnostics.textChecksum(expectedSource),
+            "attemptedChecksum": RendererDiagnostics.textChecksum(attemptedSource),
+            "didRevert": String(didRevert),
+            "blockedBeforeMutation": String(blockedBeforeMutation),
+            "dirtyBefore": String(dirtyBefore),
+            "dirtyAfter": String(isDirty),
+            "revisionBefore": "\(revisionBefore)",
+            "revisionAfter": "\(textRevision)"
+        ]
+        let counts = [
+            "expectedLength": expectedLength,
+            "attemptedLength": attemptedLength
+        ]
+
+        SubsystemDiagnostics.record(
+            level: .error,
+            subsystem: .renderer,
+            name: "editor.formattingSourceMutationBlocked",
+            reasonCode: "editor.formattingSourceMutationBlocked",
+            noteBasename: note?.fileURL.lastPathComponent,
+            counts: counts,
+            metadata: sharedMetadata
+        )
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .renderer,
+            name: "editor.formattingMutationSource",
+            reasonCode: "editor.formattingMutationSource",
+            noteBasename: note?.fileURL.lastPathComponent,
+            metadata: sharedMetadata
+        )
+        SubsystemDiagnostics.record(
+            level: .warning,
+            subsystem: .renderer,
+            name: "editor.formattingSourceBeforeAfterChecksum",
+            reasonCode: "editor.formattingSourceBeforeAfterChecksum",
+            noteBasename: note?.fileURL.lastPathComponent,
+            metadata: sharedMetadata
+        )
+        if expectedLength != attemptedLength {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .renderer,
+                name: "editor.formattingChangedTextLength",
+                reasonCode: "editor.formattingChangedTextLength",
+                noteBasename: note?.fileURL.lastPathComponent,
+                counts: counts,
+                metadata: sharedMetadata
+            )
+        }
+        if didRevert {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .renderer,
+                name: "editor.formattingMutationReverted",
+                reasonCode: "editor.formattingMutationReverted",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
+        if isDirty == dirtyBefore {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .renderer,
+                name: "editor.formattingDidNotMarkDirty",
+                reasonCode: "editor.formattingDidNotMarkDirty",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
+        if textRevision == revisionBefore {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .renderer,
+                name: "editor.formattingAutosaveSuppressed",
+                reasonCode: "editor.formattingAutosaveSuppressed",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
+
+        if mutationSource.localizedCaseInsensitiveContains("wiki") {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .renderer,
+                name: "wikilink.sourceMutationBlocked",
+                reasonCode: "wikilink.sourceMutationBlocked",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
+        if mutationSource.localizedCaseInsensitiveContains("autolink") {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .renderer,
+                name: "autolink.sourceMutationBlocked",
+                reasonCode: "autolink.sourceMutationBlocked",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
+        if mutationSource.localizedCaseInsensitiveContains("concealment") {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .renderer,
+                name: "concealment.sourceMutationBlocked",
+                reasonCode: "concealment.sourceMutationBlocked",
+                noteBasename: note?.fileURL.lastPathComponent,
+                metadata: sharedMetadata
+            )
+        }
     }
 
     // MARK: - Renderer Diagnostics

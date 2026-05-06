@@ -954,6 +954,59 @@ struct VersionHistoryServiceTests {
         #expect(versions.count == 1)
     }
 
+    @Test("moved folder-prefixed identity finds legacy snapshots by safe first-folder basename fallback")
+    func movedFolderPrefixedIdentityFindsLegacySnapshots() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, legacyURL) = try makeVersionHistoryVault(notePath: "people/Georg.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+        let currentURL = vaultRoot.appending(path: "people/directs/Georg.md")
+        try FileManager.default.createDirectory(
+            at: currentURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: legacyURL, content: "Legacy Georg version", vaultRoot: vaultRoot))
+
+        let result = service.fetchVersionsWithStatus(for: currentURL, vaultRoot: vaultRoot)
+
+        #expect(result.versions.count == 1)
+        #expect(result.status.versionLookupKey == "people<path:directs/Georg.md>")
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "version.legacyIdentityFallbackStarted" })
+        #expect(events.contains { $0.name == "version.legacyIdentityCandidateMatched" })
+        #expect(events.contains { $0.name == "version.snapshotLookupIncludedLegacySnapshots" })
+    }
+
+    @Test("legacy snapshot without sidecar metadata is found from safe legacy directory and diagnosed")
+    func legacySnapshotWithoutMetadataIsFoundFromLegacyDirectory() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (vaultRoot, legacyURL) = try makeVersionHistoryVault(notePath: "people/Georg.md")
+        defer { try? FileManager.default.removeItem(at: vaultRoot.deletingLastPathComponent()) }
+        let currentURL = vaultRoot.appending(path: "people/directs/Georg.md")
+        try FileManager.default.createDirectory(
+            at: currentURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: legacyURL, content: "Legacy Georg without metadata", vaultRoot: vaultRoot))
+        let metadataURL = try firstVersionMetadataURL(in: vaultRoot)
+        try FileManager.default.removeItem(at: metadataURL)
+
+        let result = service.fetchVersionsWithStatus(for: currentURL, vaultRoot: vaultRoot)
+
+        #expect(result.versions.count == 1)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "version.snapshotMetadataMissing" })
+        #expect(events.contains {
+            $0.name == "version.legacyIdentityCandidateMatched"
+                && $0.metadata["matchSource"] == "legacyDirectoryWithoutMetadata"
+        })
+    }
+
     private func makeVersionHistoryVault(notePath: String) throws -> (vaultRoot: URL, noteURL: URL) {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "quartz-version-history-\(UUID().uuidString)")

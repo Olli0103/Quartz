@@ -273,6 +273,14 @@ public struct VersionHistoryView: View {
     private func loadVersions() async {
         isLoading = true
         errorMessage = nil
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupStarted",
+            reasonCode: "versionUI.lookupStarted",
+            noteBasename: noteURL.lastPathComponent,
+            metadata: ["versionUI.currentNoteIdentity": noteURL.lastPathComponent]
+        )
 
         let lookup = await Task.detached(priority: .userInitiated) { [service, noteURL, vaultRoot] in
             service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
@@ -281,6 +289,39 @@ public struct VersionHistoryView: View {
         versions = lookup.versions
         lookupStatus = lookup.status
         isLoading = false
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupCompleted",
+            reasonCode: "versionUI.lookupCompleted",
+            noteBasename: noteURL.lastPathComponent,
+            counts: [
+                "versionUI.serviceReturnedCount": lookup.versions.count,
+                "versionUI.snapshotRowsDisplayed": versions.count
+            ],
+            metadata: [
+                "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
+                "versionUI.lookupKey": lookup.status.versionLookupKey,
+                "versionUI.emptyStateReason": lookup.versions.isEmpty ? "serviceReturnedZeroSnapshots" : "none"
+            ]
+        )
+        if lookup.versions.count > 0, versions.isEmpty {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "versionUI.serviceUIStateMismatch",
+                reasonCode: "versionUI.serviceUIStateMismatch",
+                noteBasename: noteURL.lastPathComponent,
+                counts: [
+                    "versionUI.serviceReturnedCount": lookup.versions.count,
+                    "versionUI.snapshotRowsDisplayed": versions.count
+                ],
+                metadata: [
+                    "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
+                    "versionUI.lookupKey": lookup.status.versionLookupKey
+                ]
+            )
+        }
 
         if let first = lookup.versions.first {
             selectedVersionID = first.id

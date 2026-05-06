@@ -834,6 +834,47 @@ public actor VectorEmbeddingService {
         return sorted
     }
 
+    /// Lexical exact-match search used to protect short entity/person queries from
+    /// being dropped by semantic ranking.
+    public func exactMatchSearch(query: String, limit: Int = 10) -> [SearchResult] {
+        let terms = Self.exactMatchTerms(from: query)
+        guard !terms.isEmpty else { return [] }
+
+        var results: [SearchResult] = []
+        for entry in index {
+            let text = entry.chunkText.lowercased()
+            let matchedCount = terms.reduce(0) { count, term in
+                text.contains(term) ? count + 1 : count
+            }
+            guard matchedCount > 0 else { continue }
+            let score = min(1.0, 0.90 + Float(matchedCount) * 0.02)
+            results.append(SearchResult(entry: entry, similarity: score))
+        }
+
+        return results
+            .sorted {
+                if $0.similarity == $1.similarity {
+                    return $0.entry.chunkText.count < $1.entry.chunkText.count
+                }
+                return $0.similarity > $1.similarity
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private static func exactMatchTerms(from query: String) -> [String] {
+        let separators = CharacterSet.alphanumerics.inverted
+        return query
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { $0.count >= 3 }
+            .reduce(into: [String]()) { result, term in
+                if !result.contains(term) {
+                    result.append(term)
+                }
+            }
+    }
+
     /// Number of indexed chunks.
     public var entryCount: Int { index.count }
 

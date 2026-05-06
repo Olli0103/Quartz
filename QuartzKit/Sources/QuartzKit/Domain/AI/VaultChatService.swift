@@ -82,6 +82,24 @@ public actor VaultChatService {
             throw VaultChatError.indexEmpty
         }
 
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChat.exactMatchSearchStarted",
+            reasonCode: "vaultChat.exactMatchSearchStarted"
+        )
+        let exactResults = await embeddingService.exactMatchSearch(
+            query: question,
+            limit: maxContextChunks
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChat.exactMatchSearchFinished",
+            reasonCode: "vaultChat.exactMatchSearchFinished",
+            counts: ["exactMatchCount": exactResults.count]
+        )
+
         var searchResults = await embeddingService.search(
             query: question,
             limit: maxContextChunks,
@@ -97,9 +115,12 @@ public actor VaultChatService {
             )
         }
 
+        searchResults = promoteExactMatches(exactResults, into: searchResults)
+
         guard !searchResults.isEmpty else {
             throw VaultChatError.noRelevantContent
         }
+        recordVaultChatRetrievalSources(exactResults: exactResults, semanticResults: searchResults)
 
         // 2. Collect sources
         let sources = buildSources(from: searchResults, noteResolver: noteResolver)
@@ -191,6 +212,24 @@ public actor VaultChatService {
             counts: ["indexedChunks": indexedCount]
         )
         let retrievalStarted = Date()
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChat.exactMatchSearchStarted",
+            reasonCode: "vaultChat.exactMatchSearchStarted"
+        )
+        let exactResults = await embeddingService.exactMatchSearch(
+            query: question,
+            limit: maxContextChunks
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChat.exactMatchSearchFinished",
+            reasonCode: "vaultChat.exactMatchSearchFinished",
+            counts: ["exactMatchCount": exactResults.count]
+        )
+
         var searchResults = await embeddingService.search(
             query: question,
             limit: maxContextChunks,
@@ -206,9 +245,12 @@ public actor VaultChatService {
             )
         }
 
+        searchResults = promoteExactMatches(exactResults, into: searchResults)
+
         guard !searchResults.isEmpty else {
             throw VaultChatError.noRelevantContent
         }
+        recordVaultChatRetrievalSources(exactResults: exactResults, semanticResults: searchResults)
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
@@ -341,6 +383,100 @@ public actor VaultChatService {
         }
 
         return sources
+    }
+
+    private func promoteExactMatches(
+        _ exactResults: [VectorEmbeddingService.SearchResult],
+        into semanticResults: [VectorEmbeddingService.SearchResult]
+    ) -> [VectorEmbeddingService.SearchResult] {
+        guard !exactResults.isEmpty else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "vaultChat.semanticOnlyFallback",
+                reasonCode: "vaultChat.semanticOnlyFallback",
+                counts: ["semanticCount": semanticResults.count]
+            )
+            return semanticResults
+        }
+
+        var promoted: [VectorEmbeddingService.SearchResult] = []
+        var seen = Set<String>()
+        for result in exactResults + semanticResults {
+            let key = "\(result.entry.noteID.uuidString)#\(result.entry.chunkIndex)"
+            guard !seen.contains(key) else {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChat.contextDroppedCandidate",
+                    reasonCode: "vaultChat.contextDroppedCandidate",
+                    counts: ["chunkIndex": result.entry.chunkIndex],
+                    metadata: ["noteID": result.entry.noteID.uuidString, "reason": "duplicateExactOrSemanticChunk"]
+                )
+                continue
+            }
+            seen.insert(key)
+            promoted.append(result)
+            if exactResults.contains(where: { $0.entry.noteID == result.entry.noteID && $0.entry.chunkIndex == result.entry.chunkIndex }) {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChat.exactMatchPromoted",
+                    reasonCode: "vaultChat.exactMatchPromoted",
+                    counts: ["chunkIndex": result.entry.chunkIndex],
+                    metadata: ["noteID": result.entry.noteID.uuidString]
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChat.contextIncludedExactMatch",
+                    reasonCode: "vaultChat.contextIncludedExactMatch",
+                    counts: ["chunkIndex": result.entry.chunkIndex],
+                    metadata: ["noteID": result.entry.noteID.uuidString]
+                )
+            }
+            if promoted.count >= maxContextChunks {
+                break
+            }
+        }
+        return promoted
+    }
+
+    private func recordVaultChatRetrievalSources(
+        exactResults: [VectorEmbeddingService.SearchResult],
+        semanticResults: [VectorEmbeddingService.SearchResult]
+    ) {
+        if exactResults.isEmpty {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "vaultChat.exactMatchMiss",
+                reasonCode: "vaultChat.exactMatchMiss",
+                counts: ["semanticCount": semanticResults.count]
+            )
+        } else {
+            for result in exactResults {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "vaultChat.exactMatchHit",
+                    reasonCode: "vaultChat.exactMatchHit",
+                    counts: ["chunkIndex": result.entry.chunkIndex],
+                    metadata: ["noteID": result.entry.noteID.uuidString]
+                )
+            }
+        }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "vaultChat.retrievalSources",
+            reasonCode: "vaultChat.retrievalSources",
+            counts: [
+                "lexicalCount": exactResults.count,
+                "vectorCount": semanticResults.count,
+                "conceptCount": 0
+            ]
+        )
     }
 }
 

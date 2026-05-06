@@ -926,6 +926,90 @@ final class EditorRenderingRegressionTests: XCTestCase {
         XCTAssertGreaterThan(alphaComponent(of: linkColor), 0.001)
     }
 
+    func testPassiveSemanticHighlightingDoesNotMutateSourceString() async throws {
+        let session = makeSession()
+        let textView = makeTextView()
+        let text = """
+        Hanchun met Andreas, Bhargav, Giancarlo, and Christian.
+        Existing alias: [[Andreas|CAS]]
+        Existing Markdown link: [Christian](https://example.com/christian)
+        URL: https://example.com/Hanchun
+        Inline code: `inclBhargavude`
+        """
+
+        textView.string = text
+        session.activeTextView = textView
+        session.textDidChange(text)
+
+        let highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        session.highlighter = highlighter
+        let spans = await highlighter.parse(text)
+        let revisionBefore = session.textRevisionForTesting
+        let dirtyBefore = session.isDirty
+
+        session.applyHighlightSpansForTesting(spans)
+
+        XCTAssertEqual(textView.string, text)
+        XCTAssertEqual(session.currentText, text)
+        XCTAssertEqual(session.textRevisionForTesting, revisionBefore)
+        XCTAssertEqual(session.isDirty, dirtyBefore)
+        XCTAssertTrue(textView.string.contains("[[Andreas|CAS]]"))
+        XCTAssertTrue(textView.string.contains("[Christian](https://example.com/christian)"))
+        XCTAssertTrue(textView.string.contains("inclBhargavude"))
+        XCTAssertEqual(textView.string.filter { $0 == "[" }.count, text.filter { $0 == "[" }.count)
+        XCTAssertEqual(textView.string.filter { $0 == "]" }.count, text.filter { $0 == "]" }.count)
+        XCTAssertEqual(textView.string.filter { $0 == "|" }.count, text.filter { $0 == "|" }.count)
+    }
+
+    func testPassiveInlineAttachmentRenderingDoesNotReplaceSourceCharacterOrDirtyDocument() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let provider = MockVaultProvider()
+        let url = URL(fileURLWithPath: "/tmp/editor-passive-attachment-\(UUID().uuidString).md")
+        let text = "![Hanchun](images/hanchun.png)\n\nChristian keeps the note readable."
+        let note = NoteDocument(
+            fileURL: url,
+            frontmatter: Frontmatter(title: "Attachment"),
+            body: text,
+            isDirty: false
+        )
+        await provider.addNote(note)
+
+        let session = EditorSession(
+            vaultProvider: provider,
+            frontmatterParser: FrontmatterParser(),
+            inspectorStore: InspectorStore()
+        )
+        let textView = makeTextView()
+        session.activeTextView = textView
+        session.highlighter = MarkdownASTHighlighter(baseFontSize: 14)
+        await session.loadNote(at: url)
+
+        let attachment = NSTextAttachment()
+        let span = HighlightSpan(
+            range: NSRange(location: 0, length: 1),
+            font: .systemFont(ofSize: 14),
+            color: .labelColor,
+            traits: FontTraits(bold: false, italic: false),
+            backgroundColor: nil,
+            strikethrough: false,
+            attachment: attachment
+        )
+        let revisionBefore = session.textRevisionForTesting
+
+        session.applyHighlightSpansForTesting([span])
+
+        XCTAssertEqual(textView.string, text)
+        XCTAssertEqual(session.currentText, text)
+        XCTAssertFalse(session.isDirty)
+        XCTAssertEqual(session.textRevisionForTesting, revisionBefore)
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.renderer] ?? []
+        XCTAssertTrue(events.contains { $0.name == "editor.formattingSourceMutationBlocked" })
+        XCTAssertTrue(events.contains { $0.name == "editor.formattingDidNotMarkDirty" })
+        XCTAssertTrue(events.contains { $0.name == "editor.formattingAutosaveSuppressed" })
+    }
+
     private func makeSession() -> EditorSession {
         EditorSession(
             vaultProvider: MockVaultProvider(),
