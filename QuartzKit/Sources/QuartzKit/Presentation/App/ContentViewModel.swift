@@ -598,6 +598,7 @@ public final class ContentViewModel {
         ) { [weak self] notification in
             guard let self, let url = notification.object as? URL else { return }
             Task { @MainActor in
+                self.sidebarViewModel?.noteContentChanged(at: url)
                 self.spotlightIndexNote(at: url)
                 self.updatePreviewForNote(at: url)
                 self.updateSearchIndex(for: url)

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import QuartzKit
 
-@Suite("VectorEmbeddingService Binary Format")
+@Suite("VectorEmbeddingService Binary Format", .serialized)
 struct VectorEmbeddingBinaryTests {
     private func makeTempVault() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -100,6 +100,62 @@ struct VectorEmbeddingBinaryTests {
         VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vault)
         try await service.saveIndex(force: true)
         #expect(FileManager.default.fileExists(atPath: indexFile.path(percentEncoded: false)))
+    }
+
+    @Test("save pressure emits active editing checkpoint deferral")
+    func savePressureEmitsActiveEditingDeferral() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let vault = try makeTempVault()
+        defer {
+            VectorEmbeddingService.resumeCheckpointingAfterSaveRecovery(vaultURL: vault)
+            try? FileManager.default.removeItem(at: vault)
+        }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: UUID(), content: "Dirty content that should defer during active editing")
+        VectorEmbeddingService.pauseCheckpointingForSavePressure(seconds: 60, vaultURL: vault)
+
+        try await service.saveIndex(force: true)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.embeddings] ?? []
+        #expect(events.contains { $0.name.hasPrefix("embedding.checkpointDeferredActiveEditing") })
+    }
+
+    @Test("unchanged checkpoint emits no meaningful change suppression")
+    func unchangedCheckpointEmitsNoMeaningfulChangeSuppression() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: UUID(), content: "Stable note content for checkpoint suppression")
+        try await service.saveIndex(force: true)
+        try await service.saveIndex(force: true)
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.embeddings] ?? []
+        #expect(events.contains { $0.name.hasPrefix("embedding.checkpointWriteSuppressedNoMeaningfulChange") })
+    }
+
+    @Test("rapid checkpoint attempts coalesce")
+    func rapidCheckpointAttemptsCoalesce() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let service = VectorEmbeddingService(vaultURL: vault)
+        try await service.indexNote(noteID: UUID(), content: "First dirty checkpoint content")
+        try await service.saveIndex()
+        try await service.indexNote(noteID: UUID(), content: "Second dirty checkpoint content")
+        try await service.saveIndex()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.embeddings] ?? []
+        #expect(events.contains { $0.name.hasPrefix("embedding.checkpointCoalesced") })
     }
 
     @Test("automatic checkpoint rejects catastrophic shrink and preserves existing index")

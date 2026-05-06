@@ -108,6 +108,7 @@ public actor KnowledgeExtractionService {
     private let executionPolicy: AIExecutionPolicy?
     private let debounceInterval: Duration
     private let scanInterval: Duration
+    private let automaticContinuationCooldown: Duration
     private let automaticMaxPerNoteDurationMs: UInt64
     private let extractionOverride: (@Sendable (String) async -> [String])?
     private let logger = Logger(subsystem: "com.quartz", category: "KnowledgeExtraction")
@@ -131,6 +132,7 @@ public actor KnowledgeExtractionService {
     // MARK: - Vault Scan
 
     private var scanTask: Task<Void, Never>?
+    private var scanContinuationTask: Task<Void, Never>?
     private var isScanRunning = false
     public private(set) var scanProgress: ScanProgress?
     private var saveDebouncTask: Task<Void, Never>?
@@ -167,6 +169,7 @@ public actor KnowledgeExtractionService {
         executionPolicy: AIExecutionPolicy? = nil,
         debounceInterval: Duration = .seconds(5),
         scanInterval: Duration = .seconds(2),
+        automaticContinuationCooldown: Duration = .seconds(5),
         automaticMaxPerNoteDurationMs: UInt64 = KnowledgeExtractionService.defaultAutomaticMaxPerNoteDurationMs,
         extractionOverride: (@Sendable (String) async -> [String])? = nil
     ) {
@@ -175,6 +178,7 @@ public actor KnowledgeExtractionService {
         self.executionPolicy = executionPolicy
         self.debounceInterval = debounceInterval
         self.scanInterval = scanInterval
+        self.automaticContinuationCooldown = automaticContinuationCooldown
         self.automaticMaxPerNoteDurationMs = automaticMaxPerNoteDurationMs
         self.extractionOverride = extractionOverride
         self.state = Self.loadState(from: vaultRootURL)
@@ -342,7 +346,9 @@ public actor KnowledgeExtractionService {
     public func pauseAIIndexing() {
         isPausedByUser = true
         scanTask?.cancel()
+        scanContinuationTask?.cancel()
         scanTask = nil
+        scanContinuationTask = nil
         isScanRunning = false
         scanProgress = nil
         updateAIStatus(AIIndexingStatus.paused.rawValue)
@@ -351,8 +357,10 @@ public actor KnowledgeExtractionService {
 
     public func cancelCurrentAIJob() {
         scanTask?.cancel()
+        scanContinuationTask?.cancel()
         debounceTask?.cancel()
         scanTask = nil
+        scanContinuationTask = nil
         debounceTask = nil
         isScanRunning = false
         scanProgress = nil
@@ -762,6 +770,29 @@ public actor KnowledgeExtractionService {
             SubsystemDiagnostics.record(
                 level: .info,
                 subsystem: .aiIndexing,
+                name: "ai.batchBudgetExhausted",
+                reasonCode: "ai.batchBudgetExhausted",
+                durationMs: Double(elapsedMilliseconds),
+                counts: [
+                    "processedNotes": processedCount,
+                    "pendingNotes": remaining,
+                    "maxNotesPerAutomaticScan": Self.automaticMaxNotesPerScan
+                ],
+                generation: expectedGeneration,
+                metadata: ["scanMode": mode.rawValue]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.batchProgress",
+                reasonCode: "ai.batchProgress",
+                counts: ["processedNotes": processedCount, "pendingNotes": remaining],
+                generation: expectedGeneration,
+                metadata: ["scanMode": mode.rawValue]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
                 name: "ai.scanBudgetReached",
                 reasonCode: "ai.scanBudgetReached",
                 durationMs: Double(elapsedMilliseconds),
@@ -792,6 +823,27 @@ public actor KnowledgeExtractionService {
                     "ai.automaticScanStoppedReason": stoppedReason
                 ]
             )
+            if mode == .automatic, remaining > 0, !isPausedByUser, !isAIBackoffActive() {
+                scheduleAutomaticContinuation(
+                    pendingNotes: remaining,
+                    generation: expectedGeneration,
+                    stoppedReason: stoppedReason
+                )
+            } else {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .aiIndexing,
+                    name: "ai.scanContinuationSkippedReason",
+                    reasonCode: "ai.scanContinuationSkippedReason",
+                    counts: ["pendingNotes": remaining],
+                    generation: expectedGeneration,
+                    metadata: [
+                        "scanMode": mode.rawValue,
+                        "paused": String(isPausedByUser),
+                        "backoffActive": String(isAIBackoffActive())
+                    ]
+                )
+            }
         } else {
             updateAIStatus(AIIndexingStatus.idle.rawValue)
             logger.info("Vault scan complete: processed \(processedCount) notes in \(elapsedMilliseconds) ms")
@@ -824,6 +876,97 @@ public actor KnowledgeExtractionService {
         await MainActor.run {
             NotificationCenter.default.post(name: .quartzConceptScanProgress, object: nil)
         }
+    }
+
+    private func scheduleAutomaticContinuation(
+        pendingNotes: Int,
+        generation: UInt64,
+        stoppedReason: String
+    ) {
+        scanContinuationTask?.cancel()
+        let cooldown = automaticContinuationCooldown
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.completedWithPendingAwaitingContinuation",
+            reasonCode: "ai.completedWithPendingAwaitingContinuation",
+            counts: ["pendingNotes": pendingNotes],
+            generation: generation,
+            metadata: [
+                "status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue,
+                "ai.automaticScanStoppedReason": stoppedReason
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.scanContinuationScheduled",
+            reasonCode: "ai.scanContinuationScheduled",
+            counts: ["pendingNotes": pendingNotes],
+            generation: generation,
+            metadata: [
+                "cooldown": String(describing: cooldown),
+                "status.aiIndexing": AIIndexingStatus.completedWithPending.rawValue
+            ]
+        )
+        scanContinuationTask = Task(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: cooldown)
+            guard !Task.isCancelled else { return }
+            await self?.startContinuationIfStillPending(expectedGeneration: generation)
+        }
+    }
+
+    private func startContinuationIfStillPending(expectedGeneration: UInt64) {
+        guard serviceGeneration == expectedGeneration else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .aiIndexing,
+                name: "ai.scanContinuationSkippedReason",
+                reasonCode: "ai.scanContinuationSkippedReason",
+                generation: expectedGeneration,
+                metadata: ["reason": "generationChanged"]
+            )
+            return
+        }
+        guard !isPausedByUser else {
+            recordContinuationSkipped(reason: "paused", generation: expectedGeneration)
+            return
+        }
+        guard !isScanRunning else {
+            recordContinuationSkipped(reason: "scanAlreadyRunning", generation: expectedGeneration)
+            return
+        }
+        guard !isAIBackoffActive() else {
+            recordContinuationSkipped(reason: "backoffActive", generation: expectedGeneration)
+            return
+        }
+        let classification = classifyPendingNotes(collectMarkdownFiles(in: vaultRootURL), mode: .automatic)
+        let pendingNotes = classification.pendingURLs.count
+        guard pendingNotes > 0 else {
+            recordContinuationSkipped(reason: "noPendingNotes", generation: expectedGeneration)
+            return
+        }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.scanContinuationStarted",
+            reasonCode: "ai.scanContinuationStarted",
+            counts: ["pendingNotes": pendingNotes],
+            generation: expectedGeneration,
+            metadata: ["scanMode": AIConceptScanMode.automatic.rawValue]
+        )
+        startVaultScan(mode: .automatic)
+    }
+
+    private func recordContinuationSkipped(reason: String, generation: UInt64) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.scanContinuationSkippedReason",
+            reasonCode: "ai.scanContinuationSkippedReason",
+            generation: generation,
+            metadata: ["reason": reason]
+        )
     }
 
     // MARK: - Core Extraction

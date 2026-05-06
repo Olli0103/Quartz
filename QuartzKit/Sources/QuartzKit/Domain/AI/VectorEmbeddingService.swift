@@ -347,11 +347,23 @@ public actor VectorEmbeddingService {
                 started: started,
                 counts: ["chunks": index.count]
             )
+            recordCheckpointDetail(
+                name: "embedding.checkpointWriteSuppressedNoMeaningfulChange",
+                reason: "noChanges",
+                started: started,
+                counts: ["chunks": index.count]
+            )
             return
         }
 
         if Self.checkpointBackpressure.isPaused(for: indexURL) {
             recordCheckpointSkipped(
+                reason: "savePressure",
+                started: started,
+                counts: ["chunks": index.count]
+            )
+            recordCheckpointDetail(
+                name: "embedding.checkpointDeferredActiveEditing",
                 reason: "savePressure",
                 started: started,
                 counts: ["chunks": index.count]
@@ -368,6 +380,13 @@ public actor VectorEmbeddingService {
                 counts: ["chunks": index.count],
                 metadata: ["debounceSeconds": String(Self.checkpointDebounceInterval)]
             )
+            recordCheckpointDetail(
+                name: "embedding.checkpointCoalesced",
+                reason: "debounceActive",
+                started: started,
+                counts: ["chunks": index.count],
+                metadata: ["debounceSeconds": String(Self.checkpointDebounceInterval)]
+            )
             return
         }
         lastCheckpointAttempt = Date()
@@ -377,6 +396,12 @@ public actor VectorEmbeddingService {
         if let lastPersistedDataDigest, lastPersistedDataDigest == digest {
             hasDirtyIndexChanges = false
             recordCheckpointSkipped(
+                reason: "unchangedBytes",
+                started: started,
+                counts: ["chunks": index.count, "bytes": data.count]
+            )
+            recordCheckpointDetail(
+                name: "embedding.checkpointWriteSuppressedNoMeaningfulChange",
                 reason: "unchangedBytes",
                 started: started,
                 counts: ["chunks": index.count, "bytes": data.count]
@@ -493,6 +518,13 @@ public actor VectorEmbeddingService {
                     "embedding.shrinkAcceptanceReason": explicitRebuild ? "explicitRebuild" : "notShrinking"
                 ]
             )
+            recordCheckpointDetail(
+                name: "embedding.checkpointFlushReason",
+                reason: explicitRebuild ? "explicitRebuild" : (force ? "forced" : "dirtyIndexChanged"),
+                started: started,
+                counts: ["chunks": index.count, "bytes": data.count],
+                metadata: ["explicitRebuild": String(explicitRebuild), "force": String(force)]
+            )
         } catch {
             SubsystemDiagnostics.record(
                 level: .error,
@@ -573,6 +605,28 @@ public actor VectorEmbeddingService {
             subsystem: .embeddings,
             name: "checkpointSkipped",
             reasonCode: "embedding.checkpointSkipped.\(reason)",
+            durationMs: Date().timeIntervalSince(started) * 1_000,
+            counts: counts,
+            metadata: metadata.merging([
+                "checkpointPath": indexURL.path(percentEncoded: false),
+                "reason": reason,
+                "dirty": String(hasDirtyIndexChanges)
+            ]) { current, _ in current }
+        )
+    }
+
+    private func recordCheckpointDetail(
+        name: String,
+        reason: String,
+        started: Date,
+        counts: [String: Int],
+        metadata: [String: String] = [:]
+    ) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .embeddings,
+            name: name,
+            reasonCode: name,
             durationMs: Date().timeIntervalSince(started) * 1_000,
             counts: counts,
             metadata: metadata.merging([

@@ -76,7 +76,7 @@ enum MockError: Error {
 
 // MARK: - SidebarViewModel Tests
 
-@Suite("SidebarViewModel")
+@Suite("SidebarViewModel", .serialized)
 struct SidebarViewModelTests {
     let vaultRoot = URL(fileURLWithPath: "/vault")
 
@@ -266,6 +266,134 @@ struct SidebarViewModelTests {
 
         #expect(await provider.loadCount() == 2)
         #expect(vm.fileTree.map(\.name) == ["b.md"])
+    }
+
+    @Test("content-only file event updates row without background refresh")
+    @MainActor
+    func contentOnlyFileEventUsesModifiedOnlyFastPath() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "SidebarModifiedOnly-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let noteURL = root.appendingPathComponent("note.md")
+        try? "before".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let provider = MockVaultProvider()
+        let node = FileNode(name: "note.md", url: noteURL, nodeType: .note)
+        await provider.setFileTree([node])
+
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: root)
+        let loadCountBefore = await provider.loadCount()
+        try? "after content-only edit".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        vm.noteContentChanged(at: noteURL)
+        vm.flushModifiedOnlyUpdatesForTesting()
+
+        #expect(await provider.loadCount() == loadCountBefore)
+        #expect(vm.fileTree.count == 1)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.vaultRestore] ?? []
+        #expect(events.contains { $0.name == "sidebar.modifiedOnlyFastPathStarted" })
+        #expect(events.contains { $0.name == "sidebar.backgroundRefreshSuppressedForModifiedOnly" })
+        #expect(events.contains { $0.name == "sidebar.fullTreeTraversalSkipped" })
+        #expect(!events.contains {
+            $0.name == "sidebar.backgroundRefreshStarted"
+                && $0.noteBasename == noteURL.lastPathComponent
+        })
+    }
+
+    @Test("many content-only events coalesce into one row update batch")
+    @MainActor
+    func contentOnlyEventsCoalesce() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "SidebarModifiedOnlyCoalesce-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let noteURL = root.appendingPathComponent("note.md")
+        try? "before".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let provider = MockVaultProvider()
+        await provider.setFileTree([FileNode(name: "note.md", url: noteURL, nodeType: .note)])
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: root)
+        let loadCountBefore = await provider.loadCount()
+
+        for index in 0..<100 {
+            try? "edit \(index)".write(to: noteURL, atomically: true, encoding: .utf8)
+            vm.noteContentChanged(at: noteURL)
+        }
+        vm.flushModifiedOnlyUpdatesForTesting()
+
+        #expect(await provider.loadCount() == loadCountBefore)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.vaultRestore] ?? []
+        let finished = events.filter { $0.name == "sidebar.modifiedOnlyFastPathFinished" }
+        #expect(finished.count == 1)
+        #expect(finished.first?.counts["updatedRows"] == 1)
+    }
+
+    @Test("structural refresh still loads tree")
+    @MainActor
+    func structuralRefreshStillLoadsTree() async {
+        let provider = MockVaultProvider()
+        let first = FileNode(name: "a.md", url: vaultRoot.appendingPathComponent("a.md"), nodeType: .note)
+        let second = FileNode(name: "b.md", url: vaultRoot.appendingPathComponent("b.md"), nodeType: .note)
+        await provider.setFileTree([first])
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: vaultRoot)
+        await provider.setFileTree([first, second])
+
+        await vm.refresh()
+
+        #expect(await provider.loadCount() == 2)
+        #expect(vm.fileTree.map(\.name).contains("b.md"))
+    }
+
+    @Test("internal quartz files are ignored for modified-only fast path")
+    @MainActor
+    func internalQuartzFilesIgnoredForModifiedOnly() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let provider = MockVaultProvider()
+        let vm = SidebarViewModel(vaultProvider: provider)
+        let internalURL = vaultRoot
+            .appendingPathComponent(".quartz")
+            .appendingPathComponent("versions")
+            .appendingPathComponent("file.md")
+
+        vm.noteContentChanged(at: internalURL)
+        vm.flushModifiedOnlyUpdatesForTesting()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.vaultRestore] ?? []
+        #expect(events.contains {
+            $0.name.hasPrefix("sidebar.backgroundRefreshSuppressedForModifiedOnly")
+                && $0.metadata["reason"] == "internalQuartzFileIgnored"
+        })
+        #expect(!events.contains { $0.name == "sidebar.modifiedOnlyFastPathStarted" })
+    }
+
+    @Test("modified-only fallback emits reason when row is missing")
+    @MainActor
+    func modifiedOnlyFallbackWhenRowMissing() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let provider = MockVaultProvider()
+        await provider.setFileTree([])
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: vaultRoot)
+
+        vm.noteContentChanged(at: vaultRoot.appendingPathComponent("missing.md"))
+        vm.flushModifiedOnlyUpdatesForTesting()
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.vaultRestore] ?? []
+        #expect(events.contains {
+            $0.name == "sidebar.modifiedOnlySlowPathFallback"
+                && $0.metadata["reason"] == "rowMissing"
+        })
     }
 }
 

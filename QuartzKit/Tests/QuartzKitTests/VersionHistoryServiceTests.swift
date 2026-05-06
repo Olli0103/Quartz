@@ -5,7 +5,7 @@ import CryptoKit
 
 // MARK: - Version History Service Tests
 
-@Suite("VersionHistoryPersistence")
+@Suite("VersionHistoryPersistence", .serialized)
 struct VersionHistoryPersistenceTests {
 
     private func makeTempVault() throws -> URL {
@@ -81,6 +81,38 @@ struct VersionHistoryPersistenceTests {
         #expect(lookup.status.versionLookupKey == "People<path:Mayank.md>")
         #expect(lookup.status.snapshotFilesFound > 0)
         #expect(lookup.status.snapshotFilesIgnored == 0)
+    }
+
+    @Test("Immediate post-create lookup finds deeply nested project snapshot")
+    func immediatePostCreateLookupFindsDeeplyNestedProjectSnapshot() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let noteURL = root
+            .appendingPathComponent("projects")
+            .appendingPathComponent("Blog")
+            .appendingPathComponent("Anthbot Genie Test.md")
+        try FileManager.default.createDirectory(at: noteURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "Current Anthbot content".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let service = VersionHistoryService()
+        #expect(service.saveSnapshot(for: noteURL, content: "Anthbot post-create version", vaultRoot: root))
+
+        let lookup = service.fetchVersionsWithStatus(for: noteURL, vaultRoot: root)
+
+        #expect(lookup.versions.count == 1)
+        #expect(lookup.status.versionLookupKey == "projects<path:Blog/Anthbot Genie Test.md>")
+        #expect(lookup.status.snapshotFilesFound == 1)
+
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name.hasPrefix("version.snapshotFileWritten") })
+        #expect(events.contains { $0.name.hasPrefix("version.snapshotSidecarWritten") })
+        #expect(events.contains { $0.name == "version.snapshotPostWriteFileVisible" && $0.metadata["visible"] == "true" })
+        #expect(events.contains { $0.name == "version.snapshotPostWriteSidecarVisible" && $0.metadata["visible"] == "true" })
+        #expect(events.contains { $0.name == "version.snapshotLookupDirectCandidateCount" && ($0.counts["directCandidateCount"] ?? 0) > 0 })
+        #expect(events.contains { $0.name == "version.snapshotLookupPostCreateVerified" })
     }
 
     @Test("Rapid meaningful snapshots do not overwrite each other")

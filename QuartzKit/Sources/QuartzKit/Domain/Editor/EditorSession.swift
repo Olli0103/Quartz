@@ -255,6 +255,7 @@ public final class EditorSession {
 
     /// Last time a version snapshot was saved for the current note.
     private var lastSnapshotDate: Date?
+    private var lastSnapshotThrottleDiagnosticAt: Date?
     /// Prevents duplicate background snapshot writes while the previous attempt is
     /// still running. Failed attempts must not advance ``lastSnapshotDate``.
     private var isVersionSnapshotInFlight = false
@@ -1866,6 +1867,28 @@ public final class EditorSession {
                 "queueWaitMs": String(format: "%.1f", queueWaitMs)
             ]
         )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "save.queueDepth",
+            reasonCode: "save.queueDepth",
+            noteBasename: currentNote.fileURL.lastPathComponent,
+            counts: ["queueDepth": savePendingAfterCurrentWrite ? 1 : 0],
+            revision: textRevision,
+            metadata: ["queueWaitMs": String(format: "%.1f", queueWaitMs)]
+        )
+        if queueWaitMs > 1_000 {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .save,
+                name: "save.queueWaitWarning",
+                reasonCode: "save.queueWaitWarning",
+                noteBasename: currentNote.fileURL.lastPathComponent,
+                durationMs: queueWaitMs,
+                revision: textRevision,
+                metadata: ["queueWaitMs": String(format: "%.1f", queueWaitMs)]
+            )
+        }
 
         // Snapshot from native view (the source of truth)
         let textSnapshot: String
@@ -3507,14 +3530,6 @@ public final class EditorSession {
     }
 
     private func scheduleVersionSnapshotIfNeeded(noteURL: URL, content: String, force: Bool) {
-        SubsystemDiagnostics.record(
-            level: .info,
-            subsystem: .versionHistory,
-            name: "snapshotRequested",
-            reasonCode: force ? "version.snapshotRequestedForce" : "version.snapshotRequested",
-            noteBasename: noteURL.lastPathComponent,
-            counts: ["contentLength": (content as NSString).length]
-        )
         guard let vaultRoot = vaultRootURL else {
             QuartzDiagnostics.warning(
                 category: "VersionHistory",
@@ -3539,20 +3554,56 @@ public final class EditorSession {
                 category: "VersionHistory",
                 "Skipped version snapshot for \(noteURL.lastPathComponent) reason=throttled"
             )
-            SubsystemDiagnostics.record(
-                level: .info,
-                subsystem: .versionHistory,
-                name: "snapshotThrottled",
-                reasonCode: "version.snapshotThrottled",
-                noteBasename: noteURL.lastPathComponent,
-                metadata: [
+            let shouldRecordThrottle = lastSnapshotThrottleDiagnosticAt
+                .map { now.timeIntervalSince($0) >= 60 } ?? true
+            if shouldRecordThrottle {
+                lastSnapshotThrottleDiagnosticAt = now
+                let metadata = [
                     "secondsUntilNextEligible": String(format: "%.0f", secondsRemaining),
                     "nextEligibleAt": nextEligible.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown",
                     "lastSnapshotAt": lastSnapshotDate.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown"
                 ]
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .versionHistory,
+                    name: "snapshotThrottled",
+                    reasonCode: "version.snapshotThrottled",
+                    noteBasename: noteURL.lastPathComponent,
+                    metadata: metadata
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .versionHistory,
+                    name: "version.snapshotRequestCoalesced",
+                    reasonCode: "version.snapshotRequestCoalesced",
+                    noteBasename: noteURL.lastPathComponent,
+                    metadata: metadata
+                )
+            }
+            return
+        }
+        if !force, isDirty || savePendingAfterCurrentWrite {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.snapshotRequestSkippedDueToActiveTyping",
+                reasonCode: "version.snapshotRequestSkippedDueToActiveTyping",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: [
+                    "dirty": String(isDirty),
+                    "savePendingAfterCurrentWrite": String(savePendingAfterCurrentWrite)
+                ]
             )
             return
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "snapshotRequested",
+            reasonCode: force ? "version.snapshotRequestedForce" : "version.snapshotRequested",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["contentLength": (content as NSString).length]
+        )
         guard !isVersionSnapshotInFlight else {
             pendingVersionSnapshot = (noteURL, content, force)
             QuartzDiagnostics.info(
@@ -3565,6 +3616,14 @@ public final class EditorSession {
                 name: "pendingSnapshotQueued",
                 reasonCode: "version.pendingSnapshotQueued",
                 noteBasename: noteURL.lastPathComponent
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .versionHistory,
+                name: "version.snapshotRequestCoalesced",
+                reasonCode: "version.snapshotRequestCoalesced",
+                noteBasename: noteURL.lastPathComponent,
+                metadata: ["reason": "snapshotInFlight"]
             )
             return
         }
@@ -3613,6 +3672,25 @@ public final class EditorSession {
     }
 
     private func scheduleAutosave(force: Bool = false) {
+        if autosaveTask != nil {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "save.autosaveCoalesced",
+                reasonCode: "save.autosaveCoalesced",
+                noteBasename: note?.fileURL.lastPathComponent,
+                revision: textRevision,
+                metadata: ["force": String(force)]
+            )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "save.autosaveDroppedSuperseded",
+                reasonCode: "save.autosaveDroppedSuperseded",
+                noteBasename: note?.fileURL.lastPathComponent,
+                revision: textRevision
+            )
+        }
         autosaveTask?.cancel()
         let capturedNoteURL = note?.fileURL
         let retryDelay = consecutiveSaveFailures == 0 ? autosaveDelay : .seconds(autosaveRetryDelaySeconds())

@@ -191,6 +191,52 @@ struct KnowledgeExtractionBudgetTests {
         #expect(summary["aiIndex.status"] == AIIndexingStatus.pendingBacklogIdle.rawValue)
     }
 
+    @Test("automatic budget with pending notes schedules continuation")
+    func automaticBudgetWithPendingSchedulesContinuation() async throws {
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        for index in 0..<(KnowledgeExtractionService.automaticMaxNotesPerScanForTesting + 5) {
+            let note = vault.appending(path: "note-\(index).md")
+            try """
+            # Note \(index)
+
+            This note is long enough to require concept extraction during the automatic
+            indexing budget continuation regression test.
+            """.write(to: note, atomically: true, encoding: .utf8)
+        }
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(1),
+            automaticContinuationCooldown: .milliseconds(20),
+            extractionOverride: { _ in ["automatic continuation"] }
+        )
+
+        await service.startVaultScan(mode: .automatic)
+
+        let continuationScheduled = await waitUntil(timeout: .seconds(3), pollInterval: .milliseconds(10)) {
+            let diagnostics = await SubsystemDiagnostics.snapshot()
+            let events = diagnostics.eventsBySubsystem[.aiIndexing] ?? []
+            return events.contains { $0.name == "ai.scanContinuationScheduled" }
+                && events.contains { $0.name == "ai.completedWithPendingAwaitingContinuation" }
+        }
+        #expect(continuationScheduled)
+
+        let continuationCompleted = await waitUntil(timeout: .seconds(3), pollInterval: .milliseconds(10)) {
+            let classification = await service.classifyPendingNotesForTesting(
+                self.markdownFiles(in: vault),
+                mode: .automatic
+            )
+            return classification.totalPending == 0
+        }
+        #expect(continuationCompleted)
+
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.aiIndexing] ?? []
+        #expect(events.contains { $0.name == "ai.scanContinuationStarted" })
+    }
+
     private func waitUntil(
         timeout: Duration,
         pollInterval: Duration = .milliseconds(20),
@@ -202,5 +248,12 @@ struct KnowledgeExtractionBudgetTests {
             try? await Task.sleep(for: pollInterval)
         }
         return false
+    }
+
+    private func markdownFiles(in vault: URL) -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(
+            at: vault,
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "md" }) ?? []
     }
 }

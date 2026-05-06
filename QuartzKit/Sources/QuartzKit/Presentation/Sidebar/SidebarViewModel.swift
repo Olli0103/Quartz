@@ -125,6 +125,8 @@ public final class SidebarViewModel {
     private var lastTreeFingerprintByRoot: [String: String] = [:]
     private var lastTreeLoadedAtByRoot: [String: Date] = [:]
     private var activeBackgroundRefreshRoots: Set<String> = []
+    private var pendingModifiedOnlyURLs: Set<URL> = []
+    private var modifiedOnlyUpdateTask: Task<Void, Never>?
     private static let freshCacheRefreshInterval: TimeInterval = 5
 
     /// Hook for consumers that need immediate access to the authoritative catalog
@@ -317,6 +319,135 @@ public final class SidebarViewModel {
         await loadTree(at: root, forceReload: true)
     }
 
+    func noteContentChanged(at url: URL) {
+        guard !Self.isInternalSidebarURL(url) else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.backgroundRefreshSuppressedForModifiedOnly",
+                reasonCode: "sidebar.backgroundRefreshSuppressedForModifiedOnly",
+                noteBasename: url.lastPathComponent,
+                metadata: ["reason": "internalQuartzFileIgnored"]
+            )
+            return
+        }
+        let canonicalURL = CanonicalNoteIdentity.canonicalFileURL(for: url)
+        pendingModifiedOnlyURLs.insert(canonicalURL)
+        if pendingModifiedOnlyURLs.count > 1 {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.rowUpdateCoalesced",
+                reasonCode: "sidebar.rowUpdateCoalesced",
+                noteBasename: canonicalURL.lastPathComponent,
+                counts: ["pendingRows": pendingModifiedOnlyURLs.count],
+                metadata: ["fileEventClass": "userNoteContentChanged"]
+            )
+        }
+        modifiedOnlyUpdateTask?.cancel()
+        modifiedOnlyUpdateTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(75))
+            guard let self, !Task.isCancelled else { return }
+            self.flushModifiedOnlyUpdates()
+        }
+    }
+
+    func flushModifiedOnlyUpdatesForTesting() {
+        modifiedOnlyUpdateTask?.cancel()
+        flushModifiedOnlyUpdates()
+    }
+
+    private func flushModifiedOnlyUpdates() {
+        let started = Date()
+        let urls = pendingModifiedOnlyURLs
+        pendingModifiedOnlyURLs.removeAll()
+        guard !urls.isEmpty else { return }
+
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.modifiedOnlyFastPathStarted",
+            reasonCode: "sidebar.modifiedOnlyFastPathStarted",
+            counts: ["modifiedURLCount": urls.count],
+            metadata: ["fileEventClass": "userNoteContentChanged"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.backgroundRefreshSuppressedForModifiedOnly",
+            reasonCode: "sidebar.backgroundRefreshSuppressedForModifiedOnly",
+            counts: ["modifiedURLCount": urls.count],
+            metadata: ["fileEventClass": "userNoteContentChanged"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.fullTreeTraversalSkipped",
+            reasonCode: "sidebar.fullTreeTraversalSkipped",
+            counts: ["modifiedURLCount": urls.count],
+            metadata: ["fileEventClass": "userNoteContentChanged"]
+        )
+
+        var updatedCount = 0
+        var missingCount = 0
+        for url in urls {
+            if updateKnownRowMetadata(for: url) {
+                updatedCount += 1
+            } else {
+                missingCount += 1
+                SubsystemDiagnostics.record(
+                    level: .warning,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.modifiedOnlySlowPathFallback",
+                    reasonCode: "sidebar.modifiedOnlySlowPathFallback",
+                    noteBasename: url.lastPathComponent,
+                    metadata: [
+                        "reason": "rowMissing",
+                        "fileEventClass": "userNoteContentChanged"
+                    ]
+                )
+            }
+        }
+        invalidateFilterCache()
+        invalidateTagCache()
+        onFileTreeDidChange?(fileTree)
+        if let root = vaultRoot {
+            let rootKey = Self.cacheKey(for: root)
+            cachedTreesByRoot[rootKey] = fileTree
+            lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: fileTree)
+            lastTreeLoadedAtByRoot[rootKey] = Date()
+        }
+
+        let durationMs = Date().timeIntervalSince(started) * 1_000
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.modifiedOnlyFastPathFinished",
+            reasonCode: "sidebar.modifiedOnlyFastPathFinished",
+            durationMs: durationMs,
+            counts: [
+                "updatedRows": updatedCount,
+                "missingRows": missingCount
+            ],
+            metadata: ["fileEventClass": "userNoteContentChanged"]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.modifiedOnlyFastPathDurationMs",
+            reasonCode: "sidebar.modifiedOnlyFastPathDurationMs",
+            durationMs: durationMs,
+            counts: ["updatedRows": updatedCount]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.modifiedOnlyUpdatedRowCount",
+            reasonCode: "sidebar.modifiedOnlyUpdatedRowCount",
+            counts: ["updatedRows": updatedCount]
+        )
+    }
+
     private func refreshTreeInBackground(at root: URL, rootKey: String, started: Date) async {
         guard !activeBackgroundRefreshRoots.contains(rootKey) else {
             SubsystemDiagnostics.record(
@@ -460,6 +591,55 @@ public final class SidebarViewModel {
         cachedTreesByRoot[rootKey] = loadedTree
         lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: loadedTree)
         lastTreeLoadedAtByRoot[rootKey] = Date()
+    }
+
+    private func updateKnownRowMetadata(for url: URL) -> Bool {
+        let path = url.standardizedFileURL.path(percentEncoded: false)
+        var didUpdate = false
+        fileTree = Self.updatingNodeMetadata(in: fileTree, matchingPath: path, didUpdate: &didUpdate)
+        return didUpdate
+    }
+
+    private static func updatingNodeMetadata(
+        in nodes: [FileNode],
+        matchingPath path: String,
+        didUpdate: inout Bool
+    ) -> [FileNode] {
+        nodes.map { node in
+            var updated = node
+            if node.url.standardizedFileURL.path(percentEncoded: false) == path {
+                updated.metadata = metadataForExistingFile(at: node.url, preserving: node.metadata)
+                didUpdate = true
+            }
+            if let children = node.children {
+                updated.children = updatingNodeMetadata(in: children, matchingPath: path, didUpdate: &didUpdate)
+            }
+            return updated
+        }
+    }
+
+    private static func metadataForExistingFile(at url: URL, preserving existing: FileMetadata) -> FileMetadata {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false)) else {
+            return existing
+        }
+        return FileMetadata(
+            createdAt: attributes[.creationDate] as? Date ?? existing.createdAt,
+            modifiedAt: attributes[.modificationDate] as? Date ?? existing.modifiedAt,
+            fileSize: (attributes[.size] as? NSNumber)?.int64Value ?? existing.fileSize,
+            isEncrypted: existing.isEncrypted,
+            cloudStatus: existing.cloudStatus,
+            hasConflict: existing.hasConflict
+        )
+    }
+
+    private static func isInternalSidebarURL(_ url: URL) -> Bool {
+        let components = url.standardizedFileURL.pathComponents
+        let path = url.standardizedFileURL.path(percentEncoded: false)
+        return components.contains(".quartz")
+            || components.contains(".quartzTrash")
+            || path.contains("/.quartz/")
+            || path.contains("/.quartzTrash/")
+            || url.lastPathComponent.hasSuffix(".metadata.json")
     }
 
     private func cacheAgeMs(for rootKey: String) -> Int {
