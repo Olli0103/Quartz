@@ -10,6 +10,13 @@ public final class AIIndexingControlCenter {
     public private(set) var conceptCount: Int = 0
     public private(set) var processedNotes: Int = 0
     public private(set) var pendingNotes: Int = 0
+    public private(set) var currentBatchProcessed: Int = 0
+    public private(set) var currentBatchTarget: Int = 0
+    public private(set) var continuationScheduled: Bool = false
+    public private(set) var continuationScheduledAt: Date?
+    public private(set) var continuationStartedAt: Date?
+    public private(set) var lastProcessedNoteAt: Date?
+    public private(set) var notesPerMinute: Double = 0
     public private(set) var lastSuccessAt: Date?
     public private(set) var lastFailureAt: Date?
     public private(set) var lastFailureReason: String?
@@ -33,6 +40,13 @@ public final class AIIndexingControlCenter {
         conceptCount = snapshot.conceptCount
         processedNotes = snapshot.processedNotes
         pendingNotes = snapshot.pendingNotes
+        currentBatchProcessed = snapshot.currentBatchProcessed
+        currentBatchTarget = snapshot.currentBatchTarget
+        continuationScheduled = snapshot.continuationScheduled
+        continuationScheduledAt = snapshot.continuationScheduledAt
+        continuationStartedAt = snapshot.continuationStartedAt
+        lastProcessedNoteAt = snapshot.lastProcessedNoteAt
+        notesPerMinute = snapshot.notesPerMinute
         lastSuccessAt = snapshot.lastSuccessAt
         lastFailureAt = snapshot.lastFailureAt
         lastFailureReason = snapshot.lastFailureReason
@@ -46,10 +60,31 @@ public final class AIIndexingControlCenter {
             counts: [
                 "conceptCount": conceptCount,
                 "processedNotes": processedNotes,
-                "pendingNotes": pendingNotes
+                "pendingNotes": pendingNotes,
+                "aiIndex.currentBatchProcessed": currentBatchProcessed,
+                "aiIndex.currentBatchTarget": currentBatchTarget
             ],
-            metadata: ["status.aiIndexing": status.rawValue, "scanMode": scanMode.rawValue]
+            metadata: [
+                "status.aiIndexing": status.rawValue,
+                "scanMode": scanMode.rawValue,
+                "aiIndex.uiStatus": status.rawValue,
+                "aiIndex.backendStatus": snapshot.status.rawValue,
+                "aiIndex.continuationScheduled": String(continuationScheduled),
+                "aiIndex.notesPerMinute": String(format: "%.2f", notesPerMinute)
+            ]
         )
+        SubsystemDiagnostics.updateState(subsystem: .aiIndexing, values: [
+            "aiIndex.uiStatus": status.rawValue,
+            "aiIndex.backendStatus": snapshot.status.rawValue,
+            "aiIndex.pendingNotes": "\(pendingNotes)",
+            "aiIndex.currentBatchProcessed": "\(currentBatchProcessed)",
+            "aiIndex.currentBatchTarget": "\(currentBatchTarget)",
+            "aiIndex.continuationScheduled": String(continuationScheduled),
+            "aiIndex.continuationScheduledAt": continuationScheduledAt.map(Self.iso8601String) ?? "none",
+            "aiIndex.continuationStartedAt": continuationStartedAt.map(Self.iso8601String) ?? "none",
+            "aiIndex.lastProcessedNoteAt": lastProcessedNoteAt.map(Self.iso8601String) ?? "none",
+            "aiIndex.notesPerMinute": String(format: "%.2f", notesPerMinute)
+        ])
     }
 
     public func startOrResume() {
@@ -98,5 +133,9 @@ public final class AIIndexingControlCenter {
             await service?.cancelCurrentAIJob()
             await refresh()
         }
+    }
+
+    private static func iso8601String(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
 }

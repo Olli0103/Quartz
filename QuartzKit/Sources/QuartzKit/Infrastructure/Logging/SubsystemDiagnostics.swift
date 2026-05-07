@@ -434,6 +434,8 @@ public actor SubsystemDiagnosticsStore {
     private var events: [SubsystemDiagnosticEvent] = []
     private var repeatedCounts: [String: Int] = [:]
     private var currentState: [DiagnosticsSubsystem: [String: String]] = [:]
+    private var droppedLowPriorityEventCount = 0
+    private var repeatedDebugEventsSuppressed = 0
     private let appLaunchId = UUID()
     private let sessionStartedAt = Date()
     private var diagnosticsResetAt: Date?
@@ -452,6 +454,8 @@ public actor SubsystemDiagnosticsStore {
         events.removeAll()
         repeatedCounts.removeAll()
         currentState.removeAll()
+        droppedLowPriorityEventCount = 0
+        repeatedDebugEventsSuppressed = 0
         diagnosticsResetAt = Date()
     }
 
@@ -460,9 +464,13 @@ public actor SubsystemDiagnosticsStore {
         let count = (repeatedCounts[key] ?? 0) + 1
         repeatedCounts[key] = count
 
-        if count <= 3 {
+        let lowPriorityRepeated = isLowPriority(event)
+        if lowPriorityRepeated, count > 3, !count.isMultiple(of: 100) {
+            repeatedDebugEventsSuppressed += 1
+            currentState[.diagnostics, default: [:]]["repeatedDebugEventsSuppressed"] = "\(repeatedDebugEventsSuppressed)"
+        } else if count <= 3 {
             append(event)
-        } else if count == 4 || count.isMultiple(of: 10) {
+        } else if count == 4 || count.isMultiple(of: lowPriorityRepeated ? 100 : 10) {
             append(SubsystemDiagnosticEvent(
                 subsystem: event.subsystem,
                 level: event.level,
@@ -521,9 +529,56 @@ public actor SubsystemDiagnosticsStore {
     }
 
     private func trimIfNeeded() {
-        if events.count > capacity {
-            events.removeFirst(events.count - capacity)
+        while events.count > capacity {
+            if let lowPriorityIndex = events.firstIndex(where: { !isHighPriority($0) }) {
+                events.remove(at: lowPriorityIndex)
+                droppedLowPriorityEventCount += 1
+                currentState[.diagnostics, default: [:]]["droppedLowPriorityEventCount"] = "\(droppedLowPriorityEventCount)"
+                currentState[.diagnostics, default: [:]]["highPriorityEventRetention"] = "enabled"
+            } else {
+                events.removeFirst()
+            }
         }
+    }
+
+    private func isHighPriority(_ event: SubsystemDiagnosticEvent) -> Bool {
+        if event.level.isWarningOrError { return true }
+        switch event.subsystem {
+        case .aiIndexing:
+            return event.name.contains("status")
+                || event.name.contains("Heartbeat")
+                || event.name.contains("Continuation")
+                || event.name.contains("scan")
+                || event.name.contains("ai.")
+        case .versionHistory:
+            return event.name.contains("Failed")
+                || event.name.contains("Mismatch")
+                || event.name.contains("Verified")
+                || event.name.contains("versionUI")
+        case .save:
+            return event.name.contains("Blocked")
+                || event.name.contains("Warning")
+                || event.name.contains("postWriteStale")
+                || event.name.contains("dirtyAfter")
+                || event.name.contains("idleFlush")
+                || event.name.contains("autosaveWriteSuppressedDuringTyping")
+                || event.name.contains("actualProviderWriteCount")
+        case .vaultRestore:
+            return event.name.contains("security")
+                || event.name.contains("bookmark")
+                || event.name.contains("failed")
+        default:
+            return false
+        }
+    }
+
+    private func isLowPriority(_ event: SubsystemDiagnosticEvent) -> Bool {
+        event.level == .debug
+            || event.name.contains("concealment")
+            || event.name.contains("layoutWidthCorrected")
+            || event.name == "save.autosaveCoalesced"
+            || event.name == "save.autosaveDroppedSuperseded"
+            || event.name == "sidebar.rowUpdateCoalesced"
     }
 
     private func repeatKey(for event: SubsystemDiagnosticEvent) -> String {

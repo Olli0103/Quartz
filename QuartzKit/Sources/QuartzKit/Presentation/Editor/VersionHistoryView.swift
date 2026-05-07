@@ -1,5 +1,205 @@
 import SwiftUI
 
+@MainActor
+public final class VersionHistoryViewModel {
+    public private(set) var versions: [NoteVersion] = []
+    public private(set) var lookupStatus: VersionHistoryLookupStatus?
+    public private(set) var isLoading = true
+
+    private let noteURL: URL
+    private let vaultRoot: URL
+    private let lookupProvider: @Sendable (URL, URL) async -> (versions: [NoteVersion], status: VersionHistoryLookupStatus)
+    private var lookupGeneration: UInt64 = 0
+
+    public convenience init(noteURL: URL, vaultRoot: URL, service: VersionHistoryService = VersionHistoryService()) {
+        self.init(noteURL: noteURL, vaultRoot: vaultRoot) { noteURL, vaultRoot in
+            await Task.detached(priority: .userInitiated) {
+                service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
+            }.value
+        }
+    }
+
+    init(
+        noteURL: URL,
+        vaultRoot: URL,
+        lookupProvider: @escaping @Sendable (URL, URL) async -> (versions: [NoteVersion], status: VersionHistoryLookupStatus)
+    ) {
+        self.noteURL = noteURL
+        self.vaultRoot = vaultRoot
+        self.lookupProvider = lookupProvider
+    }
+
+    @discardableResult
+    public func loadVersions() async -> Bool {
+        lookupGeneration &+= 1
+        let generation = lookupGeneration
+        isLoading = true
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupStarted",
+            reasonCode: "versionUI.lookupStarted",
+            noteBasename: noteURL.lastPathComponent,
+            generation: generation,
+            metadata: [
+                "versionUI.currentNoteIdentity": noteURL.lastPathComponent,
+                "versionUI.rawIdentityAtOpen": noteURL.lastPathComponent,
+                "versionUI.serviceMethod": "fetchVersionsWithStatus"
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupGenerationStarted",
+            reasonCode: "versionUI.lookupGenerationStarted",
+            noteBasename: noteURL.lastPathComponent,
+            generation: generation
+        )
+
+        var lookup = await lookupProvider(noteURL, vaultRoot)
+        guard generation == lookupGeneration else {
+            recordStaleLookupIgnored(generation: generation, status: lookup.status)
+            return false
+        }
+
+        let postCreateVerified = await hasPostCreateVerification(for: lookup.status.versionLookupKey)
+        if lookup.versions.isEmpty, postCreateVerified {
+            SubsystemDiagnostics.record(
+                level: .warning,
+                subsystem: .versionHistory,
+                name: "versionUI.postCreateVerifiedButUIEmpty",
+                reasonCode: "versionUI.postCreateVerifiedButUIEmpty",
+                noteBasename: noteURL.lastPathComponent,
+                generation: generation,
+                metadata: [
+                    "versionUI.lookupKey": lookup.status.versionLookupKey,
+                    "versionUI.emptyStateReason": "postCreateVerifiedButInitialUILookupEmpty"
+                ]
+            )
+        }
+
+        if lookup.versions.isEmpty {
+            try? await Task.sleep(for: .milliseconds(75))
+            let retry = await lookupProvider(noteURL, vaultRoot)
+            guard generation == lookupGeneration else {
+                recordStaleLookupIgnored(generation: generation, status: retry.status)
+                return false
+            }
+            if retry.versions.count > lookup.versions.count {
+                lookup = retry
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .versionHistory,
+                    name: "versionUI.cacheInvalidatedForSnapshotCreated",
+                    reasonCode: "versionUI.cacheInvalidatedForSnapshotCreated",
+                    noteBasename: noteURL.lastPathComponent,
+                    counts: ["versionUI.serviceReturnedCount": retry.versions.count],
+                    generation: generation,
+                    metadata: ["versionUI.lookupKey": retry.status.versionLookupKey]
+                )
+            }
+        }
+
+        versions = lookup.versions
+        lookupStatus = lookup.status
+        isLoading = false
+        recordLookupCompleted(lookup: lookup, generation: generation)
+        return true
+    }
+
+    private func recordStaleLookupIgnored(generation: UInt64, status: VersionHistoryLookupStatus) {
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupGenerationIgnoredStale",
+            reasonCode: "versionUI.lookupGenerationIgnoredStale",
+            noteBasename: noteURL.lastPathComponent,
+            generation: generation,
+            metadata: [
+                "versionUI.lookupKey": status.versionLookupKey,
+                "latestGeneration": "\(lookupGeneration)"
+            ]
+        )
+    }
+
+    private func recordLookupCompleted(
+        lookup: (versions: [NoteVersion], status: VersionHistoryLookupStatus),
+        generation: UInt64
+    ) {
+        let snapshotIDs = lookup.versions.map { "\($0.id)" }.joined(separator: ",")
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.usedCanonicalLookupKey",
+            reasonCode: "versionUI.usedCanonicalLookupKey",
+            noteBasename: noteURL.lastPathComponent,
+            generation: generation,
+            metadata: [
+                "versionUI.rawIdentityAtOpen": noteURL.lastPathComponent,
+                "versionUI.canonicalIdentityAtLookup": lookup.status.currentNoteIdentity,
+                "versionUI.lookupKey": lookup.status.versionLookupKey
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupCompleted",
+            reasonCode: "versionUI.lookupCompleted",
+            noteBasename: noteURL.lastPathComponent,
+            counts: [
+                "versionUI.serviceReturnedCount": lookup.versions.count,
+                "versionUI.snapshotRowsDisplayed": versions.count,
+                "versionUI.rowsAfterFiltering": versions.count
+            ],
+            generation: generation,
+            metadata: [
+                "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
+                "versionUI.lookupKey": lookup.status.versionLookupKey,
+                "versionUI.emptyStateReason": lookup.versions.isEmpty ? "serviceReturnedZeroSnapshots" : "none",
+                "versionUI.serviceReturnedSnapshotIDs": snapshotIDs
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "versionUI.lookupGenerationCompleted",
+            reasonCode: "versionUI.lookupGenerationCompleted",
+            noteBasename: noteURL.lastPathComponent,
+            counts: ["versionUI.snapshotRowsDisplayed": versions.count],
+            generation: generation,
+            metadata: ["versionUI.lookupKey": lookup.status.versionLookupKey]
+        )
+        if (lookup.versions.count > 0 || lookup.status.snapshotFilesFound > 0), versions.isEmpty {
+            SubsystemDiagnostics.record(
+                level: .error,
+                subsystem: .versionHistory,
+                name: "versionUI.serviceUIStateMismatch",
+                reasonCode: "versionUI.serviceUIStateMismatch",
+                noteBasename: noteURL.lastPathComponent,
+                counts: [
+                    "versionUI.serviceReturnedCount": lookup.versions.count,
+                    "versionUI.snapshotRowsDisplayed": versions.count,
+                    "versionUI.snapshotFilesFound": lookup.status.snapshotFilesFound
+                ],
+                generation: generation,
+                metadata: [
+                    "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
+                    "versionUI.lookupKey": lookup.status.versionLookupKey
+                ]
+            )
+        }
+    }
+
+    private func hasPostCreateVerification(for lookupKey: String) async -> Bool {
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.versionHistory] ?? []
+        return events.contains { event in
+            event.name.hasPrefix("version.snapshotLookupPostCreateVerified")
+                && event.metadata["versionLookupKey"] == lookupKey
+        }
+    }
+}
+
 /// Time-machine view for browsing and restoring historical versions of a note.
 ///
 /// Uses Quartz's self-managed snapshot system to fetch saved versions.
@@ -22,6 +222,7 @@ public struct VersionHistoryView: View {
     @State private var isRestoring = false
     @State private var errorMessage: String?
     @State private var lookupStatus: VersionHistoryLookupStatus?
+    @State private var viewModel: VersionHistoryViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -42,6 +243,7 @@ public struct VersionHistoryView: View {
         self.vaultRoot = vaultRoot
         self.service = service
         self.onRestored = onRestored
+        _viewModel = State(initialValue: VersionHistoryViewModel(noteURL: noteURL, vaultRoot: vaultRoot, service: service))
     }
 
     public var body: some View {
@@ -271,61 +473,19 @@ public struct VersionHistoryView: View {
     // MARK: - Actions
 
     private func loadVersions() async {
-        isLoading = true
         errorMessage = nil
-        SubsystemDiagnostics.record(
-            level: .info,
-            subsystem: .versionHistory,
-            name: "versionUI.lookupStarted",
-            reasonCode: "versionUI.lookupStarted",
-            noteBasename: noteURL.lastPathComponent,
-            metadata: ["versionUI.currentNoteIdentity": noteURL.lastPathComponent]
-        )
+        isLoading = true
+        guard await viewModel.loadVersions() else { return }
+        versions = viewModel.versions
+        lookupStatus = viewModel.lookupStatus
+        isLoading = viewModel.isLoading
 
-        let lookup = await Task.detached(priority: .userInitiated) { [service, noteURL, vaultRoot] in
-            service.fetchVersionsWithStatus(for: noteURL, vaultRoot: vaultRoot)
-        }.value
-
-        versions = lookup.versions
-        lookupStatus = lookup.status
-        isLoading = false
-        SubsystemDiagnostics.record(
-            level: .info,
-            subsystem: .versionHistory,
-            name: "versionUI.lookupCompleted",
-            reasonCode: "versionUI.lookupCompleted",
-            noteBasename: noteURL.lastPathComponent,
-            counts: [
-                "versionUI.serviceReturnedCount": lookup.versions.count,
-                "versionUI.snapshotRowsDisplayed": versions.count
-            ],
-            metadata: [
-                "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
-                "versionUI.lookupKey": lookup.status.versionLookupKey,
-                "versionUI.emptyStateReason": lookup.versions.isEmpty ? "serviceReturnedZeroSnapshots" : "none"
-            ]
-        )
-        if lookup.versions.count > 0, versions.isEmpty {
-            SubsystemDiagnostics.record(
-                level: .error,
-                subsystem: .versionHistory,
-                name: "versionUI.serviceUIStateMismatch",
-                reasonCode: "versionUI.serviceUIStateMismatch",
-                noteBasename: noteURL.lastPathComponent,
-                counts: [
-                    "versionUI.serviceReturnedCount": lookup.versions.count,
-                    "versionUI.snapshotRowsDisplayed": versions.count
-                ],
-                metadata: [
-                    "versionUI.currentNoteIdentity": lookup.status.currentNoteIdentity,
-                    "versionUI.lookupKey": lookup.status.versionLookupKey
-                ]
-            )
-        }
-
-        if let first = lookup.versions.first {
+        if let first = versions.first {
             selectedVersionID = first.id
             loadPreview(for: first)
+        } else {
+            selectedVersionID = nil
+            previewText = ""
         }
     }
 

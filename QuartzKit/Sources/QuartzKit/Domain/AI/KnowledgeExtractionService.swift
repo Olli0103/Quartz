@@ -72,6 +72,13 @@ public struct AIIndexingStatusSnapshot: Sendable, Equatable {
     public let conceptCount: Int
     public let processedNotes: Int
     public let pendingNotes: Int
+    public let currentBatchProcessed: Int
+    public let currentBatchTarget: Int
+    public let continuationScheduled: Bool
+    public let continuationScheduledAt: Date?
+    public let continuationStartedAt: Date?
+    public let lastProcessedNoteAt: Date?
+    public let notesPerMinute: Double
     public let lastSuccessAt: Date?
     public let lastFailureAt: Date?
     public let lastFailureReason: String?
@@ -135,6 +142,12 @@ public actor KnowledgeExtractionService {
     private var scanContinuationTask: Task<Void, Never>?
     private var isScanRunning = false
     public private(set) var scanProgress: ScanProgress?
+    private var currentBatchProcessed = 0
+    private var currentBatchTarget = 0
+    private var continuationScheduled = false
+    private var continuationScheduledAt: Date?
+    private var continuationStartedAt: Date?
+    private var currentScanStartedAt: Date?
     private var saveDebouncTask: Task<Void, Never>?
     private var aiBackoffUntil: Date?
     private var aiFailureStatus: String?
@@ -419,10 +432,12 @@ public actor KnowledgeExtractionService {
             status = .disabled
         } else if isPausedByUser {
             status = .paused
+        } else if isScanRunning {
+            status = .running
         } else if let raw = state.lastStatus, let parsed = AIIndexingStatus(rawValue: raw) {
             status = parsed
         } else {
-            status = isScanRunning ? .running : .idle
+            status = .idle
         }
         if status == .idle, pending > 0, !isScanRunning, !isPausedByUser, isEnabled {
             status = .pendingBacklogIdle
@@ -433,6 +448,13 @@ public actor KnowledgeExtractionService {
             conceptCount: state.conceptEdges.count,
             processedNotes: state.processedTimestamps.count,
             pendingNotes: pending,
+            currentBatchProcessed: currentBatchProcessed,
+            currentBatchTarget: currentBatchTarget,
+            continuationScheduled: continuationScheduled,
+            continuationScheduledAt: continuationScheduledAt,
+            continuationStartedAt: continuationStartedAt,
+            lastProcessedNoteAt: state.lastSuccessAt,
+            notesPerMinute: notesPerMinute(),
             lastSuccessAt: state.lastSuccessAt,
             lastFailureAt: state.lastFailureAt,
             lastFailureReason: state.lastFailureReason ?? lastAIFailureReason,
@@ -565,6 +587,10 @@ public actor KnowledgeExtractionService {
         let scanStart = DispatchTime.now().uptimeNanoseconds
         let deadline = scanStart + Self.automaticMaxDurationSeconds * 1_000_000_000
         isScanRunning = true
+        currentScanStartedAt = Date()
+        currentBatchProcessed = 0
+        currentBatchTarget = 0
+        continuationScheduled = false
         updateAIStatus(AIIndexingStatus.running.rawValue)
         SubsystemDiagnostics.record(
             level: .info,
@@ -646,6 +672,13 @@ public actor KnowledgeExtractionService {
         } else {
             budgetedURLs = unprocessed
         }
+        currentBatchTarget = budgetedURLs.count
+        updateAIStatus(AIIndexingStatus.running.rawValue, extra: [
+            "aiIndex.pendingNotes": "\(unprocessed.count)",
+            "aiIndex.currentBatchProcessed": "0",
+            "aiIndex.currentBatchTarget": "\(budgetedURLs.count)",
+            "aiIndex.continuationScheduled": String(continuationScheduled)
+        ])
 
         var processedCount = 0
         var pausedForBackoff = false
@@ -684,6 +717,15 @@ public actor KnowledgeExtractionService {
             )
             if outcome == .processed {
                 processedCount += 1
+                currentBatchProcessed = processedCount
+                state.lastSuccessAt = Date()
+                publishScanHeartbeat(
+                    processedCount: processedCount,
+                    batchTarget: budgetedURLs.count,
+                    pendingNotes: max(0, unprocessed.count - processedCount),
+                    generation: expectedGeneration,
+                    mode: mode
+                )
             }
 
             if outcome == .providerSlow {
@@ -885,6 +927,13 @@ public actor KnowledgeExtractionService {
     ) {
         scanContinuationTask?.cancel()
         let cooldown = automaticContinuationCooldown
+        continuationScheduled = true
+        continuationScheduledAt = Date()
+        updateAIStatus(AIIndexingStatus.completedWithPending.rawValue, extra: [
+            "aiIndex.continuationScheduled": "true",
+            "aiIndex.continuationScheduledAt": Self.iso8601String(continuationScheduledAt ?? Date()),
+            "aiIndex.pendingNotes": "\(pendingNotes)"
+        ])
         SubsystemDiagnostics.record(
             level: .info,
             subsystem: .aiIndexing,
@@ -955,6 +1004,13 @@ public actor KnowledgeExtractionService {
             generation: expectedGeneration,
             metadata: ["scanMode": AIConceptScanMode.automatic.rawValue]
         )
+        continuationScheduled = false
+        continuationStartedAt = Date()
+        updateAIStatus(AIIndexingStatus.automaticScanScheduled.rawValue, extra: [
+            "aiIndex.continuationScheduled": "false",
+            "aiIndex.continuationStartedAt": Self.iso8601String(continuationStartedAt ?? Date()),
+            "aiIndex.pendingNotes": "\(pendingNotes)"
+        ])
         startVaultScan(mode: .automatic)
     }
 
@@ -967,6 +1023,47 @@ public actor KnowledgeExtractionService {
             generation: generation,
             metadata: ["reason": reason]
         )
+    }
+
+    private func publishScanHeartbeat(
+        processedCount: Int,
+        batchTarget: Int,
+        pendingNotes: Int,
+        generation: UInt64,
+        mode: AIConceptScanMode
+    ) {
+        let notesPerMinute = notesPerMinute()
+        updateAIStatus(AIIndexingStatus.running.rawValue, extra: [
+            "aiIndex.pendingNotes": "\(pendingNotes)",
+            "aiIndex.currentBatchProcessed": "\(processedCount)",
+            "aiIndex.currentBatchTarget": "\(batchTarget)",
+            "aiIndex.continuationScheduled": String(continuationScheduled),
+            "aiIndex.lastProcessedNoteAt": Self.iso8601String(state.lastSuccessAt ?? Date()),
+            "aiIndex.notesPerMinute": String(format: "%.2f", notesPerMinute),
+            "aiIndex.scanHeartbeatAt": Self.iso8601String(Date())
+        ])
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .aiIndexing,
+            name: "ai.scanHeartbeat",
+            reasonCode: "ai.scanHeartbeat",
+            counts: [
+                "aiIndex.currentBatchProcessed": processedCount,
+                "aiIndex.currentBatchTarget": batchTarget,
+                "aiIndex.pendingNotes": pendingNotes
+            ],
+            generation: generation,
+            metadata: [
+                "scanMode": mode.rawValue,
+                "aiIndex.notesPerMinute": String(format: "%.2f", notesPerMinute)
+            ]
+        )
+    }
+
+    private func notesPerMinute() -> Double {
+        guard let currentScanStartedAt else { return 0 }
+        let elapsedMinutes = max(Date().timeIntervalSince(currentScanStartedAt) / 60, 0.001)
+        return Double(currentBatchProcessed) / elapsedMinutes
     }
 
     // MARK: - Core Extraction
@@ -1595,6 +1692,7 @@ public actor KnowledgeExtractionService {
         var values = [
             "aiIndexing": status,
             "lastAIIndexingStatus": status,
+            "aiIndex.backendStatus": status,
             "processedNoteCount": String(state.processedTimestamps.count),
             "conceptCount": String(state.conceptEdges.count)
         ]

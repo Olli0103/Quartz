@@ -389,10 +389,21 @@ public final class SidebarViewModel {
         )
 
         var updatedCount = 0
+        var skippedNoChangeCount = 0
         var missingCount = 0
         for url in urls {
-            if updateKnownRowMetadata(for: url) {
+            let outcome = updateKnownRowMetadata(for: url)
+            if outcome.updated {
                 updatedCount += 1
+            } else if outcome.found {
+                skippedNoChangeCount += 1
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .vaultRestore,
+                    name: "sidebar.rowUpdateSkippedNoVisibleChange",
+                    reasonCode: "sidebar.rowUpdateSkippedNoVisibleChange",
+                    noteBasename: url.lastPathComponent
+                )
             } else {
                 missingCount += 1
                 SubsystemDiagnostics.record(
@@ -408,15 +419,43 @@ public final class SidebarViewModel {
                 )
             }
         }
-        invalidateFilterCache()
-        invalidateTagCache()
-        onFileTreeDidChange?(fileTree)
-        if let root = vaultRoot {
-            let rootKey = Self.cacheKey(for: root)
-            cachedTreesByRoot[rootKey] = fileTree
-            lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: fileTree)
-            lastTreeLoadedAtByRoot[rootKey] = Date()
+        if updatedCount > 0 {
+            invalidateFilterCache()
+            invalidateTagCache()
+            onFileTreeDidChange?(fileTree)
+            if let root = vaultRoot {
+                let rootKey = Self.cacheKey(for: root)
+                cachedTreesByRoot[rootKey] = fileTree
+                lastTreeFingerprintByRoot[rootKey] = Self.treeFingerprint(for: fileTree)
+                lastTreeLoadedAtByRoot[rootKey] = Date()
+            }
+        } else {
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .vaultRestore,
+                name: "sidebar.sidebarViewReloadAvoided",
+                reasonCode: "sidebar.sidebarViewReloadAvoided",
+                counts: ["skippedRows": skippedNoChangeCount]
+            )
         }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.rowUpdateBatchFlushed",
+            reasonCode: "sidebar.rowUpdateBatchFlushed",
+            counts: [
+                "updatedRows": updatedCount,
+                "skippedRows": skippedNoChangeCount,
+                "missingRows": missingCount
+            ]
+        )
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .vaultRestore,
+            name: "sidebar.visibleRowInvalidationCount",
+            reasonCode: "sidebar.visibleRowInvalidationCount",
+            counts: ["visibleRowInvalidationCount": updatedCount]
+        )
 
         let durationMs = Date().timeIntervalSince(started) * 1_000
         SubsystemDiagnostics.record(
@@ -593,26 +632,45 @@ public final class SidebarViewModel {
         lastTreeLoadedAtByRoot[rootKey] = Date()
     }
 
-    private func updateKnownRowMetadata(for url: URL) -> Bool {
+    private func updateKnownRowMetadata(for url: URL) -> (found: Bool, updated: Bool) {
         let path = url.standardizedFileURL.path(percentEncoded: false)
+        var didFind = false
         var didUpdate = false
-        fileTree = Self.updatingNodeMetadata(in: fileTree, matchingPath: path, didUpdate: &didUpdate)
-        return didUpdate
+        let updatedTree = Self.updatingNodeMetadata(
+            in: fileTree,
+            matchingPath: path,
+            didFind: &didFind,
+            didUpdate: &didUpdate
+        )
+        if didUpdate {
+            fileTree = updatedTree
+        }
+        return (didFind, didUpdate)
     }
 
     private static func updatingNodeMetadata(
         in nodes: [FileNode],
         matchingPath path: String,
+        didFind: inout Bool,
         didUpdate: inout Bool
     ) -> [FileNode] {
         nodes.map { node in
             var updated = node
             if node.url.standardizedFileURL.path(percentEncoded: false) == path {
-                updated.metadata = metadataForExistingFile(at: node.url, preserving: node.metadata)
-                didUpdate = true
+                didFind = true
+                let newMetadata = metadataForExistingFile(at: node.url, preserving: node.metadata)
+                if newMetadata != node.metadata {
+                    updated.metadata = newMetadata
+                    didUpdate = true
+                }
             }
             if let children = node.children {
-                updated.children = updatingNodeMetadata(in: children, matchingPath: path, didUpdate: &didUpdate)
+                updated.children = updatingNodeMetadata(
+                    in: children,
+                    matchingPath: path,
+                    didFind: &didFind,
+                    didUpdate: &didUpdate
+                )
             }
             return updated
         }

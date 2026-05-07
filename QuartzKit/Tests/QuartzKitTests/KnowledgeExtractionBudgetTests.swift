@@ -95,7 +95,10 @@ struct KnowledgeExtractionBudgetTests {
             edgeStore: GraphEdgeStore(),
             vaultRootURL: vault,
             scanInterval: .milliseconds(100),
-            extractionOverride: { _ in ["visible status"] }
+            extractionOverride: { _ in
+                try? await Task.sleep(for: .milliseconds(250))
+                return ["visible status"]
+            }
         )
 
         await service.pauseAIIndexing()
@@ -123,6 +126,12 @@ struct KnowledgeExtractionBudgetTests {
             return events.contains { $0.name == "ai.retryNowScheduled" }
         }
         #expect(retryDiagnosticRecorded)
+
+        let retryScanRunning = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            let snapshot = await service.statusSnapshot()
+            return snapshot.status == .running
+        }
+        #expect(retryScanRunning)
 
         await service.cancelCurrentAIJob()
         snapshot = await service.statusSnapshot()
@@ -235,6 +244,91 @@ struct KnowledgeExtractionBudgetTests {
         let diagnostics = await SubsystemDiagnostics.snapshot()
         let events = diagnostics.eventsBySubsystem[.aiIndexing] ?? []
         #expect(events.contains { $0.name == "ai.scanContinuationStarted" })
+    }
+
+    @Test("running backend is visible in status snapshot and publishes heartbeat")
+    func runningBackendVisibleAndPublishesHeartbeat() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let note = vault.appending(path: "running.md")
+        try """
+        # Running
+
+        This note keeps the extractor busy long enough for status refresh to observe running.
+        """.write(to: note, atomically: true, encoding: .utf8)
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(1),
+            extractionOverride: { _ in
+                try? await Task.sleep(for: .milliseconds(120))
+                return ["running status"]
+            }
+        )
+
+        let scanTask = Task { await service.startVaultScan(mode: .automatic) }
+        let observedRunning = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            await service.statusSnapshot().status == .running
+        }
+        await scanTask.value
+
+        #expect(observedRunning)
+        let heartbeatRecorded = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            let diagnostics = await SubsystemDiagnostics.snapshot()
+            let events = diagnostics.eventsBySubsystem[.aiIndexing] ?? []
+            return events.contains { $0.name == "ai.scanHeartbeat" }
+                && diagnostics.currentState[.aiIndexing]?["aiIndex.backendStatus"] == AIIndexingStatus.idle.rawValue
+        }
+        #expect(heartbeatRecorded)
+    }
+
+    @Test("running backend overrides persisted completedWithPending and exports heartbeat state")
+    func runningBackendOverridesPersistedCompletedWithPending() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let vault = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let quartzDir = vault.appending(path: ".quartz", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: quartzDir, withIntermediateDirectories: true)
+        let note = vault.appending(path: "completed-but-running.md")
+        try """
+        # Completed but running
+
+        This pending note proves live scan state takes precedence over persisted completedWithPending.
+        """.write(to: note, atomically: true, encoding: .utf8)
+        var state = AIIndexState()
+        state.lastStatus = AIIndexingStatus.completedWithPending.rawValue
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(state).write(to: quartzDir.appending(path: "ai_index.json"), options: .atomic)
+
+        let service = KnowledgeExtractionService(
+            edgeStore: GraphEdgeStore(),
+            vaultRootURL: vault,
+            scanInterval: .milliseconds(1),
+            extractionOverride: { _ in
+                try? await Task.sleep(for: .milliseconds(120))
+                return ["running overrides persisted"]
+            }
+        )
+
+        let scanTask = Task { await service.startVaultScan(mode: .automatic) }
+        let observedRunning = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            let snapshot = await service.statusSnapshot()
+            return snapshot.status == .running
+        }
+        await scanTask.value
+
+        #expect(observedRunning)
+        let heartbeatStateExported = await waitUntil(timeout: .seconds(1), pollInterval: .milliseconds(10)) {
+            let diagnostics = await SubsystemDiagnostics.snapshot()
+            let state = diagnostics.currentState[.aiIndexing] ?? [:]
+            return state["aiIndex.scanHeartbeatAt"] != nil
+                && state["aiIndex.currentBatchProcessed"] != nil
+                && state["aiIndex.currentBatchTarget"] != nil
+        }
+        #expect(heartbeatStateExported)
     }
 
     private func waitUntil(

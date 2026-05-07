@@ -605,7 +605,22 @@ public struct AISettingsView: View {
             LabeledContent(String(localized: "Concepts", bundle: .module), value: "\(indexingControls.conceptCount)")
             LabeledContent(String(localized: "Processed Notes", bundle: .module), value: "\(indexingControls.processedNotes)")
             LabeledContent(String(localized: "Pending Notes", bundle: .module), value: "\(indexingControls.pendingNotes)")
+            LabeledContent(
+                String(localized: "Current Batch", bundle: .module),
+                value: "\(indexingControls.currentBatchProcessed)/\(indexingControls.currentBatchTarget)"
+            )
+            LabeledContent(
+                String(localized: "Continuation", bundle: .module),
+                value: indexingControls.continuationScheduled ? String(localized: "Scheduled", bundle: .module) : String(localized: "Not scheduled", bundle: .module)
+            )
+            LabeledContent(
+                String(localized: "Notes / Minute", bundle: .module),
+                value: String(format: "%.1f", indexingControls.notesPerMinute)
+            )
             LabeledContent(String(localized: "Scan Mode", bundle: .module), value: indexingControls.scanMode.rawValue)
+            if let lastProcessed = indexingControls.lastProcessedNoteAt {
+                LabeledContent(String(localized: "Last Processed", bundle: .module), value: lastProcessed.formatted(date: .abbreviated, time: .shortened))
+            }
             if let lastSuccess = indexingControls.lastSuccessAt {
                 LabeledContent(String(localized: "Last Success", bundle: .module), value: lastSuccess.formatted(date: .abbreviated, time: .shortened))
             }

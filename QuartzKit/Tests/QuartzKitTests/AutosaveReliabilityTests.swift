@@ -12,7 +12,7 @@ import Foundation
 /// 2. Autosave targeting wrong note after switch (captured URL guard)
 /// 3. Save-before-switch in loadNote(at:) (dirty content preserved)
 
-@Suite("Autosave Reliability")
+@Suite("Autosave Reliability", .serialized)
 struct AutosaveReliabilityTests {
 
     // MARK: - Test Helpers
@@ -120,6 +120,51 @@ struct AutosaveReliabilityTests {
         let noteAContent = await mock.getContent(for: noteAURL)
         #expect(noteAContent == "Edited A",
             "Note A's edits should be preserved by save-before-switch")
+    }
+
+    @Test("Rapid typing defers autosave until idle and writes final revision")
+    @MainActor func rapidTypingDefersAutosaveUntilIdle() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (session, mock, noteAURL, _) = await makeSession()
+        await session.loadNote(at: noteAURL)
+
+        for index in 0..<100 {
+            session.textDidChange("Rapid edit \(index)")
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+
+        try? await Task.sleep(for: .milliseconds(1_400))
+        let writesDuringTypingWindow = await mock.operations.filter { $0.0 == .saveNote }.count
+        #expect(writesDuringTypingWindow == 0)
+
+        try? await Task.sleep(for: .milliseconds(2_400))
+        let writesAfterIdle = await mock.operations.filter { $0.0 == .saveNote }.count
+        let saved = await mock.getContent(for: noteAURL)
+        #expect(writesAfterIdle <= 1)
+        #expect(saved == "Rapid edit 99")
+
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let saveState = diagnostics.currentState[.save] ?? [:]
+        #expect(saveState["save.autosaveWriteSuppressedDuringTyping"] == "true")
+        #expect(saveState["save.idleFlushCompleted"] == "true")
+        #expect(saveState["save.actualProviderWriteCount"] == "1")
+        let events = diagnostics.eventsBySubsystem[.save] ?? []
+        #expect(events.contains { $0.name == "save.idleFlushCompleted" })
+    }
+
+    @Test("Manual save bypasses active typing window")
+    @MainActor func manualSaveBypassesActiveTypingWindow() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let (session, mock, noteAURL, _) = await makeSession()
+        await session.loadNote(at: noteAURL)
+
+        session.textDidChange("Manual save during typing")
+        await session.save(force: true)
+
+        let saveCount = await mock.operations.filter { $0.0 == .saveNote }.count
+        let saved = await mock.getContent(for: noteAURL)
+        #expect(saveCount == 1)
+        #expect(saved == "Manual save during typing")
     }
 
     // MARK: - Concurrent Save Prevention

@@ -136,6 +136,76 @@ struct DiagnosticsExportTests {
         #expect(snapshot.repeatedEventSummaries.contains { $0.name == "saveFailed.repeated" })
     }
 
+    @Test("High-priority diagnostics survive low-priority event pressure")
+    func highPriorityDiagnosticsSurviveLowPriorityEventPressure() async {
+        let store = SubsystemDiagnosticsStore(capacity: 6)
+
+        await store.updateState(
+            subsystem: .aiIndexing,
+            values: [
+                "aiIndex.backendStatus": "running",
+                "aiIndex.pendingNotes": "42"
+            ]
+        )
+        await store.record(SubsystemDiagnosticEvent(
+            subsystem: .aiIndexing,
+            level: .info,
+            name: "ai.scanHeartbeat",
+            reasonCode: "ai.scanHeartbeat",
+            counts: ["aiIndex.pendingNotes": 10],
+            metadata: ["aiIndex.backendStatus": "running"]
+        ))
+        await store.record(SubsystemDiagnosticEvent(
+            subsystem: .versionHistory,
+            level: .error,
+            name: "versionUI.serviceUIStateMismatch",
+            reasonCode: "versionUI.serviceUIStateMismatch"
+        ))
+        await store.record(SubsystemDiagnosticEvent(
+            subsystem: .save,
+            level: .error,
+            name: "saveFailed",
+            reasonCode: "save.providerWriteFailed"
+        ))
+        for index in 0..<1_000 {
+            await store.record(SubsystemDiagnosticEvent(
+                subsystem: .renderer,
+                level: .debug,
+                name: "editor.layoutWidthCorrected.\(index)",
+                reasonCode: "editor.layoutWidthCorrected",
+                metadata: ["width": "\(index)"]
+            ))
+        }
+
+        let snapshot = await store.snapshot()
+        #expect(snapshot.recentEvents.contains { $0.name == "ai.scanHeartbeat" })
+        #expect(snapshot.recentEvents.contains { $0.name == "versionUI.serviceUIStateMismatch" })
+        #expect(snapshot.recentEvents.contains { $0.name == "saveFailed" })
+        #expect(snapshot.currentState[.aiIndexing]?["aiIndex.backendStatus"] == "running")
+        #expect(snapshot.currentState[.aiIndexing]?["aiIndex.pendingNotes"] == "42")
+        #expect(snapshot.currentState[.diagnostics]?["highPriorityEventRetention"] == "enabled")
+        #expect((Int(snapshot.currentState[.diagnostics]?["droppedLowPriorityEventCount"] ?? "0") ?? 0) > 0)
+    }
+
+    @Test("Repeated low-priority diagnostics are summarized")
+    func repeatedLowPriorityDiagnosticsAreSummarized() async {
+        let store = SubsystemDiagnosticsStore(capacity: 50)
+
+        for _ in 0..<250 {
+            await store.record(SubsystemDiagnosticEvent(
+                subsystem: .save,
+                level: .info,
+                name: "save.autosaveCoalesced",
+                reasonCode: "save.autosaveCoalesced",
+                noteBasename: "Note.md"
+            ))
+        }
+
+        let snapshot = await store.snapshot()
+        #expect((Int(snapshot.currentState[.diagnostics]?["repeatedDebugEventsSuppressed"] ?? "0") ?? 0) > 0)
+        #expect(snapshot.repeatedEventSummaries.contains { $0.name == "save.autosaveCoalesced.repeated" })
+    }
+
     @Test("AI index health decodes legacy state and exports persisted backoff")
     func aiIndexHealthDecodesLegacyStateAndExportsBackoff() async throws {
         let vault = FileManager.default.temporaryDirectory

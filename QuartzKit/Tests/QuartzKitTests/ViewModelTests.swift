@@ -335,6 +335,45 @@ struct SidebarViewModelTests {
         #expect(finished.first?.counts["updatedRows"] == 1)
     }
 
+    @Test("identical modified-only metadata skips visible sidebar invalidation")
+    @MainActor
+    func identicalModifiedOnlyMetadataSkipsVisibleInvalidation() async {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "SidebarModifiedOnlyNoChange-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let noteURL = root.appendingPathComponent("note.md")
+        try? "same".write(to: noteURL, atomically: true, encoding: .utf8)
+        let attributes = (try? FileManager.default.attributesOfItem(atPath: noteURL.path(percentEncoded: false))) ?? [:]
+        let metadata = FileMetadata(
+            createdAt: attributes[.creationDate] as? Date ?? Date(),
+            modifiedAt: attributes[.modificationDate] as? Date ?? Date(),
+            fileSize: (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        )
+
+        let provider = MockVaultProvider()
+        await provider.setFileTree([FileNode(name: "note.md", url: noteURL, nodeType: .note, metadata: metadata)])
+        let vm = SidebarViewModel(vaultProvider: provider)
+        await vm.loadTree(at: root)
+        var invalidations = 0
+        vm.onFileTreeDidChange = { _ in invalidations += 1 }
+
+        vm.noteContentChanged(at: noteURL)
+        vm.flushModifiedOnlyUpdatesForTesting()
+        invalidations = 0
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+
+        vm.noteContentChanged(at: noteURL)
+        vm.flushModifiedOnlyUpdatesForTesting()
+
+        #expect(invalidations == 0)
+        let snapshot = await SubsystemDiagnostics.snapshot()
+        let events = snapshot.eventsBySubsystem[.vaultRestore] ?? []
+        #expect(events.contains { $0.name == "sidebar.rowUpdateSkippedNoVisibleChange" })
+        #expect(events.contains { $0.name == "sidebar.sidebarViewReloadAvoided" })
+    }
+
     @Test("structural refresh still loads tree")
     @MainActor
     func structuralRefreshStillLoadsTree() async {

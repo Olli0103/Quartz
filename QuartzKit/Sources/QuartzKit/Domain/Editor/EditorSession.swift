@@ -239,6 +239,10 @@ public final class EditorSession {
     private let analysisDelay: Duration = .milliseconds(300)
 
     private let autosaveDelay: Duration = .seconds(1)
+    private let activeTypingIdleDelay: Duration = .seconds(2)
+    private var activeTypingWindowUntil: Date?
+    private var activeTypingWindowIsOpen = false
+    private var actualProviderWriteCount = 0
     private static let saveRecoveryFallbackThreshold = 2
     nonisolated private static let maxEmergencyRecoveryCopies = 50
     private let pasteNormalizer = EditorPasteNormalizer()
@@ -632,6 +636,7 @@ public final class EditorSession {
             )
             updateTypingAttributes()
             isDirty = true
+            markActiveTypingWindow()
             scheduleAutosave()
             scheduleWordCountUpdate()
             scheduleAnalysis()
@@ -658,6 +663,7 @@ public final class EditorSession {
 
         updateTypingAttributes()
         isDirty = true
+        markActiveTypingWindow()
         scheduleAutosave()
         scheduleWordCountUpdate()
         scheduleAnalysis()
@@ -1833,6 +1839,24 @@ public final class EditorSession {
         guard var currentNote = note, (isDirty || force) else { return }
         let saveRequestDate = pendingSaveRequestedAt ?? Date()
         if isSaving {
+            if !force {
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "save.inFlightAutosaveSuppressed",
+                    reasonCode: "save.inFlightAutosaveSuppressed",
+                    noteBasename: note?.fileURL.lastPathComponent,
+                    revision: textRevision
+                )
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "save.maxInFlightPerNoteEnforced",
+                    reasonCode: "save.maxInFlightPerNoteEnforced",
+                    noteBasename: note?.fileURL.lastPathComponent,
+                    revision: textRevision
+                )
+            }
             pendingSaveRequestedAt = pendingSaveRequestedAt ?? Date()
             savePendingAfterCurrentWrite = true
             if force {
@@ -1980,7 +2004,17 @@ public final class EditorSession {
             let savedURL = currentNote.fileURL
             let writeStarted = Date()
             try await vaultProvider.savePrimaryUserNote(currentNote, filePresenter: filePresenter)
+            actualProviderWriteCount += 1
             let writeMs = Date().timeIntervalSince(writeStarted) * 1_000
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "save.actualProviderWriteCount",
+                reasonCode: "save.actualProviderWriteCount",
+                noteBasename: savedURL.lastPathComponent,
+                counts: ["actualProviderWriteCount": actualProviderWriteCount],
+                revision: saveRevision
+            )
 
             // Only clear dirty if content hasn't changed since snapshot
             let savedSnapshotStillCurrent = isSaveSnapshotStillCurrent(
@@ -3671,6 +3705,45 @@ public final class EditorSession {
         }
     }
 
+    private func markActiveTypingWindow() {
+        let wasOpen = activeTypingWindowIsOpen
+        activeTypingWindowIsOpen = true
+        activeTypingWindowUntil = Date().addingTimeInterval(Self.seconds(for: activeTypingIdleDelay))
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: wasOpen ? "save.activeTypingWindowExtended" : "save.activeTypingWindowStarted",
+            reasonCode: wasOpen ? "save.activeTypingWindowExtended" : "save.activeTypingWindowStarted",
+            noteBasename: note?.fileURL.lastPathComponent,
+            revision: textRevision
+        )
+    }
+
+    private func autosaveDelayUntilTypingIdle(force: Bool) -> Duration? {
+        guard !force, let activeTypingWindowUntil else { return nil }
+        let remaining = activeTypingWindowUntil.timeIntervalSinceNow
+        guard remaining > 0 else { return nil }
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .save,
+            name: "save.autosaveWriteSuppressedDuringTyping",
+            reasonCode: "save.autosaveWriteSuppressedDuringTyping",
+            noteBasename: note?.fileURL.lastPathComponent,
+            revision: textRevision,
+            metadata: ["remainingIdleMs": String(format: "%.1f", remaining * 1_000)]
+        )
+        SubsystemDiagnostics.updateState(subsystem: .save, values: [
+            "save.autosaveWriteSuppressedDuringTyping": "true",
+            "save.idleFlushScheduled": "true"
+        ])
+        return .milliseconds(Int((remaining * 1_000).rounded(.up)))
+    }
+
+    private static func seconds(for duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
+    }
+
     private func scheduleAutosave(force: Bool = false) {
         if autosaveTask != nil {
             SubsystemDiagnostics.record(
@@ -3690,6 +3763,17 @@ public final class EditorSession {
                 noteBasename: note?.fileURL.lastPathComponent,
                 revision: textRevision
             )
+            SubsystemDiagnostics.record(
+                level: .info,
+                subsystem: .save,
+                name: "save.queuedSaveReplacedBeforeWrite",
+                reasonCode: "save.queuedSaveReplacedBeforeWrite",
+                noteBasename: note?.fileURL.lastPathComponent,
+                revision: textRevision
+            )
+            SubsystemDiagnostics.updateState(subsystem: .save, values: [
+                "save.queuedSaveReplacedBeforeWrite": "true"
+            ])
         }
         autosaveTask?.cancel()
         let capturedNoteURL = note?.fileURL
@@ -3733,6 +3817,48 @@ public final class EditorSession {
             guard !Task.isCancelled else { return }
             // Verify we're still on the same note (prevents saving wrong note after switch)
             guard let self, self.note?.fileURL == capturedNoteURL else { return }
+            if let idleDelay = self.autosaveDelayUntilTypingIdle(force: force) {
+                self.autosaveTask?.cancel()
+                SubsystemDiagnostics.record(
+                    level: .info,
+                    subsystem: .save,
+                    name: "save.idleFlushScheduled",
+                    reasonCode: "save.idleFlushScheduled",
+                    noteBasename: capturedNoteURL?.lastPathComponent,
+                    revision: self.textRevision
+                )
+                self.autosaveTask = Task { [weak self] in
+                    try? await Task.sleep(for: idleDelay)
+                    guard !Task.isCancelled else { return }
+                    guard let self, self.note?.fileURL == capturedNoteURL else { return }
+                    self.activeTypingWindowIsOpen = false
+                    self.activeTypingWindowUntil = nil
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .save,
+                        name: "save.idleFlushStarted",
+                        reasonCode: "save.idleFlushStarted",
+                        noteBasename: capturedNoteURL?.lastPathComponent,
+                        revision: self.textRevision
+                    )
+                    await self.save(force: force)
+                    SubsystemDiagnostics.record(
+                        level: .info,
+                        subsystem: .save,
+                        name: "save.idleFlushCompleted",
+                        reasonCode: "save.idleFlushCompleted",
+                        noteBasename: capturedNoteURL?.lastPathComponent,
+                        revision: self.textRevision
+                    )
+                    SubsystemDiagnostics.updateState(subsystem: .save, values: [
+                        "save.idleFlushCompleted": "true",
+                        "save.actualProviderWriteCount": "\(self.actualProviderWriteCount)"
+                    ])
+                }
+                return
+            }
+            self.activeTypingWindowIsOpen = false
+            self.activeTypingWindowUntil = nil
             await self.save(force: force)
         }
     }

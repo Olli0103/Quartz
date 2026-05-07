@@ -3,6 +3,37 @@ import Foundation
 import CryptoKit
 @testable import QuartzKit
 
+private actor VersionHistoryLookupSequence {
+    private var results: [([NoteVersion], VersionHistoryLookupStatus, Duration)]
+
+    init(results: [([NoteVersion], VersionHistoryLookupStatus)]) {
+        self.results = results.map { ($0.0, $0.1, .zero) }
+    }
+
+    init(results: [([NoteVersion], VersionHistoryLookupStatus, Duration)]) {
+        self.results = results
+    }
+
+    func next() async -> (versions: [NoteVersion], status: VersionHistoryLookupStatus) {
+        guard !results.isEmpty else {
+            return (
+                [],
+                VersionHistoryLookupStatus(
+                    currentNoteIdentity: "empty",
+                    versionLookupKey: "empty",
+                    snapshotFilesFound: 0,
+                    snapshotFilesIgnored: 0,
+                    lastSnapshotAt: nil,
+                    nextEligibleAt: nil
+                )
+            )
+        }
+        let result = results.removeFirst()
+        try? await Task.sleep(for: result.2)
+        return (result.0, result.1)
+    }
+}
+
 // MARK: - Version History Service Tests
 
 @Suite("VersionHistoryPersistence", .serialized)
@@ -113,6 +144,178 @@ struct VersionHistoryPersistenceTests {
         #expect(events.contains { $0.name == "version.snapshotPostWriteSidecarVisible" && $0.metadata["visible"] == "true" })
         #expect(events.contains { $0.name == "version.snapshotLookupDirectCandidateCount" && ($0.counts["directCandidateCount"] ?? 0) > 0 })
         #expect(events.contains { $0.name == "version.snapshotLookupPostCreateVerified" })
+    }
+
+    @Test("Version History UI lookup recovers from initial zero result")
+    @MainActor
+    func versionHistoryUILookupRecoversFromInitialZeroResult() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("projects/Blog/evolve3 85.md")
+        let version = NoteVersion(id: 1, snapshotURL: root.appendingPathComponent("snapshot.md"), date: Date())
+        let sequence = VersionHistoryLookupSequence(results: [
+            ([], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 0)),
+            ([version], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 1))
+        ])
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            await sequence.next()
+        }
+
+        await viewModel.loadVersions()
+
+        #expect(viewModel.versions.count == 1)
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "versionUI.cacheInvalidatedForSnapshotCreated" })
+        #expect(events.contains { $0.name == "versionUI.lookupGenerationCompleted" })
+    }
+
+    @Test("Version History UI displays one direct service snapshot")
+    @MainActor
+    func versionHistoryUIDisplaysDirectServiceSnapshot() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("projects/Blog/evolve3 85.md")
+        let version = NoteVersion(id: 3, snapshotURL: root.appendingPathComponent("snapshot3.md"), date: Date())
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            ([version], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 1))
+        }
+
+        await viewModel.loadVersions()
+
+        #expect(viewModel.versions.count == 1)
+        #expect(viewModel.lookupStatus?.snapshotFilesFound == 1)
+    }
+
+    @Test("Version History UI post-create verification invalidates empty result")
+    @MainActor
+    func versionHistoryUIPostCreateVerificationInvalidatesEmptyResult() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lookupKey = "projects<path:Blog/evolve3 85.md>"
+        let noteURL = root.appendingPathComponent("projects/Blog/evolve3 85.md")
+        let version = NoteVersion(id: 4, snapshotURL: root.appendingPathComponent("snapshot4.md"), date: Date())
+        SubsystemDiagnostics.record(
+            level: .info,
+            subsystem: .versionHistory,
+            name: "version.snapshotLookupPostCreateVerified",
+            reasonCode: "version.snapshotLookupPostCreateVerified",
+            metadata: ["versionLookupKey": lookupKey]
+        )
+        try? await Task.sleep(for: .milliseconds(20))
+        let sequence = VersionHistoryLookupSequence(results: [
+            ([], Self.lookupStatus(key: lookupKey, found: 0)),
+            ([version], Self.lookupStatus(key: lookupKey, found: 1))
+        ])
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            await sequence.next()
+        }
+
+        await viewModel.loadVersions()
+
+        #expect(viewModel.versions.count == 1)
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "versionUI.postCreateVerifiedButUIEmpty" })
+        #expect(events.contains { $0.name == "versionUI.cacheInvalidatedForSnapshotCreated" })
+    }
+
+    @Test("Version History UI raw note identity displays canonical service result")
+    @MainActor
+    func versionHistoryUIRawIdentityDisplaysCanonicalServiceResult() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("evolve3 85.md")
+        let version = NoteVersion(id: 5, snapshotURL: root.appendingPathComponent("snapshot5.md"), date: Date())
+        let canonicalStatus = VersionHistoryLookupStatus(
+            currentNoteIdentity: "projects<path:Blog/evolve3 85.md>",
+            versionLookupKey: "projects<path:Blog/evolve3 85.md>",
+            snapshotFilesFound: 1,
+            snapshotFilesIgnored: 0,
+            lastSnapshotAt: nil,
+            nextEligibleAt: nil
+        )
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            ([version], canonicalStatus)
+        }
+
+        await viewModel.loadVersions()
+
+        #expect(viewModel.versions.count == 1)
+        #expect(viewModel.lookupStatus?.currentNoteIdentity == "projects<path:Blog/evolve3 85.md>")
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains {
+            $0.name == "versionUI.usedCanonicalLookupKey"
+                && $0.metadata["versionUI.rawIdentityAtOpen"] == "evolve3 85.md"
+                && $0.metadata["versionUI.canonicalIdentityAtLookup"] == "projects<path:Blog/evolve3 85.md>"
+        })
+    }
+
+    @Test("Version History UI diagnoses service found snapshots with zero rows")
+    @MainActor
+    func versionHistoryUIDiagnosesServiceFoundSnapshotsWithZeroRows() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("projects/Blog/evolve3 85.md")
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            ([], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 1))
+        }
+
+        await viewModel.loadVersions()
+
+        #expect(viewModel.versions.isEmpty)
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains {
+            $0.name == "versionUI.serviceUIStateMismatch"
+                && $0.counts["versionUI.snapshotFilesFound"] == 1
+        })
+    }
+
+    @Test("Version History UI ignores stale zero lookup after successful lookup")
+    @MainActor
+    func versionHistoryUIIgnoresStaleZeroAfterSuccess() async throws {
+        await SubsystemDiagnostics.resetCurrentDiagnostics()
+        let root = try makeTempVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let noteURL = root.appendingPathComponent("projects/Blog/evolve3 85.md")
+        let version = NoteVersion(id: 2, snapshotURL: root.appendingPathComponent("snapshot2.md"), date: Date())
+        let sequence = VersionHistoryLookupSequence(results: [
+            ([], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 0), .milliseconds(80)),
+            ([version], Self.lookupStatus(key: "projects<path:Blog/evolve3 85.md>", found: 1), .milliseconds(0))
+        ])
+        let viewModel = VersionHistoryViewModel(noteURL: noteURL, vaultRoot: root) { _, _ in
+            await sequence.next()
+        }
+
+        async let stale: Bool = viewModel.loadVersions()
+        try? await Task.sleep(for: .milliseconds(10))
+        let fresh = await viewModel.loadVersions()
+        let staleApplied = await stale
+
+        #expect(fresh)
+        #expect(!staleApplied)
+        #expect(viewModel.versions.count == 1)
+        let diagnostics = await SubsystemDiagnostics.snapshot()
+        let events = diagnostics.eventsBySubsystem[.versionHistory] ?? []
+        #expect(events.contains { $0.name == "versionUI.lookupGenerationIgnoredStale" })
+    }
+
+    private static func lookupStatus(key: String, found: Int) -> VersionHistoryLookupStatus {
+        VersionHistoryLookupStatus(
+            currentNoteIdentity: key,
+            versionLookupKey: key,
+            snapshotFilesFound: found,
+            snapshotFilesIgnored: 0,
+            lastSnapshotAt: nil,
+            nextEligibleAt: nil
+        )
     }
 
     @Test("Rapid meaningful snapshots do not overwrite each other")
